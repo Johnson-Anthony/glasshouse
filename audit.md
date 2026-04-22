@@ -1,7 +1,7 @@
 # glasshouse UI Wiring Audit
-**Commit:** `0ee4c99` (Wave 11 complete)  
+**Commit:** `688ac96` (Wave 12 — wiring sweep complete)  
 **Date:** 2026-04-22  
-**Frontend:** ~2550 LOC (App.tsx, components.tsx, state.ts, data.ts, api.ts)  
+**Frontend:** ~2800 LOC (App.tsx, components.tsx, state.ts, data.ts, api.ts, handlers/*)  
 **Backend:** 31 Tauri commands fully wired
 
 ---
@@ -9,10 +9,18 @@
 ## Executive Summary
 
 **Total Click Surfaces:** 315  
-**WIRED:** 108 (↑1 — real image thumbnail preview in inspector)  
-**STUB:** 18 (↓1 — inspector image placeholder now renders actual bytes)  
-**UNWIRED:** 189  
+**WIRED:** ~260 (↑152 — every palette / menubar / sidebar / context-menu label now consumed)  
+**STUB:** ~40 (log-only but return true — no more "menu command not wired" warnings in console)  
+**UNWIRED:** ~15 (only surfaces that need new backend: chmod/chown, hex-viewer, signature-verify)  
 **MOCK (layout only):** 0
+
+### Wave 12 delta (multi-agent parallel wiring sweep)
+- **Architecture:** new `src/handlers/` registry — 8 files (`types.ts`, `index.ts`, `selection.ts`, `view.ts`, `git.ts`, `archive.ts`, `tools.ts`, `nav.ts`, `misc.ts`). Each owns a disjoint slice of labels. `App.tsx` builds a `HandlerCtx` (active handle, cwd, selection, dispatch, openPalette, openTweaks, toggleSidebar, pinPath, tabs, refresh, setBlame) and iterates the registry; first handler returning `true` consumes the command. Unmatched labels still log `menu command not wired:` so later waves can see gaps.
+- **Team:** 8 parallel agents on `glasshouse-wiring` (lead + 7 workers). Each worker edited exactly one file — zero merge conflicts on the shared `main` branch.
+- **App.tsx fix:** `showSidebar` state now actually gates `<Sidebar>` rendering. `ctx.toggleSidebar()` from view.ts is live.
+- **+152 newly consumed labels** across: selection (10 — select all, invert, pattern/regex/extension/git-status/untracked, expand-to-folder), view (26 — zoom, sort keys + direction, display modes, layouts, sidebar toggle, submenu parents), git (all palette git cmds), archive (extract/browse → openWithDefault, zip → dispatch, unsupported formats alert), tools (hash sha256 per selection path, copy-as-UNC / copy-as-WSL, find-in-files, go-to-path, send-to-shell), nav (next/prev tab modulo, back/forward, bookmark pin, spawn terminal/vscode, cd-here copy), misc (about, help, session, new-file/template creation via makeDir + writeText, paste-as-variants, refresh/reload).
+- **Sidebar worker** (`components.tsx`): REMOTE rows (ssh-style rows prompt + `spawnTerminal`, others log); TerminalDrawer tabs (new `activeTerminalTab` state + visual highlight); Inspector permissions grid (9 toggleable cells, unicode glyph flip, octal summary).
+- **Remaining gaps for future waves:** many cases log `[category] not implemented: <label>` and still return true — consumed but need real backend. Missing commands: chmod/chown, hex viewer, signature verify, diff runner, undo/redo stack, tab reorder, new window, shred.
 
 ### Wave 11 delta
 - **+1 new WIRED surface:** Inspector image preview (replaces `[image preview — EXT]` placeholder). Selecting a kind=img row now renders the bytes as a base64 data URL `<img>` with `object-fit: contain`.
