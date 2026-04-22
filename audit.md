@@ -1,18 +1,23 @@
 # glasshouse UI Wiring Audit
-**Commit:** `f46729e` (Wave 8 complete)  
+**Commit:** `da7d7a6` (Wave 9 complete)  
 **Date:** 2026-04-22  
-**Frontend:** ~2400 LOC (App.tsx, components.tsx, state.ts, data.ts, api.ts)  
-**Backend:** 27 Tauri commands fully wired
+**Frontend:** ~2420 LOC (App.tsx, components.tsx, state.ts, data.ts, api.ts)  
+**Backend:** 30 Tauri commands fully wired
 
 ---
 
 ## Executive Summary
 
 **Total Click Surfaces:** 315  
-**WIRED:** 102 (↑1 — bulk rename dialog)  
-**STUB:** 20  
-**UNWIRED:** 193 (↓1)  
+**WIRED:** 106 (↑4 — bulk rename + Stage/Unstage/Discard/Blame per-row)  
+**STUB:** 19 (↓1 — inspector git-blame chip path now also backs the row Blame entry)  
+**UNWIRED:** 190 (↓3)  
 **MOCK (layout only):** 0
+
+### Wave 9 delta
+- **+4 new WIRED surfaces:** Row context menu → **Git: Stage / Git: Unstage / Git: Discard changes / Git: Blame**. Stage/Unstage/Discard operate on multi-select; Blame requires single tracked file. Menu entries filter in only when the selection has a tracked git flag (M/A/D/R/U); Discard prompts via `window.confirm` before touching disk.
+- **+3 backend commands:** `git_stage` / `git_unstage` / `git_discard` (all via `git2`: stage handles deletions via `index.remove_path`, discard checks out tracked paths and `remove_file`'s untracked).
+- **Bugfix:** `onContext` now takes an optional `rowIndex` parameter so right-click-to-select can feed the filter synchronously — previously the stale `useState` selection hid all git entries on first right-click.
 
 ### Wave 8 delta
 - **+1 new WIRED surface:** Bulk rename dialog — palette "Bulk Rename…" / F2 with multi-select / row context when selection > 1 → `BulkRenameDialog` modal. Find/replace (regex-aware), prefix/suffix, numbering (`{n:03}` tokens), case transforms, live before→after preview, collision detection, sequential `rename_entry` calls.
