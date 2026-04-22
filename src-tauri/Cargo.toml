@@ -40,6 +40,8 @@ grep-regex = "0.1"
 regex = "1"
 zip = "2"
 sha2 = "0.10"
+md-5 = "0.10"
+crc32fast = "1"
 base64 = "0.22"
 similar = "2"
 
@@ -50,6 +52,11 @@ windows = { version = "0.58", features = [
     "Win32_System_WindowsProgramming",
     "Win32_UI_Shell",
     "Win32_System_Com",
+    "Win32_NetworkManagement_IpHelper",
+    "Win32_NetworkManagement_Ndis",
+    "Win32_Networking_WinSock",
+    "Win32_Security",
+    "Win32_Security_Authorization",
 ] }
 
 [profile.release]

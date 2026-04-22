@@ -56,6 +56,13 @@ pub fn run() {
             commands::open_url,
             commands::spawn_new_window,
             commands::set_always_on_top,
+            commands::file_stat_extended,
+            commands::hash_md5,
+            commands::hash_crc32,
+            commands::git_file_info,
+            commands::path_fs_type,
+            commands::net_rate,
+            commands::git_dirty_count,
             watcher::watch_dir,
             watcher::unwatch_dir,
         ])

@@ -7,7 +7,8 @@ import {
   type FileKind,
   type MenuItemDef,
 } from "./data";
-import { drives as apiDrives, hashSha256, homeDir as apiHomeDir, listDir, readImageB64, readTags, readText, setPermissions, systemInfo as apiSystemInfo, winClose, winMinimize, winToggleMaximize, writeTags, writeText, type BlameLine, type Drive, type FileEntry, type GitInfo, type SystemInfo } from "./api";
+import { drives as apiDrives, fileStatExtended, gitFileInfo, hashCrc32, hashMd5, hashSha256, homeDir as apiHomeDir, listDir, netRate, pathFsType, readImageB64, readTags, readText, setPermissions, systemInfo as apiSystemInfo, winClose, winMinimize, winToggleMaximize, writeTags, writeText, type BlameLine, type Drive, type FileEntry, type FileStatExt, type GitFileInfo, type GitInfo, type NetRate, type SystemInfo } from "./api";
+import { getVersion } from "@tauri-apps/api/app";
 import { fuzzyFilter } from "./fuzzy";
 
 // ============= Titlebar =============
@@ -106,6 +107,7 @@ export interface MenubarProps {
 export function Menubar({ onOpenPalette, onCommand }: MenubarProps) {
   const [open, setOpen] = useState<string | null>(null);
   const [subHover, setSubHover] = useState<MenuItemDef | null>(null);
+  const [version, setVersion] = useState<string>("");
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -114,6 +116,19 @@ export function Menubar({ onOpenPalette, onCommand }: MenubarProps) {
     };
     document.addEventListener("mousedown", close);
     return () => document.removeEventListener("mousedown", close);
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const v = await getVersion();
+        if (!cancelled) setVersion(v);
+      } catch {
+        // tauri unavailable (e.g. vite dev without tauri host)
+      }
+    })();
+    return () => { cancelled = true; };
   }, []);
 
   const keys = Object.keys(MENUS);
@@ -146,8 +161,7 @@ export function Menubar({ onOpenPalette, onCommand }: MenubarProps) {
         <span onClick={onOpenPalette} style={{cursor:"pointer"}}>
           <span className="kbd">Ctrl</span>&nbsp;<span className="kbd">P</span>&nbsp;palette
         </span>
-        <span>· NORMAL mode</span>
-        <span>· rice://v0.4.2-dev</span>
+        {version && <span>· rice://v{version}</span>}
       </div>
     </div>
   );
@@ -241,7 +255,12 @@ export function Toolbar({ path, gitInfo, canBack, canForward, onBack, onForward,
           </React.Fragment>
         ))}
         {gitInfo && (
-          <span className="git-branch">⎇ {gitInfo.branch} ↑{gitInfo.ahead} ↓{gitInfo.behind}</span>
+          <span className="git-branch">
+            ⎇ {gitInfo.branch}
+            {gitInfo.ahead > 0 && <> ↑{gitInfo.ahead}</>}
+            {gitInfo.behind > 0 && <> ↓{gitInfo.behind}</>}
+            {gitInfo.dirty > 0 && <> ●{gitInfo.dirty}</>}
+          </span>
         )}
         {tagFilter && (
           <span
@@ -1110,7 +1129,11 @@ export function Inspector({ file, onQuickAction }: InspectorProps) {
   const [imgSrc, setImgSrc] = useState<string>("");
   const [imgErr, setImgErr] = useState<string>("");
   const [sha256, setSha256] = useState<string | null>(null);
+  const [md5, setMd5] = useState<string | null>(null);
+  const [crc32, setCrc32] = useState<string | null>(null);
   const [hashing, setHashing] = useState<boolean>(false);
+  const [statExt, setStatExt] = useState<FileStatExt | null>(null);
+  const [gitFile, setGitFile] = useState<GitFileInfo | null>(null);
   const isTextLike = !!file && (file.kind === "text" || file.kind === "code");
   const isImg = !!file && file.kind === "img";
 
@@ -1148,7 +1171,32 @@ export function Inspector({ file, onQuickAction }: InspectorProps) {
   // a different file would be worse than showing "—".
   useEffect(() => {
     setSha256(null);
+    setMd5(null);
+    setCrc32(null);
     setHashing(false);
+  }, [file?.entry.path]);
+
+  useEffect(() => {
+    setStatExt(null);
+    if (!file) return;
+    let cancelled = false;
+    void (async () => {
+      const s = await fileStatExtended(file.entry.path);
+      if (!cancelled) setStatExt(s);
+    })();
+    return () => { cancelled = true; };
+  }, [file?.entry.path]);
+
+  useEffect(() => {
+    setGitFile(null);
+    if (!file) return;
+    const parent = file.entry.path.replace(/[\\/][^\\/]*$/, "") || file.entry.path;
+    let cancelled = false;
+    void (async () => {
+      const g = await gitFileInfo(parent, file.entry.path);
+      if (!cancelled) setGitFile(g);
+    })();
+    return () => { cancelled = true; };
   }, [file?.entry.path]);
 
   const computeHash = () => {
@@ -1157,11 +1205,17 @@ export function Inspector({ file, onQuickAction }: InspectorProps) {
     setHashing(true);
     void (async () => {
       try {
-        const hex = await hashSha256(file.entry.path);
-        setSha256(hex);
+        const [shaHex, md5Hex, crcHex] = await Promise.all([
+          hashSha256(file.entry.path),
+          hashMd5(file.entry.path),
+          hashCrc32(file.entry.path),
+        ]);
+        setSha256(shaHex);
+        setMd5(md5Hex);
+        setCrc32(crcHex);
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        console.error("hash_sha256:", msg);
+        console.error("hash compute:", msg);
         try { alert(`hash failed: ${msg}`); } catch { /* no window */ }
       } finally {
         setHashing(false);
@@ -1185,6 +1239,21 @@ export function Inspector({ file, onQuickAction }: InspectorProps) {
   const displayName = f.ext && f.kind !== "folder" ? `${f.name}.${f.ext}` : f.name;
   const previewLines = preview.split(/\r?\n/).slice(0, 20);
   const mime = mimeGuess(f.kind, f.ext);
+  const fmtMs = (ms: number | null | undefined): string => {
+    if (!ms) return "—";
+    const d = new Date(ms);
+    const pad = (n: number) => n.toString().padStart(2, "0");
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  };
+  const createdStr = fmtMs(statExt?.created_ms ?? null);
+  const ownerStr = statExt?.owner ?? "—";
+  const inodeStr = statExt?.file_index != null ? String(statExt.file_index) : "—";
+  const diffStr =
+    gitFile && (gitFile.added > 0 || gitFile.removed > 0)
+      ? `+${gitFile.added} −${gitFile.removed}`
+      : gitFile && gitFile.sha
+        ? "clean"
+        : "—";
 
   return (
     <aside className="inspector">
@@ -1225,10 +1294,18 @@ export function Inspector({ file, onQuickAction }: InspectorProps) {
         <dl className="kv">
           <dt>size</dt><dd>{f.size}</dd>
           <dt>modified</dt><dd>{f.date}</dd>
-          <dt>created</dt><dd>—</dd>
-          <dt>owner</dt><dd>—</dd>
-          <dt>inode</dt><dd>—</dd>
+          <dt>created</dt><dd>{createdStr}</dd>
+          <dt>owner</dt><dd title={ownerStr}>{ownerStr}</dd>
+          <dt>inode</dt><dd className="mono">{inodeStr}</dd>
           <dt>mime</dt><dd className="mono">{mime}</dd>
+          {statExt?.is_symlink && statExt.symlink_target && (
+            <>
+              <dt>→ target</dt>
+              <dd className="mono" style={{fontSize:10, wordBreak:"break-all"}} title={statExt.symlink_target}>
+                {statExt.symlink_target}
+              </dd>
+            </>
+          )}
         </dl>
       </div>
 
@@ -1250,18 +1327,24 @@ export function Inspector({ file, onQuickAction }: InspectorProps) {
           >
             {hashing ? "…" : (sha256 ?? "—")}
           </dd>
-          <dt>md5</dt><dd className="mono" style={{fontSize:10}}>—</dd>
-          <dt>crc32</dt><dd className="mono">—</dd>
+          <dt>md5</dt>
+          <dd className="mono" style={{fontSize:10, wordBreak:"break-all"}} title={md5 ?? undefined}>
+            {hashing ? "…" : (md5 ?? "—")}
+          </dd>
+          <dt>crc32</dt>
+          <dd className="mono" title={crc32 ?? undefined}>
+            {hashing ? "…" : (crc32 ?? "—")}
+          </dd>
         </dl>
       </div>
 
       <div className="insp-section">
         <h4>GIT {f.git ? <span style={{color:"var(--orange)"}}>{f.git}</span> : <span style={{color:"var(--fg-3)"}}>—</span>}</h4>
         <dl className="kv">
-          <dt>last commit</dt><dd>—</dd>
-          <dt>author</dt><dd>—</dd>
-          <dt>sha</dt><dd className="mono">—</dd>
-          <dt>diff</dt><dd>—</dd>
+          <dt>last commit</dt><dd>{gitFile?.last_commit_ago ?? "—"}</dd>
+          <dt>author</dt><dd>{gitFile?.author ?? "—"}</dd>
+          <dt>sha</dt><dd className="mono">{gitFile?.sha ?? "—"}</dd>
+          <dt>diff</dt><dd>{diffStr}</dd>
         </dl>
       </div>
 
@@ -1309,18 +1392,38 @@ function formatMemGB(bytes: number): string {
   return `${g.toFixed(1)}G`;
 }
 
+function formatBytesRate(bps: number): string {
+  if (!bps || bps < 1) return "0";
+  if (bps >= 1024 * 1024) return `${(bps / (1024 * 1024)).toFixed(1)}M`;
+  if (bps >= 1024) return `${Math.round(bps / 1024)}K`;
+  return `${bps}`;
+}
+
 export function StatusBar({ selectedCount, totalCount, totalSize, path, gitInfo, onToggleTerm }: StatusBarProps) {
   const [sys, setSys] = useState<SystemInfo | null>(null);
   const [now, setNow] = useState<Date>(() => new Date());
+  const [fs, setFs] = useState<string>("");
+  const [net, setNet] = useState<NetRate | null>(null);
 
   useEffect(() => {
     void (async () => { setSys(await apiSystemInfo()); })();
     const id = window.setInterval(async () => {
       setSys(await apiSystemInfo());
       setNow(new Date());
+      setNet(await netRate());
     }, 2000);
     return () => window.clearInterval(id);
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      if (!path) { if (!cancelled) setFs(""); return; }
+      const f = await pathFsType(path);
+      if (!cancelled) setFs(f);
+    })();
+    return () => { cancelled = true; };
+  }, [path]);
 
   const pad = (n: number) => n.toString().padStart(2, "0");
   const clock = `${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
@@ -1329,22 +1432,30 @@ export function StatusBar({ selectedCount, totalCount, totalSize, path, gitInfo,
   const memUsed = sys ? formatMemGB(sys.mem_used) : "—";
   const uptime = sys ? formatUptime(sys.uptime_s) : "—";
   const branch = gitInfo?.branch ?? "—";
-  const ahead = gitInfo ? `↑${gitInfo.ahead}` : "";
+  const aheadParts: string[] = [];
+  if (gitInfo) {
+    if (gitInfo.ahead > 0) aheadParts.push(`↑${gitInfo.ahead}`);
+    if (gitInfo.behind > 0) aheadParts.push(`↓${gitInfo.behind}`);
+    if (gitInfo.dirty > 0) aheadParts.push(`●${gitInfo.dirty}`);
+  }
+  const aheadStr = aheadParts.join(" ");
+  const fsStr = fs || "—";
+  const netStr = net ? `↓${formatBytesRate(net.down_bps)} ↑${formatBytesRate(net.up_bps)}` : "—";
 
   return (
     <div className="statusbar">
-      <div className="sb-seg mode">NORMAL</div>
+      <div className="sb-seg mode">READY</div>
       <div className="sb-seg"><span className="lbl">▸</span><span className="val">rice://{path}</span></div>
-      <div className="sb-seg accent"><span className="lbl">⎇</span><span className="val">{branch}</span><span style={{color:"var(--fg-3)"}}>{ahead}</span></div>
+      <div className="sb-seg accent"><span className="lbl">⎇</span><span className="val">{branch}</span>{aheadStr && <span style={{color:"var(--fg-3)"}}>{aheadStr}</span>}</div>
       <div className="sb-seg"><span className="lbl">sel</span><span className="val">{selectedCount}</span><span style={{color:"var(--fg-3)"}}>/ {totalCount}</span></div>
       <div className="sb-seg"><span className="lbl">Σ</span><span className="val">{totalSize}</span></div>
       <div className="spacer"></div>
-      <div className="sb-seg"><span className="lbl">fs</span><span className="val">—</span></div>
+      <div className="sb-seg"><span className="lbl">fs</span><span className="val">{fsStr}</span></div>
       <div className="sb-seg warn"><span className="lbl">mem</span><span className="val">{memPct}</span></div>
       <div className="sb-seg ok"><span className="lbl">cpu</span><span className="val">{cpu}</span></div>
       <div className="sb-seg"><span className="lbl">mem</span><span className="val">{memUsed}</span></div>
       <div className="sb-seg"><span className="lbl">i/o</span><span className="val">▁▂▃▅▂▁</span></div>
-      <div className="sb-seg"><span className="lbl">net</span><span className="val">—</span></div>
+      <div className="sb-seg"><span className="lbl">net</span><span className="val">{netStr}</span></div>
       <div className="sb-seg" style={{cursor:"pointer"}} onClick={onToggleTerm}><span className="val" style={{color:"var(--accent)"}}>⌨ term</span></div>
       <div className="sb-seg"><span className="lbl">up</span><span className="val">{uptime}</span></div>
       <div className="sb-seg"><span className="val">{clock}</span></div>
