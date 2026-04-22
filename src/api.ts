@@ -246,6 +246,26 @@ export function compress(paths: string[], output: string): Promise<void> {
   return invoke<void>("compress", { paths, output });
 }
 
+export function archiveCreate(
+  paths: string[],
+  dest: string,
+  format: "zip" | "tar.gz" | "tar.zst" | "7z",
+): Promise<void> {
+  if (!TAURI_AVAILABLE) return Promise.reject(new Error("tauri unavailable"));
+  return invoke<void>("archive_create", { paths, dest, format });
+}
+
+export function archiveExtract(archive: string, destDir: string): Promise<void> {
+  if (!TAURI_AVAILABLE) return Promise.reject(new Error("tauri unavailable"));
+  return invoke<void>("archive_extract", { archive, destDir });
+}
+
+export function archiveCanHandle(
+  format: "zip" | "tar.gz" | "tar.zst" | "7z",
+): Promise<boolean> {
+  return safe(() => invoke<boolean>("archive_can_handle", { format }), false);
+}
+
 export function hashSha256(path: string): Promise<string> {
   if (!TAURI_AVAILABLE) return Promise.reject(new Error("tauri unavailable"));
   return invoke<string>("hash_sha256", { path });
