@@ -28,6 +28,9 @@ import {
   revealInExplorer,
   winToWsl,
   writeText,
+  winClose,
+  winMinimize,
+  winToggleMaximize,
   type FileEntry,
 } from "./api";
 
@@ -299,6 +302,19 @@ export function App() {
         openNewTab(); return;
       case "Close Tab":
         closeTabAt(activeTab); return;
+      case "Home":
+        void (async () => {
+          const h = await homeDir();
+          if (h) activeHandle?.actions.goTo(h);
+        })();
+        return;
+      case "Quit":
+      case "Close Window":
+        void winClose(); return;
+      case "Minimize":
+        void winMinimize(); return;
+      case "Full Screen":
+        void winToggleMaximize(); return;
       case "Refresh":
       case "Reload":
         activeHandle?.actions.refresh(); return;
