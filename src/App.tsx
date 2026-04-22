@@ -26,6 +26,9 @@ import {
   deleteEntry,
   openWithDefault,
   revealInExplorer,
+  spawnTerminal,
+  spawnVscode,
+  moveToTrash,
   winToWsl,
   writeText,
   winClose,
@@ -535,17 +538,16 @@ export function App() {
           return;
         }
         case "Move to Trash": {
-          // TODO: wire to a real trash backend. Needs a new Rust command using
-          // `windows-rs` IFileOperation (or the `trash` crate) so items land in
-          // the recycle bin. Until then, this path PERMANENTLY deletes — the
-          // second arg of deleteEntry is `recursive`, not recycle-bin. Ship an
-          // explicit confirm so users aren't misled by the menu label.
           if (selectedPaths.length === 0) return;
-          const ok = window.confirm(
-            `No recycle bin yet — this will PERMANENTLY delete ${selectedPaths.length} item(s). Continue?`,
-          );
-          if (!ok) return;
-          for (const p of selectedPaths) await deleteEntry(p, true);
+          // Trash is reversible — only prompt for multi-select. Single items
+          // go straight to the recycle bin without ceremony.
+          if (selectedPaths.length > 1) {
+            const ok = window.confirm(
+              `Move ${selectedPaths.length} items to Recycle Bin?`,
+            );
+            if (!ok) return;
+          }
+          for (const p of selectedPaths) await moveToTrash(p);
           refresh();
           return;
         }
@@ -612,11 +614,11 @@ export function App() {
           return;
         }
         case "Open in Terminal": {
-          console.log("Open in Terminal: not wired yet", cwd);
+          await spawnTerminal(cwd);
           return;
         }
         case "Open in VS Code": {
-          console.log("Open in VS Code: not wired yet", firstPath ?? cwd);
+          await spawnVscode(firstPath ?? cwd);
           return;
         }
         case "Reveal in Explorer":
@@ -802,8 +804,7 @@ export function App() {
                   void openWithDefault(path);
                   return;
                 case "open-in-code":
-                  // TODO: backend command to spawn `code <path>` not yet wired.
-                  console.warn("open in code: backend not wired");
+                  void spawnVscode(path);
                   return;
                 case "git-blame":
                   // TODO: git blame panel / backend not yet wired.

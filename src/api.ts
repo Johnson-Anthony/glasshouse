@@ -133,6 +133,18 @@ export function revealInExplorer(path: string): Promise<void> {
   return safe(() => invoke<void>("reveal_in_explorer", { path }), undefined);
 }
 
+export function spawnTerminal(path: string): Promise<void> {
+  return safe(() => invoke<void>("spawn_terminal", { path }), undefined);
+}
+
+export function spawnVscode(path: string): Promise<void> {
+  return safe(() => invoke<void>("spawn_vscode", { path }), undefined);
+}
+
+export function moveToTrash(path: string): Promise<void> {
+  return safe(() => invoke<void>("move_to_trash", { path }), undefined);
+}
+
 export function winToWsl(path: string): Promise<string> {
   return safe(() => invoke<string>("win_to_wsl", { path }), path);
 }
