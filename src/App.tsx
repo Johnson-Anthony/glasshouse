@@ -39,8 +39,10 @@ import {
   readTags,
   writeTags,
   gitBlame,
+  findInFiles,
   type FileEntry,
   type BlameLine,
+  type FindMatch,
 } from "./api";
 
 const TWEAK_DEFAULTS: TweakState = {
@@ -146,6 +148,170 @@ function BlameModal({ data, onClose }: BlameModalProps) {
   );
 }
 
+interface FindInFilesModalProps {
+  root: string;
+  onClose: () => void;
+  onPick: (match: FindMatch) => void;
+}
+
+function FindInFilesModal({ root, onClose, onPick }: FindInFilesModalProps) {
+  const [query, setQuery] = useState("");
+  const [caseSensitive, setCaseSensitive] = useState(false);
+  const [matches, setMatches] = useState<FindMatch[]>([]);
+  const [ran, setRan] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    inputRef.current?.focus();
+  }, []);
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        onClose();
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [onClose]);
+
+  useEffect(() => {
+    if (!query.trim()) {
+      setMatches([]);
+      setRan(false);
+      return;
+    }
+    const q = query;
+    const cs = caseSensitive;
+    const t = window.setTimeout(() => {
+      setBusy(true);
+      void (async () => {
+        try {
+          const res = await findInFiles(root, q, !cs, 500);
+          setMatches(res);
+          setRan(true);
+        } finally {
+          setBusy(false);
+        }
+      })();
+    }, 250);
+    return () => window.clearTimeout(t);
+  }, [query, caseSensitive, root]);
+
+  const grouped = useMemo(() => {
+    const map = new Map<string, FindMatch[]>();
+    for (const m of matches) {
+      const arr = map.get(m.path) ?? [];
+      arr.push(m);
+      map.set(m.path, arr);
+    }
+    return Array.from(map.entries());
+  }, [matches]);
+
+  const relOf = (p: string): string => {
+    if (!root) return p;
+    if (p.startsWith(root)) {
+      return p.slice(root.length).replace(/^[\\/]+/, "");
+    }
+    return p;
+  };
+
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)",
+        zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center",
+      }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          width: "80ch", maxWidth: "95vw", maxHeight: "85vh",
+          background: "var(--bg-1, #1a1b26)", border: "1px solid var(--fg-3)",
+          borderRadius: 4, display: "flex", flexDirection: "column",
+          fontFamily: "var(--font-mono)", color: "var(--fg-1)",
+        }}
+      >
+        <div
+          style={{
+            display: "flex", alignItems: "center", justifyContent: "space-between",
+            padding: "8px 12px", borderBottom: "1px solid var(--fg-3)",
+            background: "var(--bg-2, #16161e)",
+          }}
+        >
+          <span style={{ color: "var(--accent)" }}>⌕ find in files</span>
+          <span style={{ color: "var(--fg-3)", fontSize: 12 }}>
+            {busy ? "searching…" : ran ? `${matches.length} match${matches.length === 1 ? "" : "es"}` : "esc/click to close"}
+          </span>
+          <button
+            onClick={onClose}
+            style={{
+              background: "transparent", border: "1px solid var(--fg-3)", color: "var(--fg-1)",
+              padding: "2px 8px", cursor: "pointer", borderRadius: 2,
+            }}
+          >×</button>
+        </div>
+        <div style={{ padding: "8px 12px", borderBottom: "1px solid var(--fg-3)", display: "flex", flexDirection: "column", gap: 6 }}>
+          <input
+            ref={inputRef}
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="search text…"
+            style={{
+              background: "var(--bg-0, #0f0f14)", color: "var(--fg-1)",
+              border: "1px solid var(--fg-3)", borderRadius: 2,
+              padding: "4px 8px", fontFamily: "var(--font-mono)", fontSize: 13,
+              outline: "none",
+            }}
+          />
+          <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "var(--fg-2, var(--fg-1))" }}>
+            <input
+              type="checkbox"
+              checked={caseSensitive}
+              onChange={(e) => setCaseSensitive(e.target.checked)}
+            />
+            case sensitive
+          </label>
+          <div style={{ fontSize: 11, color: "var(--fg-3)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+            Searching: {root || "(no active tab)"}
+          </div>
+        </div>
+        <div style={{ overflow: "auto", padding: "6px 12px", fontSize: 12, lineHeight: 1.5, flex: 1 }}>
+          {!ran && !busy && (
+            <div style={{ color: "var(--fg-3)" }}>type to search…</div>
+          )}
+          {ran && !busy && matches.length === 0 && (
+            <div style={{ color: "var(--fg-3)" }}>No matches</div>
+          )}
+          {grouped.map(([file, entries]) => (
+            <div key={file} style={{ marginBottom: 8 }}>
+              <div style={{ color: "var(--accent-2, var(--blue))", marginTop: 4 }}>{relOf(file)}</div>
+              {entries.map((m, i) => (
+                <div
+                  key={i}
+                  onClick={() => onPick(m)}
+                  style={{
+                    display: "flex", gap: 8, whiteSpace: "pre", cursor: "pointer",
+                    padding: "1px 0",
+                  }}
+                  onMouseEnter={(e) => (e.currentTarget.style.background = "var(--bg-2, #16161e)")}
+                  onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+                >
+                  <span style={{ color: "var(--fg-3)", width: "6ch", flexShrink: 0, textAlign: "right" }}>{m.line_no}</span>
+                  <span style={{ color: "var(--fg-1)", overflow: "hidden", textOverflow: "ellipsis" }}>{m.line.slice(0, 300)}</span>
+                </div>
+              ))}
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function TabShell({ index, initialPath, onReady }: TabShellProps) {
   const tab = useTabState(initialPath);
   const onReadyRef = useRef(onReady);
@@ -240,6 +406,15 @@ function basename(p: string): string {
   return idx < 0 ? trimmed : trimmed.slice(idx + 1);
 }
 
+function dirname(p: string): string {
+  const trimmed = p.replace(/[\\/]+$/, "");
+  const idx = Math.max(trimmed.lastIndexOf("\\"), trimmed.lastIndexOf("/"));
+  if (idx < 0) return trimmed;
+  // Preserve drive root like "C:\"
+  if (/^[A-Za-z]:$/.test(trimmed.slice(0, idx))) return trimmed.slice(0, idx + 1);
+  return trimmed.slice(0, idx);
+}
+
 function winToWslInline(p: string): string {
   const m = /^([A-Za-z]):[\\/](.*)$/.exec(p);
   if (!m) return p;
@@ -288,6 +463,7 @@ export function App() {
   const [pins, setPins] = useState<string[]>([]);
   const [tagStore, setTagStore] = useState<Record<string, string[]>>({});
   const [blame, setBlame] = useState<{ path: string; lines: BlameLine[] } | null>(null);
+  const [showFindModal, setShowFindModal] = useState(false);
 
   useEffect(() => {
     void (async () => {
@@ -353,6 +529,9 @@ export function App() {
 
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "p") {
         e.preventDefault(); setPalOpen(v => !v); return;
+      }
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === "f") {
+        e.preventDefault(); setShowFindModal(v => !v); return;
       }
       if ((e.ctrlKey || e.metaKey) && e.key === "`") {
         e.preventDefault(); setTermOpen(v => !v); return;
@@ -526,6 +705,8 @@ export function App() {
       case "Command Palette":
       case "Palette":
         setPalOpen(v => !v); return;
+      case "Find in Files":
+        setShowFindModal(true); return;
       case "Tweaks":
       case "Preferences…":
       case "Preferences":
@@ -986,6 +1167,17 @@ export function App() {
       {ctx && <ContextMenu items={ctx.items} x={ctx.x} y={ctx.y} onClose={() => setCtx(null)} onCommand={handleMenuCommand} />}
       {tweaksOpen && <Tweaks state={state} setState={setState} onClose={() => setTweaksOpen(false)} />}
       {blame && <BlameModal data={blame} onClose={() => setBlame(null)} />}
+      {showFindModal && (
+        <FindInFilesModal
+          root={activeHandle?.state.path ?? ""}
+          onClose={() => setShowFindModal(false)}
+          onPick={(m) => {
+            const dir = dirname(m.path);
+            if (dir) activeHandle?.actions.goTo(dir);
+            setShowFindModal(false);
+          }}
+        />
+      )}
 
       {!tweaksOpen && (
         <button

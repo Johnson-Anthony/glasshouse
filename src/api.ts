@@ -42,6 +42,12 @@ export interface BlameLine {
   timestamp_ms: number;
 }
 
+export interface FindMatch {
+  path: string;
+  line_no: number;
+  line: string;
+}
+
 export interface Drive {
   letter: string;
   label: string;
@@ -138,6 +144,24 @@ export function gitStatus(path: string): Promise<GitInfo | null> {
 export function gitBlame(path: string, maxLines: number): Promise<BlameLine[]> {
   if (!TAURI_AVAILABLE) return Promise.reject(new Error("tauri unavailable"));
   return invoke<BlameLine[]>("git_blame", { path, maxLines });
+}
+
+export function findInFiles(
+  root: string,
+  query: string,
+  caseInsensitive: boolean,
+  maxResults: number,
+): Promise<FindMatch[]> {
+  return safe(
+    () =>
+      invoke<FindMatch[]>("find_in_files", {
+        root,
+        query,
+        caseInsensitive,
+        maxResults,
+      }),
+    [],
+  );
 }
 
 export function openWithDefault(path: string): Promise<void> {
