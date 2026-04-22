@@ -13,7 +13,7 @@ function normalizePath(p: string): string {
   return p.replace(/[\\/]+$/, "").toLowerCase();
 }
 
-export type SortKey = "name" | "size" | "modified" | "tag";
+export type SortKey = "name" | "size" | "modified" | "tag" | "git";
 export type SortDir = "asc" | "desc";
 
 export interface TabState {

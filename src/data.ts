@@ -1,7 +1,7 @@
 // Mock filesystem data + menu definitions for rice:// file manager
 
 export type FileKind = "folder" | "text" | "code" | "img" | "archive" | "exec";
-export type GitStatus = "mod" | "add" | "del" | "untracked";
+export type GitStatus = "M" | "A" | "D" | "U" | "?" | "!";
 
 export interface FileRow {
   name: string;
@@ -88,21 +88,21 @@ export interface PaletteItem {
 export const FILES: FileRow[] = [
   { name: ".git",         kind: "folder", size: "—",    date: "2026-04-18 09:12", tag: null,     git: null,        hidden: true,  ext: "" },
   { name: ".vscode",      kind: "folder", size: "—",    date: "2026-04-20 14:02", tag: null,     git: null,        hidden: true,  ext: "" },
-  { name: "node_modules", kind: "folder", size: "342M", date: "2026-04-19 22:41", tag: null,     git: "untracked", hidden: false, ext: "", dimmed: true },
-  { name: "src",          kind: "folder", size: "—",    date: "2026-04-22 10:18", tag: "project",git: "mod",       hidden: false, ext: "" },
+  { name: "node_modules", kind: "folder", size: "342M", date: "2026-04-19 22:41", tag: null,     git: "?",         hidden: false, ext: "", dimmed: true },
+  { name: "src",          kind: "folder", size: "—",    date: "2026-04-22 10:18", tag: "project",git: "M",         hidden: false, ext: "" },
   { name: "tests",        kind: "folder", size: "—",    date: "2026-04-21 16:03", tag: "project",git: null,        hidden: false, ext: "" },
   { name: "public",       kind: "folder", size: "—",    date: "2026-04-15 11:22", tag: null,     git: null,        hidden: false, ext: "" },
   { name: "docs",         kind: "folder", size: "—",    date: "2026-04-10 08:55", tag: "school", git: null,        hidden: false, ext: "" },
-  { name: ".env",         kind: "text",   size: "412 B",date: "2026-04-22 08:04", tag: "secret", git: "mod",       hidden: true,  ext: "env" },
+  { name: ".env",         kind: "text",   size: "412 B",date: "2026-04-22 08:04", tag: "secret", git: "M",         hidden: true,  ext: "env" },
   { name: ".gitignore",   kind: "text",   size: "1.2 K",date: "2026-04-01 13:14", tag: null,     git: null,        hidden: true,  ext: "" },
-  { name: "README.md",    kind: "text",   size: "4.8 K",date: "2026-04-22 09:30", tag: null,     git: "mod",       hidden: false, ext: "md" },
-  { name: "package.json", kind: "code",   size: "2.1 K",date: "2026-04-20 18:47", tag: null,     git: "mod",       hidden: false, ext: "json" },
+  { name: "README.md",    kind: "text",   size: "4.8 K",date: "2026-04-22 09:30", tag: null,     git: "M",         hidden: false, ext: "md" },
+  { name: "package.json", kind: "code",   size: "2.1 K",date: "2026-04-20 18:47", tag: null,     git: "M",         hidden: false, ext: "json" },
   { name: "tsconfig.json",kind: "code",   size: "892 B",date: "2026-04-08 12:00", tag: null,     git: null,        hidden: false, ext: "json" },
   { name: "vite.config.ts",kind: "code",  size: "1.1 K",date: "2026-04-12 15:33", tag: null,     git: null,        hidden: false, ext: "ts" },
-  { name: "main.rs",      kind: "code",   size: "12.4K",date: "2026-04-22 10:15", tag: "project",git: "add",       hidden: false, ext: "rs" },
-  { name: "parser.py",    kind: "code",   size: "8.7 K",date: "2026-04-22 10:18", tag: "school", git: "mod",       hidden: false, ext: "py" },
+  { name: "main.rs",      kind: "code",   size: "12.4K",date: "2026-04-22 10:15", tag: "project",git: "A",         hidden: false, ext: "rs" },
+  { name: "parser.py",    kind: "code",   size: "8.7 K",date: "2026-04-22 10:18", tag: "school", git: "M",         hidden: false, ext: "py" },
   { name: "notes.md",     kind: "text",   size: "22.1K",date: "2026-04-21 23:08", tag: "school", git: null,        hidden: false, ext: "md" },
-  { name: "Screenshot_2026-04-22_10-14-03.png", kind: "img", size: "1.8 M", date: "2026-04-22 10:14", tag: "review", git: "untracked", hidden: false, ext: "png" },
+  { name: "Screenshot_2026-04-22_10-14-03.png", kind: "img", size: "1.8 M", date: "2026-04-22 10:14", tag: "review", git: "?",         hidden: false, ext: "png" },
   { name: "diagram.svg",  kind: "img",    size: "14.2K",date: "2026-04-20 11:09", tag: null,     git: null,        hidden: false, ext: "svg" },
   { name: "archive_backup.tar.zst", kind: "archive", size: "128 M", date: "2026-04-15 03:22", tag: "archive", git: null, hidden: false, ext: "tar.zst" },
   { name: "build.sh",     kind: "exec",   size: "2.4 K",date: "2026-04-18 17:45", tag: null,     git: null,        hidden: false, ext: "sh" },
@@ -142,12 +142,12 @@ export const TREE: TreeNode[] = [
   { depth: 0, name: "home",     ic: "", open: true, git: null },
   { depth: 1, name: "void",     ic: "", open: true, git: null, active: true },
   { depth: 2, name: "projects", ic: "", open: true, git: null },
-  { depth: 3, name: "glasshouse", ic: "", open: true, git: "mod" },
+  { depth: 3, name: "glasshouse", ic: "", open: true, git: "M" },
   { depth: 4, name: ".git",     ic: "", open: false, git: null, dim: true },
-  { depth: 4, name: "src",      ic: "", open: false, git: "mod" },
+  { depth: 4, name: "src",      ic: "", open: false, git: "M" },
   { depth: 4, name: "tests",    ic: "", open: false, git: null },
   { depth: 3, name: "web-lab",  ic: "", open: false, git: null },
-  { depth: 3, name: "rust-cli", ic: "", open: false, git: "add" },
+  { depth: 3, name: "rust-cli", ic: "", open: false, git: "A" },
   { depth: 2, name: "school",   ic: "", open: true, git: null },
   { depth: 3, name: "cs3410",   ic: "", open: false, git: null },
   { depth: 3, name: "math2930", ic: "", open: false, git: null },

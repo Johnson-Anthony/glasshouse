@@ -30,6 +30,16 @@ export interface FileEntry {
   hidden: boolean;
   ext: string;
   is_symlink: boolean;
+  /** Single-char git status: "M"|"A"|"D"|"U"|"?"|"!" or null. */
+  git: string | null;
+}
+
+export interface BlameLine {
+  line_no: number;
+  sha: string;
+  author: string;
+  content: string;
+  timestamp_ms: number;
 }
 
 export interface Drive {
@@ -123,6 +133,11 @@ export function readText(path: string, maxBytes: number): Promise<string> {
 
 export function gitStatus(path: string): Promise<GitInfo | null> {
   return safe(() => invoke<GitInfo | null>("git_status", { path }), null);
+}
+
+export function gitBlame(path: string, maxLines: number): Promise<BlameLine[]> {
+  if (!TAURI_AVAILABLE) return Promise.reject(new Error("tauri unavailable"));
+  return invoke<BlameLine[]>("git_blame", { path, maxLines });
 }
 
 export function openWithDefault(path: string): Promise<void> {

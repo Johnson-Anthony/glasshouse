@@ -565,9 +565,23 @@ function tagColor(tag: string | null): string {
   return (tag && m[tag]) || "var(--fg-3)";
 }
 
+// Map single-char git status codes to CSS-safe class suffixes. "?" and "!"
+// aren't valid in class names, so we translate.
+function gitDotClass(code: string): string {
+  switch (code) {
+    case "M": return "gm";
+    case "A": return "ga";
+    case "D": return "gd";
+    case "U": return "gu";
+    case "?": return "gq";
+    case "!": return "gb";
+    default: return "gb";
+  }
+}
+
 export type ContextKind = "file" | "empty" | "sidebar" | "tab" | "breadcrumb";
 
-export type SortColumn = "name" | "size" | "modified" | "tag";
+export type SortColumn = "name" | "size" | "modified" | "tag" | "git";
 export type SortDirection = "asc" | "desc";
 
 export interface FilePaneProps {
@@ -678,6 +692,13 @@ export function FilePane({
         if (at === "" && bt !== "") return 1;
         if (bt === "" && at !== "") return -1;
         return at < bt ? -1 * dir : at > bt ? 1 * dir : 0;
+      }
+      if (sortKey === "git") {
+        // Tilde sorts after letters in ASCII, so null/clean rows group at the
+        // end in asc order — keeps the noisy stuff up top.
+        const ag = a.file.git ?? "~";
+        const bg = b.file.git ?? "~";
+        return ag < bg ? -1 * dir : ag > bg ? 1 * dir : 0;
       }
       // modified
       const am = (a.file as unknown as { entry?: { modified_ms?: number } }).entry?.modified_ms ?? 0;
@@ -843,7 +864,7 @@ export function FilePane({
         <div className="col" onClick={() => onSortChange("tag")}>tag <span className="sort">{sortArrow("tag")}</span></div>
         <div className="col" style={{justifyContent:"flex-end"}} onClick={() => onSortChange("size")}>size <span className="sort">{sortArrow("size")}</span></div>
         <div className="col" onClick={() => onSortChange("modified")}>modified <span className="sort">{sortArrow("modified")}</span></div>
-        <div className="col" style={{justifyContent:"flex-end"}}>git</div>
+        <div className="col" style={{justifyContent:"flex-end"}} onClick={() => onSortChange("git")}>git <span className="sort">{sortArrow("git")}</span></div>
       </div>
       <div className="rows">
         {displayFiles.map(({ file: f, origIndex: i }) => {
@@ -866,7 +887,7 @@ export function FilePane({
                  }}>
               <span className={"ic " + ki.cls}>{ki.ic}</span>
               <span className="name">
-                {f.git && <span className={"git-dot " + f.git}></span>}
+                {f.git && <span className={"git-dot " + gitDotClass(f.git)}></span>}
                 <span style={{color: f.hidden ? "var(--fg-3)" : "inherit"}}>{f.name}</span>
                 {f.ext && !f.hidden && f.kind !== "folder" && <span className="ext">.{f.ext}</span>}
               </span>
@@ -876,11 +897,13 @@ export function FilePane({
               <span className="size">{f.size}</span>
               <span className="date">{f.date}</span>
               <span className="tag" style={{textAlign:"right"}}>
-                {f.git === "mod" ? <span style={{color:"var(--yellow)"}}>M</span>
-                 : f.git === "add" ? <span style={{color:"var(--green)"}}>A</span>
-                 : f.git === "del" ? <span style={{color:"var(--red)"}}>D</span>
-                 : f.git === "untracked" ? <span style={{color:"var(--fg-3)"}}>??</span>
-                 : <span style={{color:"var(--fg-3)"}}>·</span>}
+                {f.git === "M" ? <span style={{color:"var(--yellow)"}}>M</span>
+                 : f.git === "A" ? <span style={{color:"var(--green)"}}>A</span>
+                 : f.git === "D" ? <span style={{color:"var(--red)"}}>D</span>
+                 : f.git === "U" ? <span style={{color:"var(--red)"}}>U</span>
+                 : f.git === "?" ? <span style={{color:"var(--fg-2)"}}>?</span>
+                 : f.git === "!" ? <span style={{color:"var(--fg-3)"}}>!</span>
+                 : <span style={{color:"var(--fg-3)"}}>—</span>}
               </span>
             </div>
           );
@@ -973,7 +996,7 @@ export function Inspector({ file, onQuickAction }: InspectorProps) {
         <div>
           {f.tag && <span className="chip"><span className="dot" style={{background: tagColor(f.tag)}}></span>{f.tag}</span>}
           <span className="chip">{f.kind}</span>
-          {f.git && <span className="chip" style={{color: f.git === "mod" ? "var(--yellow)" : f.git === "add" ? "var(--green)" : "var(--fg-2)"}}>
+          {f.git && <span className="chip" style={{color: f.git === "M" ? "var(--yellow)" : f.git === "A" ? "var(--green)" : f.git === "D" || f.git === "U" ? "var(--red)" : "var(--fg-2)"}}>
             git: {f.git}
           </span>}
         </div>

@@ -38,7 +38,9 @@ import {
   writePins,
   readTags,
   writeTags,
+  gitBlame,
   type FileEntry,
+  type BlameLine,
 } from "./api";
 
 const TWEAK_DEFAULTS: TweakState = {
@@ -61,6 +63,87 @@ interface TabShellProps {
   index: number;
   initialPath: string;
   onReady: (index: number, r: UseTabResult) => void;
+}
+
+interface BlameModalProps {
+  data: { path: string; lines: BlameLine[] };
+  onClose: () => void;
+}
+
+function BlameModal({ data, onClose }: BlameModalProps) {
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        onClose();
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [onClose]);
+  const shortName = (() => {
+    const t = data.path.replace(/[\\/]+$/, "");
+    const i = Math.max(t.lastIndexOf("\\"), t.lastIndexOf("/"));
+    return i < 0 ? t : t.slice(i + 1);
+  })();
+  const fmtDate = (ms: number): string => {
+    if (!ms) return "—";
+    const d = new Date(ms);
+    const pad = (n: number) => n.toString().padStart(2, "0");
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  };
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)",
+        zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center",
+      }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          width: "80ch", maxWidth: "95vw", maxHeight: "85vh",
+          background: "var(--bg-1, #1a1b26)", border: "1px solid var(--fg-3)",
+          borderRadius: 4, display: "flex", flexDirection: "column",
+          fontFamily: "var(--font-mono)", color: "var(--fg-1)",
+        }}
+      >
+        <div
+          style={{
+            display: "flex", alignItems: "center", justifyContent: "space-between",
+            padding: "8px 12px", borderBottom: "1px solid var(--fg-3)",
+            background: "var(--bg-2, #16161e)",
+          }}
+        >
+          <span style={{ color: "var(--accent)" }}>⎇ git blame · {shortName}</span>
+          <span style={{ color: "var(--fg-3)", fontSize: 12 }}>
+            {data.lines.length} line{data.lines.length === 1 ? "" : "s"} · esc/click to close
+          </span>
+          <button
+            onClick={onClose}
+            style={{
+              background: "transparent", border: "1px solid var(--fg-3)", color: "var(--fg-1)",
+              padding: "2px 8px", cursor: "pointer", borderRadius: 2,
+            }}
+          >×</button>
+        </div>
+        <div style={{ overflow: "auto", padding: "6px 12px", fontSize: 12, lineHeight: 1.5 }}>
+          {data.lines.length === 0 ? (
+            <div style={{ color: "var(--fg-3)" }}>(no blame data)</div>
+          ) : data.lines.map((ln, i) => (
+            <div key={i} style={{ display: "flex", gap: 8, whiteSpace: "pre" }}>
+              <span style={{ color: "var(--yellow)", width: "8ch", flexShrink: 0 }}>{ln.sha}</span>
+              <span style={{ color: "var(--accent-2, var(--blue))", width: "16ch", flexShrink: 0, overflow: "hidden", textOverflow: "ellipsis" }}>{ln.author}</span>
+              <span style={{ color: "var(--fg-3)", width: "11ch", flexShrink: 0 }}>{fmtDate(ln.timestamp_ms)}</span>
+              <span style={{ color: "var(--fg-3)", width: "5ch", flexShrink: 0, textAlign: "right" }}>{ln.line_no}</span>
+              <span style={{ color: "var(--fg-1)", overflow: "hidden", textOverflow: "ellipsis" }}>{ln.content.slice(0, 200)}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function TabShell({ index, initialPath, onReady }: TabShellProps) {
@@ -104,13 +187,11 @@ function formatDate(ms: number): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
-function mapGitFlag(flag: string | undefined): GitStatus | null {
+function normalizeGit(flag: string | null | undefined): GitStatus | null {
   if (!flag) return null;
-  if (flag === "mod") return "mod";
-  if (flag === "add") return "add";
-  if (flag === "del") return "del";
-  if (flag === "untracked") return "untracked";
-  if (flag === "renamed") return "mod";
+  if (flag === "M" || flag === "A" || flag === "D" || flag === "U" || flag === "?" || flag === "!") {
+    return flag;
+  }
   return null;
 }
 
@@ -120,21 +201,9 @@ export interface LiveFileRow extends FileRow {
 
 function entryToRow(
   e: FileEntry,
-  git: Record<string, string> | null,
-  repoRoot: string | null,
   tagStore: Record<string, string[]>,
 ): LiveFileRow {
   const kind = kindFromEntry(e.kind);
-  let relKey: string | null = null;
-  if (git && repoRoot) {
-    const root = repoRoot.replace(/[\\/]+$/, "");
-    const pathNorm = e.path.replace(/\\/g, "/");
-    const rootNorm = root.replace(/\\/g, "/");
-    if (pathNorm.toLowerCase().startsWith(rootNorm.toLowerCase() + "/")) {
-      relKey = pathNorm.slice(rootNorm.length + 1);
-    }
-  }
-  const flag = git && relKey ? git[relKey] : undefined;
   const nameNoExt = e.ext && e.name.toLowerCase().endsWith("." + e.ext.toLowerCase())
     ? e.name.slice(0, -(e.ext.length + 1))
     : e.name;
@@ -146,7 +215,7 @@ function entryToRow(
     size: formatBytes(e.size, kind === "folder"),
     date: formatDate(e.modified_ms),
     tag: firstTag,
-    git: mapGitFlag(flag),
+    git: normalizeGit(e.git),
     hidden: e.hidden,
     ext: e.ext,
     entry: e,
@@ -218,6 +287,7 @@ export function App() {
 
   const [pins, setPins] = useState<string[]>([]);
   const [tagStore, setTagStore] = useState<Record<string, string[]>>({});
+  const [blame, setBlame] = useState<{ path: string; lines: BlameLine[] } | null>(null);
 
   useEffect(() => {
     void (async () => {
@@ -757,11 +827,8 @@ export function App() {
 
   const liveRows: LiveFileRow[] = useMemo(() => {
     if (!activeHandle) return [];
-    const git = activeHandle.state.gitInfo;
-    return activeHandle.state.entries.map(e =>
-      entryToRow(e, git?.status ?? null, git?.repo_root ?? null, tagStore),
-    );
-  }, [activeHandle?.state.entries, activeHandle?.state.gitInfo, tagStore]);
+    return activeHandle.state.entries.map(e => entryToRow(e, tagStore));
+  }, [activeHandle?.state.entries, tagStore]);
 
   const selected = activeHandle?.state.selected ?? [];
   const setSelected = activeHandle?.actions.setSelected ?? (() => {});
@@ -889,8 +956,16 @@ export function App() {
                   void spawnVscode(path);
                   return;
                 case "git-blame":
-                  // TODO: git blame panel / backend not yet wired.
-                  console.warn("git blame: not wired");
+                  void (async () => {
+                    try {
+                      const lines = await gitBlame(path, 2000);
+                      setBlame({ path, lines });
+                    } catch (err) {
+                      const msg = err instanceof Error ? err.message : String(err);
+                      console.error("git blame:", msg);
+                      try { alert(`git blame failed: ${msg}`); } catch { /* no window */ }
+                    }
+                  })();
                   return;
               }
             }}
@@ -910,6 +985,7 @@ export function App() {
       {palOpen && <Palette onClose={() => setPalOpen(false)} onCommand={handleMenuCommand} />}
       {ctx && <ContextMenu items={ctx.items} x={ctx.x} y={ctx.y} onClose={() => setCtx(null)} onCommand={handleMenuCommand} />}
       {tweaksOpen && <Tweaks state={state} setState={setState} onClose={() => setTweaksOpen(false)} />}
+      {blame && <BlameModal data={blame} onClose={() => setBlame(null)} />}
 
       {!tweaksOpen && (
         <button

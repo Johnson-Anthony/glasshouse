@@ -483,10 +483,12 @@ html, body {
   width: 6px; height: 6px; border-radius: 50%;
   flex: 0 0 6px;
 }
-.row .git-dot.mod { background: var(--yellow); }
-.row .git-dot.add { background: var(--green); }
-.row .git-dot.del { background: var(--red); }
-.row .git-dot.untracked { background: var(--fg-3); }
+.row .git-dot.gm { background: var(--yellow); }
+.row .git-dot.ga { background: var(--green); }
+.row .git-dot.gd { background: var(--red); }
+.row .git-dot.gu { background: var(--red); }
+.row .git-dot.gq { background: var(--fg-2); }
+.row .git-dot.gb { background: var(--fg-3); }
 .row .meta { color: var(--fg-3); font-size: 11px; }
 .row .ext { color: var(--fg-3); font-size: 11px; }
 .row .size { text-align: right; color: var(--fg-2); font-variant-numeric: tabular-nums; }
