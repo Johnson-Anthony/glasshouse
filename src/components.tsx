@@ -6,9 +6,108 @@ import {
   type FileRow,
   type FileKind,
   type MenuItemDef,
+  type DynamicPayload,
 } from "./data";
-import { drives as apiDrives, hashSha256, homeDir as apiHomeDir, listDir, readImageB64, readTags, readText, setPermissions, systemInfo as apiSystemInfo, winClose, winMinimize, winToggleMaximize, writeTags, writeText, type BlameLine, type Drive, type FileEntry, type GitInfo, type SystemInfo } from "./api";
+import { drives as apiDrives, hashSha256, homeDir as apiHomeDir, listDir, listShellProfiles, readImageB64, readPins, readRecent, readTags, readText, setPermissions, systemInfo as apiSystemInfo, winClose, winMinimize, winToggleMaximize, writeTags, writeText, type BlameLine, type Drive, type FileEntry, type GitInfo, type ShellProfile, type SystemInfo } from "./api";
 import { fuzzyFilter } from "./fuzzy";
+
+// ─── dynamic menu expansion ────────────────────────────────────────────────
+// Menu trees include `{ kind: "dynamic", source: … }` sentinel nodes. When a
+// dropdown renders, we swap each sentinel for a fresh set of real `item`
+// nodes with a `payload` field so the click handler knows whether to open a
+// path or run a terminal profile. Results are cached per-mount in component
+// state, so the menu only fetches once per open.
+
+type DynamicSource = "recent" | "bookmarks-pinned" | "terminal-profiles" | "ssh-hosts";
+
+async function loadDynamic(source: DynamicSource): Promise<MenuItemDef[]> {
+  switch (source) {
+    case "recent": {
+      const paths = await readRecent();
+      return paths.map<MenuItemDef>((p) => ({
+        kind: "item",
+        label: p,
+        payload: { type: "open-path", path: p },
+      }));
+    }
+    case "bookmarks-pinned": {
+      const pins = await readPins();
+      return pins.map<MenuItemDef>((p) => ({
+        kind: "item",
+        label: p,
+        payload: { type: "open-path", path: p },
+      }));
+    }
+    case "terminal-profiles": {
+      const profs = await listShellProfiles();
+      return profs.map<MenuItemDef>((profile) => ({
+        kind: "item",
+        label: profile.label,
+        payload: { type: "run-profile", profile },
+      }));
+    }
+    case "ssh-hosts": {
+      const profs = await listShellProfiles();
+      return profs
+        .filter((p) => p.kind === "ssh")
+        .map<MenuItemDef>((profile) => ({
+          kind: "item",
+          label: profile.label,
+          payload: { type: "run-profile", profile },
+        }));
+    }
+  }
+}
+
+function useExpandedItems(items: MenuItemDef[], trigger: unknown): MenuItemDef[] {
+  const [expanded, setExpanded] = useState<MenuItemDef[]>(items);
+
+  useEffect(() => {
+    let cancelled = false;
+    const sources: DynamicSource[] = [];
+    const collect = (list: MenuItemDef[]) => {
+      for (const it of list) {
+        if (it.kind === "dynamic") sources.push(it.source);
+        else if (it.kind === "sub") collect(it.children);
+      }
+    };
+    collect(items);
+    if (sources.length === 0) {
+      setExpanded(items);
+      return;
+    }
+    void (async () => {
+      const unique = Array.from(new Set(sources));
+      const resolved = new Map<DynamicSource, MenuItemDef[]>();
+      await Promise.all(
+        unique.map(async (s) => {
+          try { resolved.set(s, await loadDynamic(s)); }
+          catch { resolved.set(s, []); }
+        }),
+      );
+      if (cancelled) return;
+      const expand = (list: MenuItemDef[]): MenuItemDef[] => {
+        const out: MenuItemDef[] = [];
+        for (const it of list) {
+          if (it.kind === "dynamic") {
+            const got = resolved.get(it.source) ?? [];
+            out.push(...got);
+          } else if (it.kind === "sub") {
+            out.push({ ...it, children: expand(it.children) });
+          } else {
+            out.push(it);
+          }
+        }
+        return out;
+      };
+      setExpanded(expand(items));
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [trigger, items]);
+
+  return expanded;
+}
 
 // ============= Titlebar =============
 export interface TabDef {
@@ -65,35 +164,61 @@ export function Titlebar({ tabs, activeTab, onSelectTab, onCloseTab, onNewTab, o
 interface MenuItemProps {
   item: MenuItemDef;
   onAction?: (label: string) => void;
+  onPayload?: (payload: DynamicPayload) => void;
   onSubHover?: (sub: MenuItemDef | null) => void;
   subOpen?: boolean;
 }
 
-function MenuItem({ item, onAction, onSubHover, subOpen }: MenuItemProps) {
+function MenuItem({ item, onAction, onPayload, onSubHover, subOpen }: MenuItemProps) {
   if (item.kind === "sep") return <div className="sep" />;
   if (item.kind === "grouplabel") return <div className="group-label">{item.label}</div>;
+  if (item.kind === "dynamic") {
+    // Should have been expanded upstream; render an empty sentinel if not.
+    return null;
+  }
   const isSub = item.kind === "sub";
   const danger = item.kind === "item" && item.danger;
   const check = item.kind === "item" && item.check;
   const ic = item.kind === "item" || item.kind === "sub" ? item.ic : undefined;
   const kb = item.kind === "item" ? item.kb : undefined;
+  const payload = item.kind === "item" ? item.payload : undefined;
   return (
     <div
       className={"mi" + (danger ? " danger" : "") + (subOpen ? " hover" : "")}
       onMouseEnter={() => onSubHover && onSubHover(isSub ? item : null)}
-      onClick={() => !isSub && onAction && onAction(item.label)}
+      onClick={() => {
+        if (isSub) return;
+        if (payload && onPayload) onPayload(payload);
+        else if (onAction) onAction(item.label);
+      }}
     >
       <span className="ic">{check ? "✓" : ic || ""}</span>
       <span>{item.label}</span>
       <span className="kb">{kb || ""}</span>
       <span className="chev">{isSub ? "›" : ""}</span>
       {isSub && subOpen && (
-        <div className="dropdown" style={{left: "calc(100% + 2px)", top: "-4px", minWidth: 240}}>
-          {item.children.map((c, i) => (
-            <MenuItem key={i} item={c} onAction={onAction} />
-          ))}
-        </div>
+        <SubDropdown item={item} onAction={onAction} onPayload={onPayload} />
       )}
+    </div>
+  );
+}
+
+/** Dropdown for a submenu — expands any `dynamic` children at open time. */
+function SubDropdown({
+  item,
+  onAction,
+  onPayload,
+}: {
+  item: Extract<MenuItemDef, { kind: "sub" }>;
+  onAction?: (label: string) => void;
+  onPayload?: (payload: DynamicPayload) => void;
+}) {
+  const children = useExpandedItems(item.children, item);
+  return (
+    <div className="dropdown" style={{left: "calc(100% + 2px)", top: "-4px", minWidth: 240}}>
+      {children.map((c, i) => (
+        <MenuItem key={i} item={c} onAction={onAction} onPayload={onPayload} />
+      ))}
     </div>
   );
 }
@@ -101,9 +226,40 @@ function MenuItem({ item, onAction, onSubHover, subOpen }: MenuItemProps) {
 export interface MenubarProps {
   onOpenPalette: () => void;
   onCommand: (label: string) => void;
+  onPayload?: (payload: DynamicPayload) => void;
 }
 
-export function Menubar({ onOpenPalette, onCommand }: MenubarProps) {
+function MenubarDropdown({
+  items,
+  subHover,
+  setSubHover,
+  onAction,
+  onPayload,
+}: {
+  items: MenuItemDef[];
+  subHover: MenuItemDef | null;
+  setSubHover: (s: MenuItemDef | null) => void;
+  onAction: (label: string) => void;
+  onPayload?: (payload: DynamicPayload) => void;
+}) {
+  const expanded = useExpandedItems(items, items);
+  return (
+    <div className="dropdown" onClick={(e) => e.stopPropagation()}>
+      {expanded.map((it, i) => (
+        <MenuItem
+          key={i}
+          item={it}
+          subOpen={subHover !== null && "label" in subHover && "label" in it && subHover.label === (it as { label: string }).label}
+          onSubHover={(s) => setSubHover(s)}
+          onAction={onAction}
+          onPayload={onPayload}
+        />
+      ))}
+    </div>
+  );
+}
+
+export function Menubar({ onOpenPalette, onCommand, onPayload }: MenubarProps) {
   const [open, setOpen] = useState<string | null>(null);
   const [subHover, setSubHover] = useState<MenuItemDef | null>(null);
   const ref = useRef<HTMLDivElement>(null);
@@ -128,17 +284,13 @@ export function Menubar({ onOpenPalette, onCommand }: MenubarProps) {
         >
           <span><span className="u">{k[0]}</span>{k.slice(1)}</span>
           {open === k && (
-            <div className="dropdown" onClick={(e) => e.stopPropagation()}>
-              {MENUS[k].map((it, i) => (
-                <MenuItem
-                  key={i}
-                  item={it}
-                  subOpen={subHover !== null && "label" in subHover && "label" in it && subHover.label === (it as { label: string }).label}
-                  onSubHover={(s) => setSubHover(s)}
-                  onAction={(label) => { setOpen(null); onCommand(label); }}
-                />
-              ))}
-            </div>
+            <MenubarDropdown
+              items={MENUS[k]}
+              subHover={subHover}
+              setSubHover={setSubHover}
+              onAction={(label) => { setOpen(null); onCommand(label); }}
+              onPayload={(p) => { setOpen(null); onPayload?.(p); }}
+            />
           )}
         </div>
       ))}
@@ -1494,10 +1646,12 @@ export interface ContextMenuProps {
   y: number;
   onClose: () => void;
   onCommand?: (label: string) => void;
+  onPayload?: (payload: DynamicPayload) => void;
 }
 
-export function ContextMenu({ items, x, y, onClose, onCommand }: ContextMenuProps) {
+export function ContextMenu({ items, x, y, onClose, onCommand, onPayload }: ContextMenuProps) {
   const [subHover, setSubHover] = useState<MenuItemDef | null>(null);
+  const expanded = useExpandedItems(items, items);
   useEffect(() => {
     const h = () => onClose();
     setTimeout(() => document.addEventListener("mousedown", h, { once: true }), 0);
@@ -1505,11 +1659,12 @@ export function ContextMenu({ items, x, y, onClose, onCommand }: ContextMenuProp
   }, [onClose]);
   return (
     <div className="ctx-menu" style={{left: x, top: y}} onClick={(e) => e.stopPropagation()}>
-      {items.map((it, i) => (
+      {expanded.map((it, i) => (
         <MenuItem key={i} item={it}
           subOpen={subHover !== null && "label" in subHover && "label" in it && subHover.label === (it as { label: string }).label}
           onSubHover={(s) => setSubHover(s)}
           onAction={(label) => { if (onCommand) onCommand(label); onClose(); }}
+          onPayload={(p) => { onPayload?.(p); onClose(); }}
         />
       ))}
     </div>

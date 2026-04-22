@@ -8,6 +8,7 @@ import {
   writePins,
   homeDir,
   openUrl,
+  clearRecent,
 } from "../api";
 
 function joinPath(dir: string, name: string): string {
@@ -29,6 +30,7 @@ export const navHandler: Handler = (label, ctx) => {
 
     case "Clear History":
       ctx.activeHandle?.actions.clearHistory();
+      void clearRecent();
       return true;
 
     case "Next Location":
@@ -215,41 +217,27 @@ export const navHandler: Handler = (label, ctx) => {
       return true;
     }
 
-    case "SSH: void@server": {
-      const key = "glasshouse.remote.servers";
-      let list: { label: string; host: string; user?: string }[] = [];
-      try {
-        const raw = localStorage.getItem(key);
-        if (raw) {
-          const parsed = JSON.parse(raw);
-          if (Array.isArray(parsed)) list = parsed;
-        }
-      } catch (e) {
-        console.log("[nav] SSH: failed to read servers:", e);
-      }
-      const match = list.find(
-        (r) =>
-          r.label === "void@server" ||
-          (r.user === "void" && r.host === "server") ||
-          r.host === "void@server",
-      );
-      if (!match) {
-        window.alert("configure via Connect to Server…");
+    default: {
+      // Fallback: a label that looks like a path (absolute, drive-prefixed,
+      // or ~-prefixed) gets navigated to directly. Dynamic menu items attach
+      // a `payload` and short-circuit before this handler sees them, so this
+      // only catches stragglers from palette/palette-like dispatches.
+      const looksLikePath =
+        label.startsWith("/") ||
+        label.startsWith("~") ||
+        /^[A-Za-z]:[\\/]/.test(label);
+      if (looksLikePath) {
+        void (async () => {
+          let target = label;
+          if (target.startsWith("~")) {
+            const home = await homeDir();
+            if (home) target = home + target.slice(1);
+          }
+          ctx.activeHandle?.actions.goTo(target);
+        })();
         return true;
       }
-      const user = match.user ?? "void";
-      const host = match.host;
-      const cmd = `ssh ${user}@${host}`;
-      try {
-        void navigator.clipboard.writeText(cmd);
-      } catch {
-        console.log("[nav] SSH: clipboard unavailable");
-      }
-      void spawnTerminal(ctx.cwd);
-      return true;
-    }
-
-    default:
       return false;
+    }
   }
 };

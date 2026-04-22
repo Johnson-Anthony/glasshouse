@@ -328,6 +328,41 @@ export function setAlwaysOnTop(enabled: boolean): Promise<void> {
   return safe(() => invoke<void>("set_always_on_top", { enabled }), undefined);
 }
 
+export interface ShellProfile {
+  id: string;
+  label: string;
+  /** "shell" | "wsl" | "ssh" */
+  kind: string;
+  exec: string;
+  args: string[];
+}
+
+export function listShellProfiles(): Promise<ShellProfile[]> {
+  return safe(() => invoke<ShellProfile[]>("list_shell_profiles"), []);
+}
+
+export function spawnTerminalProfile(
+  profile: ShellProfile,
+  cwd: string,
+): Promise<void> {
+  return safe(
+    () => invoke<void>("spawn_terminal_profile", { profile, cwd }),
+    undefined,
+  );
+}
+
+export function readRecent(): Promise<string[]> {
+  return safe(() => invoke<string[]>("read_recent"), []);
+}
+
+export function appendRecent(path: string): Promise<void> {
+  return safe(() => invoke<void>("append_recent", { path }), undefined);
+}
+
+export function clearRecent(): Promise<void> {
+  return safe(() => invoke<void>("clear_recent"), undefined);
+}
+
 /**
  * Open a native directory-picker dialog via the Tauri dialog plugin. Returns
  * the absolute path chosen, or null if the user cancelled.

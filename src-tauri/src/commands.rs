@@ -1,4 +1,4 @@
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Manager};
@@ -1692,4 +1692,310 @@ pub fn set_always_on_top(window: tauri::Window, enabled: bool) -> Result<(), Str
     window
         .set_always_on_top(enabled)
         .map_err(|e| format!("set_always_on_top: {}", e))
+}
+
+// ---------- shell profile detection ----------
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ShellProfile {
+    pub id: String,
+    pub label: String,
+    pub kind: String,
+    pub exec: String,
+    pub args: Vec<String>,
+}
+
+fn home_dir_path() -> Option<PathBuf> {
+    std::env::var("USERPROFILE")
+        .ok()
+        .or_else(|| std::env::var("HOME").ok())
+        .map(PathBuf::from)
+}
+
+/// Decode UTF-16LE byte buffer into String. Returns lossy UTF-8 on failure.
+fn decode_utf16le(bytes: &[u8]) -> String {
+    // Strip BOM if present.
+    let mut slice = bytes;
+    if slice.len() >= 2 && slice[0] == 0xFF && slice[1] == 0xFE {
+        slice = &slice[2..];
+    }
+    let mut u16s: Vec<u16> = Vec::with_capacity(slice.len() / 2);
+    let mut i = 0;
+    while i + 1 < slice.len() {
+        u16s.push(u16::from_le_bytes([slice[i], slice[i + 1]]));
+        i += 2;
+    }
+    String::from_utf16_lossy(&u16s)
+}
+
+/// Parse `~/.ssh/config` and return host entries, skipping wildcards.
+fn ssh_hosts() -> Vec<String> {
+    let home = match home_dir_path() {
+        Some(h) => h,
+        None => return Vec::new(),
+    };
+    let cfg_path = home.join(".ssh").join("config");
+    let text = match std::fs::read_to_string(&cfg_path) {
+        Ok(t) => t,
+        Err(_) => return Vec::new(),
+    };
+    let mut hosts: Vec<String> = Vec::new();
+    for raw in text.lines() {
+        let line = raw.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        // Case-insensitive "Host " prefix.
+        let lower = line.to_ascii_lowercase();
+        if !lower.starts_with("host ") && !lower.starts_with("host\t") {
+            continue;
+        }
+        let rest = line[4..].trim();
+        for tok in rest.split_whitespace() {
+            if tok.contains('*') || tok.contains('?') {
+                continue;
+            }
+            if !hosts.iter().any(|h| h == tok) {
+                hosts.push(tok.to_string());
+            }
+        }
+    }
+    hosts
+}
+
+/// Detect installed WSL distributions by running `wsl.exe -l -q`.
+/// Output is UTF-16LE; decode manually without pulling `encoding_rs`.
+fn wsl_distros() -> Vec<String> {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        use std::process::Command;
+        if which::which("wsl.exe").is_err() && which::which("wsl").is_err() {
+            return Vec::new();
+        }
+        let out = Command::new("wsl.exe")
+            .args(["-l", "-q"])
+            .creation_flags(CREATE_NO_WINDOW)
+            .output();
+        let output = match out {
+            Ok(o) => o,
+            Err(_) => return Vec::new(),
+        };
+        if !output.status.success() {
+            return Vec::new();
+        }
+        let text = decode_utf16le(&output.stdout);
+        let mut distros: Vec<String> = Vec::new();
+        for line in text.lines() {
+            // Strip nulls and whitespace; -q output often has stray \0.
+            let cleaned: String = line.chars().filter(|c| *c != '\0').collect();
+            let trimmed = cleaned.trim();
+            if trimmed.is_empty() {
+                continue;
+            }
+            if !distros.iter().any(|d| d == trimmed) {
+                distros.push(trimmed.to_string());
+            }
+        }
+        distros
+    }
+    #[cfg(not(windows))]
+    {
+        Vec::new()
+    }
+}
+
+/// Probe the system for available shells, WSL distros, and SSH hosts.
+/// Emits only what actually exists: shells first, then WSL, then SSH.
+#[tauri::command]
+pub fn list_shell_profiles() -> Vec<ShellProfile> {
+    let mut out: Vec<ShellProfile> = Vec::new();
+
+    // Shell probes, in preferred order.
+    let shell_probes: [(&str, &str, &str); 5] = [
+        ("bash.exe", "bash", "shell:bash"),
+        ("zsh.exe", "zsh", "shell:zsh"),
+        ("fish.exe", "fish", "shell:fish"),
+        ("pwsh.exe", "PowerShell", "shell:pwsh"),
+        ("powershell.exe", "PowerShell", "shell:powershell"),
+    ];
+    let mut have_pwsh_label = false;
+    for (exe, label, id) in shell_probes.iter() {
+        if let Ok(resolved) = which::which(exe) {
+            // De-duplicate the two PowerShell variants under one label.
+            if *label == "PowerShell" {
+                if have_pwsh_label {
+                    continue;
+                }
+                have_pwsh_label = true;
+            }
+            out.push(ShellProfile {
+                id: (*id).to_string(),
+                label: (*label).to_string(),
+                kind: "shell".to_string(),
+                exec: resolved.to_string_lossy().to_string(),
+                args: Vec::new(),
+            });
+        }
+    }
+
+    // WSL distros.
+    for distro in wsl_distros() {
+        out.push(ShellProfile {
+            id: format!("wsl:{}", distro),
+            label: format!("WSL · {}", distro),
+            kind: "wsl".to_string(),
+            exec: "wsl.exe".to_string(),
+            args: vec!["-d".to_string(), distro],
+        });
+    }
+
+    // SSH hosts from ~/.ssh/config.
+    for host in ssh_hosts() {
+        out.push(ShellProfile {
+            id: format!("ssh:{}", host),
+            label: format!("SSH: {}", host),
+            kind: "ssh".to_string(),
+            exec: "ssh".to_string(),
+            args: vec![host],
+        });
+    }
+
+    out
+}
+
+/// Launch a terminal profile in `cwd`. Prefers Windows Terminal (`wt.exe`);
+/// falls back to `cmd /C start`. Never flashes a console window.
+#[tauri::command]
+pub fn spawn_terminal_profile(profile: ShellProfile, cwd: String) -> Result<(), String> {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        use std::process::{Command, Stdio};
+
+        let have_wt = which::which("wt.exe").is_ok() || which::which("wt").is_ok();
+
+        if have_wt {
+            let mut cmd = Command::new("wt.exe");
+            cmd.args(["-d", &cwd]);
+            match profile.kind.as_str() {
+                "wsl" => {
+                    cmd.arg("wsl.exe");
+                    for a in &profile.args {
+                        cmd.arg(a);
+                    }
+                }
+                "ssh" => {
+                    cmd.arg("ssh");
+                    for a in &profile.args {
+                        cmd.arg(a);
+                    }
+                }
+                _ => {
+                    cmd.arg(&profile.exec);
+                    for a in &profile.args {
+                        cmd.arg(a);
+                    }
+                }
+            }
+            let res = cmd
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .spawn();
+            match res {
+                Ok(c) => {
+                    drop(c);
+                    return Ok(());
+                }
+                Err(e) => {
+                    eprintln!("wt.exe spawn failed: {}, falling back", e);
+                }
+            }
+        }
+
+        // Fallback: cmd /C start "" <exec> <args>
+        let mut cmd = Command::new("cmd");
+        cmd.arg("/C").arg("start").arg("");
+        match profile.kind.as_str() {
+            "wsl" => {
+                cmd.arg("wsl.exe");
+                for a in &profile.args {
+                    cmd.arg(a);
+                }
+            }
+            "ssh" => {
+                cmd.arg("ssh");
+                for a in &profile.args {
+                    cmd.arg(a);
+                }
+            }
+            _ => {
+                cmd.arg(&profile.exec);
+                for a in &profile.args {
+                    cmd.arg(a);
+                }
+            }
+        }
+        cmd.creation_flags(CREATE_NO_WINDOW)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
+        let _ = cwd; // cwd used above for wt; fallback ignores per spec.
+        cmd.spawn()
+            .map(|c| drop(c))
+            .map_err(|e| format!("spawn_terminal_profile fallback: {}", e))
+    }
+    #[cfg(not(windows))]
+    {
+        use std::process::{Command, Stdio};
+        let mut cmd = Command::new(&profile.exec);
+        for a in &profile.args {
+            cmd.arg(a);
+        }
+        let _ = cwd;
+        cmd.stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .map(|c| drop(c))
+            .map_err(|e| format!("spawn_terminal_profile: {}", e))
+    }
+}
+
+// ---------- recent-paths persistence ----------
+
+const RECENT_MAX: usize = 20;
+
+#[tauri::command]
+pub fn read_recent(app: AppHandle) -> Result<Vec<String>, String> {
+    let path = config_file(&app, "recent.json")?;
+    match std::fs::read_to_string(&path) {
+        Ok(s) => serde_json::from_str::<Vec<String>>(&s).map_err(|e| e.to_string()),
+        Err(ref e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Vec::new()),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
+#[tauri::command]
+pub fn append_recent(app: AppHandle, path: String) -> Result<(), String> {
+    let cfg = config_file(&app, "recent.json")?;
+    let mut list: Vec<String> = match std::fs::read_to_string(&cfg) {
+        Ok(s) => serde_json::from_str::<Vec<String>>(&s).unwrap_or_default(),
+        Err(_) => Vec::new(),
+    };
+    list.retain(|p| p != &path);
+    list.insert(0, path);
+    if list.len() > RECENT_MAX {
+        list.truncate(RECENT_MAX);
+    }
+    let body = serde_json::to_string(&list).map_err(|e| e.to_string())?;
+    std::fs::write(&cfg, body).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn clear_recent(app: AppHandle) -> Result<(), String> {
+    let cfg = config_file(&app, "recent.json")?;
+    let body = serde_json::to_string(&Vec::<String>::new()).map_err(|e| e.to_string())?;
+    std::fs::write(&cfg, body).map_err(|e| e.to_string())
 }

@@ -5,6 +5,7 @@ import {
   gitStatus,
   watchDir,
   unwatchDir,
+  appendRecent,
   type FileEntry,
   type GitInfo,
 } from "./api";
@@ -237,6 +238,9 @@ export function useTabState(initialPath: string): UseTabResult {
       setHistoryBack(h => [...h, prev]);
       setHistoryForward([]);
       resetNav();
+      // Fire-and-forget: keep the recent list warm for File > Open Recent
+      // and Bookmarks > RECENT without blocking navigation.
+      void appendRecent(next);
       return next;
     });
   }, []);

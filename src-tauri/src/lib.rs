@@ -56,6 +56,11 @@ pub fn run() {
             commands::open_url,
             commands::spawn_new_window,
             commands::set_always_on_top,
+            commands::list_shell_profiles,
+            commands::spawn_terminal_profile,
+            commands::read_recent,
+            commands::append_recent,
+            commands::clear_recent,
             watcher::watch_dir,
             watcher::unwatch_dir,
         ])

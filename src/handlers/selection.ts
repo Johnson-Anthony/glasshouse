@@ -95,6 +95,20 @@ export const selectionHandler: Handler = (label, ctx) => {
       setSelected(entries.map((_, i) => i));
       return true;
     }
+    case "Extend to Line End (Visual)": {
+      // Visual-mode-ish: extend selection from the current anchor to the
+      // last entry of the active pane (inclusive).
+      if (entries.length === 0) return true;
+      const anchor = Math.max(0, Math.min(handle.state.anchorIndex, entries.length - 1));
+      const end = entries.length - 1;
+      const lo = Math.min(anchor, end);
+      const hi = Math.max(anchor, end);
+      const next: number[] = [];
+      for (let i = lo; i <= hi; i++) next.push(i);
+      setSelected(next);
+      handle.actions.setFocusIndex(end);
+      return true;
+    }
     case "Add Next Match": {
       console.log("Add Next Match: no-op for MVP");
       return true;

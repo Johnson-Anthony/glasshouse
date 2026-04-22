@@ -26,7 +26,7 @@ import {
   type TweakState,
   type ContextKind,
 } from "./components";
-import { CONTEXT_FILE, CONTEXT_EMPTY, CONTEXT_SIDEBAR, CONTEXT_SIDEBAR_PINNED, CONTEXT_TAB, CONTEXT_BREADCRUMB, type MenuItemDef, type FileRow, type FileKind, type GitStatus } from "./data";
+import { CONTEXT_FILE, CONTEXT_EMPTY, CONTEXT_SIDEBAR, CONTEXT_SIDEBAR_PINNED, CONTEXT_TAB, CONTEXT_BREADCRUMB, type MenuItemDef, type DynamicPayload, type FileRow, type FileKind, type GitStatus } from "./data";
 import {
   useTabState,
   pushUndo,
@@ -48,6 +48,7 @@ import {
   openWithDefault,
   revealInExplorer,
   spawnTerminal,
+  spawnTerminalProfile,
   spawnVscode,
   moveToTrash,
   winToWsl,
@@ -1250,6 +1251,18 @@ export function App() {
     }
   }
 
+  const handleMenuPayload = (payload: DynamicPayload) => {
+    if (payload.type === "open-path") {
+      activeHandle?.actions.goTo(payload.path);
+      return;
+    }
+    if (payload.type === "run-profile") {
+      const cwd = activeHandle?.state.path ?? FALLBACK_PATH;
+      void spawnTerminalProfile(payload.profile, cwd);
+      return;
+    }
+  };
+
   const openCtxMenu = (e: React.MouseEvent, items: MenuItemDef[]) => {
     setCtx({
       x: Math.min(e.clientX, window.innerWidth - 240),
@@ -1365,7 +1378,7 @@ export function App() {
         onNewTab={openNewTab}
         onTabContext={onTabContext}
       />
-      <Menubar onOpenPalette={() => setPalOpen(true)} onCommand={handleMenuCommand} />
+      <Menubar onOpenPalette={() => setPalOpen(true)} onCommand={handleMenuCommand} onPayload={handleMenuPayload} />
       <Toolbar
         path={activeHandle?.state.path ?? ""}
         gitInfo={activeHandle?.state.gitInfo ?? null}
@@ -1527,7 +1540,7 @@ export function App() {
       />
 
       {palOpen && <Palette onClose={() => setPalOpen(false)} onCommand={handleMenuCommand} />}
-      {ctx && <ContextMenu items={ctx.items} x={ctx.x} y={ctx.y} onClose={() => setCtx(null)} onCommand={handleMenuCommand} />}
+      {ctx && <ContextMenu items={ctx.items} x={ctx.x} y={ctx.y} onClose={() => setCtx(null)} onCommand={handleMenuCommand} onPayload={handleMenuPayload} />}
       {tweaksOpen && <Tweaks state={state} setState={setState} onClose={() => setTweaksOpen(false)} />}
       {blame && <BlameDialog blame={blame} onClose={() => setBlame(null)} />}
       {hexView && <HexDialog path={hexView.path} hex={hexView.hex} onClose={() => setHexView(null)} />}

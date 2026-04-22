@@ -58,6 +58,12 @@ export interface TreeNode {
   dim?: boolean;
 }
 
+/** Runtime payload attached to dynamically-generated items so the menu
+ *  can dispatch an intent instead of echoing a brittle label string. */
+export type DynamicPayload =
+  | { type: "open-path"; path: string }
+  | { type: "run-profile"; profile: import("./api").ShellProfile };
+
 export type MenuItemDef =
   | {
       kind: "item";
@@ -66,6 +72,9 @@ export type MenuItemDef =
       kb?: string;
       danger?: boolean;
       check?: boolean;
+      /** When present, onclick bypasses label-string dispatch and calls the
+       *  payload-specific runner. Populated at render time for dynamic nodes. */
+      payload?: DynamicPayload;
     }
   | {
       kind: "sub";
@@ -74,7 +83,12 @@ export type MenuItemDef =
       children: MenuItemDef[];
     }
   | { kind: "sep" }
-  | { kind: "grouplabel"; label: string };
+  | { kind: "grouplabel"; label: string }
+  | {
+      kind: "dynamic";
+      /** Which runtime loader to use for expanding this node. */
+      source: "recent" | "bookmarks-pinned" | "terminal-profiles" | "ssh-hosts";
+    };
 
 export type MenusData = Record<string, MenuItemDef[]>;
 
@@ -178,10 +192,7 @@ export const MENUS: MenusData = {
     { kind: "item", ic: "", label: "Open Parent",        kb: "Alt+↑" },
     { kind: "sub",  ic: "", label: "Open Recent",
       children: [
-        { kind: "item", label: "~/projects/glasshouse" },
-        { kind: "item", label: "~/school/cs3410/lab07" },
-        { kind: "item", label: "/mnt/c/Users/you/Desktop" },
-        { kind: "item", label: "~/Downloads" },
+        { kind: "dynamic", source: "recent" },
         { kind: "sep" },
         { kind: "item", label: "Clear History" },
       ] },
@@ -302,7 +313,7 @@ export const MENUS: MenusData = {
     { kind: "item", ic: "", label: "Go to Path…",         kb: "Ctrl+L" },
     { kind: "item", ic: "", label: "Go to WSL Distro…" },
     { kind: "item", ic: "", label: "Connect to Server…",  kb: "Ctrl+Shift+G" },
-    { kind: "item", ic: "", label: "SSH: void@server" },
+    { kind: "dynamic", source: "ssh-hosts" },
     { kind: "sep" },
     { kind: "item", ic: "", label: "Trash" },
     { kind: "item", ic: "", label: "Previous Location",   kb: "Ctrl+[" },
@@ -313,14 +324,9 @@ export const MENUS: MenusData = {
     { kind: "item", ic: "", label: "Manage Bookmarks…" },
     { kind: "sep" },
     { kind: "grouplabel", label: "PINNED" },
-    { kind: "item", ic: "", label: "~/projects/glasshouse" },
-    { kind: "item", ic: "", label: "~/school/cs3410" },
-    { kind: "item", ic: "", label: "/mnt/c/Users/you/Desktop" },
-    { kind: "item", ic: "", label: "~/Pictures/screens" },
+    { kind: "dynamic", source: "bookmarks-pinned" },
     { kind: "grouplabel", label: "RECENT" },
-    { kind: "item", ic: "", label: "~/Downloads" },
-    { kind: "item", ic: "", label: "~/.config/nvim" },
-    { kind: "item", ic: "", label: "/etc/nginx" },
+    { kind: "dynamic", source: "recent" },
   ],
   Tools: [
     { kind: "item", ic: "", label: "Bulk Rename…",        kb: "Ctrl+Shift+R" },
@@ -386,13 +392,7 @@ export const MENUS: MenusData = {
     { kind: "item", ic: "", label: "New Tab",             kb: "Ctrl+Shift+T" },
     { kind: "sub",  ic: "", label: "Profile",
       children: [
-        { kind: "item", label: "bash" },
-        { kind: "item", label: "zsh", check: true },
-        { kind: "item", label: "fish" },
-        { kind: "item", label: "PowerShell" },
-        { kind: "item", label: "WSL · Ubuntu", check: true },
-        { kind: "item", label: "WSL · Debian" },
-        { kind: "item", label: "SSH: void@server" },
+        { kind: "dynamic", source: "terminal-profiles" },
       ] },
     { kind: "sep" },
     { kind: "item", ic: "", label: "Split Horizontal",    kb: "Ctrl+Shift+H" },
