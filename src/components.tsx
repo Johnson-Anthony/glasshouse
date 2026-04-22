@@ -597,7 +597,7 @@ export interface FilePaneProps {
   sortKey: SortColumn;
   sortDir: SortDirection;
   onSortChange: (k: SortColumn) => void;
-  onContext: (e: React.MouseEvent, kind: ContextKind) => void;
+  onContext: (e: React.MouseEvent, kind: ContextKind, rowIndex?: number) => void;
   onOpen?: (index: number) => void;
   onUp?: () => void;
   onCopy?: () => void;
@@ -937,7 +937,7 @@ export function FilePane({
                    e.stopPropagation();
                    if (!isSel) { setSelected([i]); setAnchorIndex(i); }
                    setFocusIndex(i);
-                   onContext(e, "file");
+                   onContext(e, "file", i);
                  }}>
               <span className={"ic " + ki.cls}>{ki.ic}</span>
               <span className="name">

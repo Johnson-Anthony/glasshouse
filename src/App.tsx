@@ -1119,7 +1119,7 @@ export function App() {
     });
   };
 
-  const onContext = (e: React.MouseEvent, kind: ContextKind) => {
+  const onContext = (e: React.MouseEvent, kind: ContextKind, rowIndex?: number) => {
     // File-pane surfaces act on the current selection; clear the module target
     // so stale sidebar/tab/breadcrumb right-clicks can't leak into file ops.
     contextTarget = null;
@@ -1127,15 +1127,23 @@ export function App() {
       // Hide "Remove Tag…" when the selected row has no tags — keeps the
       // menu honest instead of dangling a no-op command.
       const st = activeHandle?.state;
-      const firstEntry = st ? st.entries[st.selected[0]] : undefined;
+      // Right-click-to-select fires setSelected asynchronously, so st.selected
+      // is stale on the first right-click. rowIndex arrives synchronously from
+      // the row handler with the effective selection, which is what every
+      // filter below needs.
+      const effSelected: number[] =
+        rowIndex !== undefined && st && !st.selected.includes(rowIndex)
+          ? [rowIndex]
+          : (st?.selected ?? []);
+      const firstEntry = st ? st.entries[effSelected[0]] : undefined;
       const firstPath = firstEntry?.path;
       const hasTags = !!firstPath && (tagStore[firstPath]?.length ?? 0) > 0;
-      const selCount = st?.selected.length ?? 0;
+      const selCount = effSelected.length;
       // Git row-actions only make sense when the selection has tracked
       // changes (M/A/D/R/U). Untracked-only rows hide the stage/unstage/
       // discard block per spec; Blame is further restricted to a single
       // tracked file (not a folder, not untracked).
-      const selEntries = st ? st.selected.map(i => st.entries[i]).filter((x): x is FileEntry => !!x) : [];
+      const selEntries = st ? effSelected.map(i => st.entries[i]).filter((x): x is FileEntry => !!x) : [];
       const hasGitRow = selEntries.some(e => e.git !== null && e.git !== "?");
       const blameEligible =
         selCount === 1 &&
