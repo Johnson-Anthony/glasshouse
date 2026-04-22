@@ -11,6 +11,8 @@ import {
   Palette,
   ContextMenu,
   Tweaks,
+  BulkRenameDialog,
+  type BulkRenameItem,
   type TabDef,
   type TweakState,
   type ContextKind,
@@ -467,6 +469,7 @@ export function App() {
   const [tagStore, setTagStore] = useState<Record<string, string[]>>({});
   const [blame, setBlame] = useState<{ path: string; lines: BlameLine[] } | null>(null);
   const [showFindModal, setShowFindModal] = useState(false);
+  const [bulkRenameItems, setBulkRenameItems] = useState<BulkRenameItem[] | null>(null);
 
   useEffect(() => {
     void (async () => {
@@ -576,7 +579,12 @@ export function App() {
         if (e.key === "ArrowRight") { e.preventDefault(); dispatch("Forward"); return; }
       }
 
-      if (e.key === "F2") { e.preventDefault(); dispatch("Rename"); return; }
+      if (e.key === "F2") {
+        e.preventDefault();
+        const n = activeHandle?.state.selected.length ?? 0;
+        dispatch(n > 1 ? "Bulk Rename…" : "Rename");
+        return;
+      }
 
       if (e.key === "F6") { e.preventDefault(); dispatch("Move to…"); return; }
 
@@ -792,12 +800,32 @@ export function App() {
         }
         case "Rename": {
           if (!firstEntry) return;
+          // Multi-select routes through bulk rename so F2 is consistent with
+          // the palette / context menu "Bulk Rename…" entry.
+          if (st.selected.length > 1) {
+            const items: BulkRenameItem[] = st.selected
+              .map(i => st.entries[i])
+              .filter((e): e is FileEntry => !!e)
+              .map(e => ({ path: e.path, name: e.name }));
+            setBulkRenameItems(items);
+            return;
+          }
           // TODO: replace with custom dialog
           const next = window.prompt("rename to", firstEntry.name);
           if (!next || next === firstEntry.name) return;
           const dst = join(cwd, next);
           await renameEntry(firstEntry.path, dst);
           refresh();
+          return;
+        }
+        case "Bulk Rename":
+        case "Bulk Rename…": {
+          const items: BulkRenameItem[] = st.selected
+            .map(i => st.entries[i])
+            .filter((e): e is FileEntry => !!e)
+            .map(e => ({ path: e.path, name: e.name }));
+          if (items.length === 0) return;
+          setBulkRenameItems(items);
           return;
         }
         case "Delete":
@@ -1050,9 +1078,19 @@ export function App() {
       const st = activeHandle?.state;
       const firstPath = st ? st.entries[st.selected[0]]?.path : undefined;
       const hasTags = !!firstPath && (tagStore[firstPath]?.length ?? 0) > 0;
-      const items = hasTags
+      const selCount = st?.selected.length ?? 0;
+      let items = hasTags
         ? CONTEXT_FILE
         : CONTEXT_FILE.filter(it => !(it.kind === "item" && it.label === "Remove Tag…"));
+      // Swap single-rename for bulk-rename when multiple rows are selected.
+      if (selCount > 1) {
+        items = items.map(it => {
+          if (it.kind === "item" && it.label === "Rename") {
+            return { ...it, label: "Bulk Rename…", kb: "F2" };
+          }
+          return it;
+        });
+      }
       openCtxMenu(e, items);
       return;
     }
@@ -1267,6 +1305,14 @@ export function App() {
             if (dir) activeHandle?.actions.goTo(dir);
             setShowFindModal(false);
           }}
+        />
+      )}
+      {bulkRenameItems && (
+        <BulkRenameDialog
+          items={bulkRenameItems}
+          onClose={() => setBulkRenameItems(null)}
+          renameOne={(from, to) => renameEntry(from, to)}
+          onDone={() => activeHandle?.actions.refresh()}
         />
       )}
 
