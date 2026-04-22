@@ -276,6 +276,14 @@ pub fn delete_entry(path: String, recursive: bool) -> Result<(), String> {
     }
 }
 
+/// Move a file or directory to the system recycle bin. Uses the `trash`
+/// crate, which dispatches to `IFileOperation` with `FOFX_RECYCLEONDELETE`
+/// on Windows — items land in the recycle bin and can be restored.
+#[tauri::command]
+pub fn move_to_trash(path: String) -> Result<(), String> {
+    trash::delete(&path).map_err(|e| format!("move_to_trash({}): {}", path, e))
+}
+
 #[tauri::command]
 pub fn read_text(path: String, max_bytes: usize) -> Result<String, String> {
     use std::io::Read;

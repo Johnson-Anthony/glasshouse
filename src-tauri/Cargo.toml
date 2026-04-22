@@ -32,6 +32,7 @@ notify-debouncer-full = "0.4"
 walkdir = "2"
 dunce = "1"
 which = "6"
+trash = "5"
 
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.58", features = [

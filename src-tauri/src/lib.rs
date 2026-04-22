@@ -20,6 +20,7 @@ pub fn run() {
             commands::copy_entry,
             commands::move_entry,
             commands::delete_entry,
+            commands::move_to_trash,
             commands::read_text,
             commands::write_text,
             commands::git_status,
