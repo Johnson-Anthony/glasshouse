@@ -277,7 +277,7 @@ pub fn delete_entry(path: String, recursive: bool) -> Result<(), String> {
 #[tauri::command]
 pub fn read_text(path: String, max_bytes: usize) -> Result<String, String> {
     use std::io::Read;
-    let mut f = std::fs::File::open(&path).map_err(|e| e.to_string())?;
+    let f = std::fs::File::open(&path).map_err(|e| e.to_string())?;
     let cap = if max_bytes == 0 { 1_000_000 } else { max_bytes };
     let mut buf = Vec::with_capacity(cap.min(1 << 20));
     f.take(cap as u64)

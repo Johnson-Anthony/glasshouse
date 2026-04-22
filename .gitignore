@@ -25,6 +25,9 @@ Thumbs.db
 *.exe
 *.msi
 *.pdb
+*.tsbuildinfo
+vite.config.d.ts
+vite.config.js
 
 # Env
 .env

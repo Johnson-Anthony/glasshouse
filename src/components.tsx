@@ -1,7 +1,6 @@
 // rice:// file manager — components
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import {
-  FILES,
   SIDEBAR,
   TREE,
   MENUS,
@@ -10,6 +9,7 @@ import {
   type FileKind,
   type MenuItemDef,
 } from "./data";
+import { drives as apiDrives, homeDir as apiHomeDir, readText, systemInfo as apiSystemInfo, type Drive, type FileEntry, type GitInfo, type SystemInfo } from "./api";
 
 // ============= Titlebar =============
 export interface TabDef {
@@ -148,32 +148,82 @@ export function Menubar({ onOpenPalette }: MenubarProps) {
 
 // ============= Toolbar / breadcrumb =============
 export interface ToolbarProps {
+  path: string;
+  gitInfo: GitInfo | null;
+  canBack: boolean;
+  canForward: boolean;
+  onBack: () => void;
+  onForward: () => void;
+  onUp: () => void;
+  onRefresh: () => void;
+  onGoTo: (path: string) => void;
   onSearchFocus?: () => void;
 }
 
-export function Toolbar({ onSearchFocus }: ToolbarProps) {
-  const parts = ["home", "void", "projects", "glasshouse"];
+interface Crumb {
+  label: string;
+  path: string;
+}
+
+function splitBreadcrumb(path: string): Crumb[] {
+  if (!path) return [];
+  const isWin = /^[A-Za-z]:/.test(path) || path.includes("\\");
+  const sep = isWin ? "\\" : "/";
+  if (isWin) {
+    const normalized = path.replace(/\//g, "\\");
+    const parts = normalized.split("\\").filter(Boolean);
+    const out: Crumb[] = [];
+    let acc = "";
+    parts.forEach((p, i) => {
+      if (i === 0 && /^[A-Za-z]:$/.test(p)) {
+        acc = p + "\\";
+        out.push({ label: p, path: acc });
+      } else {
+        acc = acc.endsWith(sep) ? acc + p : acc + sep + p;
+        out.push({ label: p, path: acc });
+      }
+    });
+    return out;
+  }
+  const parts = path.split("/").filter(Boolean);
+  const out: Crumb[] = [];
+  let acc = "";
+  parts.forEach(p => {
+    acc = acc + "/" + p;
+    out.push({ label: p, path: acc });
+  });
+  return out;
+}
+
+export function Toolbar({ path, gitInfo, canBack, canForward, onBack, onForward, onUp, onRefresh, onGoTo, onSearchFocus }: ToolbarProps) {
+  const parts = splitBreadcrumb(path);
   return (
     <div className="toolbar">
       <div className="nav-btns">
-        <button className="nav-btn" title="Back (Alt+←)">←</button>
-        <button className="nav-btn" title="Forward (Alt+→)">→</button>
-        <button className="nav-btn" title="Up (Alt+↑)">↑</button>
-        <button className="nav-btn" title="Refresh (F5)">↻</button>
+        <button className="nav-btn" title="Back (Alt+←)" onClick={onBack} disabled={!canBack}>←</button>
+        <button className="nav-btn" title="Forward (Alt+→)" onClick={onForward} disabled={!canForward}>→</button>
+        <button className="nav-btn" title="Up (Alt+↑)" onClick={onUp}>↑</button>
+        <button className="nav-btn" title="Refresh (F5)" onClick={onRefresh}>↻</button>
       </div>
       <div className="breadcrumb">
         <span className="scheme">rice://</span>
         {parts.map((p, i) => (
           <React.Fragment key={i}>
-            <span className={"crumb" + (i === parts.length - 1 ? " last" : "")}>{p}</span>
+            <span
+              className={"crumb" + (i === parts.length - 1 ? " last" : "")}
+              onClick={() => onGoTo(p.path)}
+              style={{cursor:"pointer"}}
+            >{p.label}</span>
             {i < parts.length - 1 && <span className="sep">/</span>}
           </React.Fragment>
         ))}
-        <span className="git-branch">⎇ main ↑2 ↓0 ●5</span>
+        {gitInfo && (
+          <span className="git-branch">⎇ {gitInfo.branch} ↑{gitInfo.ahead} ↓{gitInfo.behind}</span>
+        )}
       </div>
       <div className="search" onClick={onSearchFocus}>
         <span style={{color: "var(--fg-3)"}}>⌕</span>
-        <input placeholder="find in current dir…  (fuzzy)" />
+        <input placeholder="find in current dir…  (fuzzy)" value="" readOnly />
         <span className="kb">/</span>
       </div>
       <div className="tool-group">
@@ -187,16 +237,61 @@ export function Toolbar({ onSearchFocus }: ToolbarProps) {
 }
 
 // ============= Sidebar =============
-export function Sidebar() {
+interface PinnedEntry {
+  ic: string;
+  label: string;
+  path: string;
+  badge: string | null;
+}
+
+function buildPinned(home: string | null): PinnedEntry[] {
+  const out: PinnedEntry[] = [];
+  if (home) {
+    out.push({ ic: "󰋜", label: "home", path: home, badge: null });
+    const sep = home.includes("\\") ? "\\" : "/";
+    const join = (sub: string) => home.replace(/[\\/]+$/, "") + sep + sub;
+    out.push({ ic: "", label: "Desktop", path: join("Desktop"), badge: null });
+    out.push({ ic: "", label: "Documents", path: join("Documents"), badge: null });
+    out.push({ ic: "", label: "Downloads", path: join("Downloads"), badge: null });
+    out.push({ ic: "", label: "Pictures", path: join("Pictures"), badge: null });
+  }
+  return out;
+}
+
+export interface SidebarProps {
+  activePath: string;
+  onGoTo: (path: string) => void;
+}
+
+export function Sidebar({ activePath, onGoTo }: SidebarProps) {
+  const [home, setHome] = useState<string | null>(null);
+  const [driveList, setDriveList] = useState<Drive[]>([]);
+
+  useEffect(() => {
+    void (async () => {
+      setHome(await apiHomeDir());
+      setDriveList(await apiDrives());
+    })();
+  }, []);
+
+  const pinned = useMemo(() => buildPinned(home), [home]);
+
   return (
     <aside className="sidebar">
       <div className="sb-group">
         <div className="sb-title"><span>PINNED</span><span style={{color:"var(--fg-3)"}}>+</span></div>
-        {SIDEBAR.pinned.map((p, i) => (
-          <div key={i} className={"sb-item" + (p.active ? " active" : "")}>
+        {pinned.map((p, i) => (
+          <div key={i} className={"sb-item" + (p.path === activePath ? " active" : "")} onClick={() => onGoTo(p.path)} style={{cursor:"pointer"}}>
             <span className="ic">{p.ic || "·"}</span>
             <span>{p.label}</span>
             <span className="badge">{p.badge}</span>
+          </div>
+        ))}
+        {driveList.map((d, i) => (
+          <div key={"d" + i} className={"sb-item" + (d.letter === activePath ? " active" : "")} onClick={() => onGoTo(d.letter)} style={{cursor:"pointer"}}>
+            <span className="ic"></span>
+            <span>{d.label || d.letter.replace(/\\$/, "")}</span>
+            <span className="badge">{d.fs || null}</span>
           </div>
         ))}
       </div>
@@ -275,15 +370,14 @@ function tagColor(tag: string | null): string {
 export type ContextKind = "file" | "empty";
 
 export interface FilePaneProps {
+  files: FileRow[];
   selected: number[];
   setSelected: (sel: number[]) => void;
   onContext: (e: React.MouseEvent, kind: ContextKind) => void;
-  showHidden: boolean;
+  onOpen?: (index: number) => void;
 }
 
-export function FilePane({ selected, setSelected, onContext, showHidden }: FilePaneProps) {
-  const files = showHidden ? FILES : FILES.filter(f => !f.hidden);
-
+export function FilePane({ files, selected, setSelected, onContext, onOpen }: FilePaneProps) {
   const handleRowClick = (i: number, e: React.MouseEvent) => {
     if (e.shiftKey && selected.length) {
       const last = selected[selected.length - 1];
@@ -315,6 +409,7 @@ export function FilePane({ selected, setSelected, onContext, showHidden }: FileP
                  className={"row" + (isSel ? " selected" : "")}
                  style={{opacity: f.dimmed ? 0.55 : 1}}
                  onClick={(e) => handleRowClick(i, e)}
+                 onDoubleClick={() => onOpen && onOpen(i)}
                  onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); if (!isSel) setSelected([i]); onContext(e, "file"); }}>
               <span className={"ic " + ki.cls}>{ki.ic}</span>
               <span className="name">
@@ -343,33 +438,84 @@ export function FilePane({ selected, setSelected, onContext, showHidden }: FileP
 }
 
 // ============= Inspector =============
+export interface InspectableFile extends FileRow {
+  entry: FileEntry;
+}
+
 export interface InspectorProps {
-  file: FileRow | null;
+  file: InspectableFile | null;
+}
+
+function mimeGuess(kind: FileKind, ext: string): string {
+  if (kind === "img") {
+    if (ext === "svg") return "image/svg+xml";
+    if (ext === "png") return "image/png";
+    if (ext === "jpg" || ext === "jpeg") return "image/jpeg";
+    return "image/*";
+  }
+  if (kind === "code") {
+    if (ext === "rs") return "text/x-rust";
+    if (ext === "py") return "text/x-python";
+    if (ext === "ts" || ext === "tsx") return "text/typescript";
+    if (ext === "js" || ext === "jsx") return "text/javascript";
+    return "text/plain";
+  }
+  if (kind === "archive") return "application/octet-stream";
+  if (kind === "exec") return "application/x-executable";
+  if (kind === "folder") return "inode/directory";
+  return "text/plain";
 }
 
 export function Inspector({ file }: InspectorProps) {
-  const f = file || FILES.find(x => x.name === "main.rs")!;
+  const [preview, setPreview] = useState<string>("");
+  const isTextLike = !!file && (file.kind === "text" || file.kind === "code");
+
+  useEffect(() => {
+    setPreview("");
+    if (!file || !isTextLike) return;
+    let cancelled = false;
+    void (async () => {
+      const t = await readText(file.entry.path, 4096);
+      if (!cancelled) setPreview(t);
+    })();
+    return () => { cancelled = true; };
+  }, [file?.entry.path, isTextLike]);
+
+  if (!file) {
+    return (
+      <aside className="inspector">
+        <div className="insp-hero">
+          <div className="insp-preview"><div className="ghost">no selection</div></div>
+          <div className="insp-title">—</div>
+          <div className="insp-path">—</div>
+        </div>
+      </aside>
+    );
+  }
+
+  const f = file;
   const isImg = f.kind === "img";
+  const displayName = f.ext && f.kind !== "folder" ? `${f.name}.${f.ext}` : f.name;
+  const previewLines = preview.split(/\r?\n/).slice(0, 20);
+  const mime = mimeGuess(f.kind, f.ext);
 
   return (
     <aside className="inspector">
       <div className="insp-hero">
         <div className="insp-preview">
           {isImg ? (
-            <div className="ghost">preview · {f.ext.toUpperCase()} · 1920×1080</div>
-          ) : f.kind === "code" ? (
-            <div style={{fontSize: 10, color:"var(--fg-2)", textAlign:"left", padding:10, alignSelf:"stretch"}}>
-              <div><span style={{color:"var(--red)"}}>fn</span> <span style={{color:"var(--blue)"}}>main</span>() {"{"}</div>
-              <div>&nbsp;&nbsp;<span style={{color:"var(--magenta)"}}>println!</span>(<span style={{color:"var(--green)"}}>"hello, rice"</span>);</div>
-              <div>{"}"}</div>
-              <div style={{color:"var(--fg-3)", marginTop:6}}>…+ 247 lines</div>
+            <div className="ghost">[image preview — {f.ext.toUpperCase()}]</div>
+          ) : isTextLike && preview ? (
+            <div style={{fontSize: 10, color:"var(--fg-2)", textAlign:"left", padding:10, alignSelf:"stretch", whiteSpace:"pre", overflow:"hidden"}}>
+              {previewLines.map((ln, i) => (<div key={i}>{ln || " "}</div>))}
+              {preview.length >= 4096 && <div style={{color:"var(--fg-3)", marginTop:6}}>…truncated</div>}
             </div>
           ) : (
             <div className="big-ic">{kindIcon(f.kind).ic}</div>
           )}
         </div>
-        <div className="insp-title">{f.name}</div>
-        <div className="insp-path">~/projects/glasshouse/{f.name}</div>
+        <div className="insp-title">{displayName}</div>
+        <div className="insp-path">{f.entry.path}</div>
         <div>
           {f.tag && <span className="chip"><span className="dot" style={{background: tagColor(f.tag)}}></span>{f.tag}</span>}
           <span className="chip">{f.kind}</span>
@@ -384,28 +530,24 @@ export function Inspector({ file }: InspectorProps) {
         <dl className="kv">
           <dt>size</dt><dd>{f.size}</dd>
           <dt>modified</dt><dd>{f.date}</dd>
-          <dt>created</dt><dd>2026-03-14 09:22:18</dd>
-          <dt>owner</dt><dd>void:void</dd>
-          <dt>inode</dt><dd>2359297</dd>
-          <dt>mime</dt><dd className="mono">{f.kind === "code" ? "text/x-rust" : f.kind === "img" ? "image/png" : "text/plain"}</dd>
+          <dt>created</dt><dd>—</dd>
+          <dt>owner</dt><dd>—</dd>
+          <dt>inode</dt><dd>—</dd>
+          <dt>mime</dt><dd className="mono">{mime}</dd>
         </dl>
       </div>
 
       <div className="insp-section">
         <h4>PERMISSIONS <span style={{color:"var(--accent)", cursor:"pointer"}}>edit</span></h4>
         <div style={{fontFamily:"var(--font-mono)", color:"var(--fg-0)", marginBottom:6}}>
-          <span style={{color:"var(--accent)"}}>-</span>
-          <span style={{color:"var(--green)"}}>rw-</span>
-          <span style={{color:"var(--yellow)"}}>r--</span>
-          <span style={{color:"var(--red)"}}>r--</span>
-          <span style={{color:"var(--fg-3)"}}>  0644</span>
+          <span style={{color:"var(--fg-3)"}}>…</span>
         </div>
         <div className="perm-grid">
           <div></div><div className="h">owner</div><div className="h">group</div><div className="h">world</div>
           <div className="h" style={{textAlign:"right"}}>read</div>
-          <div className="perm-cell">r</div><div className="perm-cell">r</div><div className="perm-cell">r</div>
+          <div className="perm-cell off">—</div><div className="perm-cell off">—</div><div className="perm-cell off">—</div>
           <div className="h" style={{textAlign:"right"}}>write</div>
-          <div className="perm-cell">w</div><div className="perm-cell off">—</div><div className="perm-cell off">—</div>
+          <div className="perm-cell off">—</div><div className="perm-cell off">—</div><div className="perm-cell off">—</div>
           <div className="h" style={{textAlign:"right"}}>exec</div>
           <div className="perm-cell off">—</div><div className="perm-cell off">—</div><div className="perm-cell off">—</div>
         </div>
@@ -414,19 +556,19 @@ export function Inspector({ file }: InspectorProps) {
       <div className="insp-section">
         <h4>CHECKSUMS <span style={{color:"var(--accent)", cursor:"pointer"}}>copy</span></h4>
         <dl className="kv">
-          <dt>sha256</dt><dd className="mono" style={{fontSize:10}}>9f2a8c1e…b47f3d02</dd>
-          <dt>md5</dt><dd className="mono" style={{fontSize:10}}>1cda4f…8b3a</dd>
-          <dt>crc32</dt><dd className="mono">0x7a3e1fcc</dd>
+          <dt>sha256</dt><dd className="mono" style={{fontSize:10}}>—</dd>
+          <dt>md5</dt><dd className="mono" style={{fontSize:10}}>—</dd>
+          <dt>crc32</dt><dd className="mono">—</dd>
         </dl>
       </div>
 
       <div className="insp-section">
-        <h4>GIT <span style={{color:"var(--orange)"}}>⎇ main</span></h4>
+        <h4>GIT {f.git ? <span style={{color:"var(--orange)"}}>{f.git}</span> : <span style={{color:"var(--fg-3)"}}>—</span>}</h4>
         <dl className="kv">
-          <dt>last commit</dt><dd>3 hours ago</dd>
-          <dt>author</dt><dd>void</dd>
-          <dt>sha</dt><dd className="mono">a3f81c2</dd>
-          <dt>diff</dt><dd><span style={{color:"var(--green)"}}>+42</span> / <span style={{color:"var(--red)"}}>−7</span></dd>
+          <dt>last commit</dt><dd>—</dd>
+          <dt>author</dt><dd>—</dd>
+          <dt>sha</dt><dd className="mono">—</dd>
+          <dt>diff</dt><dd>—</dd>
         </dl>
       </div>
 
@@ -448,28 +590,67 @@ export function Inspector({ file }: InspectorProps) {
 // ============= Status bar =============
 export interface StatusBarProps {
   selectedCount: number;
+  totalCount: number;
   totalSize: string;
+  path: string;
+  gitInfo: GitInfo | null;
   onToggleTerm: () => void;
 }
 
-export function StatusBar({ selectedCount, totalSize, onToggleTerm }: StatusBarProps) {
+function formatUptime(s: number): string {
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const sec = s % 60;
+  const pad = (n: number) => n.toString().padStart(2, "0");
+  return `${pad(h)}:${pad(m)}:${pad(sec)}`;
+}
+
+function formatMemGB(bytes: number): string {
+  if (!bytes) return "—";
+  const g = bytes / (1024 ** 3);
+  if (g >= 10) return `${g.toFixed(0)}G`;
+  return `${g.toFixed(1)}G`;
+}
+
+export function StatusBar({ selectedCount, totalCount, totalSize, path, gitInfo, onToggleTerm }: StatusBarProps) {
+  const [sys, setSys] = useState<SystemInfo | null>(null);
+  const [now, setNow] = useState<Date>(() => new Date());
+
+  useEffect(() => {
+    void (async () => { setSys(await apiSystemInfo()); })();
+    const id = window.setInterval(async () => {
+      setSys(await apiSystemInfo());
+      setNow(new Date());
+    }, 2000);
+    return () => window.clearInterval(id);
+  }, []);
+
+  const pad = (n: number) => n.toString().padStart(2, "0");
+  const clock = `${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
+  const cpu = sys ? `${sys.cpu_pct.toFixed(0).padStart(2, "0")}%` : "—";
+  const memPct = sys ? `${sys.mem_pct.toFixed(0)}%` : "—";
+  const memUsed = sys ? formatMemGB(sys.mem_used) : "—";
+  const uptime = sys ? formatUptime(sys.uptime_s) : "—";
+  const branch = gitInfo?.branch ?? "—";
+  const ahead = gitInfo ? `↑${gitInfo.ahead}` : "";
+
   return (
     <div className="statusbar">
       <div className="sb-seg mode">NORMAL</div>
-      <div className="sb-seg"><span className="lbl">▸</span><span className="val">rice://home/void/projects/glasshouse</span></div>
-      <div className="sb-seg accent"><span className="lbl">⎇</span><span className="val">main</span><span style={{color:"var(--fg-3)"}}>↑2</span></div>
-      <div className="sb-seg"><span className="lbl">sel</span><span className="val">{selectedCount}</span><span style={{color:"var(--fg-3)"}}>/ 20</span></div>
+      <div className="sb-seg"><span className="lbl">▸</span><span className="val">rice://{path}</span></div>
+      <div className="sb-seg accent"><span className="lbl">⎇</span><span className="val">{branch}</span><span style={{color:"var(--fg-3)"}}>{ahead}</span></div>
+      <div className="sb-seg"><span className="lbl">sel</span><span className="val">{selectedCount}</span><span style={{color:"var(--fg-3)"}}>/ {totalCount}</span></div>
       <div className="sb-seg"><span className="lbl">Σ</span><span className="val">{totalSize}</span></div>
       <div className="spacer"></div>
-      <div className="sb-seg"><span className="lbl">fs</span><span className="val">ext4</span></div>
-      <div className="sb-seg warn"><span className="lbl">/</span><span className="val">51%</span></div>
-      <div className="sb-seg ok"><span className="lbl">cpu</span><span className="val">04%</span></div>
-      <div className="sb-seg"><span className="lbl">mem</span><span className="val">6.2G</span></div>
+      <div className="sb-seg"><span className="lbl">fs</span><span className="val">—</span></div>
+      <div className="sb-seg warn"><span className="lbl">mem</span><span className="val">{memPct}</span></div>
+      <div className="sb-seg ok"><span className="lbl">cpu</span><span className="val">{cpu}</span></div>
+      <div className="sb-seg"><span className="lbl">mem</span><span className="val">{memUsed}</span></div>
       <div className="sb-seg"><span className="lbl">i/o</span><span className="val">▁▂▃▅▂▁</span></div>
-      <div className="sb-seg"><span className="lbl">net</span><span className="val">↓82K ↑12K</span></div>
+      <div className="sb-seg"><span className="lbl">net</span><span className="val">—</span></div>
       <div className="sb-seg" style={{cursor:"pointer"}} onClick={onToggleTerm}><span className="val" style={{color:"var(--accent)"}}>⌨ term</span></div>
-      <div className="sb-seg"><span className="lbl">up</span><span className="val">04:13:22</span></div>
-      <div className="sb-seg"><span className="val">22:41:07</span></div>
+      <div className="sb-seg"><span className="lbl">up</span><span className="val">{uptime}</span></div>
+      <div className="sb-seg"><span className="val">{clock}</span></div>
     </div>
   );
 }

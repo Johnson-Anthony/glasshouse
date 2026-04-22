@@ -1,0 +1,181 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  listDir,
+  gitStatus,
+  type FileEntry,
+  type GitInfo,
+} from "./api";
+
+export type SortKey = "name" | "size" | "modified" | "type" | "git";
+
+export interface TabState {
+  path: string;
+  entries: FileEntry[];
+  gitInfo: GitInfo | null;
+  selected: number[];
+  sortKey: SortKey;
+  sortDesc: boolean;
+  showHidden: boolean;
+  loading: boolean;
+  error: string | null;
+  historyBack: string[];
+  historyForward: string[];
+}
+
+export interface TabActions {
+  goTo: (path: string) => void;
+  back: () => void;
+  forward: () => void;
+  up: () => void;
+  refresh: () => void;
+  setSelected: (sel: number[]) => void;
+  setShowHidden: (v: boolean) => void;
+  setSortKey: (k: SortKey) => void;
+  setSortDesc: (v: boolean) => void;
+}
+
+export interface UseTabResult {
+  state: TabState;
+  actions: TabActions;
+}
+
+function parentPath(p: string): string {
+  if (!p) return p;
+  const hasBack = p.includes("\\");
+  const sep = hasBack ? "\\" : "/";
+  const trimmed = p.replace(/[\\/]+$/, "");
+  const idx = Math.max(trimmed.lastIndexOf("\\"), trimmed.lastIndexOf("/"));
+  if (idx <= 0) {
+    if (/^[A-Za-z]:$/.test(trimmed)) return trimmed + sep;
+    if (trimmed.startsWith("/")) return "/";
+    return trimmed;
+  }
+  if (/^[A-Za-z]:$/.test(trimmed.slice(0, 2)) && idx === 2) {
+    return trimmed.slice(0, 3);
+  }
+  return trimmed.slice(0, idx) || sep;
+}
+
+export function useTabState(initialPath: string): UseTabResult {
+  const [path, setPath] = useState<string>(initialPath);
+  const [entries, setEntries] = useState<FileEntry[]>([]);
+  const [gitInfo, setGitInfo] = useState<GitInfo | null>(null);
+  const [selected, setSelected] = useState<number[]>([]);
+  const [sortKey, setSortKey] = useState<SortKey>("name");
+  const [sortDesc, setSortDesc] = useState<boolean>(false);
+  const [showHidden, setShowHidden] = useState<boolean>(false);
+  const [loading, setLoading] = useState<boolean>(false);
+  const [error, setError] = useState<string | null>(null);
+  const [historyBack, setHistoryBack] = useState<string[]>([]);
+  const [historyForward, setHistoryForward] = useState<string[]>([]);
+  const [refreshTick, setRefreshTick] = useState<number>(0);
+
+  const pathRef = useRef(path);
+  const showHiddenRef = useRef(showHidden);
+  useEffect(() => { pathRef.current = path; }, [path]);
+  useEffect(() => { showHiddenRef.current = showHidden; }, [showHidden]);
+
+  const fetchAll = useCallback(async (p: string, hidden: boolean) => {
+    setLoading(true);
+    setError(null);
+    try {
+      const [dir, git] = await Promise.all([
+        listDir(p, hidden),
+        gitStatus(p),
+      ]);
+      setEntries(dir);
+      setGitInfo(git);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+      setEntries([]);
+      setGitInfo(null);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!path) return;
+    const handle = window.setTimeout(() => {
+      void fetchAll(path, showHidden);
+    }, 60);
+    return () => window.clearTimeout(handle);
+  }, [path, showHidden, refreshTick, fetchAll]);
+
+  // TODO: replace with tauri-plugin-notify event stream
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      void fetchAll(pathRef.current, showHiddenRef.current);
+    }, 2000);
+    return () => window.clearInterval(id);
+  }, [fetchAll]);
+
+  const goTo = useCallback((next: string) => {
+    setPath(prev => {
+      if (prev === next) return prev;
+      setHistoryBack(h => [...h, prev]);
+      setHistoryForward([]);
+      setSelected([]);
+      return next;
+    });
+  }, []);
+
+  const back = useCallback(() => {
+    setHistoryBack(h => {
+      if (h.length === 0) return h;
+      const prev = h[h.length - 1];
+      setHistoryForward(f => [...f, pathRef.current]);
+      setPath(prev);
+      setSelected([]);
+      return h.slice(0, -1);
+    });
+  }, []);
+
+  const forward = useCallback(() => {
+    setHistoryForward(f => {
+      if (f.length === 0) return f;
+      const next = f[f.length - 1];
+      setHistoryBack(h => [...h, pathRef.current]);
+      setPath(next);
+      setSelected([]);
+      return f.slice(0, -1);
+    });
+  }, []);
+
+  const up = useCallback(() => {
+    const parent = parentPath(pathRef.current);
+    if (parent && parent !== pathRef.current) goTo(parent);
+  }, [goTo]);
+
+  const refresh = useCallback(() => {
+    setRefreshTick(t => t + 1);
+  }, []);
+
+  const state: TabState = useMemo(() => ({
+    path,
+    entries,
+    gitInfo,
+    selected,
+    sortKey,
+    sortDesc,
+    showHidden,
+    loading,
+    error,
+    historyBack,
+    historyForward,
+  }), [path, entries, gitInfo, selected, sortKey, sortDesc, showHidden, loading, error, historyBack, historyForward]);
+
+  const actions: TabActions = useMemo(() => ({
+    goTo,
+    back,
+    forward,
+    up,
+    refresh,
+    setSelected,
+    setShowHidden,
+    setSortKey,
+    setSortDesc,
+  }), [goTo, back, forward, up, refresh]);
+
+  return useMemo(() => ({ state, actions }), [state, actions]);
+}
