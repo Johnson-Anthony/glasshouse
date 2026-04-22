@@ -13,6 +13,7 @@ import {
   Tweaks,
   BulkRenameDialog,
   PasteSpecialDialog,
+  BlameDialog,
   type BulkRenameItem,
   type PasteSpecialItem,
   type TabDef,
@@ -76,87 +77,6 @@ interface TabShellProps {
   index: number;
   initialPath: string;
   onReady: (index: number, r: UseTabResult) => void;
-}
-
-interface BlameModalProps {
-  data: { path: string; lines: BlameLine[] };
-  onClose: () => void;
-}
-
-function BlameModal({ data, onClose }: BlameModalProps) {
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        e.preventDefault();
-        onClose();
-      }
-    };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, [onClose]);
-  const shortName = (() => {
-    const t = data.path.replace(/[\\/]+$/, "");
-    const i = Math.max(t.lastIndexOf("\\"), t.lastIndexOf("/"));
-    return i < 0 ? t : t.slice(i + 1);
-  })();
-  const fmtDate = (ms: number): string => {
-    if (!ms) return "—";
-    const d = new Date(ms);
-    const pad = (n: number) => n.toString().padStart(2, "0");
-    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-  };
-  return (
-    <div
-      onClick={onClose}
-      style={{
-        position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)",
-        zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center",
-      }}
-    >
-      <div
-        onClick={(e) => e.stopPropagation()}
-        style={{
-          width: "80ch", maxWidth: "95vw", maxHeight: "85vh",
-          background: "var(--bg-1, #1a1b26)", border: "1px solid var(--fg-3)",
-          borderRadius: 4, display: "flex", flexDirection: "column",
-          fontFamily: "var(--font-mono)", color: "var(--fg-1)",
-        }}
-      >
-        <div
-          style={{
-            display: "flex", alignItems: "center", justifyContent: "space-between",
-            padding: "8px 12px", borderBottom: "1px solid var(--fg-3)",
-            background: "var(--bg-2, #16161e)",
-          }}
-        >
-          <span style={{ color: "var(--accent)" }}>⎇ git blame · {shortName}</span>
-          <span style={{ color: "var(--fg-3)", fontSize: 12 }}>
-            {data.lines.length} line{data.lines.length === 1 ? "" : "s"} · esc/click to close
-          </span>
-          <button
-            onClick={onClose}
-            style={{
-              background: "transparent", border: "1px solid var(--fg-3)", color: "var(--fg-1)",
-              padding: "2px 8px", cursor: "pointer", borderRadius: 2,
-            }}
-          >×</button>
-        </div>
-        <div style={{ overflow: "auto", padding: "6px 12px", fontSize: 12, lineHeight: 1.5 }}>
-          {data.lines.length === 0 ? (
-            <div style={{ color: "var(--fg-3)" }}>(no blame data)</div>
-          ) : data.lines.map((ln, i) => (
-            <div key={i} style={{ display: "flex", gap: 8, whiteSpace: "pre" }}>
-              <span style={{ color: "var(--yellow)", width: "8ch", flexShrink: 0 }}>{ln.sha}</span>
-              <span style={{ color: "var(--accent-2, var(--blue))", width: "16ch", flexShrink: 0, overflow: "hidden", textOverflow: "ellipsis" }}>{ln.author}</span>
-              <span style={{ color: "var(--fg-3)", width: "11ch", flexShrink: 0 }}>{fmtDate(ln.timestamp_ms)}</span>
-              <span style={{ color: "var(--fg-3)", width: "5ch", flexShrink: 0, textAlign: "right" }}>{ln.line_no}</span>
-              <span style={{ color: "var(--fg-1)", overflow: "hidden", textOverflow: "ellipsis" }}>{ln.content.slice(0, 200)}</span>
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
 }
 
 interface FindInFilesModalProps {
@@ -1444,7 +1364,7 @@ export function App() {
       {palOpen && <Palette onClose={() => setPalOpen(false)} onCommand={handleMenuCommand} />}
       {ctx && <ContextMenu items={ctx.items} x={ctx.x} y={ctx.y} onClose={() => setCtx(null)} onCommand={handleMenuCommand} />}
       {tweaksOpen && <Tweaks state={state} setState={setState} onClose={() => setTweaksOpen(false)} />}
-      {blame && <BlameModal data={blame} onClose={() => setBlame(null)} />}
+      {blame && <BlameDialog blame={blame} onClose={() => setBlame(null)} />}
       {showFindModal && (
         <FindInFilesModal
           root={activeHandle?.state.path ?? ""}
