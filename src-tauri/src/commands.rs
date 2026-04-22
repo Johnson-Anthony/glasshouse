@@ -1693,3 +1693,137 @@ pub fn set_always_on_top(window: tauri::Window, enabled: bool) -> Result<(), Str
         .set_always_on_top(enabled)
         .map_err(|e| format!("set_always_on_top: {}", e))
 }
+
+// ---------- real git shell-outs ----------
+
+#[derive(Debug, Serialize)]
+pub struct GitRunResult {
+    pub ok: bool,
+    pub stdout: String,
+    pub stderr: String,
+    pub exit: i32,
+}
+
+#[derive(Debug, Serialize)]
+pub struct GitBranch {
+    pub name: String,
+    pub current: bool,
+    pub upstream: Option<String>,
+    pub ahead: u32,
+    pub behind: u32,
+}
+
+fn build_git_command(cwd: &str) -> std::process::Command {
+    let mut cmd = std::process::Command::new("git");
+    cmd.current_dir(cwd);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+    cmd
+}
+
+fn classify_spawn_err(e: &std::io::Error) -> String {
+    if e.kind() == std::io::ErrorKind::NotFound {
+        "git not found — install git for Windows".to_string()
+    } else {
+        format!("git spawn failed: {}", e)
+    }
+}
+
+#[tauri::command]
+pub fn git_run(cwd: String, args: Vec<String>) -> Result<GitRunResult, String> {
+    let mut cmd = build_git_command(&cwd);
+    cmd.args(&args);
+    let out = cmd.output().map_err(|e| classify_spawn_err(&e))?;
+    let stdout = String::from_utf8_lossy(&out.stdout).into_owned();
+    let stderr = String::from_utf8_lossy(&out.stderr).into_owned();
+    let exit = out.status.code().unwrap_or(-1);
+    Ok(GitRunResult {
+        ok: out.status.success(),
+        stdout,
+        stderr,
+        exit,
+    })
+}
+
+#[tauri::command]
+pub fn git_branch_list(cwd: String) -> Result<Vec<GitBranch>, String> {
+    let mut cmd = build_git_command(&cwd);
+    cmd.args([
+        "for-each-ref",
+        "--format=%(refname:short)\t%(HEAD)\t%(upstream:short)",
+        "refs/heads/",
+    ]);
+    let out = cmd.output().map_err(|e| classify_spawn_err(&e))?;
+    if !out.status.success() {
+        return Err(String::from_utf8_lossy(&out.stderr).into_owned());
+    }
+    let text = String::from_utf8_lossy(&out.stdout);
+    let mut branches = Vec::new();
+    for line in text.lines() {
+        let mut it = line.splitn(3, '\t');
+        let name = match it.next() {
+            Some(s) if !s.is_empty() => s.to_string(),
+            _ => continue,
+        };
+        let head_flag = it.next().unwrap_or("");
+        let upstream_raw = it.next().unwrap_or("");
+        let current = head_flag.trim() == "*";
+        let upstream = if upstream_raw.is_empty() {
+            None
+        } else {
+            Some(upstream_raw.to_string())
+        };
+
+        let (ahead, behind) = if let Some(up) = &upstream {
+            let mut rl = build_git_command(&cwd);
+            rl.args([
+                "rev-list",
+                "--left-right",
+                "--count",
+                &format!("{}...{}", name, up),
+            ]);
+            match rl.output() {
+                Ok(o) if o.status.success() => {
+                    let s = String::from_utf8_lossy(&o.stdout);
+                    let parts: Vec<&str> = s.split_whitespace().collect();
+                    let a: u32 = parts.first().and_then(|x| x.parse().ok()).unwrap_or(0);
+                    let b: u32 = parts.get(1).and_then(|x| x.parse().ok()).unwrap_or(0);
+                    (a, b)
+                }
+                _ => (0, 0),
+            }
+        } else {
+            (0, 0)
+        };
+
+        branches.push(GitBranch {
+            name,
+            current,
+            upstream,
+            ahead,
+            behind,
+        });
+    }
+    Ok(branches)
+}
+
+#[tauri::command]
+pub fn git_ahead_behind(cwd: String) -> Result<(u32, u32), String> {
+    let mut cmd = build_git_command(&cwd);
+    cmd.args(["rev-list", "--left-right", "--count", "HEAD...@{upstream}"]);
+    let out = match cmd.output() {
+        Ok(o) => o,
+        Err(e) => return Err(classify_spawn_err(&e)),
+    };
+    if !out.status.success() {
+        return Ok((0, 0));
+    }
+    let s = String::from_utf8_lossy(&out.stdout);
+    let parts: Vec<&str> = s.split_whitespace().collect();
+    let a: u32 = parts.first().and_then(|x| x.parse().ok()).unwrap_or(0);
+    let b: u32 = parts.get(1).and_then(|x| x.parse().ok()).unwrap_or(0);
+    Ok((a, b))
+}

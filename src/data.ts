@@ -66,6 +66,8 @@ export type MenuItemDef =
       kb?: string;
       danger?: boolean;
       check?: boolean;
+      /** If set, dispatched instead of `label` when the item is invoked. */
+      action?: string;
     }
   | {
       kind: "sub";
@@ -74,7 +76,8 @@ export type MenuItemDef =
       children: MenuItemDef[];
     }
   | { kind: "sep" }
-  | { kind: "grouplabel"; label: string };
+  | { kind: "grouplabel"; label: string }
+  | { kind: "dynamic"; source: "git-branches" };
 
 export type MenusData = Record<string, MenuItemDef[]>;
 
@@ -364,9 +367,7 @@ export const MENUS: MenusData = {
     { kind: "item", ic: "", label: "Fetch All" },
     { kind: "sub",  ic: "", label: "Branches",
       children: [
-        { kind: "item", label: "* main", check: true },
-        { kind: "item", label: "  feat/command-palette" },
-        { kind: "item", label: "  wip/theme-switcher" },
+        { kind: "dynamic", source: "git-branches" },
         { kind: "sep" },
         { kind: "item", label: "New Branch…" },
         { kind: "item", label: "Checkout…" },

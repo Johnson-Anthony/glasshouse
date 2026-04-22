@@ -6,7 +6,7 @@
 
 import type { UseTabResult } from "../state";
 import type { FileEntry, BlameLine } from "../api";
-import type { TweakState } from "../components";
+import type { TweakState, GitOutputState } from "../components";
 
 export interface HandlerCtx {
   activeHandle: UseTabResult | undefined;
@@ -25,6 +25,7 @@ export interface HandlerCtx {
   setBlame: (b: { path: string; lines: BlameLine[] } | null) => void;
   setHexView?: (v: { path: string; hex: string } | null) => void;
   setDiffView?: (v: { a: string; b: string; diff: string } | null) => void;
+  setGitOutput?: (v: GitOutputState | null) => void;
   clipboardPaths?: () => string[];
   refresh: () => void;
   // Optional — wired up by App.tsx in a later pass. Handlers use `ctx.undo?.()` etc.

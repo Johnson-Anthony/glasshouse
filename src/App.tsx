@@ -14,6 +14,7 @@ import {
   BulkRenameDialog,
   PasteSpecialDialog,
   BlameDialog,
+  GitOutputDialog,
   HexDialog,
   DiffDialog,
   ConnectServerDialog,
@@ -25,6 +26,8 @@ import {
   type TabDef,
   type TweakState,
   type ContextKind,
+  type GitOutputState,
+  type DynamicResolver,
 } from "./components";
 import { CONTEXT_FILE, CONTEXT_EMPTY, CONTEXT_SIDEBAR, CONTEXT_SIDEBAR_PINNED, CONTEXT_TAB, CONTEXT_BREADCRUMB, type MenuItemDef, type FileRow, type FileKind, type GitStatus } from "./data";
 import {
@@ -64,6 +67,7 @@ import {
   gitStage,
   gitUnstage,
   gitDiscard,
+  gitBranchList,
   findInFiles,
   compress,
   hashSha256,
@@ -418,6 +422,8 @@ export function App() {
   const [pins, setPins] = useState<string[]>([]);
   const [tagStore, setTagStore] = useState<Record<string, string[]>>({});
   const [blame, setBlame] = useState<{ path: string; lines: BlameLine[] } | null>(null);
+  const [gitOutput, setGitOutput] = useState<GitOutputState | null>(null);
+  const [branchCache, setBranchCache] = useState<{ ic: string; label: string; check?: boolean }[]>([]);
   const [hexView, setHexView] = useState<{ path: string; hex: string } | null>(null);
   const [diffView, setDiffView] = useState<{ a: string; b: string; diff: string } | null>(null);
   const [showFindModal, setShowFindModal] = useState(false);
@@ -1216,6 +1222,7 @@ export function App() {
             setBlame,
             setHexView,
             setDiffView,
+            setGitOutput,
             clipboardPaths: () => appClipboard?.paths ?? [],
             pushUndo,
             undo: () => {
@@ -1347,6 +1354,47 @@ export function App() {
   const totalBytes = liveRows.reduce((acc, r) => acc + (r.kind === "folder" ? 0 : r.entry.size), 0);
   const totalSize = formatBytes(totalBytes, false);
 
+  const currentCwd = activeHandle?.state.path ?? "";
+  const currentBranch = activeHandle?.state.gitInfo?.branch ?? "";
+  useEffect(() => {
+    if (!currentCwd) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const branches = await gitBranchList(currentCwd);
+        if (cancelled) return;
+        setBranchCache(
+          branches.map(b => ({
+            ic: b.current ? "✓" : "",
+            label: b.name,
+            check: b.current,
+          })),
+        );
+      } catch {
+        if (!cancelled) setBranchCache([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [currentCwd, currentBranch]);
+
+  const resolveDynamic: DynamicResolver = (source) => {
+    if (source === "git-branches") {
+      if (branchCache.length === 0) {
+        return [{ kind: "grouplabel", label: "(no branches)" } as MenuItemDef];
+      }
+      return branchCache.map(b => ({
+        kind: "item",
+        label: b.label,
+        ic: b.ic,
+        check: b.check,
+        action: `git-branch:${b.label}`,
+      } as MenuItemDef));
+    }
+    return [];
+  };
+
   return (
     <div className="app">
       {initialPaths && initialPaths.map((p, i) => (
@@ -1365,7 +1413,7 @@ export function App() {
         onNewTab={openNewTab}
         onTabContext={onTabContext}
       />
-      <Menubar onOpenPalette={() => setPalOpen(true)} onCommand={handleMenuCommand} />
+      <Menubar onOpenPalette={() => setPalOpen(true)} onCommand={handleMenuCommand} resolveDynamic={resolveDynamic} />
       <Toolbar
         path={activeHandle?.state.path ?? ""}
         gitInfo={activeHandle?.state.gitInfo ?? null}
@@ -1527,9 +1575,10 @@ export function App() {
       />
 
       {palOpen && <Palette onClose={() => setPalOpen(false)} onCommand={handleMenuCommand} />}
-      {ctx && <ContextMenu items={ctx.items} x={ctx.x} y={ctx.y} onClose={() => setCtx(null)} onCommand={handleMenuCommand} />}
+      {ctx && <ContextMenu items={ctx.items} x={ctx.x} y={ctx.y} onClose={() => setCtx(null)} onCommand={handleMenuCommand} resolveDynamic={resolveDynamic} />}
       {tweaksOpen && <Tweaks state={state} setState={setState} onClose={() => setTweaksOpen(false)} />}
       {blame && <BlameDialog blame={blame} onClose={() => setBlame(null)} />}
+      {gitOutput && <GitOutputDialog state={gitOutput} onClose={() => setGitOutput(null)} />}
       {hexView && <HexDialog path={hexView.path} hex={hexView.hex} onClose={() => setHexView(null)} />}
       {diffView && <DiffDialog a={diffView.a} b={diffView.b} diff={diffView.diff} onClose={() => setDiffView(null)} />}
       {showFindModal && (

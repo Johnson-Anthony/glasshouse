@@ -62,16 +62,32 @@ export function Titlebar({ tabs, activeTab, onSelectTab, onCloseTab, onNewTab, o
 }
 
 // ============= Menu bar + dropdown =============
+export type DynamicResolver = (source: "git-branches") => MenuItemDef[];
+
 interface MenuItemProps {
   item: MenuItemDef;
   onAction?: (label: string) => void;
   onSubHover?: (sub: MenuItemDef | null) => void;
   subOpen?: boolean;
+  resolveDynamic?: DynamicResolver;
 }
 
-function MenuItem({ item, onAction, onSubHover, subOpen }: MenuItemProps) {
+function expandItems(items: MenuItemDef[], resolve?: DynamicResolver): MenuItemDef[] {
+  const out: MenuItemDef[] = [];
+  for (const it of items) {
+    if (it.kind === "dynamic") {
+      if (resolve) out.push(...resolve(it.source));
+    } else {
+      out.push(it);
+    }
+  }
+  return out;
+}
+
+function MenuItem({ item, onAction, onSubHover, subOpen, resolveDynamic }: MenuItemProps) {
   if (item.kind === "sep") return <div className="sep" />;
   if (item.kind === "grouplabel") return <div className="group-label">{item.label}</div>;
+  if (item.kind === "dynamic") return null;
   const isSub = item.kind === "sub";
   const danger = item.kind === "item" && item.danger;
   const check = item.kind === "item" && item.check;
@@ -81,7 +97,9 @@ function MenuItem({ item, onAction, onSubHover, subOpen }: MenuItemProps) {
     <div
       className={"mi" + (danger ? " danger" : "") + (subOpen ? " hover" : "")}
       onMouseEnter={() => onSubHover && onSubHover(isSub ? item : null)}
-      onClick={() => !isSub && onAction && onAction(item.label)}
+      onClick={() => !isSub && onAction && onAction(
+        (item.kind === "item" && item.action) ? item.action : item.label
+      )}
     >
       <span className="ic">{check ? "✓" : ic || ""}</span>
       <span>{item.label}</span>
@@ -89,8 +107,8 @@ function MenuItem({ item, onAction, onSubHover, subOpen }: MenuItemProps) {
       <span className="chev">{isSub ? "›" : ""}</span>
       {isSub && subOpen && (
         <div className="dropdown" style={{left: "calc(100% + 2px)", top: "-4px", minWidth: 240}}>
-          {item.children.map((c, i) => (
-            <MenuItem key={i} item={c} onAction={onAction} />
+          {expandItems(item.children, resolveDynamic).map((c, i) => (
+            <MenuItem key={i} item={c} onAction={onAction} resolveDynamic={resolveDynamic} />
           ))}
         </div>
       )}
@@ -101,9 +119,10 @@ function MenuItem({ item, onAction, onSubHover, subOpen }: MenuItemProps) {
 export interface MenubarProps {
   onOpenPalette: () => void;
   onCommand: (label: string) => void;
+  resolveDynamic?: DynamicResolver;
 }
 
-export function Menubar({ onOpenPalette, onCommand }: MenubarProps) {
+export function Menubar({ onOpenPalette, onCommand, resolveDynamic }: MenubarProps) {
   const [open, setOpen] = useState<string | null>(null);
   const [subHover, setSubHover] = useState<MenuItemDef | null>(null);
   const ref = useRef<HTMLDivElement>(null);
@@ -129,13 +148,14 @@ export function Menubar({ onOpenPalette, onCommand }: MenubarProps) {
           <span><span className="u">{k[0]}</span>{k.slice(1)}</span>
           {open === k && (
             <div className="dropdown" onClick={(e) => e.stopPropagation()}>
-              {MENUS[k].map((it, i) => (
+              {expandItems(MENUS[k], resolveDynamic).map((it, i) => (
                 <MenuItem
                   key={i}
                   item={it}
                   subOpen={subHover !== null && "label" in subHover && "label" in it && subHover.label === (it as { label: string }).label}
                   onSubHover={(s) => setSubHover(s)}
                   onAction={(label) => { setOpen(null); onCommand(label); }}
+                  resolveDynamic={resolveDynamic}
                 />
               ))}
             </div>
@@ -1494,9 +1514,10 @@ export interface ContextMenuProps {
   y: number;
   onClose: () => void;
   onCommand?: (label: string) => void;
+  resolveDynamic?: DynamicResolver;
 }
 
-export function ContextMenu({ items, x, y, onClose, onCommand }: ContextMenuProps) {
+export function ContextMenu({ items, x, y, onClose, onCommand, resolveDynamic }: ContextMenuProps) {
   const [subHover, setSubHover] = useState<MenuItemDef | null>(null);
   useEffect(() => {
     const h = () => onClose();
@@ -1505,11 +1526,12 @@ export function ContextMenu({ items, x, y, onClose, onCommand }: ContextMenuProp
   }, [onClose]);
   return (
     <div className="ctx-menu" style={{left: x, top: y}} onClick={(e) => e.stopPropagation()}>
-      {items.map((it, i) => (
+      {expandItems(items, resolveDynamic).map((it, i) => (
         <MenuItem key={i} item={it}
           subOpen={subHover !== null && "label" in subHover && "label" in it && subHover.label === (it as { label: string }).label}
           onSubHover={(s) => setSubHover(s)}
           onAction={(label) => { if (onCommand) onCommand(label); onClose(); }}
+          resolveDynamic={resolveDynamic}
         />
       ))}
     </div>
@@ -2479,6 +2501,92 @@ export function BlameDialog({ blame, onClose }: BlameDialogProps) {
             </div>
           ))}
         </div>
+      </div>
+    </div>
+  );
+}
+
+// ============= GitOutputDialog =============
+export interface GitOutputState {
+  title: string;
+  output: string;
+  ok: boolean;
+  exit?: number;
+  stderr?: string;
+}
+
+export interface GitOutputDialogProps {
+  state: GitOutputState;
+  onClose: () => void;
+}
+
+export function GitOutputDialog({ state, onClose }: GitOutputDialogProps) {
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        onClose();
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [onClose]);
+
+  const statusColor = state.ok ? "var(--green, #9ece6a)" : "var(--red, #f7768e)";
+  const statusLabel = state.ok ? "ok" : `exit ${state.exit ?? "?"}`;
+
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)",
+        zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center",
+      }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          width: "100ch", maxWidth: "95vw", maxHeight: "85vh",
+          background: "var(--bg-1, #1a1b26)", border: "1px solid var(--fg-3)",
+          borderRadius: 4, display: "flex", flexDirection: "column",
+          fontFamily: "var(--font-mono)", color: "var(--fg-1)",
+        }}
+      >
+        <div
+          style={{
+            display: "flex", alignItems: "center", justifyContent: "space-between",
+            padding: "8px 12px", borderBottom: "1px solid var(--fg-3)",
+            background: "var(--bg-2, #16161e)",
+          }}
+        >
+          <span style={{ color: "var(--accent)" }}>⎇ {state.title}</span>
+          <span style={{ color: statusColor, fontSize: 12 }}>{statusLabel}</span>
+          <button
+            onClick={onClose}
+            style={{
+              background: "transparent", border: "1px solid var(--fg-3)", color: "var(--fg-1)",
+              padding: "2px 8px", cursor: "pointer", borderRadius: 2,
+            }}
+            aria-label="close"
+          >×</button>
+        </div>
+        <pre
+          style={{
+            margin: 0, padding: "10px 12px", overflow: "auto", flex: 1,
+            fontSize: 12, lineHeight: 1.45, whiteSpace: "pre-wrap", wordBreak: "break-word",
+            color: "var(--fg-1)",
+          }}
+        >{state.output || "(no output)"}</pre>
+        {!state.ok && state.stderr && state.stderr !== state.output && (
+          <pre
+            style={{
+              margin: 0, padding: "8px 12px", borderTop: "1px solid var(--fg-3)",
+              background: "var(--bg-2, #16161e)", color: "var(--red, #f7768e)",
+              fontSize: 12, lineHeight: 1.45, whiteSpace: "pre-wrap",
+              maxHeight: "30vh", overflow: "auto",
+            }}
+          >{state.stderr}</pre>
+        )}
       </div>
     </div>
   );
