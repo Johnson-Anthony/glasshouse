@@ -1,24 +1,23 @@
 # glasshouse UI Wiring Audit
-**Commit:** `6e2d934` (Wave 3 complete)  
+**Commit:** `5262121` (Wave 6 complete)  
 **Date:** 2026-04-22  
-**Frontend:** ~1800 LOC (App.tsx, components.tsx, state.ts, data.ts, api.ts)  
-**Backend:** 24 Tauri commands fully wired
+**Frontend:** ~1900 LOC (App.tsx, components.tsx, state.ts, data.ts, api.ts)  
+**Backend:** 27 Tauri commands fully wired
 
 ---
 
 ## Executive Summary
 
-**Total Click Surfaces:** 312 (+3 from baseline)  
-**WIRED:** 94 (↑37 from baseline 57)  
-**STUB:** 23 (↓ from baseline 12; explicitly honest)  
-**UNWIRED:** 195 (↓41 from baseline 236)  
-**MOCK (layout only):** 0 (↓12 from baseline)
+**Total Click Surfaces:** 315 (+3 from Wave 5)  
+**WIRED:** 100 (↑6 from Wave 5 94)  
+**STUB:** 20 (↓3 — compress/hash inspector chips + Move to… now WIRED)  
+**UNWIRED:** 195 (unchanged)  
+**MOCK (layout only):** 0
 
-### Delta vs. Baseline (commit b2a9480)
-- **+3 new surfaces:** spawn_terminal chip, spawn_vscode chip, move_to_trash chip (all now WIRED)
-- **+37 WIRED:** All Wave 1–3 implementations landed (confirm dialogs, keyboard shortcuts, context menus, sidebar/tab/breadcrumb, terminal/vscode spawning, trash routing)
-- **-12 MOCK → STUB:** Inspector chips and tag filter now honestly labeled as STUB instead of pretending to work
-- **-41 UNWIRED:** File ops, context menus, and 80% of palette commands now routed through `handleMenuCommand`
+### Wave 6 delta
+- **+3 new surfaces:** Find in Files modal + Ctrl+Shift+F, palette "Find in Files" entry, Move to… folder-picker dialog — all WIRED
+- **+3 WIRED from STUB:** Inspector compress chip → zip writer via `compress` cmd; hash chip → `hash_sha256`; right-click "Move to…" → `pickDirectory` + `move_entry`
+- **+3 backend commands:** `find_in_files` (ignore + grep-regex + grep-searcher parallel walk, 1 MiB per-file cap), `compress` (zip crate, recursive dir archival), `hash_sha256` (sha2 crate, streaming 64 KiB chunks)
 
 ---
 
