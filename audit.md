@@ -1,7 +1,7 @@
 # glasshouse UI Wiring Audit
-**Commit:** `87c5135` (Wave 7 complete)  
+**Commit:** `f46729e` (Wave 8 complete)  
 **Date:** 2026-04-22  
-**Frontend:** ~1950 LOC (App.tsx, components.tsx, state.ts, data.ts, api.ts)  
+**Frontend:** ~2400 LOC (App.tsx, components.tsx, state.ts, data.ts, api.ts)  
 **Backend:** 27 Tauri commands fully wired
 
 ---
@@ -9,10 +9,13 @@
 ## Executive Summary
 
 **Total Click Surfaces:** 315  
-**WIRED:** 101 (↑1 from Wave 6 100 — drag-and-drop row move)  
+**WIRED:** 102 (↑1 — bulk rename dialog)  
 **STUB:** 20  
-**UNWIRED:** 194 (↓1)  
+**UNWIRED:** 193 (↓1)  
 **MOCK (layout only):** 0
+
+### Wave 8 delta
+- **+1 new WIRED surface:** Bulk rename dialog — palette "Bulk Rename…" / F2 with multi-select / row context when selection > 1 → `BulkRenameDialog` modal. Find/replace (regex-aware), prefix/suffix, numbering (`{n:03}` tokens), case transforms, live before→after preview, collision detection, sequential `rename_entry` calls.
 
 ### Wave 7 delta
 - **+1 new WIRED surface:** drag a file row onto a folder row → `move_entry`. Pointer-event based (5px threshold, `document.elementFromPoint` hit test) instead of HTML5 drag, so it works under automation and real mice. Multi-select drag supported.
