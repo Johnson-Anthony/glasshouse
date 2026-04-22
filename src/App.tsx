@@ -21,6 +21,7 @@ import {
 } from "./components";
 import { CONTEXT_FILE, CONTEXT_EMPTY, CONTEXT_SIDEBAR, CONTEXT_SIDEBAR_PINNED, CONTEXT_TAB, CONTEXT_BREADCRUMB, type MenuItemDef, type FileRow, type FileKind, type GitStatus } from "./data";
 import { useTabState, type UseTabResult } from "./state";
+import { HANDLERS, type HandlerCtx } from "./handlers";
 import {
   homeDir,
   makeDir,
@@ -467,6 +468,7 @@ export function App() {
   const [ctx, setCtx] = useState<CtxState | null>(null);
   const [tweaksOpen, setTweaksOpen] = useState(false);
   const [showInspector, setShowInspector] = useState(true);
+  const [showSidebar, setShowSidebar] = useState(true);
 
   const [tabHandles, setTabHandles] = useState<Record<number, UseTabResult>>({});
   const [searchQuery, setSearchQuery] = useState("");
@@ -1134,9 +1136,39 @@ export function App() {
           console.log("Properties: not wired yet", firstPath ?? cwd);
           return;
         }
-        default:
+        default: {
+          // Registry dispatch — each handlers/*.ts file owns a disjoint slice
+          // of labels (selection, view, git, archive, tools, nav, misc).
+          const handlerCtx: HandlerCtx = {
+            activeHandle,
+            cwd,
+            selectedPaths,
+            firstPath,
+            firstEntry,
+            dispatch: (l: string) => handleMenuCommandRef.current(l),
+            openPalette: () => setPalOpen(true),
+            openTweaks: () => setTweaksOpen(true),
+            toggleSidebar: () => setShowSidebar(v => !v),
+            pinPath: (p: string) => {
+              if (pins.includes(p)) return;
+              const next = [...pins, p];
+              setPins(next);
+              void writePins(next);
+            },
+            tabs,
+            activeTab,
+            setActiveTab,
+            setBlame,
+            refresh,
+          };
+          for (const h of HANDLERS) {
+            // eslint-disable-next-line no-await-in-loop
+            const handled = await h(label, handlerCtx);
+            if (handled) return;
+          }
           console.warn("menu command not wired:", label);
           return;
+        }
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);

@@ -1,0 +1,28 @@
+// Handler registry — each handler file exports a function that returns true
+// if it "consumed" the label (acted on it). App.tsx walks the registry for
+// any command that wasn't handled by the main switch, so each feature area
+// (selection, view, git, archive, …) lives in its own file and they don't
+// collide on merges.
+
+import type { UseTabResult } from "../state";
+import type { FileEntry, BlameLine } from "../api";
+
+export interface HandlerCtx {
+  activeHandle: UseTabResult | undefined;
+  cwd: string;
+  selectedPaths: string[];
+  firstPath: string | undefined;
+  firstEntry: FileEntry | undefined;
+  dispatch: (label: string) => void;
+  openPalette: () => void;
+  openTweaks: () => void;
+  toggleSidebar: () => void;
+  pinPath: (p: string) => void;
+  tabs: unknown[];
+  activeTab: number;
+  setActiveTab: (i: number) => void;
+  setBlame: (b: { path: string; lines: BlameLine[] } | null) => void;
+  refresh: () => void;
+}
+
+export type Handler = (label: string, ctx: HandlerCtx) => Promise<boolean> | boolean;
