@@ -611,6 +611,11 @@ export interface FilePaneProps {
 
 const PAGE_STEP = 10;
 
+// Pointer-based drag implementation. We don't use HTML5 drag because it
+// doesn't initiate from synthesized mouse events, which makes
+// test-harness automation impossible and breaks on some webviews.
+const DRAG_THRESHOLD_PX = 5;
+
 export function FilePane({
   files,
   selected,
@@ -880,36 +885,50 @@ export function FilePane({
                  data-orig={i}
                  className={"row" + (isSel ? " selected" : "") + (isFocus ? " focused" : "") + (isDragOver ? " drop-target" : "")}
                  style={{opacity: f.dimmed ? 0.55 : 1}}
-                 draggable={true}
-                 onDragStart={(e) => {
-                   const sources = isSel ? selected : [i];
-                   e.dataTransfer.effectAllowed = "move";
-                   e.dataTransfer.setData("application/x-glasshouse-rows", JSON.stringify(sources));
-                 }}
-                 onDragOver={(e) => {
-                   if (f.kind !== "folder") return;
-                   // Ignore drag-over from the row being dragged itself.
-                   const raw = e.dataTransfer.types.includes("application/x-glasshouse-rows");
-                   if (!raw) return;
-                   e.preventDefault();
-                   e.dataTransfer.dropEffect = "move";
-                   if (dragOverIndex !== i) setDragOverIndex(i);
-                 }}
-                 onDragLeave={(e) => {
-                   if (e.currentTarget === e.target) setDragOverIndex(null);
-                 }}
-                 onDrop={(e) => {
-                   if (f.kind !== "folder") return;
-                   e.preventDefault();
-                   setDragOverIndex(null);
-                   const raw = e.dataTransfer.getData("application/x-glasshouse-rows");
-                   if (!raw) return;
-                   let sources: number[] = [];
-                   try { sources = JSON.parse(raw) as number[]; } catch { return; }
-                   // Don't drop onto self.
-                   const filtered = sources.filter(s => s !== i);
-                   if (filtered.length === 0) return;
-                   onRowDrop && onRowDrop(i, filtered);
+                 onPointerDown={(e) => {
+                   if (e.button !== 0) return;
+                   const startX = e.clientX;
+                   const startY = e.clientY;
+                   const sources = isSel ? [...selected] : [i];
+                   let dragging = false;
+                   let moved = false;
+                   const onMove = (ev: PointerEvent) => {
+                     moved = true;
+                     const dx = ev.clientX - startX;
+                     const dy = ev.clientY - startY;
+                     if (!dragging && Math.hypot(dx, dy) < DRAG_THRESHOLD_PX) return;
+                     dragging = true;
+                     // Locate the row under the cursor and decide whether it's a valid drop target.
+                     const hit = document.elementFromPoint(ev.clientX, ev.clientY);
+                     const row = hit?.closest("[data-orig]") as HTMLElement | null;
+                     const origAttr = row?.getAttribute("data-orig");
+                     const origIdx = origAttr !== null && origAttr !== undefined ? parseInt(origAttr, 10) : -1;
+                     const hoverFile = origIdx >= 0 ? files[origIdx] : undefined;
+                     const validTarget = hoverFile && hoverFile.kind === "folder" && !sources.includes(origIdx);
+                     setDragOverIndex(validTarget ? origIdx : null);
+                   };
+                   const onUp = (ev: PointerEvent) => {
+                     window.removeEventListener("pointermove", onMove);
+                     window.removeEventListener("pointerup", onUp);
+                     window.removeEventListener("pointercancel", onUp);
+                     setDragOverIndex(null);
+                     if (!dragging) return;
+                     const hit = document.elementFromPoint(ev.clientX, ev.clientY);
+                     const row = hit?.closest("[data-orig]") as HTMLElement | null;
+                     const origAttr = row?.getAttribute("data-orig");
+                     if (!origAttr) return;
+                     const targetIdx = parseInt(origAttr, 10);
+                     const targetFile = files[targetIdx];
+                     if (!targetFile || targetFile.kind !== "folder") return;
+                     const filtered = sources.filter(s => s !== targetIdx);
+                     if (filtered.length === 0) return;
+                     onRowDrop && onRowDrop(targetIdx, filtered);
+                   };
+                   window.addEventListener("pointermove", onMove);
+                   window.addEventListener("pointerup", onUp);
+                   window.addEventListener("pointercancel", onUp);
+                   // Let click/dblclick still work when no drag happened.
+                   void moved;
                  }}
                  onClick={(e) => handleRowClick(i, e)}
                  onDoubleClick={() => onOpen && onOpen(i)}
