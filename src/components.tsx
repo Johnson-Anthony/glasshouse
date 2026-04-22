@@ -163,6 +163,10 @@ export interface ToolbarProps {
   searchQuery: string;
   onSearchChange: (q: string) => void;
   searchInputRef?: React.RefObject<HTMLInputElement>;
+  showHidden: boolean;
+  onToggleHidden: () => void;
+  showInspector: boolean;
+  onToggleInspector: () => void;
 }
 
 interface Crumb {
@@ -200,7 +204,7 @@ function splitBreadcrumb(path: string): Crumb[] {
   return out;
 }
 
-export function Toolbar({ path, gitInfo, canBack, canForward, onBack, onForward, onUp, onRefresh, onGoTo, onSearchFocus, searchQuery, onSearchChange, searchInputRef }: ToolbarProps) {
+export function Toolbar({ path, gitInfo, canBack, canForward, onBack, onForward, onUp, onRefresh, onGoTo, onSearchFocus, searchQuery, onSearchChange, searchInputRef, showHidden, onToggleHidden, showInspector, onToggleInspector }: ToolbarProps) {
   const parts = splitBreadcrumb(path);
   return (
     <div className="toolbar">
@@ -244,10 +248,18 @@ export function Toolbar({ path, gitInfo, canBack, canForward, onBack, onForward,
         <span className="kb">/</span>
       </div>
       <div className="tool-group">
-        <button className="nav-btn" title="Toggle hidden (Ctrl+H)">·h</button>
-        <button className="nav-btn" title="Details view">≡</button>
-        <button className="nav-btn" title="Grid view">▦</button>
-        <button className="nav-btn" title="Inspector">◨</button>
+        <button
+          className={"nav-btn" + (showHidden ? " active" : "")}
+          title="Toggle hidden (Ctrl+H)"
+          onClick={onToggleHidden}
+          aria-pressed={showHidden}
+        >·h</button>
+        <button
+          className={"nav-btn" + (showInspector ? " active" : "")}
+          title="Toggle inspector"
+          onClick={onToggleInspector}
+          aria-pressed={showInspector}
+        >◨</button>
       </div>
     </div>
   );

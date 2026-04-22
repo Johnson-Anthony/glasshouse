@@ -184,6 +184,7 @@ export function App() {
   const [termOpen, setTermOpen] = useState(false);
   const [ctx, setCtx] = useState<CtxState | null>(null);
   const [tweaksOpen, setTweaksOpen] = useState(false);
+  const [showInspector, setShowInspector] = useState(true);
 
   const [tabHandles, setTabHandles] = useState<Record<number, UseTabResult>>({});
   const [searchQuery, setSearchQuery] = useState("");
@@ -388,6 +389,9 @@ export function App() {
       case "Show Hidden":
       case "Show Hidden Files":
         setState(prev => ({ ...prev, hidden: !prev.hidden })); return;
+      case "Inspector":
+      case "Toggle Inspector":
+        setShowInspector(v => !v); return;
       case "Switch Theme":
       case "Switch Theme →": {
         const i = THEMES.indexOf(state.theme);
@@ -617,6 +621,10 @@ export function App() {
         searchQuery={searchQuery}
         onSearchChange={setSearchQuery}
         searchInputRef={searchInputRef}
+        showHidden={state.hidden}
+        onToggleHidden={() => setState(prev => ({ ...prev, hidden: !prev.hidden }))}
+        showInspector={showInspector}
+        onToggleInspector={() => setShowInspector(v => !v)}
       />
       <div className="body">
         <Sidebar
@@ -636,7 +644,7 @@ export function App() {
             }
           }}
         />
-        <Inspector file={selectedFile} />
+        {showInspector && <Inspector file={selectedFile} />}
         <TerminalDrawer open={termOpen} onClose={() => setTermOpen(false)} />
       </div>
       <StatusBar
