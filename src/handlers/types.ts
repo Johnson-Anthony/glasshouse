@@ -17,6 +17,7 @@ export interface HandlerCtx {
   dispatch: (label: string) => void;
   openPalette: () => void;
   openTweaks: () => void;
+  openAbout?: () => void;
   toggleSidebar: () => void;
   pinPath: (p: string) => void;
   tabs: unknown[];
@@ -32,7 +33,7 @@ export interface HandlerCtx {
   undo?: () => void;
   redo?: () => void;
   moveTab?: (from: number, to: number) => void;
-  newTab?: (path?: string) => void;
+  newTab?: (path?: string, opts?: { private?: boolean }) => void;
   tweaks?: TweakState;
   setTweaks?: (s: TweakState) => void;
 }

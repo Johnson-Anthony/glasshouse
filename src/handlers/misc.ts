@@ -12,6 +12,8 @@ import {
   renameEntry,
   readTags,
   writeTags,
+  copyEntry,
+  hashSha256,
 } from "../api";
 import { lastCommandRef } from "../state";
 
@@ -79,9 +81,11 @@ export const miscHandler: Handler = async (label, ctx) => {
     case "About":
     case "About Glasshouse":
     case "About rice://":
-      window.alert(
-        "Glasshouse — Tauri file manager\nhttps://github.com/…",
-      );
+      if (ctx.openAbout) {
+        ctx.openAbout();
+      } else {
+        window.alert("Glasshouse — Tauri file manager");
+      }
       return true;
 
     case "Documentation":
@@ -107,11 +111,7 @@ export const miscHandler: Handler = async (label, ctx) => {
     case "Cheatsheet":
     case "Shortcuts":
     case "Keybinding Cheatsheet":
-      if (ctx.openPalette) {
-        ctx.openPalette();
-      } else {
-        console.log(`[misc] not implemented: ${label}`);
-      }
+      ctx.openPalette?.();
       return true;
 
     // ─── Session ───────────────────────────────────────────────────────────
@@ -164,20 +164,12 @@ export const miscHandler: Handler = async (label, ctx) => {
 
     // ─── Settings ──────────────────────────────────────────────────────────
     case "Edit .ricerc":
-      if (ctx.openTweaks) {
-        ctx.openTweaks();
-      } else {
-        console.log("[misc] not implemented: Edit .ricerc");
-      }
+      ctx.openTweaks();
       return true;
 
     case "Preferences":
     case "Preferences…":
-      if (ctx.openTweaks) {
-        ctx.openTweaks();
-      } else {
-        console.log("[misc] not implemented: Preferences");
-      }
+      ctx.openTweaks();
       return true;
 
     // ─── Destructive / special file ops ────────────────────────────────────
@@ -284,9 +276,33 @@ export const miscHandler: Handler = async (label, ctx) => {
       return true;
     }
 
-    case "Paste as Copy (verify SHA256)":
-      window.alert("use Ctrl+Shift+V for PasteSpecial");
+    case "Paste as Copy (verify SHA256)": {
+      const paths = ctx.clipboardPaths?.() ?? [];
+      if (paths.length === 0) {
+        window.alert("clipboard is empty");
+        return true;
+      }
+      let ok = 0;
+      let verified = 0;
+      for (const src of paths) {
+        const dest = joinPath(ctx.cwd, basename(src));
+        try {
+          await copyEntry(src, dest);
+          ok++;
+          try {
+            const [ha, hb] = await Promise.all([hashSha256(src), hashSha256(dest)]);
+            if (ha && hb && ha === hb) verified++;
+          } catch (e) {
+            console.error("[misc] hash verify failed", src, e);
+          }
+        } catch (e) {
+          console.error("[misc] copy failed", src, e);
+        }
+      }
+      window.alert(`copied ${ok}/${paths.length}, ${verified} verified via SHA256`);
+      ctx.refresh();
       return true;
+    }
 
     case "Paste Text into Filename": {
       const target = ctx.firstPath;

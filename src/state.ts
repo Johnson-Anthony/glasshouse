@@ -34,6 +34,35 @@ export interface TabState {
   historyBack: string[];
   historyForward: string[];
   tagFilter: string | null;
+  private: boolean;
+}
+
+const RECENT_KEY = "glasshouse.recent";
+const RECENT_LIMIT = 20;
+
+export function appendRecent(path: string): void {
+  if (!path) return;
+  try {
+    const raw = localStorage.getItem(RECENT_KEY);
+    const list: string[] = raw ? (JSON.parse(raw) as string[]) : [];
+    const filtered = list.filter(p => p !== path);
+    filtered.unshift(path);
+    if (filtered.length > RECENT_LIMIT) filtered.length = RECENT_LIMIT;
+    localStorage.setItem(RECENT_KEY, JSON.stringify(filtered));
+  } catch {
+    /* ignore */
+  }
+}
+
+export function readRecent(): string[] {
+  try {
+    const raw = localStorage.getItem(RECENT_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? (parsed as string[]) : [];
+  } catch {
+    return [];
+  }
 }
 
 export interface TabActions {
@@ -121,7 +150,7 @@ export function popRedo(): UndoEntry | undefined {
 
 export type TabListMutator = {
   moveTab: (from: number, to: number) => void;
-  newTab: (path?: string) => void;
+  newTab: (path?: string, opts?: { private?: boolean }) => void;
 };
 
 let tabListMutator: TabListMutator | null = null;
@@ -134,11 +163,11 @@ export function moveTab(from: number, to: number): void {
   tabListMutator?.moveTab(from, to);
 }
 
-export function newTab(path?: string): void {
-  tabListMutator?.newTab(path);
+export function newTab(path?: string, opts?: { private?: boolean }): void {
+  tabListMutator?.newTab(path, opts);
 }
 
-export function useTabState(initialPath: string): UseTabResult {
+export function useTabState(initialPath: string, isPrivate: boolean = false): UseTabResult {
   const [path, setPath] = useState<string>(initialPath);
   const [entries, setEntries] = useState<FileEntry[]>([]);
   const [gitInfo, setGitInfo] = useState<GitInfo | null>(null);
@@ -187,6 +216,11 @@ export function useTabState(initialPath: string): UseTabResult {
     }, 60);
     return () => window.clearTimeout(handle);
   }, [path, showHidden, refreshTick, fetchAll]);
+
+  useEffect(() => {
+    if (!isPrivate && initialPath) appendRecent(initialPath);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // notify-based fs watcher: subscribe per-path, with a 30s safety-net refetch
   useEffect(() => {
@@ -237,9 +271,10 @@ export function useTabState(initialPath: string): UseTabResult {
       setHistoryBack(h => [...h, prev]);
       setHistoryForward([]);
       resetNav();
+      if (!isPrivate) appendRecent(next);
       return next;
     });
-  }, []);
+  }, [isPrivate]);
 
   const back = useCallback(() => {
     setHistoryBack(h => {
@@ -293,7 +328,8 @@ export function useTabState(initialPath: string): UseTabResult {
     historyBack,
     historyForward,
     tagFilter,
-  }), [path, entries, gitInfo, selected, focusIndex, anchorIndex, sortKey, sortDir, showHidden, foldersFirst, loading, error, historyBack, historyForward, tagFilter]);
+    private: isPrivate,
+  }), [path, entries, gitInfo, selected, focusIndex, anchorIndex, sortKey, sortDir, showHidden, foldersFirst, loading, error, historyBack, historyForward, tagFilter, isPrivate]);
 
   const actions: TabActions = useMemo(() => ({
     goTo,
