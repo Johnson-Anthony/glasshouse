@@ -1,18 +1,21 @@
 # glasshouse UI Wiring Audit
-**Commit:** `5262121` (Wave 6 complete)  
+**Commit:** `87c5135` (Wave 7 complete)  
 **Date:** 2026-04-22  
-**Frontend:** ~1900 LOC (App.tsx, components.tsx, state.ts, data.ts, api.ts)  
+**Frontend:** ~1950 LOC (App.tsx, components.tsx, state.ts, data.ts, api.ts)  
 **Backend:** 27 Tauri commands fully wired
 
 ---
 
 ## Executive Summary
 
-**Total Click Surfaces:** 315 (+3 from Wave 5)  
-**WIRED:** 100 (↑6 from Wave 5 94)  
-**STUB:** 20 (↓3 — compress/hash inspector chips + Move to… now WIRED)  
-**UNWIRED:** 195 (unchanged)  
+**Total Click Surfaces:** 315  
+**WIRED:** 101 (↑1 from Wave 6 100 — drag-and-drop row move)  
+**STUB:** 20  
+**UNWIRED:** 194 (↓1)  
 **MOCK (layout only):** 0
+
+### Wave 7 delta
+- **+1 new WIRED surface:** drag a file row onto a folder row → `move_entry`. Pointer-event based (5px threshold, `document.elementFromPoint` hit test) instead of HTML5 drag, so it works under automation and real mice. Multi-select drag supported.
 
 ### Wave 6 delta
 - **+3 new surfaces:** Find in Files modal + Ctrl+Shift+F, palette "Find in Files" entry, Move to… folder-picker dialog — all WIRED
