@@ -22,6 +22,8 @@ export interface HandlerCtx {
   activeTab: number;
   setActiveTab: (i: number) => void;
   setBlame: (b: { path: string; lines: BlameLine[] } | null) => void;
+  setHexView?: (v: { path: string; hex: string } | null) => void;
+  setDiffView?: (v: { a: string; b: string; diff: string } | null) => void;
   refresh: () => void;
   // Optional — wired up by App.tsx in a later pass. Handlers use `ctx.undo?.()` etc.
   pushUndo?: (entry: { label: string; inverse: () => Promise<void> | void }) => void;

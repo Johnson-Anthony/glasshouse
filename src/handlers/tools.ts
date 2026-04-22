@@ -1,5 +1,5 @@
 import type { Handler } from "./types";
-import { hashSha256, findInFiles } from "../api";
+import { hashSha256, findInFiles, readHexDump, diffFiles, setPermissions } from "../api";
 
 async function copyToClipboard(text: string): Promise<void> {
   try {
@@ -85,19 +85,38 @@ export const toolsHandler: Handler = async (label, ctx) => {
     }
 
     case "Hex Viewer": {
-      console.log("[tools] not implemented: Hex Viewer");
+      const p = ctx.firstPath;
+      if (!p) {
+        console.log("[tools] Hex Viewer: no selection");
+        return true;
+      }
+      try {
+        const hex = await readHexDump(p, 0, 4096);
+        ctx.setHexView?.({ path: p, hex });
+      } catch (e) {
+        console.log(`[tools] hex dump failed for ${p}:`, e);
+      }
       return true;
     }
 
-    case "Compare Files (diff)":
-    case "Diff with Clipboard": {
-      if (label === "Compare Files (diff)" && ctx.selectedPaths.length === 2) {
-        console.log(
-          `[tools] diff requested: ${ctx.selectedPaths[0]} vs ${ctx.selectedPaths[1]} (backend diff not wired)`,
-        );
-      } else {
-        console.log(`[tools] not implemented: ${label}`);
+    case "Compare Files (diff)": {
+      if (ctx.selectedPaths.length !== 2) {
+        window.alert("Compare Files: select exactly two files.");
+        return true;
       }
+      const [a, b] = ctx.selectedPaths;
+      try {
+        const diff = await diffFiles(a, b);
+        ctx.setDiffView?.({ a, b, diff });
+      } catch (e) {
+        console.log(`[tools] diff failed:`, e);
+        window.alert(`diff failed: ${e}`);
+      }
+      return true;
+    }
+
+    case "Diff with Clipboard": {
+      console.log("[tools] not implemented: Diff with Clipboard");
       return true;
     }
 
@@ -190,8 +209,13 @@ export const toolsHandler: Handler = async (label, ctx) => {
 
     case "Batch Permissions…":
     case "Batch Permissions": {
-      const mode = window.prompt("chmod mode (e.g. 755):");
-      if (mode == null) return true;
+      const modeStr = window.prompt("chmod mode (octal, e.g. 755):");
+      if (modeStr == null || modeStr.trim() === "") return true;
+      const mode = parseInt(modeStr.trim(), 8);
+      if (!Number.isFinite(mode)) {
+        window.alert(`invalid octal mode: ${modeStr}`);
+        return true;
+      }
       const paths = ctx.selectedPaths.length
         ? ctx.selectedPaths
         : ctx.firstPath
@@ -201,9 +225,19 @@ export const toolsHandler: Handler = async (label, ctx) => {
         console.log("[tools] Batch Permissions: no selection");
         return true;
       }
-      console.log(
-        `[tools] not implemented: Batch Permissions (mode=${mode}, ${paths.length} target(s)) — chmod backend not wired`,
-      );
+      let ok = 0;
+      let failed = 0;
+      for (const p of paths) {
+        try {
+          await setPermissions(p, mode);
+          ok++;
+        } catch (e) {
+          failed++;
+          console.log(`[tools] chmod ${p} failed:`, e);
+        }
+      }
+      console.log(`[tools] chmod ${modeStr}: ${ok} ok, ${failed} failed`);
+      ctx.refresh();
       return true;
     }
 

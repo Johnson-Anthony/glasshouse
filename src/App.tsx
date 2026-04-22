@@ -14,6 +14,8 @@ import {
   BulkRenameDialog,
   PasteSpecialDialog,
   BlameDialog,
+  HexDialog,
+  DiffDialog,
   type BulkRenameItem,
   type PasteSpecialItem,
   type TabDef,
@@ -21,7 +23,16 @@ import {
   type ContextKind,
 } from "./components";
 import { CONTEXT_FILE, CONTEXT_EMPTY, CONTEXT_SIDEBAR, CONTEXT_SIDEBAR_PINNED, CONTEXT_TAB, CONTEXT_BREADCRUMB, type MenuItemDef, type FileRow, type FileKind, type GitStatus } from "./data";
-import { useTabState, type UseTabResult } from "./state";
+import {
+  useTabState,
+  pushUndo,
+  popUndo,
+  popRedo,
+  registerTabListMutator,
+  moveTab as stateMoveTab,
+  newTab as stateNewTab,
+  type UseTabResult,
+} from "./state";
 import { HANDLERS, type HandlerCtx } from "./handlers";
 import {
   homeDir,
@@ -398,6 +409,8 @@ export function App() {
   const [pins, setPins] = useState<string[]>([]);
   const [tagStore, setTagStore] = useState<Record<string, string[]>>({});
   const [blame, setBlame] = useState<{ path: string; lines: BlameLine[] } | null>(null);
+  const [hexView, setHexView] = useState<{ path: string; hex: string } | null>(null);
+  const [diffView, setDiffView] = useState<{ a: string; b: string; diff: string } | null>(null);
   const [showFindModal, setShowFindModal] = useState(false);
   const [bulkRenameItems, setBulkRenameItems] = useState<BulkRenameItem[] | null>(null);
   const [pasteSpecial, setPasteSpecial] = useState<{
@@ -605,6 +618,36 @@ export function App() {
     setTabs(prev => [...prev, { ic: "", color: "var(--cyan)", label: p }]);
     setInitialPaths(prev => (prev ? [...prev, p] : [p]));
   };
+
+  useEffect(() => {
+    registerTabListMutator({
+      moveTab: (from, to) => {
+        if (from === to) return;
+        setTabs(prev => {
+          if (from < 0 || from >= prev.length || to < 0 || to >= prev.length) return prev;
+          const next = [...prev];
+          const [moved] = next.splice(from, 1);
+          next.splice(to, 0, moved);
+          return next;
+        });
+        setInitialPaths(prev => {
+          if (!prev) return prev;
+          if (from < 0 || from >= prev.length || to < 0 || to >= prev.length) return prev;
+          const next = [...prev];
+          const [moved] = next.splice(from, 1);
+          next.splice(to, 0, moved);
+          return next;
+        });
+        setActiveTab(cur => (cur === from ? to : cur));
+      },
+      newTab: (path) => {
+        const p = path ?? activeHandle?.state.path ?? FALLBACK_PATH;
+        openPathInNewTab(p);
+        setActiveTab(tabs.length);
+      },
+    });
+    return () => registerTabListMutator(null);
+  }, [tabs.length, activeHandle]);
 
   const handleMenuCommand = (label: string) => {
     // Handle context-sourced commands (sidebar / tab / breadcrumb right-click)
@@ -1079,6 +1122,21 @@ export function App() {
             activeTab,
             setActiveTab,
             setBlame,
+            setHexView,
+            setDiffView,
+            pushUndo,
+            undo: () => {
+              const e = popUndo();
+              if (!e) return;
+              void (async () => { await e.inverse(); refresh(); })();
+            },
+            redo: () => {
+              const e = popRedo();
+              if (!e) return;
+              void (async () => { await e.inverse(); refresh(); })();
+            },
+            moveTab: stateMoveTab,
+            newTab: stateNewTab,
             refresh,
           };
           for (const h of HANDLERS) {
@@ -1365,6 +1423,8 @@ export function App() {
       {ctx && <ContextMenu items={ctx.items} x={ctx.x} y={ctx.y} onClose={() => setCtx(null)} onCommand={handleMenuCommand} />}
       {tweaksOpen && <Tweaks state={state} setState={setState} onClose={() => setTweaksOpen(false)} />}
       {blame && <BlameDialog blame={blame} onClose={() => setBlame(null)} />}
+      {hexView && <HexDialog path={hexView.path} hex={hexView.hex} onClose={() => setHexView(null)} />}
+      {diffView && <DiffDialog a={diffView.a} b={diffView.b} diff={diffView.diff} onClose={() => setDiffView(null)} />}
       {showFindModal && (
         <FindInFilesModal
           root={activeHandle?.state.path ?? ""}

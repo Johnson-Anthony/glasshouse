@@ -8,7 +8,7 @@ import {
   type FileKind,
   type MenuItemDef,
 } from "./data";
-import { drives as apiDrives, hashSha256, homeDir as apiHomeDir, listDir, readImageB64, readText, spawnTerminal, systemInfo as apiSystemInfo, winClose, winMinimize, winToggleMaximize, type BlameLine, type Drive, type FileEntry, type GitInfo, type SystemInfo } from "./api";
+import { drives as apiDrives, hashSha256, homeDir as apiHomeDir, listDir, readImageB64, readText, setPermissions, spawnTerminal, systemInfo as apiSystemInfo, winClose, winMinimize, winToggleMaximize, type BlameLine, type Drive, type FileEntry, type GitInfo, type SystemInfo } from "./api";
 import { fuzzyFilter } from "./fuzzy";
 
 // ============= Titlebar =============
@@ -1017,10 +1017,11 @@ function mimeGuess(kind: FileKind, ext: string): string {
   return "text/plain";
 }
 
-function PermissionsGrid() {
-  // 3 rows (read/write/exec) × 3 cols (owner/group/world). Each cell toggles
-  // on click; backend chmod is future-work — this just flips the unicode char
-  // and logs so the UI feels alive.
+function PermissionsGrid({ path }: { path?: string }) {
+  // 3 rows (read/write/exec) × 3 cols (owner/group/world). Clicks persist via
+  // set_permissions backend when `path` is present; on Windows only the
+  // owner-write bit is meaningful (toggles read-only), so other cells still
+  // flip visually but won't round-trip.
   const [perms, setPerms] = useState<boolean[][]>([
     [true, true, false],
     [true, false, false],
@@ -1033,10 +1034,22 @@ function PermissionsGrid() {
   ];
   const cols = ["owner", "group", "world"];
   const toggle = (r: number, c: number) => {
-    console.log(`[inspector] perm toggle ${rows[r].label}-${cols[c]} — not persisted`);
-    setPerms(prev => prev.map((row, ri) =>
-      ri === r ? row.map((v, ci) => (ci === c ? !v : v)) : row
-    ));
+    setPerms(prev => {
+      const next = prev.map((row, ri) =>
+        ri === r ? row.map((v, ci) => (ci === c ? !v : v)) : row
+      );
+      if (path) {
+        const mode = [0, 1, 2].reduce((acc, col) =>
+          acc + ((next[0][col] ? 4 : 0) + (next[1][col] ? 2 : 0) + (next[2][col] ? 1 : 0)) * (col === 0 ? 64 : col === 1 ? 8 : 1),
+        0);
+        void setPermissions(path, mode).catch((e: unknown) => {
+          console.log(`[inspector] chmod failed for ${path}:`, e);
+        });
+      } else {
+        console.log(`[inspector] perm toggle ${rows[r].label}-${cols[c]} — no active path`);
+      }
+      return next;
+    });
   };
   const octalFixed = cols
     .map((_, c) => (perms[0][c] ? 4 : 0) + (perms[1][c] ? 2 : 0) + (perms[2][c] ? 1 : 0))
@@ -1201,7 +1214,7 @@ export function Inspector({ file, onQuickAction }: InspectorProps) {
         </dl>
       </div>
 
-      <PermissionsGrid />
+      <PermissionsGrid path={file?.entry.path} />
 
       <div className="insp-section">
         <h4>CHECKSUMS {sha256 && (
@@ -2414,6 +2427,130 @@ export function BlameDialog({ blame, onClose }: BlameDialogProps) {
                 {ln.content}
               </span>
             </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ============= HexDialog =============
+export interface HexDialogProps {
+  path: string;
+  hex: string;
+  onClose: () => void;
+}
+
+export function HexDialog({ path, hex, onClose }: HexDialogProps) {
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") { e.preventDefault(); onClose(); }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [onClose]);
+
+  const shortName = (() => {
+    const t = path.replace(/[\\/]+$/, "");
+    const i = Math.max(t.lastIndexOf("\\"), t.lastIndexOf("/"));
+    return i < 0 ? t : t.slice(i + 1);
+  })();
+
+  return (
+    <div onClick={onClose} style={{
+      position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)",
+      zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center",
+    }}>
+      <div onClick={(e) => e.stopPropagation()} style={{
+        width: "90ch", maxWidth: "95vw", maxHeight: "90vh",
+        background: "var(--bg-1, #1a1b26)", border: "1px solid var(--fg-3)",
+        borderRadius: 4, display: "flex", flexDirection: "column",
+        fontFamily: "var(--font-mono)", color: "var(--fg-1)",
+      }}>
+        <div style={{
+          display: "flex", alignItems: "center", justifyContent: "space-between",
+          padding: "8px 12px", borderBottom: "1px solid var(--fg-3)",
+          background: "var(--bg-2, #16161e)",
+        }}>
+          <span style={{ color: "var(--accent)" }}>⎙ hex — {shortName}</span>
+          <span style={{ color: "var(--fg-3)", fontSize: 12 }}>esc/click to close</span>
+          <button onClick={onClose} style={{
+            background: "transparent", border: "1px solid var(--fg-3)", color: "var(--fg-1)",
+            padding: "2px 8px", cursor: "pointer", borderRadius: 2,
+          }} aria-label="close">×</button>
+        </div>
+        <pre style={{
+          overflow: "auto", flex: 1, margin: 0, padding: "8px 12px",
+          fontSize: 12, lineHeight: 1.45, whiteSpace: "pre", color: "var(--fg-1)",
+        }}>{hex || "(empty)"}</pre>
+      </div>
+    </div>
+  );
+}
+
+// ============= DiffDialog =============
+export interface DiffDialogProps {
+  a: string;
+  b: string;
+  diff: string;
+  onClose: () => void;
+}
+
+export function DiffDialog({ a, b, diff, onClose }: DiffDialogProps) {
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") { e.preventDefault(); onClose(); }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [onClose]);
+
+  const base = (p: string): string => {
+    const t = p.replace(/[\\/]+$/, "");
+    const i = Math.max(t.lastIndexOf("\\"), t.lastIndexOf("/"));
+    return i < 0 ? t : t.slice(i + 1);
+  };
+
+  const lines = diff.split("\n");
+
+  const colorFor = (line: string): string => {
+    if (line.startsWith("+++") || line.startsWith("---")) return "var(--fg-3)";
+    if (line.startsWith("@@")) return "var(--accent, var(--cyan))";
+    if (line.startsWith("+")) return "var(--green, #9ece6a)";
+    if (line.startsWith("-")) return "var(--red, #f7768e)";
+    return "var(--fg-1)";
+  };
+
+  return (
+    <div onClick={onClose} style={{
+      position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)",
+      zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center",
+    }}>
+      <div onClick={(e) => e.stopPropagation()} style={{
+        width: "120ch", maxWidth: "95vw", maxHeight: "90vh",
+        background: "var(--bg-1, #1a1b26)", border: "1px solid var(--fg-3)",
+        borderRadius: 4, display: "flex", flexDirection: "column",
+        fontFamily: "var(--font-mono)", color: "var(--fg-1)",
+      }}>
+        <div style={{
+          display: "flex", alignItems: "center", justifyContent: "space-between",
+          padding: "8px 12px", borderBottom: "1px solid var(--fg-3)",
+          background: "var(--bg-2, #16161e)",
+        }}>
+          <span style={{ color: "var(--accent)" }}>⎘ diff — {base(a)} ↔ {base(b)}</span>
+          <span style={{ color: "var(--fg-3)", fontSize: 12 }}>esc/click to close</span>
+          <button onClick={onClose} style={{
+            background: "transparent", border: "1px solid var(--fg-3)", color: "var(--fg-1)",
+            padding: "2px 8px", cursor: "pointer", borderRadius: 2,
+          }} aria-label="close">×</button>
+        </div>
+        <div style={{ overflow: "auto", flex: 1, fontSize: 12, lineHeight: 1.5, padding: "4px 0" }}>
+          {diff.trim() === "" ? (
+            <div style={{ color: "var(--fg-3)", padding: "8px 12px" }}>(files are identical)</div>
+          ) : lines.map((line, i) => (
+            <div key={i} style={{
+              color: colorFor(line), padding: "0 12px", whiteSpace: "pre",
+            }}>{line || " "}</div>
           ))}
         </div>
       </div>
