@@ -1,4 +1,25 @@
 import { invoke } from "@tauri-apps/api/core";
+import { getCurrentWindow } from "@tauri-apps/api/window";
+
+export async function winClose(): Promise<void> {
+  if (!TAURI_AVAILABLE_SYNC()) return;
+  try { await getCurrentWindow().close(); } catch {}
+}
+
+export async function winMinimize(): Promise<void> {
+  if (!TAURI_AVAILABLE_SYNC()) return;
+  try { await getCurrentWindow().minimize(); } catch {}
+}
+
+export async function winToggleMaximize(): Promise<void> {
+  if (!TAURI_AVAILABLE_SYNC()) return;
+  try { await getCurrentWindow().toggleMaximize(); } catch {}
+}
+
+function TAURI_AVAILABLE_SYNC(): boolean {
+  return typeof window !== "undefined" &&
+    (window as unknown as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__ !== undefined;
+}
 
 export interface FileEntry {
   name: string;
@@ -118,4 +139,8 @@ export function winToWsl(path: string): Promise<string> {
 
 export function wslToWin(path: string): Promise<string> {
   return safe(() => invoke<string>("wsl_to_win", { path }), path);
+}
+
+export function writeText(path: string, content: string): Promise<void> {
+  return safe(() => invoke<void>("write_text", { path, content }), undefined);
 }

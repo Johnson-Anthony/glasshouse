@@ -286,6 +286,11 @@ pub fn read_text(path: String, max_bytes: usize) -> Result<String, String> {
     Ok(String::from_utf8_lossy(&buf).into_owned())
 }
 
+#[tauri::command]
+pub fn write_text(path: String, content: String) -> Result<(), String> {
+    std::fs::write(&path, content).map_err(|e| e.to_string())
+}
+
 // ---------- git status ----------
 
 #[derive(Debug, Serialize)]

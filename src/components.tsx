@@ -9,7 +9,7 @@ import {
   type FileKind,
   type MenuItemDef,
 } from "./data";
-import { drives as apiDrives, homeDir as apiHomeDir, readText, systemInfo as apiSystemInfo, type Drive, type FileEntry, type GitInfo, type SystemInfo } from "./api";
+import { drives as apiDrives, homeDir as apiHomeDir, readText, systemInfo as apiSystemInfo, winClose, winMinimize, winToggleMaximize, type Drive, type FileEntry, type GitInfo, type SystemInfo } from "./api";
 
 // ============= Titlebar =============
 export interface TabDef {
@@ -28,13 +28,13 @@ export interface TitlebarProps {
 
 export function Titlebar({ tabs, activeTab, onSelectTab, onCloseTab, onNewTab }: TitlebarProps) {
   return (
-    <div className="titlebar">
+    <div className="titlebar" data-tauri-drag-region>
       <div className="traffic">
-        <span className="dot close" title="close"></span>
-        <span className="dot minimize" title="minimize"></span>
-        <span className="dot maximize" title="maximize"></span>
+        <span className="dot close" title="close" onClick={() => { void winClose(); }}></span>
+        <span className="dot minimize" title="minimize" onClick={() => { void winMinimize(); }}></span>
+        <span className="dot maximize" title="maximize" onClick={() => { void winToggleMaximize(); }}></span>
       </div>
-      <div className="tabs">
+      <div className="tabs" data-tauri-drag-region>
         {tabs.map((t, i) => (
           <div
             key={i}
@@ -772,9 +772,10 @@ export interface ContextMenuProps {
   x: number;
   y: number;
   onClose: () => void;
+  onCommand?: (label: string) => void;
 }
 
-export function ContextMenu({ items, x, y, onClose }: ContextMenuProps) {
+export function ContextMenu({ items, x, y, onClose, onCommand }: ContextMenuProps) {
   const [subHover, setSubHover] = useState<MenuItemDef | null>(null);
   useEffect(() => {
     const h = () => onClose();
@@ -787,7 +788,7 @@ export function ContextMenu({ items, x, y, onClose }: ContextMenuProps) {
         <MenuItem key={i} item={it}
           subOpen={subHover !== null && "label" in subHover && "label" in it && subHover.label === (it as { label: string }).label}
           onSubHover={(s) => setSubHover(s)}
-          onAction={() => onClose()}
+          onAction={(label) => { if (onCommand) onCommand(label); onClose(); }}
         />
       ))}
     </div>

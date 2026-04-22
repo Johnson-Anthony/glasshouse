@@ -17,7 +17,19 @@ import {
 } from "./components";
 import { CONTEXT_FILE, CONTEXT_EMPTY, type MenuItemDef, type FileRow, type FileKind, type GitStatus } from "./data";
 import { useTabState, type UseTabResult } from "./state";
-import { homeDir, type FileEntry } from "./api";
+import {
+  homeDir,
+  makeDir,
+  renameEntry,
+  copyEntry,
+  moveEntry,
+  deleteEntry,
+  openWithDefault,
+  revealInExplorer,
+  winToWsl,
+  writeText,
+  type FileEntry,
+} from "./api";
 
 const TWEAK_DEFAULTS: TweakState = {
   theme: "gruvbox-dark",
@@ -123,6 +135,36 @@ function entryToRow(e: FileEntry, git: Record<string, string> | null, repoRoot: 
     entry: e,
   };
 }
+
+function sepOf(p: string): string {
+  return p.includes("\\") ? "\\" : "/";
+}
+
+function join(dir: string, name: string): string {
+  if (!dir) return name;
+  const sep = sepOf(dir);
+  const trimmed = dir.replace(/[\\/]+$/, "");
+  if (/^[A-Za-z]:$/.test(trimmed)) return trimmed + sep + name;
+  return trimmed + sep + name;
+}
+
+function basename(p: string): string {
+  const trimmed = p.replace(/[\\/]+$/, "");
+  const idx = Math.max(trimmed.lastIndexOf("\\"), trimmed.lastIndexOf("/"));
+  return idx < 0 ? trimmed : trimmed.slice(idx + 1);
+}
+
+function winToWslInline(p: string): string {
+  const m = /^([A-Za-z]):[\\/](.*)$/.exec(p);
+  if (!m) return p;
+  return `/mnt/${m[1].toLowerCase()}/${m[2].replace(/\\/g, "/")}`;
+}
+
+interface AppClipboard {
+  op: "copy" | "cut";
+  paths: string[];
+}
+let appClipboard: AppClipboard | null = null;
 
 export function App() {
   const [state, setState] = useState<TweakState>(() => {
@@ -269,9 +311,162 @@ export function App() {
         return;
       }
       default:
+        void doFileOp(label);
         return;
     }
   };
+
+  async function doFileOp(label: string) {
+    if (!activeHandle) return;
+    const st = activeHandle.state;
+    const refresh = activeHandle.actions.refresh;
+    const selectedPaths = st.selected
+      .map(i => st.entries[i]?.path)
+      .filter((p): p is string => Boolean(p));
+    const firstEntry: FileEntry | undefined = st.entries[st.selected[0]];
+    const firstPath = firstEntry?.path;
+    const cwd = st.path;
+
+    try {
+      switch (label) {
+        case "Open": {
+          if (!firstEntry) return;
+          if (firstEntry.kind === "folder") activeHandle.actions.goTo(firstEntry.path);
+          else await openWithDefault(firstEntry.path);
+          return;
+        }
+        case "Open With →":
+        case "Open With…": {
+          if (firstPath) await openWithDefault(firstPath);
+          return;
+        }
+        case "Rename": {
+          if (!firstEntry) return;
+          // TODO: replace with custom dialog
+          const next = window.prompt("rename to", firstEntry.name);
+          if (!next || next === firstEntry.name) return;
+          const dst = join(cwd, next);
+          await renameEntry(firstEntry.path, dst);
+          refresh();
+          return;
+        }
+        case "Delete":
+        case "Delete Permanently": {
+          if (selectedPaths.length === 0) return;
+          // TODO: replace with custom dialog
+          const ok = window.confirm(`permanently delete ${selectedPaths.length} item(s)?`);
+          if (!ok) return;
+          for (const p of selectedPaths) await deleteEntry(p, false);
+          refresh();
+          return;
+        }
+        case "Move to Trash": {
+          if (selectedPaths.length === 0) return;
+          for (const p of selectedPaths) await deleteEntry(p, true);
+          refresh();
+          return;
+        }
+        case "Copy": {
+          if (selectedPaths.length === 0) return;
+          appClipboard = { op: "copy", paths: selectedPaths };
+          return;
+        }
+        case "Cut": {
+          if (selectedPaths.length === 0) return;
+          appClipboard = { op: "cut", paths: selectedPaths };
+          return;
+        }
+        case "Paste": {
+          if (!appClipboard || appClipboard.paths.length === 0) return;
+          const { op, paths } = appClipboard;
+          for (const src of paths) {
+            const dst = join(cwd, basename(src));
+            if (op === "copy") await copyEntry(src, dst);
+            else await moveEntry(src, dst);
+          }
+          if (op === "cut") appClipboard = null;
+          refresh();
+          return;
+        }
+        case "New Folder":
+        case "Folder": {
+          // TODO: replace with custom dialog
+          const name = window.prompt("new folder name", "new-folder");
+          if (!name) return;
+          await makeDir(join(cwd, name));
+          refresh();
+          return;
+        }
+        case "New File":
+        case "Text File": {
+          // TODO: replace with custom dialog
+          const name = window.prompt("new file name", "untitled.txt");
+          if (!name) return;
+          await writeText(join(cwd, name), "");
+          refresh();
+          return;
+        }
+        case "Markdown Note": {
+          // TODO: replace with custom dialog
+          const name = window.prompt("new note name", "note.md");
+          if (!name) return;
+          await writeText(join(cwd, name), "");
+          refresh();
+          return;
+        }
+        case "Script (.sh)": {
+          // TODO: replace with custom dialog
+          const name = window.prompt("new script name", "script.sh");
+          if (!name) return;
+          await writeText(join(cwd, name), "#!/usr/bin/env bash\n");
+          refresh();
+          return;
+        }
+        case "Duplicate": {
+          if (selectedPaths.length === 0) return;
+          for (const p of selectedPaths) await copyEntry(p, p + " (copy)");
+          refresh();
+          return;
+        }
+        case "Open in Terminal": {
+          console.log("Open in Terminal: not wired yet", cwd);
+          return;
+        }
+        case "Open in VS Code": {
+          console.log("Open in VS Code: not wired yet", firstPath ?? cwd);
+          return;
+        }
+        case "Reveal in Explorer":
+        case "Reveal in Tree": {
+          if (firstPath) await revealInExplorer(firstPath);
+          return;
+        }
+        case "Copy Path": {
+          if (firstPath) await navigator.clipboard.writeText(firstPath);
+          return;
+        }
+        case "Copy as WSL Path":
+        case "Copy Path (WSL)": {
+          if (!firstPath) return;
+          let wsl = "";
+          try { wsl = await winToWsl(firstPath); } catch { wsl = ""; }
+          if (!wsl) wsl = winToWslInline(firstPath);
+          await navigator.clipboard.writeText(wsl);
+          return;
+        }
+        case "Properties": {
+          console.log("Properties: not wired yet", firstPath ?? cwd);
+          return;
+        }
+        default:
+          return;
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error("file op failed", label, err);
+      window.alert(msg);
+    }
+  }
 
   const onContext = (e: React.MouseEvent, kind: ContextKind) => {
     setCtx({
@@ -355,7 +550,7 @@ export function App() {
       />
 
       {palOpen && <Palette onClose={() => setPalOpen(false)} onCommand={handleMenuCommand} />}
-      {ctx && <ContextMenu items={ctx.items} x={ctx.x} y={ctx.y} onClose={() => setCtx(null)} />}
+      {ctx && <ContextMenu items={ctx.items} x={ctx.x} y={ctx.y} onClose={() => setCtx(null)} onCommand={handleMenuCommand} />}
       {tweaksOpen && <Tweaks state={state} setState={setState} onClose={() => setTweaksOpen(false)} />}
 
       {!tweaksOpen && (

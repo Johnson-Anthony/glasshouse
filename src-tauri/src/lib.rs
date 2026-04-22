@@ -19,6 +19,7 @@ pub fn run() {
             commands::move_entry,
             commands::delete_entry,
             commands::read_text,
+            commands::write_text,
             commands::git_status,
             commands::open_with_default,
             commands::reveal_in_explorer,
