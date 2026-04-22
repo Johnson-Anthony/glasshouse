@@ -1,7 +1,7 @@
 # glasshouse UI Wiring Audit
-**Commit:** `da7d7a6` (Wave 9 complete)  
+**Commit:** `8be8f77` (Wave 10 complete)  
 **Date:** 2026-04-22  
-**Frontend:** ~2420 LOC (App.tsx, components.tsx, state.ts, data.ts, api.ts)  
+**Frontend:** ~2520 LOC (App.tsx, components.tsx, state.ts, data.ts, api.ts)  
 **Backend:** 30 Tauri commands fully wired
 
 ---
@@ -9,10 +9,14 @@
 ## Executive Summary
 
 **Total Click Surfaces:** 315  
-**WIRED:** 106 (↑4 — bulk rename + Stage/Unstage/Discard/Blame per-row)  
-**STUB:** 19 (↓1 — inspector git-blame chip path now also backs the row Blame entry)  
-**UNWIRED:** 190 (↓3)  
+**WIRED:** 107 (↑1 — paste special dialog with move/copy/copy+verify SHA256)  
+**STUB:** 19  
+**UNWIRED:** 189 (↓1)  
 **MOCK (layout only):** 0
+
+### Wave 10 delta
+- **+1 new WIRED surface:** Palette "Paste Special…" / Ctrl+Shift+V → `PasteSpecialDialog` modal. Three modes: Move (renames/relocates, backend `moveEntry`), Copy (duplicates, backend `copyEntry`), Copy + verify SHA256 (copies then hashes both sides and compares; files only, dirs skipped). Per-row live status with hash prefix; FAIL on mismatch. Clipboard clears on successful cut+move. Smoke-tested with alpha.txt + beta.txt: hashes matched `sha256sum`.
+- **Clipboard extension:** `AppClipboard` now carries a parallel `kinds: ("file"|"dir")[]` array so the dialog can route per-entry and skip hashing directories. Default mode = Move when clipboard is "cut", Copy otherwise.
 
 ### Wave 9 delta
 - **+4 new WIRED surfaces:** Row context menu → **Git: Stage / Git: Unstage / Git: Discard changes / Git: Blame**. Stage/Unstage/Discard operate on multi-select; Blame requires single tracked file. Menu entries filter in only when the selection has a tracked git flag (M/A/D/R/U); Discard prompts via `window.confirm` before touching disk.
