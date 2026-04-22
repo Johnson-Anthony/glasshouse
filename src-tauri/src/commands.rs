@@ -1,5 +1,7 @@
 use serde::Serialize;
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use tauri::{AppHandle, Manager};
 
 #[derive(Debug, Serialize)]
 pub struct FileEntry {
@@ -431,4 +433,49 @@ pub fn wsl_to_win(path: String) -> String {
         }
     }
     path.replace('/', "\\")
+}
+
+// ---------- pins / tags persistence ----------
+
+fn config_file(app: &AppHandle, name: &str) -> Result<PathBuf, String> {
+    let dir = app
+        .path()
+        .app_config_dir()
+        .map_err(|e| format!("app_config_dir: {}", e))?;
+    std::fs::create_dir_all(&dir).map_err(|e| format!("mkdir {}: {}", dir.display(), e))?;
+    Ok(dir.join(name))
+}
+
+#[tauri::command]
+pub fn read_pins(app: AppHandle) -> Result<Vec<String>, String> {
+    let path = config_file(&app, "pins.json")?;
+    match std::fs::read_to_string(&path) {
+        Ok(s) => serde_json::from_str::<Vec<String>>(&s).map_err(|e| e.to_string()),
+        Err(ref e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Vec::new()),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
+#[tauri::command]
+pub fn write_pins(app: AppHandle, pins: Vec<String>) -> Result<(), String> {
+    let path = config_file(&app, "pins.json")?;
+    let body = serde_json::to_string(&pins).map_err(|e| e.to_string())?;
+    std::fs::write(&path, body).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn read_tags(app: AppHandle) -> Result<HashMap<String, Vec<String>>, String> {
+    let path = config_file(&app, "tags.json")?;
+    match std::fs::read_to_string(&path) {
+        Ok(s) => serde_json::from_str::<HashMap<String, Vec<String>>>(&s).map_err(|e| e.to_string()),
+        Err(ref e) if e.kind() == std::io::ErrorKind::NotFound => Ok(HashMap::new()),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
+#[tauri::command]
+pub fn write_tags(app: AppHandle, tags: HashMap<String, Vec<String>>) -> Result<(), String> {
+    let path = config_file(&app, "tags.json")?;
+    let body = serde_json::to_string(&tags).map_err(|e| e.to_string())?;
+    std::fs::write(&path, body).map_err(|e| e.to_string())
 }

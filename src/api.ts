@@ -152,3 +152,19 @@ export function watchDir(path: string): Promise<void> {
 export function unwatchDir(path: string): Promise<void> {
   return safe(() => invoke<void>("unwatch_dir", { path }), undefined);
 }
+
+export function readPins(): Promise<string[]> {
+  return safe(() => invoke<string[]>("read_pins"), []);
+}
+
+export function writePins(pins: string[]): Promise<void> {
+  return safe(() => invoke<void>("write_pins", { pins }), undefined);
+}
+
+export function readTags(): Promise<Record<string, string[]>> {
+  return safe(() => invoke<Record<string, string[]>>("read_tags"), {});
+}
+
+export function writeTags(tags: Record<string, string[]>): Promise<void> {
+  return safe(() => invoke<void>("write_tags", { tags }), undefined);
+}

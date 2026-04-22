@@ -27,6 +27,10 @@ pub fn run() {
             commands::reveal_in_explorer,
             commands::win_to_wsl,
             commands::wsl_to_win,
+            commands::read_pins,
+            commands::write_pins,
+            commands::read_tags,
+            commands::write_tags,
             watcher::watch_dir,
             watcher::unwatch_dir,
         ])
