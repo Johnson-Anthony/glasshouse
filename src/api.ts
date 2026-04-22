@@ -71,7 +71,31 @@ export interface GitInfo {
   branch: string;
   ahead: number;
   behind: number;
+  dirty: number;
   status: Record<string, string>;
+}
+
+export interface FileStatExt {
+  created_ms: number | null;
+  modified_ms: number | null;
+  owner: string | null;
+  file_index: number | null;
+  readonly: boolean;
+  is_symlink: boolean;
+  symlink_target: string | null;
+}
+
+export interface GitFileInfo {
+  last_commit_ago: string | null;
+  author: string | null;
+  sha: string | null;
+  added: number;
+  removed: number;
+}
+
+export interface NetRate {
+  down_bps: number;
+  up_bps: number;
 }
 
 interface TauriWindow {
@@ -401,4 +425,36 @@ export async function pickDirectory(defaultPath?: string): Promise<string | null
   } catch {
     return null;
   }
+}
+
+export function fileStatExtended(path: string): Promise<FileStatExt | null> {
+  return safe(
+    () => invoke<FileStatExt>("file_stat_extended", { path }),
+    null,
+  );
+}
+
+export function hashMd5(path: string): Promise<string> {
+  if (!TAURI_AVAILABLE) return Promise.reject(new Error("tauri unavailable"));
+  return invoke<string>("hash_md5", { path });
+}
+
+export function hashCrc32(path: string): Promise<string> {
+  if (!TAURI_AVAILABLE) return Promise.reject(new Error("tauri unavailable"));
+  return invoke<string>("hash_crc32", { path });
+}
+
+export function gitFileInfo(cwd: string, path: string): Promise<GitFileInfo | null> {
+  return safe(
+    () => invoke<GitFileInfo>("git_file_info", { cwd, path }),
+    null,
+  );
+}
+
+export function pathFsType(path: string): Promise<string> {
+  return safe(() => invoke<string>("path_fs_type", { path }), "");
+}
+
+export function netRate(): Promise<NetRate | null> {
+  return safe(() => invoke<NetRate>("net_rate"), null);
 }

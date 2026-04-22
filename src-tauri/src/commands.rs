@@ -412,6 +412,7 @@ pub struct GitInfo {
     pub branch: String,
     pub ahead: usize,
     pub behind: usize,
+    pub dirty: usize,
     pub status: std::collections::HashMap<String, String>, // path -> flag: mod|add|del|untracked|renamed
 }
 
@@ -446,6 +447,7 @@ pub fn git_status(path: String) -> Option<GitInfo> {
     let mut opts = StatusOptions::new();
     opts.include_untracked(true).recurse_untracked_dirs(false);
     let mut status_map = std::collections::HashMap::new();
+    let mut dirty: usize = 0;
     if let Ok(statuses) = repo.statuses(Some(&mut opts)) {
         for s in statuses.iter() {
             let p = match s.path() {
@@ -466,6 +468,9 @@ pub fn git_status(path: String) -> Option<GitInfo> {
             } else {
                 "untracked"
             };
+            if flag != "ignored" {
+                dirty += 1;
+            }
             status_map.insert(p, flag.to_string());
         }
     }
@@ -474,6 +479,7 @@ pub fn git_status(path: String) -> Option<GitInfo> {
         branch,
         ahead,
         behind,
+        dirty,
         status: status_map,
     })
 }
@@ -2204,4 +2210,368 @@ pub fn clear_recent(app: AppHandle) -> Result<(), String> {
     let cfg = config_file(&app, "recent.json")?;
     let body = serde_json::to_string(&Vec::<String>::new()).map_err(|e| e.to_string())?;
     std::fs::write(&cfg, body).map_err(|e| e.to_string())
+}
+
+// ---------- extended file stat ----------
+
+#[derive(Debug, Serialize, Default)]
+pub struct FileStatExt {
+    pub created_ms: Option<i64>,
+    pub modified_ms: Option<i64>,
+    pub owner: Option<String>,
+    pub file_index: Option<u64>,
+    pub readonly: bool,
+    pub is_symlink: bool,
+    pub symlink_target: Option<String>,
+}
+
+fn system_time_to_ms(t: std::time::SystemTime) -> Option<i64> {
+    t.duration_since(std::time::UNIX_EPOCH)
+        .ok()
+        .map(|d| d.as_millis() as i64)
+}
+
+#[tauri::command]
+pub fn file_stat_extended(path: String) -> Result<FileStatExt, String> {
+    let md = std::fs::symlink_metadata(&path).map_err(|e| format!("stat {}: {}", path, e))?;
+    let mut out = FileStatExt {
+        readonly: md.permissions().readonly(),
+        is_symlink: md.file_type().is_symlink(),
+        ..Default::default()
+    };
+    out.created_ms = md.created().ok().and_then(system_time_to_ms);
+    out.modified_ms = md.modified().ok().and_then(system_time_to_ms);
+    if out.is_symlink {
+        if let Ok(target) = std::fs::read_link(&path) {
+            out.symlink_target = Some(target.to_string_lossy().to_string());
+        }
+    }
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        out.file_index = Some(md.ino());
+        out.owner = Some(format!("{}:{}", md.uid(), md.gid()));
+    }
+
+    #[cfg(windows)]
+    {
+        // Best-effort: file index via GetFileInformationByHandle.
+        use windows::core::PCWSTR;
+        use windows::Win32::Foundation::{CloseHandle, HANDLE};
+        use windows::Win32::Storage::FileSystem::{
+            CreateFileW, GetFileInformationByHandle, BY_HANDLE_FILE_INFORMATION,
+            FILE_FLAG_BACKUP_SEMANTICS, FILE_GENERIC_READ, FILE_SHARE_DELETE, FILE_SHARE_READ,
+            FILE_SHARE_WRITE, OPEN_EXISTING,
+        };
+        unsafe {
+            let wide: Vec<u16> = path.encode_utf16().chain(std::iter::once(0)).collect();
+            let handle = CreateFileW(
+                PCWSTR(wide.as_ptr()),
+                FILE_GENERIC_READ.0,
+                FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                None,
+                OPEN_EXISTING,
+                FILE_FLAG_BACKUP_SEMANTICS,
+                HANDLE::default(),
+            );
+            if let Ok(h) = handle {
+                let mut info = BY_HANDLE_FILE_INFORMATION::default();
+                if GetFileInformationByHandle(h, &mut info).is_ok() {
+                    let idx = ((info.nFileIndexHigh as u64) << 32) | info.nFileIndexLow as u64;
+                    out.file_index = Some(idx);
+                }
+                let _ = CloseHandle(h);
+            }
+        }
+        // Owner: GetSecurityInfo + LookupAccountSidW (best-effort).
+        out.owner = win_file_owner(&path);
+    }
+
+    Ok(out)
+}
+
+#[cfg(windows)]
+fn win_file_owner(path: &str) -> Option<String> {
+    use windows::core::PCWSTR;
+    use windows::Win32::Security::Authorization::{GetNamedSecurityInfoW, SE_FILE_OBJECT};
+    use windows::Win32::Security::{
+        LookupAccountSidW, OWNER_SECURITY_INFORMATION, PSID, SID_NAME_USE,
+    };
+    unsafe {
+        let wide: Vec<u16> = path.encode_utf16().chain(std::iter::once(0)).collect();
+        let mut psid_owner: PSID = PSID::default();
+        let mut psd = windows::Win32::Security::PSECURITY_DESCRIPTOR::default();
+        let err = GetNamedSecurityInfoW(
+            PCWSTR(wide.as_ptr()),
+            SE_FILE_OBJECT,
+            OWNER_SECURITY_INFORMATION,
+            Some(&mut psid_owner as *mut _),
+            None,
+            None,
+            None,
+            &mut psd as *mut _,
+        );
+        if err.0 != 0 {
+            return None;
+        }
+        let mut name_buf = [0u16; 256];
+        let mut domain_buf = [0u16; 256];
+        let mut name_len = name_buf.len() as u32;
+        let mut domain_len = domain_buf.len() as u32;
+        let mut sid_use = SID_NAME_USE::default();
+        let looked = LookupAccountSidW(
+            PCWSTR::null(),
+            psid_owner,
+            windows::core::PWSTR(name_buf.as_mut_ptr()),
+            &mut name_len,
+            windows::core::PWSTR(domain_buf.as_mut_ptr()),
+            &mut domain_len,
+            &mut sid_use,
+        );
+        // Free the descriptor allocated by GetNamedSecurityInfoW.
+        let _ = windows::Win32::Foundation::LocalFree(windows::Win32::Foundation::HLOCAL(
+            psd.0 as _,
+        ));
+        if looked.is_err() {
+            return None;
+        }
+        let name =
+            String::from_utf16_lossy(&name_buf[..name_buf.iter().position(|&c| c == 0).unwrap_or(0)]);
+        let domain = String::from_utf16_lossy(
+            &domain_buf[..domain_buf.iter().position(|&c| c == 0).unwrap_or(0)],
+        );
+        if domain.is_empty() {
+            Some(name)
+        } else {
+            Some(format!("{}\\{}", domain, name))
+        }
+    }
+}
+
+// ---------- additional checksums ----------
+
+#[tauri::command]
+pub fn hash_md5(path: String) -> Result<String, String> {
+    use md5::{Digest, Md5};
+    use std::io::Read;
+
+    let mut f = std::fs::File::open(&path).map_err(|e| format!("open {}: {}", path, e))?;
+    let mut hasher = Md5::new();
+    let mut buf = [0u8; 64 * 1024];
+    loop {
+        let n = f.read(&mut buf).map_err(|e| e.to_string())?;
+        if n == 0 {
+            break;
+        }
+        hasher.update(&buf[..n]);
+    }
+    let digest = hasher.finalize();
+    let mut hex = String::with_capacity(digest.len() * 2);
+    for byte in digest {
+        use std::fmt::Write;
+        let _ = write!(&mut hex, "{:02x}", byte);
+    }
+    Ok(hex)
+}
+
+#[tauri::command]
+pub fn hash_crc32(path: String) -> Result<String, String> {
+    use std::io::Read;
+
+    let mut f = std::fs::File::open(&path).map_err(|e| format!("open {}: {}", path, e))?;
+    let mut hasher = crc32fast::Hasher::new();
+    let mut buf = [0u8; 64 * 1024];
+    loop {
+        let n = f.read(&mut buf).map_err(|e| e.to_string())?;
+        if n == 0 {
+            break;
+        }
+        hasher.update(&buf[..n]);
+    }
+    Ok(format!("{:08x}", hasher.finalize()))
+}
+
+// ---------- per-file git info ----------
+
+#[derive(Debug, Serialize, Default)]
+pub struct GitFileInfo {
+    pub last_commit_ago: Option<String>,
+    pub author: Option<String>,
+    pub sha: Option<String>,
+    pub added: u32,
+    pub removed: u32,
+}
+
+#[tauri::command]
+pub fn git_file_info(cwd: String, path: String) -> Result<GitFileInfo, String> {
+    let mut out = GitFileInfo::default();
+
+    // log -1 --format=%cr%n%an%n%h -- <path>
+    if let Ok(o) = std::process::Command::new("git")
+        .arg("-C")
+        .arg(&cwd)
+        .args(["log", "-1", "--format=%cr%n%an%n%h", "--"])
+        .arg(&path)
+        .output()
+    {
+        if o.status.success() {
+            let s = String::from_utf8_lossy(&o.stdout);
+            let mut lines = s.lines();
+            out.last_commit_ago = lines.next().map(|x| x.trim().to_string()).filter(|x| !x.is_empty());
+            out.author = lines.next().map(|x| x.trim().to_string()).filter(|x| !x.is_empty());
+            out.sha = lines.next().map(|x| x.trim().to_string()).filter(|x| !x.is_empty());
+        }
+    }
+
+    // diff --numstat HEAD -- <path>
+    if let Ok(o) = std::process::Command::new("git")
+        .arg("-C")
+        .arg(&cwd)
+        .args(["diff", "--numstat", "HEAD", "--"])
+        .arg(&path)
+        .output()
+    {
+        if o.status.success() {
+            let s = String::from_utf8_lossy(&o.stdout);
+            if let Some(line) = s.lines().next() {
+                let mut parts = line.split_whitespace();
+                if let (Some(a), Some(d)) = (parts.next(), parts.next()) {
+                    out.added = a.parse().unwrap_or(0);
+                    out.removed = d.parse().unwrap_or(0);
+                }
+            }
+        }
+    }
+
+    Ok(out)
+}
+
+// ---------- filesystem type for arbitrary path ----------
+
+#[tauri::command]
+pub fn path_fs_type(path: String) -> Result<String, String> {
+    #[cfg(windows)]
+    {
+        use windows::core::PCWSTR;
+        use windows::Win32::Storage::FileSystem::{GetVolumePathNameW, GetVolumeInformationW};
+        unsafe {
+            let wide: Vec<u16> = path.encode_utf16().chain(std::iter::once(0)).collect();
+            let mut vol_buf = [0u16; 260];
+            let ok = GetVolumePathNameW(PCWSTR(wide.as_ptr()), &mut vol_buf).is_ok();
+            if !ok {
+                return Ok(String::new());
+            }
+            let mut fs_buf = [0u16; 64];
+            let res = GetVolumeInformationW(
+                PCWSTR(vol_buf.as_ptr()),
+                None,
+                None,
+                None,
+                None,
+                Some(&mut fs_buf),
+            );
+            if res.is_err() {
+                return Ok(String::new());
+            }
+            let fs = String::from_utf16_lossy(
+                &fs_buf[..fs_buf.iter().position(|&c| c == 0).unwrap_or(0)],
+            );
+            Ok(fs)
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = path;
+        Ok(String::new())
+    }
+}
+
+// ---------- network rate ----------
+
+#[derive(Debug, Serialize, Default, Clone, Copy)]
+pub struct NetRate {
+    pub down_bps: u64,
+    pub up_bps: u64,
+}
+
+static NET_LAST: std::sync::Mutex<Option<(std::time::Instant, u64, u64)>> =
+    std::sync::Mutex::new(None);
+
+#[tauri::command]
+pub fn net_rate() -> Result<NetRate, String> {
+    let (total_in, total_out) = sample_net_octets()?;
+    let now = std::time::Instant::now();
+    let mut slot = NET_LAST.lock().map_err(|e| e.to_string())?;
+    let rate = match *slot {
+        Some((prev_t, prev_in, prev_out)) => {
+            let dt = now.duration_since(prev_t).as_secs_f64().max(0.001);
+            let d_in = total_in.saturating_sub(prev_in) as f64;
+            let d_out = total_out.saturating_sub(prev_out) as f64;
+            NetRate {
+                down_bps: (d_in / dt) as u64,
+                up_bps: (d_out / dt) as u64,
+            }
+        }
+        None => NetRate::default(),
+    };
+    *slot = Some((now, total_in, total_out));
+    Ok(rate)
+}
+
+#[cfg(windows)]
+fn sample_net_octets() -> Result<(u64, u64), String> {
+    use windows::Win32::NetworkManagement::IpHelper::{
+        FreeMibTable, GetIfTable2, MIB_IF_TABLE2,
+    };
+    unsafe {
+        let mut table_ptr: *mut MIB_IF_TABLE2 = std::ptr::null_mut();
+        let err = GetIfTable2(&mut table_ptr);
+        if err.0 != 0 || table_ptr.is_null() {
+            return Err(format!("GetIfTable2: {:?}", err));
+        }
+        let table = &*table_ptr;
+        let count = table.NumEntries as usize;
+        let rows = std::slice::from_raw_parts(table.Table.as_ptr(), count);
+        let mut total_in: u64 = 0;
+        let mut total_out: u64 = 0;
+        for row in rows {
+            // Skip loopback (IF_TYPE_SOFTWARE_LOOPBACK = 24).
+            if row.Type == 24 {
+                continue;
+            }
+            total_in = total_in.saturating_add(row.InOctets);
+            total_out = total_out.saturating_add(row.OutOctets);
+        }
+        FreeMibTable(table_ptr as _);
+        Ok((total_in, total_out))
+    }
+}
+
+#[cfg(not(windows))]
+fn sample_net_octets() -> Result<(u64, u64), String> {
+    Ok((0, 0))
+}
+
+// ---------- per-repo dirty count ----------
+
+#[tauri::command]
+pub fn git_dirty_count(path: String) -> Result<u32, String> {
+    use git2::{Repository, Status, StatusOptions};
+    let Ok(repo) = Repository::discover(&path) else {
+        return Ok(0);
+    };
+    let mut opts = StatusOptions::new();
+    opts.include_untracked(true).recurse_untracked_dirs(false);
+    let Ok(statuses) = repo.statuses(Some(&mut opts)) else {
+        return Ok(0);
+    };
+    let mut n: u32 = 0;
+    for s in statuses.iter() {
+        if s.status().contains(Status::IGNORED) {
+            continue;
+        }
+        n += 1;
+    }
+    Ok(n)
 }
