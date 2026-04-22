@@ -25,6 +25,8 @@ pub fn run() {
             commands::git_status,
             commands::open_with_default,
             commands::reveal_in_explorer,
+            commands::spawn_terminal,
+            commands::spawn_vscode,
             commands::win_to_wsl,
             commands::wsl_to_win,
             commands::read_pins,

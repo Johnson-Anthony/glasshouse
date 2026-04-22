@@ -406,6 +406,143 @@ pub fn reveal_in_explorer(path: String) -> Result<(), String> {
     }
 }
 
+// ---------- spawn external apps ----------
+
+#[cfg(windows)]
+const CREATE_NO_WINDOW: u32 = 0x08000000;
+
+/// Open a terminal window at `path`. Prefers Windows Terminal, then pwsh, then powershell.
+#[tauri::command]
+pub fn spawn_terminal(path: String) -> Result<(), String> {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        use std::process::{Command, Stdio};
+
+        // 1) Windows Terminal — spawns its own visible window, no creation_flags.
+        if which::which("wt.exe").is_ok() || which::which("wt").is_ok() {
+            let child = Command::new("wt.exe")
+                .args(["-d", &path])
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .spawn();
+            match child {
+                Ok(c) => {
+                    drop(c);
+                    return Ok(());
+                }
+                Err(e) => {
+                    // fall through to pwsh/powershell
+                    eprintln!("wt.exe spawn failed: {}, falling back", e);
+                }
+            }
+        }
+
+        // 2) pwsh.exe (PowerShell 7+) — needs a visible console since it has no
+        //    window chrome of its own. Use `cmd /C start` to give it a console.
+        if which::which("pwsh.exe").is_ok() || which::which("pwsh").is_ok() {
+            let child = Command::new("cmd")
+                .args(["/C", "start", "", "pwsh.exe", "-NoExit", "-WorkingDirectory", &path])
+                .creation_flags(CREATE_NO_WINDOW)
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .spawn();
+            match child {
+                Ok(c) => {
+                    drop(c);
+                    return Ok(());
+                }
+                Err(e) => {
+                    eprintln!("pwsh.exe spawn failed: {}, falling back", e);
+                }
+            }
+        }
+
+        // 3) powershell.exe — always present on Windows.
+        let child = Command::new("cmd")
+            .args([
+                "/C",
+                "start",
+                "",
+                "powershell.exe",
+                "-NoExit",
+                "-WorkingDirectory",
+                &path,
+            ])
+            .creation_flags(CREATE_NO_WINDOW)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .map_err(|e| format!("powershell.exe spawn failed: {}", e))?;
+        drop(child);
+        Ok(())
+    }
+    #[cfg(not(windows))]
+    {
+        use std::process::{Command, Stdio};
+        let child = Command::new("x-terminal-emulator")
+            .arg("--working-directory")
+            .arg(&path)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .map_err(|e| e.to_string())?;
+        drop(child);
+        Ok(())
+    }
+}
+
+/// Open VS Code at `path` (file or folder).
+#[tauri::command]
+pub fn spawn_vscode(path: String) -> Result<(), String> {
+    use std::process::{Command, Stdio};
+
+    // Resolve a code launcher: try code.cmd, code.exe, then bare `code`.
+    let resolved = which::which("code.cmd")
+        .or_else(|_| which::which("code.exe"))
+        .or_else(|_| which::which("code"));
+
+    let program: std::ffi::OsString = match resolved {
+        Ok(p) => p.into_os_string(),
+        Err(_) => std::ffi::OsString::from("code"),
+    };
+
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        // `code.cmd` is a batch file; spawning it via cmd /C ensures it runs
+        // correctly regardless of extension, and CREATE_NO_WINDOW hides the
+        // transient launcher console.
+        let program_str = program.to_string_lossy().to_string();
+        let child = Command::new("cmd")
+            .args(["/C", &program_str, &path])
+            .creation_flags(CREATE_NO_WINDOW)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .map_err(|e| format!("spawn code: {}", e))?;
+        drop(child);
+        Ok(())
+    }
+    #[cfg(not(windows))]
+    {
+        let child = Command::new(&program)
+            .arg(&path)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .map_err(|e| format!("spawn code: {}", e))?;
+        drop(child);
+        Ok(())
+    }
+}
+
 // ---------- WSL path translation ----------
 
 #[tauri::command]
