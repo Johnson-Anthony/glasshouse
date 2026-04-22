@@ -1,10 +1,17 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { listen } from "@tauri-apps/api/event";
 import {
   listDir,
   gitStatus,
+  watchDir,
+  unwatchDir,
   type FileEntry,
   type GitInfo,
 } from "./api";
+
+function normalizePath(p: string): string {
+  return p.replace(/[\\/]+$/, "").toLowerCase();
+}
 
 export type SortKey = "name" | "size" | "modified" | "type" | "git";
 
@@ -102,13 +109,42 @@ export function useTabState(initialPath: string): UseTabResult {
     return () => window.clearTimeout(handle);
   }, [path, showHidden, refreshTick, fetchAll]);
 
-  // TODO: replace with tauri-plugin-notify event stream
+  // notify-based fs watcher: subscribe per-path, with a 30s safety-net refetch
   useEffect(() => {
-    const id = window.setInterval(() => {
+    if (!path) return;
+    let disposed = false;
+    let unlistenFn: (() => void) | null = null;
+
+    void watchDir(path);
+
+    const target = normalizePath(path);
+    void listen<string>("fs-changed", evt => {
+      if (disposed) return;
+      const payload = typeof evt.payload === "string" ? evt.payload : "";
+      if (normalizePath(payload) === target) {
+        void fetchAll(pathRef.current, showHiddenRef.current);
+      }
+    }).then(fn => {
+      if (disposed) {
+        fn();
+      } else {
+        unlistenFn = fn;
+      }
+    }).catch(() => { /* ignore */ });
+
+    const safetyId = window.setInterval(() => {
       void fetchAll(pathRef.current, showHiddenRef.current);
-    }, 2000);
-    return () => window.clearInterval(id);
-  }, [fetchAll]);
+    }, 30000);
+
+    return () => {
+      disposed = true;
+      window.clearInterval(safetyId);
+      if (unlistenFn) {
+        try { unlistenFn(); } catch { /* ignore */ }
+      }
+      void unwatchDir(path);
+    };
+  }, [path, fetchAll]);
 
   const goTo = useCallback((next: string) => {
     setPath(prev => {

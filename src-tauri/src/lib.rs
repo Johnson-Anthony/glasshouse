@@ -1,4 +1,5 @@
 mod commands;
+mod watcher;
 
 pub fn run() {
     tauri::Builder::default()
@@ -7,6 +8,7 @@ pub fn run() {
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_os::init())
         .plugin(tauri_plugin_shell::init())
+        .manage(watcher::WatcherState::default())
         .invoke_handler(tauri::generate_handler![
             commands::ping,
             commands::home_dir,
@@ -25,6 +27,8 @@ pub fn run() {
             commands::reveal_in_explorer,
             commands::win_to_wsl,
             commands::wsl_to_win,
+            watcher::watch_dir,
+            watcher::unwatch_dir,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

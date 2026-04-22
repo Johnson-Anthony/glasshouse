@@ -183,6 +183,8 @@ export function App() {
   const [tweaksOpen, setTweaksOpen] = useState(false);
 
   const [tabHandles, setTabHandles] = useState<Record<number, UseTabResult>>({});
+  const [searchQuery, setSearchQuery] = useState("");
+  const searchInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     void (async () => {
@@ -236,6 +238,15 @@ export function App() {
       }
       if (e.key === "Escape") {
         setPalOpen(false); setCtx(null);
+      }
+      if (e.key === "/" && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        const t = e.target as HTMLElement | null;
+        const tag = t?.tagName;
+        const editable = t?.isContentEditable;
+        if (tag === "INPUT" || tag === "TEXTAREA" || editable) return;
+        e.preventDefault();
+        searchInputRef.current?.focus();
+        searchInputRef.current?.select();
       }
     };
     window.addEventListener("keydown", h);
@@ -519,6 +530,9 @@ export function App() {
         onUp={() => activeHandle?.actions.up()}
         onRefresh={() => activeHandle?.actions.refresh()}
         onGoTo={(p) => activeHandle?.actions.goTo(p)}
+        searchQuery={searchQuery}
+        onSearchChange={setSearchQuery}
+        searchInputRef={searchInputRef}
       />
       <div className="body">
         <Sidebar
@@ -530,6 +544,7 @@ export function App() {
           selected={selected}
           setSelected={setSelected}
           onContext={onContext}
+          searchQuery={searchQuery}
           onOpen={(i) => {
             const row = liveRows[i];
             if (row && row.entry.kind === "folder") {

@@ -144,3 +144,11 @@ export function wslToWin(path: string): Promise<string> {
 export function writeText(path: string, content: string): Promise<void> {
   return safe(() => invoke<void>("write_text", { path, content }), undefined);
 }
+
+export function watchDir(path: string): Promise<void> {
+  return safe(() => invoke<void>("watch_dir", { path }), undefined);
+}
+
+export function unwatchDir(path: string): Promise<void> {
+  return safe(() => invoke<void>("unwatch_dir", { path }), undefined);
+}

@@ -10,6 +10,7 @@ import {
   type MenuItemDef,
 } from "./data";
 import { drives as apiDrives, homeDir as apiHomeDir, readText, systemInfo as apiSystemInfo, winClose, winMinimize, winToggleMaximize, type Drive, type FileEntry, type GitInfo, type SystemInfo } from "./api";
+import { fuzzyFilter } from "./fuzzy";
 
 // ============= Titlebar =============
 export interface TabDef {
@@ -159,6 +160,9 @@ export interface ToolbarProps {
   onRefresh: () => void;
   onGoTo: (path: string) => void;
   onSearchFocus?: () => void;
+  searchQuery: string;
+  onSearchChange: (q: string) => void;
+  searchInputRef?: React.RefObject<HTMLInputElement>;
 }
 
 interface Crumb {
@@ -196,7 +200,7 @@ function splitBreadcrumb(path: string): Crumb[] {
   return out;
 }
 
-export function Toolbar({ path, gitInfo, canBack, canForward, onBack, onForward, onUp, onRefresh, onGoTo, onSearchFocus }: ToolbarProps) {
+export function Toolbar({ path, gitInfo, canBack, canForward, onBack, onForward, onUp, onRefresh, onGoTo, onSearchFocus, searchQuery, onSearchChange, searchInputRef }: ToolbarProps) {
   const parts = splitBreadcrumb(path);
   return (
     <div className="toolbar">
@@ -224,7 +228,19 @@ export function Toolbar({ path, gitInfo, canBack, canForward, onBack, onForward,
       </div>
       <div className="search" onClick={onSearchFocus}>
         <span style={{color: "var(--fg-3)"}}>⌕</span>
-        <input placeholder="find in current dir…  (fuzzy)" value="" readOnly />
+        <input
+          ref={searchInputRef}
+          placeholder="find in current dir…  (fuzzy)"
+          value={searchQuery}
+          onChange={(e) => onSearchChange(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Escape") {
+              e.preventDefault();
+              onSearchChange("");
+              (e.currentTarget as HTMLInputElement).blur();
+            }
+          }}
+        />
         <span className="kb">/</span>
       </div>
       <div className="tool-group">
@@ -376,9 +392,20 @@ export interface FilePaneProps {
   setSelected: (sel: number[]) => void;
   onContext: (e: React.MouseEvent, kind: ContextKind) => void;
   onOpen?: (index: number) => void;
+  searchQuery?: string;
 }
 
-export function FilePane({ files, selected, setSelected, onContext, onOpen }: FilePaneProps) {
+export function FilePane({ files, selected, setSelected, onContext, onOpen, searchQuery }: FilePaneProps) {
+  const displayFiles = useMemo(() => {
+    const q = (searchQuery || "").trim();
+    if (!q) return files.map((f, i) => ({ file: f, origIndex: i }));
+    const indexed = files.map((f, i) => ({ file: f, origIndex: i }));
+    return fuzzyFilter(
+      q,
+      indexed,
+      x => (x.file.ext && x.file.kind !== "folder") ? `${x.file.name}.${x.file.ext}` : x.file.name,
+    ).map(r => r.item);
+  }, [files, searchQuery]);
   const handleRowClick = (i: number, e: React.MouseEvent) => {
     if (e.shiftKey && selected.length) {
       const last = selected[selected.length - 1];
@@ -402,7 +429,7 @@ export function FilePane({ files, selected, setSelected, onContext, onOpen }: Fi
         <div className="col" style={{justifyContent:"flex-end"}}>git</div>
       </div>
       <div className="rows">
-        {files.map((f, i) => {
+        {displayFiles.map(({ file: f, origIndex: i }) => {
           const ki = kindIcon(f.kind);
           const isSel = selected.includes(i);
           return (
@@ -707,7 +734,7 @@ export function Palette({ onClose, onCommand }: PaletteProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const items = useMemo(() => {
     if (!q) return PALETTE;
-    return PALETTE.filter(p => p.label.toLowerCase().includes(q.toLowerCase()));
+    return fuzzyFilter(q, PALETTE, p => p.label).map(r => r.item);
   }, [q]);
 
   useEffect(() => { inputRef.current?.focus(); }, []);
