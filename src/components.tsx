@@ -1645,69 +1645,11 @@ export function StatusBar({ selectedCount, totalCount, totalSize, path, gitInfo,
   );
 }
 
-// ============= Terminal drawer =============
-export interface TerminalDrawerProps {
-  open: boolean;
-  onClose: () => void;
-}
-
-export function TerminalDrawer({ open, onClose }: TerminalDrawerProps) {
-  const TERM_TABS: Array<{ shell: string; label: string; accent?: boolean }> = [
-    { shell: "zsh", label: "zsh · glasshouse", accent: true },
-    { shell: "ssh", label: "ssh · void@server" },
-    { shell: "wsl", label: "wsl · Ubuntu" },
-  ];
-  const [activeTerminalTab, setActiveTerminalTab] = useState<string>("zsh");
-  return (
-    <div className={"term-drawer" + (open ? " open" : "")}>
-      <div className="term-head">
-        {TERM_TABS.map(t => {
-          const isActive = activeTerminalTab === t.shell;
-          return (
-            <div
-              key={t.shell}
-              className={"ttab" + (isActive ? " active" : "")}
-              style={{cursor:"pointer"}}
-              onClick={() => {
-                console.log(`[terminal] switching to ${t.shell} tab`);
-                setActiveTerminalTab(t.shell);
-              }}
-            >
-              {isActive && t.accent && <span style={{color:"var(--green)"}}>✓ </span>}
-              {t.label}
-              {isActive && <span className="close" onClick={(e) => { e.stopPropagation(); console.log(`[terminal] close ${t.shell} tab (mock)`); }}>×</span>}
-            </div>
-          );
-        })}
-        <div
-          className="ttab"
-          style={{color:"var(--fg-3)", cursor:"pointer"}}
-          onClick={() => { console.log("[terminal] new tab (mock)"); }}
-        >+</div>
-        <div className="right">
-          <span title="split H" style={{cursor:"pointer"}} onClick={() => { console.log("[terminal] split H (mock)"); }}>⊟</span>
-          <span title="split V" style={{cursor:"pointer"}} onClick={() => { console.log("[terminal] split V (mock)"); }}>⊟</span>
-          <span title="zoom" style={{cursor:"pointer"}} onClick={() => { console.log("[terminal] zoom (mock)"); }}>⤢</span>
-          <span title="close" style={{cursor:"pointer"}} onClick={onClose}>×</span>
-        </div>
-      </div>
-      <div className="term-body">
-        <div className="line"><span className="prompt">void@arch</span> <span className="dim">in</span> <span className="path">~/projects/glasshouse</span> <span className="dim">on</span> <span className="branch">⎇ main</span> <span className="dim">[●5]</span></div>
-        <div className="line"><span className="prompt">❯</span> <span className="cmd">cargo build --release</span></div>
-        <div className="line dim">   Compiling glasshouse v0.4.2 (/home/void/projects/glasshouse)</div>
-        <div className="line dim">   Compiling tokio v1.37.0</div>
-        <div className="line ok">    Finished `release` profile [optimized] target(s) in 12.4s</div>
-        <div className="line"><span className="prompt">void@arch</span> <span className="dim">in</span> <span className="path">~/projects/glasshouse</span></div>
-        <div className="line"><span className="prompt">❯</span> <span className="cmd">git status --short</span></div>
-        <div className="line"><span style={{color:"var(--yellow)"}}> M</span> src/main.rs</div>
-        <div className="line"><span style={{color:"var(--yellow)"}}> M</span> README.md</div>
-        <div className="line"><span style={{color:"var(--green)"}}>A </span> src/palette.rs</div>
-        <div className="line"><span className="dim">??</span> Screenshot_2026-04-22_10-14-03.png</div>
-        <div className="line"><span className="prompt">❯</span> <span className="cursor"></span></div>
-      </div>
-    </div>
-  );
-}
+// ============= Terminal drawer (removed) =============
+// The previous TerminalDrawer was a static mock with hardcoded output. Rather
+// than ship fake UI, Ctrl+` / the status bar "term" segment now spawn the
+// real system terminal via spawnTerminal(cwd). A future embedded PTY can be
+// added with portable-pty but is out of scope here.
 
 // ============= Command palette =============
 export interface PaletteProps {

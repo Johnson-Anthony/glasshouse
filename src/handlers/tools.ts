@@ -9,7 +9,7 @@ import {
   runScript,
   findFileByName,
   changeOwner,
-  openWithDefault,
+  openWithDefaultStrict,
   makeDir,
   moveEntry,
   readText,
@@ -62,13 +62,15 @@ export const toolsHandler: Handler = async (label, ctx) => {
     case "Text Editor (.txt)": {
       const p = ctx.firstPath;
       if (!p) {
-        console.log(`[tools] ${label}: no selection`);
+        window.alert(`${label}: no selection`);
         return true;
       }
       try {
-        await openWithDefault(p);
+        await openWithDefaultStrict(p);
       } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
         console.log(`[tools] openWithDefault failed for ${p}:`, e);
+        window.alert(`${label} failed: ${msg}`);
       }
       return true;
     }
