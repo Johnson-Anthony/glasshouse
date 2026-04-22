@@ -484,6 +484,26 @@ export const CONTEXT_FILE: MenuItemDef[] = [
   { kind: "item", ic: "", label: "Move to Trash",     kb: "Del", danger: true },
 ];
 
+export const CONTEXT_SIDEBAR: MenuItemDef[] = [
+  { kind: "item", ic: "", label: "Open" },
+  { kind: "item", ic: "", label: "Open in New Tab" },
+  { kind: "sep" },
+  { kind: "item", ic: "", label: "Copy Path" },
+  { kind: "item", ic: "", label: "Reveal in Explorer" },
+];
+
+export const CONTEXT_TAB: MenuItemDef[] = [
+  { kind: "item", ic: "", label: "Close Tab",         kb: "Ctrl+W" },
+  { kind: "item", ic: "", label: "Close Other Tabs" },
+  { kind: "item", ic: "", label: "Duplicate Tab" },
+];
+
+export const CONTEXT_BREADCRUMB: MenuItemDef[] = [
+  { kind: "item", ic: "", label: "Copy Path" },
+  { kind: "item", ic: "", label: "Open in New Tab" },
+  { kind: "item", ic: "", label: "Reveal in Explorer" },
+];
+
 export const CONTEXT_EMPTY: MenuItemDef[] = [
   { kind: "sub",  ic: "", label: "New",
     children: [

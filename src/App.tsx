@@ -15,7 +15,7 @@ import {
   type TweakState,
   type ContextKind,
 } from "./components";
-import { CONTEXT_FILE, CONTEXT_EMPTY, type MenuItemDef, type FileRow, type FileKind, type GitStatus } from "./data";
+import { CONTEXT_FILE, CONTEXT_EMPTY, CONTEXT_SIDEBAR, CONTEXT_TAB, CONTEXT_BREADCRUMB, type MenuItemDef, type FileRow, type FileKind, type GitStatus } from "./data";
 import { useTabState, type UseTabResult } from "./state";
 import {
   homeDir,
@@ -168,6 +168,17 @@ interface AppClipboard {
   paths: string[];
 }
 let appClipboard: AppClipboard | null = null;
+
+// Right-click context target — populated when a non-file-row surface opens a
+// context menu (sidebar row, tab, breadcrumb crumb). Case handlers read from
+// this instead of selection state. Module-level to match the `appClipboard`
+// pattern already in use.
+interface ContextTarget {
+  kind: "sidebar" | "tab" | "breadcrumb";
+  path?: string;
+  tabIndex?: number;
+}
+let contextTarget: ContextTarget | null = null;
 
 export function App() {
   const [state, setState] = useState<TweakState>(() => {
@@ -344,7 +355,66 @@ export function App() {
 
   const THEMES = ["tokyo-night","catppuccin-mocha","gruvbox-dark","rose-pine","everforest","solarized-dark","green-crt","synthwave"];
 
+  const duplicateTabAt = (i: number) => {
+    const seed = initialPaths?.[i] ?? FALLBACK_PATH;
+    // Prefer the live path of that tab's handle if available.
+    const live = tabHandles[i]?.state.path ?? seed;
+    setTabs(prev => [...prev, { ic: "", color: "var(--cyan)", label: live }]);
+    setInitialPaths(prev => (prev ? [...prev, live] : [live]));
+  };
+
+  const closeOtherTabsAt = (keep: number) => {
+    setTabs(prev => prev.filter((_, k) => k === keep));
+    setInitialPaths(prev => (prev ? prev.filter((_, k) => k === keep) : prev));
+    setTabHandles(prev => {
+      const v = prev[keep];
+      const next: Record<number, UseTabResult> = {};
+      if (v) next[0] = v;
+      return next;
+    });
+    setActiveTab(0);
+  };
+
+  const openPathInNewTab = (p: string) => {
+    setTabs(prev => [...prev, { ic: "", color: "var(--cyan)", label: p }]);
+    setInitialPaths(prev => (prev ? [...prev, p] : [p]));
+  };
+
   const handleMenuCommand = (label: string) => {
+    // Handle context-sourced commands (sidebar / tab / breadcrumb right-click)
+    // up front. Consume contextTarget on use so a later selection-sourced
+    // click with the same label doesn't misfire.
+    const ctxT = contextTarget;
+    if (ctxT) {
+      if (ctxT.kind === "tab" && typeof ctxT.tabIndex === "number") {
+        switch (label) {
+          case "Close Tab":
+            contextTarget = null;
+            closeTabAt(ctxT.tabIndex); return;
+          case "Close Other Tabs":
+            contextTarget = null;
+            closeOtherTabsAt(ctxT.tabIndex); return;
+          case "Duplicate Tab":
+            contextTarget = null;
+            duplicateTabAt(ctxT.tabIndex); return;
+        }
+      } else if ((ctxT.kind === "sidebar" || ctxT.kind === "breadcrumb") && ctxT.path) {
+        switch (label) {
+          case "Open":
+            contextTarget = null;
+            activeHandle?.actions.goTo(ctxT.path); return;
+          case "Open in New Tab":
+            contextTarget = null;
+            openPathInNewTab(ctxT.path); return;
+          case "Copy Path":
+            contextTarget = null;
+            void navigator.clipboard.writeText(ctxT.path); return;
+          case "Reveal in Explorer":
+            contextTarget = null;
+            void revealInExplorer(ctxT.path); return;
+        }
+      }
+    }
     switch (label) {
       case "Toggle Drawer":
       case "Terminal Drawer":
@@ -558,6 +628,7 @@ export function App() {
           return;
         }
         default:
+          console.warn("menu command not wired:", label);
           return;
       }
     } catch (err) {
@@ -567,12 +638,34 @@ export function App() {
     }
   }
 
-  const onContext = (e: React.MouseEvent, kind: ContextKind) => {
+  const openCtxMenu = (e: React.MouseEvent, items: MenuItemDef[]) => {
     setCtx({
       x: Math.min(e.clientX, window.innerWidth - 240),
       y: Math.min(e.clientY, window.innerHeight - 420),
-      items: kind === "file" ? CONTEXT_FILE : CONTEXT_EMPTY,
+      items,
     });
+  };
+
+  const onContext = (e: React.MouseEvent, kind: ContextKind) => {
+    // File-pane surfaces act on the current selection; clear the module target
+    // so stale sidebar/tab/breadcrumb right-clicks can't leak into file ops.
+    contextTarget = null;
+    openCtxMenu(e, kind === "file" ? CONTEXT_FILE : CONTEXT_EMPTY);
+  };
+
+  const onSidebarContext = (e: React.MouseEvent, path: string) => {
+    contextTarget = { kind: "sidebar", path };
+    openCtxMenu(e, CONTEXT_SIDEBAR);
+  };
+
+  const onTabContext = (e: React.MouseEvent, tabIndex: number) => {
+    contextTarget = { kind: "tab", tabIndex };
+    openCtxMenu(e, CONTEXT_TAB);
+  };
+
+  const onCrumbContext = (e: React.MouseEvent, path: string) => {
+    contextTarget = { kind: "breadcrumb", path };
+    openCtxMenu(e, CONTEXT_BREADCRUMB);
   };
 
   const liveRows: LiveFileRow[] = useMemo(() => {
@@ -606,6 +699,7 @@ export function App() {
         onSelectTab={setActiveTab}
         onCloseTab={closeTabAt}
         onNewTab={openNewTab}
+        onTabContext={onTabContext}
       />
       <Menubar onOpenPalette={() => setPalOpen(true)} onCommand={handleMenuCommand} />
       <Toolbar
@@ -625,11 +719,13 @@ export function App() {
         onToggleHidden={() => setState(prev => ({ ...prev, hidden: !prev.hidden }))}
         showInspector={showInspector}
         onToggleInspector={() => setShowInspector(v => !v)}
+        onCrumbContext={onCrumbContext}
       />
       <div className="body">
         <Sidebar
           activePath={activeHandle?.state.path ?? ""}
           onGoTo={(p) => activeHandle?.actions.goTo(p)}
+          onRowContext={onSidebarContext}
         />
         <FilePane
           files={liveRows}

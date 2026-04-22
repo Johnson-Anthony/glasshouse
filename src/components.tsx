@@ -25,9 +25,10 @@ export interface TitlebarProps {
   onSelectTab: (i: number) => void;
   onCloseTab: (i: number) => void;
   onNewTab: () => void;
+  onTabContext?: (e: React.MouseEvent, tabIndex: number) => void;
 }
 
-export function Titlebar({ tabs, activeTab, onSelectTab, onCloseTab, onNewTab }: TitlebarProps) {
+export function Titlebar({ tabs, activeTab, onSelectTab, onCloseTab, onNewTab, onTabContext }: TitlebarProps) {
   return (
     <div className="titlebar" data-tauri-drag-region>
       <div className="traffic">
@@ -41,6 +42,12 @@ export function Titlebar({ tabs, activeTab, onSelectTab, onCloseTab, onNewTab }:
             key={i}
             className={"tab" + (i === activeTab ? " active" : "")}
             onClick={() => onSelectTab(i)}
+            onContextMenu={(e) => {
+              if (!onTabContext) return;
+              e.preventDefault();
+              e.stopPropagation();
+              onTabContext(e, i);
+            }}
           >
             <span className="ico" style={{color: t.color}}>{t.ic}</span>
             <span className="label">{t.label}</span>
@@ -167,6 +174,7 @@ export interface ToolbarProps {
   onToggleHidden: () => void;
   showInspector: boolean;
   onToggleInspector: () => void;
+  onCrumbContext?: (e: React.MouseEvent, path: string) => void;
 }
 
 interface Crumb {
@@ -204,7 +212,7 @@ function splitBreadcrumb(path: string): Crumb[] {
   return out;
 }
 
-export function Toolbar({ path, gitInfo, canBack, canForward, onBack, onForward, onUp, onRefresh, onGoTo, onSearchFocus, searchQuery, onSearchChange, searchInputRef, showHidden, onToggleHidden, showInspector, onToggleInspector }: ToolbarProps) {
+export function Toolbar({ path, gitInfo, canBack, canForward, onBack, onForward, onUp, onRefresh, onGoTo, onSearchFocus, searchQuery, onSearchChange, searchInputRef, showHidden, onToggleHidden, showInspector, onToggleInspector, onCrumbContext }: ToolbarProps) {
   const parts = splitBreadcrumb(path);
   return (
     <div className="toolbar">
@@ -221,6 +229,12 @@ export function Toolbar({ path, gitInfo, canBack, canForward, onBack, onForward,
             <span
               className={"crumb" + (i === parts.length - 1 ? " last" : "")}
               onClick={() => onGoTo(p.path)}
+              onContextMenu={(e) => {
+                if (!onCrumbContext) return;
+                e.preventDefault();
+                e.stopPropagation();
+                onCrumbContext(e, p.path);
+              }}
               style={{cursor:"pointer"}}
             >{p.label}</span>
             {i < parts.length - 1 && <span className="sep">/</span>}
@@ -290,9 +304,10 @@ function buildPinned(home: string | null): PinnedEntry[] {
 export interface SidebarProps {
   activePath: string;
   onGoTo: (path: string) => void;
+  onRowContext?: (e: React.MouseEvent, path: string) => void;
 }
 
-export function Sidebar({ activePath, onGoTo }: SidebarProps) {
+export function Sidebar({ activePath, onGoTo, onRowContext }: SidebarProps) {
   const [home, setHome] = useState<string | null>(null);
   const [driveList, setDriveList] = useState<Drive[]>([]);
 
@@ -310,14 +325,32 @@ export function Sidebar({ activePath, onGoTo }: SidebarProps) {
       <div className="sb-group">
         <div className="sb-title"><span>PINNED</span><span style={{color:"var(--fg-3)"}}>+</span></div>
         {pinned.map((p, i) => (
-          <div key={i} className={"sb-item" + (p.path === activePath ? " active" : "")} onClick={() => onGoTo(p.path)} style={{cursor:"pointer"}}>
+          <div key={i}
+               className={"sb-item" + (p.path === activePath ? " active" : "")}
+               onClick={() => onGoTo(p.path)}
+               onContextMenu={(e) => {
+                 if (!onRowContext) return;
+                 e.preventDefault();
+                 e.stopPropagation();
+                 onRowContext(e, p.path);
+               }}
+               style={{cursor:"pointer"}}>
             <span className="ic">{p.ic || "·"}</span>
             <span>{p.label}</span>
             <span className="badge">{p.badge}</span>
           </div>
         ))}
         {driveList.map((d, i) => (
-          <div key={"d" + i} className={"sb-item" + (d.letter === activePath ? " active" : "")} onClick={() => onGoTo(d.letter)} style={{cursor:"pointer"}}>
+          <div key={"d" + i}
+               className={"sb-item" + (d.letter === activePath ? " active" : "")}
+               onClick={() => onGoTo(d.letter)}
+               onContextMenu={(e) => {
+                 if (!onRowContext) return;
+                 e.preventDefault();
+                 e.stopPropagation();
+                 onRowContext(e, d.letter);
+               }}
+               style={{cursor:"pointer"}}>
             <span className="ic"></span>
             <span>{d.label || d.letter.replace(/\\$/, "")}</span>
             <span className="badge">{d.fs || null}</span>
@@ -396,7 +429,7 @@ function tagColor(tag: string | null): string {
   return (tag && m[tag]) || "var(--fg-3)";
 }
 
-export type ContextKind = "file" | "empty";
+export type ContextKind = "file" | "empty" | "sidebar" | "tab" | "breadcrumb";
 
 export interface FilePaneProps {
   files: FileRow[];
