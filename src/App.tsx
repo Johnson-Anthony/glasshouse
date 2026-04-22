@@ -1315,7 +1315,7 @@ export function App() {
         onClearTagFilter={() => activeHandle?.actions.setTagFilter(null)}
       />
       <div className="body">
-        <Sidebar
+        {showSidebar && <Sidebar
           activePath={activeHandle?.state.path ?? ""}
           onGoTo={(p) => activeHandle?.actions.goTo(p)}
           onRowContext={onSidebarContext}
@@ -1336,7 +1336,7 @@ export function App() {
             // Clicking the already-active filter clears it.
             activeHandle.actions.setTagFilter(cur === tag ? null : tag);
           }}
-        />
+        />}
         <FilePane
           files={liveRows}
           selected={selected}
