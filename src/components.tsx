@@ -8,7 +8,7 @@ import {
   type FileKind,
   type MenuItemDef,
 } from "./data";
-import { drives as apiDrives, hashSha256, homeDir as apiHomeDir, listDir, readText, systemInfo as apiSystemInfo, winClose, winMinimize, winToggleMaximize, type Drive, type FileEntry, type GitInfo, type SystemInfo } from "./api";
+import { drives as apiDrives, hashSha256, homeDir as apiHomeDir, listDir, readImageB64, readText, systemInfo as apiSystemInfo, winClose, winMinimize, winToggleMaximize, type Drive, type FileEntry, type GitInfo, type SystemInfo } from "./api";
 import { fuzzyFilter } from "./fuzzy";
 
 // ============= Titlebar =============
@@ -999,9 +999,12 @@ function mimeGuess(kind: FileKind, ext: string): string {
 
 export function Inspector({ file, onQuickAction }: InspectorProps) {
   const [preview, setPreview] = useState<string>("");
+  const [imgSrc, setImgSrc] = useState<string>("");
+  const [imgErr, setImgErr] = useState<string>("");
   const [sha256, setSha256] = useState<string | null>(null);
   const [hashing, setHashing] = useState<boolean>(false);
   const isTextLike = !!file && (file.kind === "text" || file.kind === "code");
+  const isImg = !!file && file.kind === "img";
 
   useEffect(() => {
     setPreview("");
@@ -1013,6 +1016,25 @@ export function Inspector({ file, onQuickAction }: InspectorProps) {
     })();
     return () => { cancelled = true; };
   }, [file?.entry.path, isTextLike]);
+
+  useEffect(() => {
+    setImgSrc("");
+    setImgErr("");
+    if (!file || !isImg) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const dataUrl = await readImageB64(file.entry.path, 8 * 1024 * 1024);
+        if (!cancelled) setImgSrc(dataUrl);
+      } catch (err) {
+        if (!cancelled) {
+          const msg = err instanceof Error ? err.message : String(err);
+          setImgErr(msg);
+        }
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [file?.entry.path, isImg]);
 
   // Reset cached hash whenever the inspected path changes — stale digests for
   // a different file would be worse than showing "—".
@@ -1052,7 +1074,6 @@ export function Inspector({ file, onQuickAction }: InspectorProps) {
   }
 
   const f = file;
-  const isImg = f.kind === "img";
   const displayName = f.ext && f.kind !== "folder" ? `${f.name}.${f.ext}` : f.name;
   const previewLines = preview.split(/\r?\n/).slice(0, 20);
   const mime = mimeGuess(f.kind, f.ext);
@@ -1061,8 +1082,16 @@ export function Inspector({ file, onQuickAction }: InspectorProps) {
     <aside className="inspector">
       <div className="insp-hero">
         <div className="insp-preview">
-          {isImg ? (
-            <div className="ghost">[image preview — {f.ext.toUpperCase()}]</div>
+          {isImg && imgSrc ? (
+            <img
+              src={imgSrc}
+              alt={displayName}
+              style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain", display: "block" }}
+            />
+          ) : isImg && imgErr ? (
+            <div className="ghost" style={{ fontSize: 10 }}>image: {imgErr}</div>
+          ) : isImg ? (
+            <div className="ghost">loading…</div>
           ) : isTextLike && preview ? (
             <div style={{fontSize: 10, color:"var(--fg-2)", textAlign:"left", padding:10, alignSelf:"stretch", whiteSpace:"pre", overflow:"hidden"}}>
               {previewLines.map((ln, i) => (<div key={i}>{ln || " "}</div>))}

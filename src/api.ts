@@ -138,6 +138,11 @@ export function readText(path: string, maxBytes: number): Promise<string> {
   return safe(() => invoke<string>("read_text", { path, maxBytes }), "");
 }
 
+export function readImageB64(path: string, maxBytes: number = 0): Promise<string> {
+  if (!TAURI_AVAILABLE) return Promise.reject(new Error("tauri unavailable"));
+  return invoke<string>("read_image_b64", { path, maxBytes });
+}
+
 export function gitStatus(path: string): Promise<GitInfo | null> {
   return safe(() => invoke<GitInfo | null>("git_status", { path }), null);
 }

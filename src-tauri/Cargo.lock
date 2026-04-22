@@ -1520,6 +1520,7 @@ name = "glasshouse"
 version = "0.0.1"
 dependencies = [
  "anyhow",
+ "base64 0.22.1",
  "dunce",
  "git2",
  "grep-matcher",

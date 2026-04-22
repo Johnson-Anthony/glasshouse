@@ -23,6 +23,7 @@ pub fn run() {
             commands::move_to_trash,
             commands::read_text,
             commands::write_text,
+            commands::read_image_b64,
             commands::git_status,
             commands::git_blame,
             commands::git_stage,

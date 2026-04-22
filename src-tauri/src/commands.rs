@@ -377,6 +377,33 @@ pub fn write_text(path: String, content: String) -> Result<(), String> {
     std::fs::write(&path, content).map_err(|e| e.to_string())
 }
 
+#[tauri::command]
+pub fn read_image_b64(path: String, max_bytes: usize) -> Result<String, String> {
+    use base64::{engine::general_purpose::STANDARD, Engine as _};
+    let cap = if max_bytes == 0 { 8 * 1024 * 1024 } else { max_bytes };
+    let meta = std::fs::metadata(&path).map_err(|e| e.to_string())?;
+    if meta.len() > cap as u64 {
+        return Err(format!("image too large: {} bytes (cap {})", meta.len(), cap));
+    }
+    let bytes = std::fs::read(&path).map_err(|e| e.to_string())?;
+    let ext = Path::new(&path)
+        .extension()
+        .and_then(|s| s.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    let mime = match ext.as_str() {
+        "png" => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
+        "gif" => "image/gif",
+        "webp" => "image/webp",
+        "svg" => "image/svg+xml",
+        "bmp" => "image/bmp",
+        "ico" => "image/x-icon",
+        _ => "application/octet-stream",
+    };
+    Ok(format!("data:{};base64,{}", mime, STANDARD.encode(&bytes)))
+}
+
 // ---------- git status ----------
 
 #[derive(Debug, Serialize)]
