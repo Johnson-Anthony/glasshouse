@@ -147,6 +147,21 @@ export function gitBlame(path: string, maxLines: number): Promise<BlameLine[]> {
   return invoke<BlameLine[]>("git_blame", { path, maxLines });
 }
 
+export function gitStage(paths: string[]): Promise<void> {
+  if (!TAURI_AVAILABLE) return Promise.reject(new Error("tauri unavailable"));
+  return invoke<void>("git_stage", { paths });
+}
+
+export function gitUnstage(paths: string[]): Promise<void> {
+  if (!TAURI_AVAILABLE) return Promise.reject(new Error("tauri unavailable"));
+  return invoke<void>("git_unstage", { paths });
+}
+
+export function gitDiscard(paths: string[]): Promise<void> {
+  if (!TAURI_AVAILABLE) return Promise.reject(new Error("tauri unavailable"));
+  return invoke<void>("git_discard", { paths });
+}
+
 export function findInFiles(
   root: string,
   query: string,

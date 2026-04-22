@@ -779,6 +779,128 @@ pub fn git_blame(path: String, max_lines: u32) -> Result<Vec<BlameLine>, String>
     Ok(out)
 }
 
+// ---------- git per-row actions (stage / unstage / discard) ----------
+
+fn open_repo_and_relpaths(
+    paths: &[String],
+) -> Result<(git2::Repository, Vec<PathBuf>), String> {
+    use git2::Repository;
+    if paths.is_empty() {
+        return Err("no paths".to_string());
+    }
+    let first = canonicalize_soft(&paths[0]);
+    let repo = Repository::discover(&first).map_err(|e| format!("not a git repo: {}", e))?;
+    let workdir = repo
+        .workdir()
+        .ok_or_else(|| "bare repo has no workdir".to_string())?
+        .to_path_buf();
+    let mut rels = Vec::with_capacity(paths.len());
+    for p in paths {
+        let abs = canonicalize_soft(p);
+        let rel = abs
+            .strip_prefix(&workdir)
+            .map_err(|_| format!("{} is not inside repo {}", abs.display(), workdir.display()))?
+            .to_path_buf();
+        rels.push(rel);
+    }
+    Ok((repo, rels))
+}
+
+#[tauri::command]
+pub fn git_stage(paths: Vec<String>) -> Result<(), String> {
+    let (repo, rels) = open_repo_and_relpaths(&paths)?;
+    let workdir = repo.workdir().unwrap().to_path_buf();
+    let mut index = repo.index().map_err(|e| e.to_string())?;
+    for rel in &rels {
+        let abs = workdir.join(rel);
+        if abs.exists() {
+            index.add_path(rel).map_err(|e| format!("add_path {}: {}", rel.display(), e))?;
+        } else {
+            // File was deleted on disk — stage the removal.
+            index
+                .remove_path(rel)
+                .map_err(|e| format!("remove_path {}: {}", rel.display(), e))?;
+        }
+    }
+    index.write().map_err(|e| format!("index.write: {}", e))?;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn git_unstage(paths: Vec<String>) -> Result<(), String> {
+    let (repo, rels) = open_repo_and_relpaths(&paths)?;
+    // Equivalent of `git reset HEAD -- path`: reset the index entries for
+    // these paths to match HEAD. If there is no HEAD yet (fresh repo with no
+    // commits), fall back to removing the entries from the index instead.
+    match repo.head().and_then(|h| h.peel_to_commit()) {
+        Ok(commit) => {
+            let rel_refs: Vec<&Path> = rels.iter().map(|p| p.as_path()).collect();
+            repo.reset_default(Some(commit.as_object()), rel_refs.iter())
+                .map_err(|e| format!("reset_default: {}", e))?;
+        }
+        Err(_) => {
+            let mut index = repo.index().map_err(|e| e.to_string())?;
+            for rel in &rels {
+                let _ = index.remove_path(rel);
+            }
+            index.write().map_err(|e| format!("index.write: {}", e))?;
+        }
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub fn git_discard(paths: Vec<String>) -> Result<(), String> {
+    use git2::build::CheckoutBuilder;
+    let (repo, rels) = open_repo_and_relpaths(&paths)?;
+    let workdir = repo.workdir().unwrap().to_path_buf();
+
+    // Partition: untracked files (no index entry, no HEAD entry) get deleted;
+    // everything else gets `checkout HEAD -- path` treatment.
+    let index = repo.index().map_err(|e| e.to_string())?;
+    let head_tree = repo.head().and_then(|h| h.peel_to_tree()).ok();
+
+    let mut tracked_rels: Vec<&Path> = Vec::new();
+    let mut to_delete: Vec<PathBuf> = Vec::new();
+    for rel in &rels {
+        let in_index = index.get_path(rel, 0).is_some();
+        let in_head = head_tree
+            .as_ref()
+            .and_then(|t| t.get_path(rel).ok())
+            .is_some();
+        if !in_index && !in_head {
+            to_delete.push(workdir.join(rel));
+        } else {
+            tracked_rels.push(rel.as_path());
+        }
+    }
+
+    if !tracked_rels.is_empty() {
+        let mut opts = CheckoutBuilder::new();
+        opts.force();
+        for p in &tracked_rels {
+            opts.path(p);
+        }
+        repo.checkout_head(Some(&mut opts))
+            .map_err(|e| format!("checkout_head: {}", e))?;
+    }
+
+    for abs in to_delete {
+        let meta = match std::fs::symlink_metadata(&abs) {
+            Ok(m) => m,
+            Err(_) => continue,
+        };
+        if meta.is_dir() {
+            std::fs::remove_dir_all(&abs)
+                .map_err(|e| format!("remove_dir_all {}: {}", abs.display(), e))?;
+        } else {
+            std::fs::remove_file(&abs)
+                .map_err(|e| format!("remove_file {}: {}", abs.display(), e))?;
+        }
+    }
+    Ok(())
+}
+
 // ---------- find in files (ripgrep-style content search) ----------
 
 #[derive(Debug, Serialize, Clone)]

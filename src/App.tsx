@@ -41,6 +41,9 @@ import {
   readTags,
   writeTags,
   gitBlame,
+  gitStage,
+  gitUnstage,
+  gitDiscard,
   findInFiles,
   compress,
   hashSha256,
@@ -1045,6 +1048,54 @@ export function App() {
           if (moved > 0) refresh();
           return;
         }
+        case "Git: Stage": {
+          const targets = selectedPaths.filter((_, idx) => {
+            const e = st.entries[st.selected[idx]];
+            return !!e && e.git !== null;
+          });
+          if (targets.length === 0) return;
+          await gitStage(targets);
+          refresh();
+          return;
+        }
+        case "Git: Unstage": {
+          const targets = selectedPaths.filter((_, idx) => {
+            const e = st.entries[st.selected[idx]];
+            return !!e && e.git !== null && e.git !== "?";
+          });
+          if (targets.length === 0) return;
+          await gitUnstage(targets);
+          refresh();
+          return;
+        }
+        case "Git: Discard changes": {
+          const targets = selectedPaths.filter((_, idx) => {
+            const e = st.entries[st.selected[idx]];
+            return !!e && e.git !== null;
+          });
+          if (targets.length === 0) return;
+          const ok = window.confirm(
+            `Discard local changes for ${targets.length} item(s)? This cannot be undone.`,
+          );
+          if (!ok) return;
+          await gitDiscard(targets);
+          refresh();
+          return;
+        }
+        case "Git: Blame": {
+          if (!firstEntry) return;
+          if (firstEntry.kind === "folder") return;
+          if (firstEntry.git === "?") return;
+          try {
+            const lines = await gitBlame(firstEntry.path, 2000);
+            setBlame({ path: firstEntry.path, lines });
+          } catch (err) {
+            const msg = err instanceof Error ? err.message : String(err);
+            console.error("git blame:", msg);
+            try { alert(`git blame failed: ${msg}`); } catch { /* no window */ }
+          }
+          return;
+        }
         case "Properties": {
           console.log("Properties: not wired yet", firstPath ?? cwd);
           return;
@@ -1076,12 +1127,36 @@ export function App() {
       // Hide "Remove Tag…" when the selected row has no tags — keeps the
       // menu honest instead of dangling a no-op command.
       const st = activeHandle?.state;
-      const firstPath = st ? st.entries[st.selected[0]]?.path : undefined;
+      const firstEntry = st ? st.entries[st.selected[0]] : undefined;
+      const firstPath = firstEntry?.path;
       const hasTags = !!firstPath && (tagStore[firstPath]?.length ?? 0) > 0;
       const selCount = st?.selected.length ?? 0;
+      // Git row-actions only make sense when the selection has tracked
+      // changes (M/A/D/R/U). Untracked-only rows hide the stage/unstage/
+      // discard block per spec; Blame is further restricted to a single
+      // tracked file (not a folder, not untracked).
+      const selEntries = st ? st.selected.map(i => st.entries[i]).filter((x): x is FileEntry => !!x) : [];
+      const hasGitRow = selEntries.some(e => e.git !== null && e.git !== "?");
+      const blameEligible =
+        selCount === 1 &&
+        !!firstEntry &&
+        firstEntry.kind !== "folder" &&
+        firstEntry.git !== "?";
       let items = hasTags
         ? CONTEXT_FILE
         : CONTEXT_FILE.filter(it => !(it.kind === "item" && it.label === "Remove Tag…"));
+      if (!hasGitRow) {
+        items = items.filter(
+          it =>
+            !(it.kind === "item" &&
+              (it.label === "Git: Stage" ||
+               it.label === "Git: Unstage" ||
+               it.label === "Git: Discard changes")),
+        );
+      }
+      if (!blameEligible) {
+        items = items.filter(it => !(it.kind === "item" && it.label === "Git: Blame"));
+      }
       // Swap single-rename for bulk-rename when multiple rows are selected.
       if (selCount > 1) {
         items = items.map(it => {

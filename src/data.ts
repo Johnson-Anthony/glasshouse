@@ -480,6 +480,7 @@ export const CONTEXT_FILE: MenuItemDef[] = [
   { kind: "item", ic: "", label: "Diff with Clipboard" },
   { kind: "sep" },
   { kind: "item", ic: "", label: "Git: Stage" },
+  { kind: "item", ic: "", label: "Git: Unstage" },
   { kind: "item", ic: "", label: "Git: Discard changes", danger: true },
   { kind: "item", ic: "", label: "Git: Blame" },
   { kind: "sep" },
