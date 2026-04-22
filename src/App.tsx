@@ -7,7 +7,6 @@ import {
   FilePane,
   Inspector,
   StatusBar,
-  TerminalDrawer,
   Palette,
   ContextMenu,
   Tweaks,
@@ -49,6 +48,8 @@ import {
   revealInExplorer,
   spawnTerminal,
   spawnVscode,
+  spawnVscodeStrict,
+  openWithDefaultStrict,
   moveToTrash,
   winToWsl,
   writeText,
@@ -404,7 +405,6 @@ export function App() {
   const [tabs, setTabs] = useState<TabDef[]>([]);
   const [activeTab, setActiveTab] = useState(0);
   const [palOpen, setPalOpen] = useState(false);
-  const [termOpen, setTermOpen] = useState(false);
   const [ctx, setCtx] = useState<CtxState | null>(null);
   const [tweaksOpen, setTweaksOpen] = useState(false);
   const [showInspector, setShowInspector] = useState(true);
@@ -537,7 +537,10 @@ export function App() {
         e.preventDefault(); dispatch("Paste Special…"); return;
       }
       if ((e.ctrlKey || e.metaKey) && e.key === "`") {
-        e.preventDefault(); setTermOpen(v => !v); return;
+        e.preventDefault();
+        const cwd = activeHandle?.state.path;
+        if (cwd) void spawnTerminal(cwd);
+        return;
       }
       if ((e.ctrlKey || e.metaKey) && e.key === ",") {
         e.preventDefault(); setTweaksOpen(v => !v); return;
@@ -741,7 +744,11 @@ export function App() {
     switch (label) {
       case "Toggle Drawer":
       case "Terminal Drawer":
-        setTermOpen(v => !v); return;
+      case "Open Terminal Here": {
+        const cwd = activeHandle?.state.path;
+        if (cwd) void spawnTerminal(cwd);
+        return;
+      }
       case "Command Palette":
       case "Palette":
         setPalOpen(v => !v); return;
@@ -1014,7 +1021,12 @@ export function App() {
           return;
         }
         case "Open in VS Code": {
-          await spawnVscode(firstPath ?? cwd);
+          try {
+            await spawnVscodeStrict(firstPath ?? cwd);
+          } catch (err) {
+            const msg = err instanceof Error ? err.message : String(err);
+            window.alert(`Open in VS Code failed: ${msg}\n\nMake sure "code" is on PATH (install Shell Command from VS Code's command palette).`);
+          }
           return;
         }
         case "Reveal in Explorer":
@@ -1515,7 +1527,6 @@ export function App() {
             }}
           />
         )}
-        <TerminalDrawer open={termOpen} onClose={() => setTermOpen(false)} />
       </div>
       <StatusBar
         selectedCount={selected.length}
@@ -1523,7 +1534,10 @@ export function App() {
         totalSize={totalSize}
         path={activeHandle?.state.path ?? ""}
         gitInfo={activeHandle?.state.gitInfo ?? null}
-        onToggleTerm={() => setTermOpen(v => !v)}
+        onToggleTerm={() => {
+          const cwd = activeHandle?.state.path;
+          if (cwd) void spawnTerminal(cwd);
+        }}
       />
 
       {palOpen && <Palette onClose={() => setPalOpen(false)} onCommand={handleMenuCommand} />}

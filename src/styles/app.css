@@ -809,6 +809,42 @@ html, body {
   box-shadow: 0 10px 30px rgba(0,0,0,0.5);
   font-size: 12px;
 }
+.ctx-menu .mi {
+  display: grid;
+  grid-template-columns: 16px 1fr auto 10px;
+  align-items: center;
+  gap: 10px;
+  padding: 5px 8px;
+  border-radius: 4px;
+  color: var(--fg-1);
+  cursor: pointer;
+  position: relative;
+}
+.ctx-menu .mi:hover,
+.ctx-menu .mi.hover { background: var(--bg-sel); color: var(--fg-0); }
+.ctx-menu .mi .ic { color: var(--fg-3); font-size: 11px; }
+.ctx-menu .mi .kb { font-size: 10.5px; color: var(--fg-3); letter-spacing: 0.03em; }
+.ctx-menu .mi .chev { color: var(--fg-3); }
+.ctx-menu .mi.disabled { opacity: 0.4; pointer-events: none; }
+.ctx-menu .mi.danger:hover { background: color-mix(in oklch, var(--red) 30%, var(--bg-sel)); color: var(--red); }
+.ctx-menu .sep { height: 1px; background: var(--border); margin: 4px 2px; }
+.ctx-menu .group-label {
+  padding: 6px 8px 3px;
+  font-size: 10px;
+  color: var(--fg-3);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+/* Submenu popouts inside the context menu must render above the parent
+   menu so "Open With" / "Compress" / "Tag" flyouts are visible. */
+.ctx-menu .mi .dropdown {
+  z-index: 260;
+  background: var(--bg-2);
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+  padding: 4px;
+}
 
 /* Tweaks panel */
 .tweaks {

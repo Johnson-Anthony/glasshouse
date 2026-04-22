@@ -201,6 +201,18 @@ export function spawnVscode(path: string): Promise<void> {
   return safe(() => invoke<void>("spawn_vscode", { path }), undefined);
 }
 
+/** Throws on failure so callers can surface the error (e.g. alert on missing VS Code). */
+export function spawnVscodeStrict(path: string): Promise<void> {
+  if (!TAURI_AVAILABLE) return Promise.reject(new Error("tauri unavailable"));
+  return invoke<void>("spawn_vscode", { path });
+}
+
+/** Throws on failure so callers can surface the error. */
+export function openWithDefaultStrict(path: string): Promise<void> {
+  if (!TAURI_AVAILABLE) return Promise.reject(new Error("tauri unavailable"));
+  return invoke<void>("open_with_default", { path });
+}
+
 export function moveToTrash(path: string): Promise<void> {
   return safe(() => invoke<void>("move_to_trash", { path }), undefined);
 }
