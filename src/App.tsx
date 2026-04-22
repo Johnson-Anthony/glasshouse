@@ -228,33 +228,91 @@ export function App() {
     });
   }, [activeHandle?.state.path, activeTab]);
 
+  // Keep a ref to the latest handleMenuCommand so the keydown listener below
+  // (which installs once) always dispatches through the current closure.
+  const handleMenuCommandRef = useRef<(label: string) => void>(() => {});
+
   useEffect(() => {
+    const isTextInput = (t: EventTarget | null): boolean => {
+      const el = t as HTMLElement | null;
+      if (!el) return false;
+      if (el.isContentEditable) return true;
+      const tag = el.tagName;
+      return tag === "INPUT" || tag === "TEXTAREA";
+    };
     const h = (e: KeyboardEvent) => {
+      const dispatch = (label: string) => handleMenuCommandRef.current(label);
+      const inText = isTextInput(e.target);
+
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "p") {
-        e.preventDefault(); setPalOpen(v => !v);
+        e.preventDefault(); setPalOpen(v => !v); return;
       }
       if ((e.ctrlKey || e.metaKey) && e.key === "`") {
-        e.preventDefault(); setTermOpen(v => !v);
+        e.preventDefault(); setTermOpen(v => !v); return;
       }
       if ((e.ctrlKey || e.metaKey) && e.key === ",") {
-        e.preventDefault(); setTweaksOpen(v => !v);
+        e.preventDefault(); setTweaksOpen(v => !v); return;
       }
       if (e.key === "Escape") {
         setPalOpen(false); setCtx(null);
       }
       if (e.key === "/" && !e.ctrlKey && !e.metaKey && !e.altKey) {
-        const t = e.target as HTMLElement | null;
-        const tag = t?.tagName;
-        const editable = t?.isContentEditable;
-        if (tag === "INPUT" || tag === "TEXTAREA" || editable) return;
+        if (inText) return;
         e.preventDefault();
         searchInputRef.current?.focus();
         searchInputRef.current?.select();
+        return;
+      }
+
+      // File-op shortcuts — all route through handleMenuCommand so one place
+      // owns the behaviour. Skip anything fired while focus is in a text input
+      // so typing into fields doesn't nuke files.
+      if (inText) return;
+
+      // Ctrl+X / Ctrl+C / Ctrl+V — only intercept when there IS a file-pane
+      // selection; otherwise let the browser handle normal text clipboard.
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey) {
+        const k = e.key.toLowerCase();
+        const hasSelection = (activeHandle?.state.selected.length ?? 0) > 0;
+        if (k === "c" && hasSelection) { e.preventDefault(); dispatch("Copy"); return; }
+        if (k === "x" && hasSelection) { e.preventDefault(); dispatch("Cut"); return; }
+        if (k === "v") { e.preventDefault(); dispatch("Paste"); return; }
+        if (k === "h") { e.preventDefault(); dispatch("Toggle Hidden Files"); return; }
+        if (k === "w") { e.preventDefault(); dispatch("Close Tab"); return; }
+        if (k === "t") { e.preventDefault(); dispatch("New Tab"); return; }
+      }
+
+      if (e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey) {
+        if (e.key === "ArrowLeft") { e.preventDefault(); dispatch("Back"); return; }
+        if (e.key === "ArrowRight") { e.preventDefault(); dispatch("Forward"); return; }
+      }
+
+      if (e.key === "F2") { e.preventDefault(); dispatch("Rename"); return; }
+
+      if (e.key === "Delete") {
+        e.preventDefault();
+        if (e.shiftKey) dispatch("Delete Permanently");
+        else dispatch("Move to Trash");
+        return;
+      }
+
+      if (e.key === "Backspace" && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        e.preventDefault();
+        dispatch("Up");
+        return;
+      }
+
+      if (e.key === "Enter" && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) {
+        if ((activeHandle?.state.selected.length ?? 0) > 0) {
+          e.preventDefault();
+          dispatch("Open");
+        }
+        return;
       }
     };
     window.addEventListener("keydown", h);
     return () => window.removeEventListener("keydown", h);
-  }, []);
+  }, [activeHandle]);
 
   useEffect(() => {
     const h = (e: MouseEvent) => { e.preventDefault(); };
@@ -342,6 +400,7 @@ export function App() {
         return;
     }
   };
+  handleMenuCommandRef.current = handleMenuCommand;
 
   async function doFileOp(label: string) {
     if (!activeHandle) return;
