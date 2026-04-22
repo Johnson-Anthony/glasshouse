@@ -42,6 +42,9 @@ pub fn run() {
             commands::write_pins,
             commands::read_tags,
             commands::write_tags,
+            commands::set_permissions,
+            commands::read_hex_dump,
+            commands::diff_files,
             watcher::watch_dir,
             watcher::unwatch_dir,
         ])

@@ -1203,3 +1203,116 @@ pub fn hash_sha256(path: String) -> Result<String, String> {
     }
     Ok(hex)
 }
+
+// ---------- permissions (chmod) ----------
+
+/// Set permissions on `path`. On unix this applies `mode` directly via
+/// `PermissionsExt::from_mode`. On windows it only toggles the read-only
+/// attribute based on the owner-write bit (`mode & 0o200`); richer ACL
+/// manipulation is out of scope for v1.
+#[tauri::command]
+pub fn set_permissions(path: String, mode: u32) -> Result<(), String> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(mode))
+            .map_err(|e| format!("set_permissions({}): {}", path, e))?;
+        return Ok(());
+    }
+    #[cfg(windows)]
+    {
+        let meta = std::fs::metadata(&path)
+            .map_err(|e| format!("metadata({}): {}", path, e))?;
+        let mut perms = meta.permissions();
+        // Owner-write bit set → writable (clear read-only); unset → read-only.
+        let writable = (mode & 0o200) != 0;
+        perms.set_readonly(!writable);
+        std::fs::set_permissions(&path, perms)
+            .map_err(|e| format!("set_permissions({}): {}", path, e))?;
+        return Ok(());
+    }
+    #[cfg(not(any(unix, windows)))]
+    {
+        let _ = (path, mode);
+        Err("set_permissions: unsupported platform".into())
+    }
+}
+
+// ---------- hex dump ----------
+
+/// Read up to `length` bytes starting at `offset` from `path` and return a
+/// human-readable hex dump (16 bytes/row, offset + hex + ascii). `length` is
+/// capped at 64 KiB; `0` becomes the default of 4096 bytes.
+#[tauri::command]
+pub fn read_hex_dump(path: String, offset: u64, length: usize) -> Result<String, String> {
+    use std::fmt::Write as FmtWrite;
+    use std::io::{Read, Seek, SeekFrom};
+
+    let cap = if length == 0 { 4096 } else { length.min(64 * 1024) };
+    let mut f = std::fs::File::open(&path).map_err(|e| format!("open {}: {}", path, e))?;
+    f.seek(SeekFrom::Start(offset))
+        .map_err(|e| format!("seek {}: {}", path, e))?;
+    let mut buf = Vec::with_capacity(cap);
+    f.take(cap as u64)
+        .read_to_end(&mut buf)
+        .map_err(|e| format!("read {}: {}", path, e))?;
+
+    let mut out = String::with_capacity(buf.len() * 4);
+    for (i, chunk) in buf.chunks(16).enumerate() {
+        let row_off = offset + (i as u64) * 16;
+        let _ = write!(&mut out, "{:08x}  ", row_off);
+        for (j, b) in chunk.iter().enumerate() {
+            if j > 0 {
+                out.push(' ');
+            }
+            let _ = write!(&mut out, "{:02x}", b);
+        }
+        // Pad short final row so ascii column aligns.
+        if chunk.len() < 16 {
+            for j in chunk.len()..16 {
+                if j > 0 {
+                    out.push(' ');
+                }
+                out.push_str("  ");
+            }
+        }
+        out.push_str("  |");
+        for b in chunk {
+            let c = *b;
+            if (0x20..=0x7e).contains(&c) {
+                out.push(c as char);
+            } else {
+                out.push('.');
+            }
+        }
+        out.push_str("|\n");
+    }
+    Ok(out)
+}
+
+// ---------- diff ----------
+
+/// Return a unified diff between two utf-8 text files. Errors with
+/// "binary or non-utf8" if either file cannot be decoded. An empty diff
+/// (identical content) returns an empty string.
+#[tauri::command]
+pub fn diff_files(a: String, b: String) -> Result<String, String> {
+    let a_bytes = std::fs::read(&a).map_err(|e| format!("read {}: {}", a, e))?;
+    let b_bytes = std::fs::read(&b).map_err(|e| format!("read {}: {}", b, e))?;
+    let a_text = std::str::from_utf8(&a_bytes)
+        .map_err(|_| "binary or non-utf8".to_string())?;
+    let b_text = std::str::from_utf8(&b_bytes)
+        .map_err(|_| "binary or non-utf8".to_string())?;
+
+    let a_name = Path::new(&a)
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or(&a);
+    let b_name = Path::new(&b)
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or(&b);
+
+    let diff = similar::TextDiff::from_lines(a_text, b_text);
+    Ok(diff.unified_diff().header(a_name, b_name).to_string())
+}

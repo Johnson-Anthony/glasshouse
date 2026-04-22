@@ -251,6 +251,25 @@ export function hashSha256(path: string): Promise<string> {
   return invoke<string>("hash_sha256", { path });
 }
 
+export function setPermissions(path: string, mode: number): Promise<void> {
+  if (!TAURI_AVAILABLE) return Promise.reject(new Error("tauri unavailable"));
+  return invoke<void>("set_permissions", { path, mode });
+}
+
+export function readHexDump(
+  path: string,
+  offset: number = 0,
+  length: number = 0,
+): Promise<string> {
+  if (!TAURI_AVAILABLE) return Promise.reject(new Error("tauri unavailable"));
+  return invoke<string>("read_hex_dump", { path, offset, length });
+}
+
+export function diffFiles(a: string, b: string): Promise<string> {
+  if (!TAURI_AVAILABLE) return Promise.reject(new Error("tauri unavailable"));
+  return invoke<string>("diff_files", { a, b });
+}
+
 /**
  * Open a native directory-picker dialog via the Tauri dialog plugin. Returns
  * the absolute path chosen, or null if the user cancelled.
