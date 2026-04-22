@@ -606,6 +606,7 @@ export interface FilePaneProps {
   searchQuery?: string;
   tagFilter?: string | null;
   tagStore?: Record<string, string[]>;
+  onRowDrop?: (targetOrigIndex: number, sourceOrigIndices: number[]) => void;
 }
 
 const PAGE_STEP = 10;
@@ -632,8 +633,10 @@ export function FilePane({
   searchQuery,
   tagFilter,
   tagStore,
+  onRowDrop,
 }: FilePaneProps) {
   const paneRef = useRef<HTMLElement>(null);
+  const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
 
   // Filtered + sorted, preserving origIndex so selection still refers to the
   // underlying `files` array (which is what App's clipboard/selection logic
@@ -871,11 +874,43 @@ export function FilePane({
           const ki = kindIcon(f.kind);
           const isSel = selected.includes(i);
           const isFocus = paneFocused && focusIndex === i;
+          const isDragOver = dragOverIndex === i && f.kind === "folder";
           return (
             <div key={i}
                  data-orig={i}
-                 className={"row" + (isSel ? " selected" : "") + (isFocus ? " focused" : "")}
+                 className={"row" + (isSel ? " selected" : "") + (isFocus ? " focused" : "") + (isDragOver ? " drop-target" : "")}
                  style={{opacity: f.dimmed ? 0.55 : 1}}
+                 draggable={true}
+                 onDragStart={(e) => {
+                   const sources = isSel ? selected : [i];
+                   e.dataTransfer.effectAllowed = "move";
+                   e.dataTransfer.setData("application/x-glasshouse-rows", JSON.stringify(sources));
+                 }}
+                 onDragOver={(e) => {
+                   if (f.kind !== "folder") return;
+                   // Ignore drag-over from the row being dragged itself.
+                   const raw = e.dataTransfer.types.includes("application/x-glasshouse-rows");
+                   if (!raw) return;
+                   e.preventDefault();
+                   e.dataTransfer.dropEffect = "move";
+                   if (dragOverIndex !== i) setDragOverIndex(i);
+                 }}
+                 onDragLeave={(e) => {
+                   if (e.currentTarget === e.target) setDragOverIndex(null);
+                 }}
+                 onDrop={(e) => {
+                   if (f.kind !== "folder") return;
+                   e.preventDefault();
+                   setDragOverIndex(null);
+                   const raw = e.dataTransfer.getData("application/x-glasshouse-rows");
+                   if (!raw) return;
+                   let sources: number[] = [];
+                   try { sources = JSON.parse(raw) as number[]; } catch { return; }
+                   // Don't drop onto self.
+                   const filtered = sources.filter(s => s !== i);
+                   if (filtered.length === 0) return;
+                   onRowDrop && onRowDrop(i, filtered);
+                 }}
                  onClick={(e) => handleRowClick(i, e)}
                  onDoubleClick={() => onOpen && onOpen(i)}
                  onContextMenu={(e) => {

@@ -1188,6 +1188,25 @@ export function App() {
           onCopy={() => handleMenuCommandRef.current("Copy")}
           onCut={() => handleMenuCommandRef.current("Cut")}
           onDelete={(permanent) => handleMenuCommandRef.current(permanent ? "Delete Permanently" : "Move to Trash")}
+          onRowDrop={(targetOrigIndex, sourceOrigIndices) => {
+            const target = liveRows[targetOrigIndex];
+            if (!target || target.entry.kind !== "folder") return;
+            const dstDir = target.entry.path;
+            const sources = sourceOrigIndices
+              .map(i => liveRows[i]?.entry.path)
+              .filter((p): p is string => !!p);
+            if (sources.length === 0) return;
+            (async () => {
+              for (const src of sources) {
+                const sep = dstDir.includes("\\") ? "\\" : "/";
+                const base = src.split(/[\\/]/).pop() ?? "";
+                const dst = dstDir.replace(/[\\/]+$/, "") + sep + base;
+                try { await moveEntry(src, dst); }
+                catch (err) { console.error("drop move failed for", src, "→", dst, err); }
+              }
+              activeHandle?.actions.refresh();
+            })();
+          }}
         />
         {showInspector && (
           <Inspector
