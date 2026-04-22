@@ -796,7 +796,12 @@ export function App() {
           const next = window.prompt("rename to", firstEntry.name);
           if (!next || next === firstEntry.name) return;
           const dst = join(cwd, next);
-          await renameEntry(firstEntry.path, dst);
+          const src = firstEntry.path;
+          await renameEntry(src, dst);
+          pushUndo({
+            label: `rename ${firstEntry.name} → ${next}`,
+            inverse: async () => { await renameEntry(dst, src); },
+          });
           refresh();
           return;
         }
@@ -853,11 +858,23 @@ export function App() {
         case "Paste": {
           if (!appClipboard || appClipboard.paths.length === 0) return;
           const { op, paths } = appClipboard;
+          const pasted: Array<{ src: string; dst: string }> = [];
           for (const src of paths) {
             const dst = join(cwd, basename(src));
             if (op === "copy") await copyEntry(src, dst);
             else await moveEntry(src, dst);
+            pasted.push({ src, dst });
           }
+          pushUndo({
+            label: `${op === "copy" ? "paste copy" : "paste move"} ${pasted.length} item(s)`,
+            inverse: async () => {
+              if (op === "copy") {
+                for (const { dst } of pasted) { await deleteEntry(dst, false); }
+              } else {
+                for (const { src, dst } of pasted) { await moveEntry(dst, src); }
+              }
+            },
+          });
           if (op === "cut") appClipboard = null;
           refresh();
           return;
@@ -912,7 +929,18 @@ export function App() {
         }
         case "Duplicate": {
           if (selectedPaths.length === 0) return;
-          for (const p of selectedPaths) await copyEntry(p, p + " (copy)");
+          const dupes: string[] = [];
+          for (const p of selectedPaths) {
+            const dst = p + " (copy)";
+            await copyEntry(p, dst);
+            dupes.push(dst);
+          }
+          pushUndo({
+            label: `duplicate ${dupes.length} item(s)`,
+            inverse: async () => {
+              for (const d of dupes) { await deleteEntry(d, false); }
+            },
+          });
           refresh();
           return;
         }
@@ -1034,17 +1062,25 @@ export function App() {
           const home = await homeDir();
           const target = await pickDirectory(home ?? undefined);
           if (!target) return;
-          let moved = 0;
+          const moved: Array<{ src: string; dst: string }> = [];
           for (const src of selectedPaths) {
             const dst = join(target, basename(src));
             try {
               await moveEntry(src, dst);
-              moved++;
+              moved.push({ src, dst });
             } catch (err) {
               console.error("move_entry failed for", src, err);
             }
           }
-          if (moved > 0) refresh();
+          if (moved.length > 0) {
+            pushUndo({
+              label: `move ${moved.length} item(s) to ${target}`,
+              inverse: async () => {
+                for (const { src, dst } of moved) { await moveEntry(dst, src); }
+              },
+            });
+            refresh();
+          }
           return;
         }
         case "Git: Stage": {
