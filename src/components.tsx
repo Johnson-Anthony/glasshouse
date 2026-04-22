@@ -8,7 +8,7 @@ import {
   type FileKind,
   type MenuItemDef,
 } from "./data";
-import { drives as apiDrives, homeDir as apiHomeDir, listDir, readText, systemInfo as apiSystemInfo, winClose, winMinimize, winToggleMaximize, type Drive, type FileEntry, type GitInfo, type SystemInfo } from "./api";
+import { drives as apiDrives, hashSha256, homeDir as apiHomeDir, listDir, readText, systemInfo as apiSystemInfo, winClose, winMinimize, winToggleMaximize, type Drive, type FileEntry, type GitInfo, type SystemInfo } from "./api";
 import { fuzzyFilter } from "./fuzzy";
 
 // ============= Titlebar =============
@@ -920,7 +920,7 @@ export interface InspectableFile extends FileRow {
 
 export interface InspectorProps {
   file: InspectableFile | null;
-  onQuickAction?: (action: "run" | "copy-path" | "open-in-code" | "git-blame") => void;
+  onQuickAction?: (action: "run" | "copy-path" | "open-in-code" | "git-blame" | "compress") => void;
 }
 
 function mimeGuess(kind: FileKind, ext: string): string {
@@ -945,6 +945,8 @@ function mimeGuess(kind: FileKind, ext: string): string {
 
 export function Inspector({ file, onQuickAction }: InspectorProps) {
   const [preview, setPreview] = useState<string>("");
+  const [sha256, setSha256] = useState<string | null>(null);
+  const [hashing, setHashing] = useState<boolean>(false);
   const isTextLike = !!file && (file.kind === "text" || file.kind === "code");
 
   useEffect(() => {
@@ -957,6 +959,31 @@ export function Inspector({ file, onQuickAction }: InspectorProps) {
     })();
     return () => { cancelled = true; };
   }, [file?.entry.path, isTextLike]);
+
+  // Reset cached hash whenever the inspected path changes — stale digests for
+  // a different file would be worse than showing "—".
+  useEffect(() => {
+    setSha256(null);
+    setHashing(false);
+  }, [file?.entry.path]);
+
+  const computeHash = () => {
+    if (!file) return;
+    if (file.kind === "folder") return;
+    setHashing(true);
+    void (async () => {
+      try {
+        const hex = await hashSha256(file.entry.path);
+        setSha256(hex);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error("hash_sha256:", msg);
+        try { alert(`hash failed: ${msg}`); } catch { /* no window */ }
+      } finally {
+        setHashing(false);
+      }
+    })();
+  };
 
   if (!file) {
     return (
@@ -1031,9 +1058,21 @@ export function Inspector({ file, onQuickAction }: InspectorProps) {
       </div>
 
       <div className="insp-section">
-        <h4>CHECKSUMS <span style={{color:"var(--accent)", cursor:"pointer"}}>copy</span></h4>
+        <h4>CHECKSUMS {sha256 && (
+          <span
+            style={{color:"var(--accent)", cursor:"pointer"}}
+            onClick={() => { try { void navigator.clipboard.writeText(sha256); } catch { /* clipboard unavailable */ } }}
+          >copy</span>
+        )}</h4>
         <dl className="kv">
-          <dt>sha256</dt><dd className="mono" style={{fontSize:10}}>—</dd>
+          <dt>sha256</dt>
+          <dd
+            className="mono"
+            style={{fontSize:10, wordBreak:"break-all"}}
+            title={sha256 ?? undefined}
+          >
+            {hashing ? "…" : (sha256 ?? "—")}
+          </dd>
           <dt>md5</dt><dd className="mono" style={{fontSize:10}}>—</dd>
           <dt>crc32</dt><dd className="mono">—</dd>
         </dl>
@@ -1056,8 +1095,12 @@ export function Inspector({ file, onQuickAction }: InspectorProps) {
           <span className="chip" style={{cursor:"pointer"}} onClick={() => onQuickAction?.("open-in-code")}>⌨ open in code</span>
           <span className="chip" style={{cursor:"pointer"}} onClick={() => onQuickAction?.("git-blame")}>⎇ git blame</span>
           <span className="chip" style={{cursor:"pointer"}} onClick={() => onQuickAction?.("copy-path")}>⌘ copy path</span>
-          <span className="chip" style={{cursor:"not-allowed", opacity: 0.5}} title="UNWIRED">◫ compress</span>
-          <span className="chip" style={{cursor:"not-allowed", opacity: 0.5}} title="UNWIRED"># hash</span>
+          <span className="chip" style={{cursor:"pointer"}} onClick={() => onQuickAction?.("compress")}>◫ compress</span>
+          <span
+            className="chip"
+            style={{cursor: hashing ? "progress" : "pointer", opacity: hashing ? 0.6 : 1}}
+            onClick={computeHash}
+          ># hash</span>
         </div>
       </div>
     </aside>

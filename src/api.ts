@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { open as openDialog } from "@tauri-apps/plugin-dialog";
 
 export async function winClose(): Promise<void> {
   if (!TAURI_AVAILABLE_SYNC()) return;
@@ -218,4 +219,34 @@ export function readTags(): Promise<Record<string, string[]>> {
 
 export function writeTags(tags: Record<string, string[]>): Promise<void> {
   return safe(() => invoke<void>("write_tags", { tags }), undefined);
+}
+
+export function compress(paths: string[], output: string): Promise<void> {
+  if (!TAURI_AVAILABLE) return Promise.reject(new Error("tauri unavailable"));
+  return invoke<void>("compress", { paths, output });
+}
+
+export function hashSha256(path: string): Promise<string> {
+  if (!TAURI_AVAILABLE) return Promise.reject(new Error("tauri unavailable"));
+  return invoke<string>("hash_sha256", { path });
+}
+
+/**
+ * Open a native directory-picker dialog via the Tauri dialog plugin. Returns
+ * the absolute path chosen, or null if the user cancelled.
+ */
+export async function pickDirectory(defaultPath?: string): Promise<string | null> {
+  if (!TAURI_AVAILABLE) return null;
+  try {
+    const res = await openDialog({
+      directory: true,
+      multiple: false,
+      defaultPath,
+    });
+    if (res === null || res === undefined) return null;
+    if (Array.isArray(res)) return res[0] ?? null;
+    return res;
+  } catch {
+    return null;
+  }
 }

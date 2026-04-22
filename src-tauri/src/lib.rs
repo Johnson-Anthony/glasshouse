@@ -26,6 +26,8 @@ pub fn run() {
             commands::git_status,
             commands::git_blame,
             commands::find_in_files,
+            commands::compress,
+            commands::hash_sha256,
             commands::open_with_default,
             commands::reveal_in_explorer,
             commands::spawn_terminal,
