@@ -778,3 +778,146 @@ pub fn git_blame(path: String, max_lines: u32) -> Result<Vec<BlameLine>, String>
     }
     Ok(out)
 }
+
+// ---------- find in files (ripgrep-style content search) ----------
+
+#[derive(Debug, Serialize, Clone)]
+pub struct FindMatch {
+    pub path: String,
+    pub line_no: u32,
+    pub line: String,
+}
+
+const FIND_MAX_FILE_BYTES: u64 = 1 << 20; // 1 MiB per task spec
+const FIND_HARD_CAP: u32 = 10_000;
+
+#[tauri::command]
+pub fn find_in_files(
+    root: String,
+    query: String,
+    case_insensitive: bool,
+    max_results: u32,
+) -> Result<Vec<FindMatch>, String> {
+    use grep_regex::RegexMatcherBuilder;
+    use grep_searcher::{BinaryDetection, Searcher, SearcherBuilder, Sink, SinkMatch};
+    use ignore::WalkBuilder;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::{Arc, Mutex};
+
+    if query.is_empty() {
+        return Ok(Vec::new());
+    }
+    let cap = if max_results == 0 {
+        500
+    } else {
+        max_results.min(FIND_HARD_CAP)
+    } as usize;
+
+    let pattern = regex::escape(&query);
+    let matcher = RegexMatcherBuilder::new()
+        .case_insensitive(case_insensitive)
+        .build(&pattern)
+        .map_err(|e| format!("regex build: {}", e))?;
+
+    let results: Arc<Mutex<Vec<FindMatch>>> = Arc::new(Mutex::new(Vec::new()));
+    let done = Arc::new(AtomicBool::new(false));
+
+    let walker = WalkBuilder::new(&root).standard_filters(true).build_parallel();
+
+    walker.run(|| {
+        let results = Arc::clone(&results);
+        let done = Arc::clone(&done);
+        let matcher = matcher.clone();
+        Box::new(move |entry| {
+            use ignore::WalkState;
+            if done.load(Ordering::Relaxed) {
+                return WalkState::Quit;
+            }
+            let entry = match entry {
+                Ok(e) => e,
+                Err(_) => return WalkState::Continue,
+            };
+            // Only search regular files.
+            let is_file = entry.file_type().map(|ft| ft.is_file()).unwrap_or(false);
+            if !is_file {
+                return WalkState::Continue;
+            }
+            // Skip files > 1 MiB.
+            if let Ok(meta) = entry.metadata() {
+                if meta.len() > FIND_MAX_FILE_BYTES {
+                    return WalkState::Continue;
+                }
+            }
+            let path = entry.path().to_path_buf();
+
+            struct CollectSink<'a> {
+                path: String,
+                out: &'a Arc<Mutex<Vec<FindMatch>>>,
+                cap: usize,
+                done: &'a Arc<AtomicBool>,
+            }
+            impl<'a> Sink for CollectSink<'a> {
+                type Error = std::io::Error;
+                fn matched(
+                    &mut self,
+                    _searcher: &Searcher,
+                    mat: &SinkMatch<'_>,
+                ) -> Result<bool, Self::Error> {
+                    let line_no = mat.line_number().unwrap_or(0) as u32;
+                    let bytes = mat.bytes();
+                    let line = String::from_utf8_lossy(bytes)
+                        .trim_end_matches(|c| c == '\n' || c == '\r')
+                        .to_string();
+                    let mut guard = match self.out.lock() {
+                        Ok(g) => g,
+                        Err(p) => p.into_inner(),
+                    };
+                    if guard.len() >= self.cap {
+                        self.done.store(true, Ordering::Relaxed);
+                        return Ok(false);
+                    }
+                    guard.push(FindMatch {
+                        path: self.path.clone(),
+                        line_no,
+                        line,
+                    });
+                    if guard.len() >= self.cap {
+                        self.done.store(true, Ordering::Relaxed);
+                        return Ok(false);
+                    }
+                    Ok(true)
+                }
+            }
+
+            let mut searcher = SearcherBuilder::new()
+                .binary_detection(BinaryDetection::quit(b'\x00'))
+                .line_number(true)
+                .build();
+            let sink = CollectSink {
+                path: path.to_string_lossy().to_string(),
+                out: &results,
+                cap,
+                done: &done,
+            };
+            let _ = searcher.search_path(&matcher, &path, sink);
+
+            if done.load(Ordering::Relaxed) {
+                WalkState::Quit
+            } else {
+                WalkState::Continue
+            }
+        })
+    });
+
+    let mut out = match Arc::try_unwrap(results) {
+        Ok(m) => m.into_inner().unwrap_or_default(),
+        Err(arc) => {
+            let guard = arc.lock().map_err(|e| e.to_string())?;
+            guard.clone()
+        }
+    };
+    if out.len() > cap {
+        out.truncate(cap);
+    }
+    Ok(out)
+}
