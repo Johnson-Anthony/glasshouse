@@ -473,6 +473,7 @@ export const CONTEXT_FILE: MenuItemDef[] = [
   { kind: "item", ic: "", label: "Add Tag…" },
   { kind: "item", ic: "", label: "Remove Tag…" },
   { kind: "sep" },
+  { kind: "item", ic: "", label: "Compress to ZIP…" },
   { kind: "item", ic: "", label: "Compress →" },
   { kind: "item", ic: "", label: "Checksum SHA256" },
   { kind: "item", ic: "", label: "Hex Viewer" },

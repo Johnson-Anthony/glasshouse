@@ -39,6 +39,9 @@ import {
   readTags,
   writeTags,
   gitBlame,
+  compress,
+  hashSha256,
+  pickDirectory,
   type FileEntry,
   type BlameLine,
 } from "./api";
@@ -395,6 +398,8 @@ export function App() {
       }
 
       if (e.key === "F2") { e.preventDefault(); dispatch("Rename"); return; }
+
+      if (e.key === "F6") { e.preventDefault(); dispatch("Move to…"); return; }
 
       if (e.key === "Delete") {
         e.preventDefault();
@@ -767,6 +772,70 @@ export function App() {
           });
           return;
         }
+        case "Compress to ZIP…":
+        case "Compress →":
+        case "Compress": {
+          // Use the current multi-selection; if empty, fall back to a single
+          // firstPath if one exists (e.g. chip-only context with one active).
+          const active: string[] = selectedPaths.length > 0
+            ? selectedPaths
+            : (firstPath ? [firstPath] : []);
+          if (active.length === 0) return;
+          const baseName = basename(active[0]).replace(/[\\/]+$/, "") || "archive";
+          const defaultName = `${baseName}.zip`;
+          // TODO: replace with custom dialog
+          const entered = window.prompt("compress to (zip):", defaultName);
+          if (entered === null) return;
+          let name = entered.trim();
+          if (!name) return;
+          if (!/\.zip$/i.test(name)) name += ".zip";
+          const outPath = join(cwd, name);
+          try {
+            await compress(active, outPath);
+            console.log("compressed to", outPath);
+            refresh();
+          } catch (err) {
+            const msg = err instanceof Error ? err.message : String(err);
+            console.error("compress failed:", msg);
+            try { alert(`compress failed: ${msg}`); } catch { /* no window */ }
+          }
+          return;
+        }
+        case "Checksum SHA256":
+        case "Checksum (SHA256)":
+        case "Show Checksums": {
+          if (!firstPath) return;
+          try {
+            const hex = await hashSha256(firstPath);
+            try { await navigator.clipboard.writeText(hex); } catch { /* clipboard unavailable */ }
+            console.log("sha256", firstPath, hex);
+          } catch (err) {
+            const msg = err instanceof Error ? err.message : String(err);
+            console.error("hash_sha256 failed:", msg);
+            try { alert(`hash failed: ${msg}`); } catch { /* no window */ }
+          }
+          return;
+        }
+        case "Move to…":
+        case "Move to":
+        case "Move To…": {
+          if (selectedPaths.length === 0) return;
+          const home = await homeDir();
+          const target = await pickDirectory(home ?? undefined);
+          if (!target) return;
+          let moved = 0;
+          for (const src of selectedPaths) {
+            const dst = join(target, basename(src));
+            try {
+              await moveEntry(src, dst);
+              moved++;
+            } catch (err) {
+              console.error("move_entry failed for", src, err);
+            }
+          }
+          if (moved > 0) refresh();
+          return;
+        }
         case "Properties": {
           console.log("Properties: not wired yet", firstPath ?? cwd);
           return;
@@ -966,6 +1035,9 @@ export function App() {
                       try { alert(`git blame failed: ${msg}`); } catch { /* no window */ }
                     }
                   })();
+                  return;
+                case "compress":
+                  handleMenuCommandRef.current("Compress to ZIP…");
                   return;
               }
             }}

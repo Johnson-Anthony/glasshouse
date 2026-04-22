@@ -778,3 +778,136 @@ pub fn git_blame(path: String, max_lines: u32) -> Result<Vec<BlameLine>, String>
     }
     Ok(out)
 }
+
+// ---------- compress (zip) ----------
+
+/// Create a ZIP archive at `output` containing every path in `paths`. Files
+/// are added at their basename; directories are walked recursively and their
+/// children stored with paths rooted at the directory's basename so the
+/// archive keeps a recognisable structure.
+#[tauri::command]
+pub fn compress(paths: Vec<String>, output: String) -> Result<(), String> {
+    use std::io::{BufWriter, Read, Write};
+
+    if paths.is_empty() {
+        return Err("compress: no input paths".to_string());
+    }
+
+    let out_file = std::fs::File::create(&output)
+        .map_err(|e| format!("create {}: {}", output, e))?;
+    let mut zipw = zip::ZipWriter::new(BufWriter::new(out_file));
+    let options: zip::write::FileOptions<'_, ()> =
+        zip::write::FileOptions::default().compression_method(zip::CompressionMethod::Deflated);
+
+    for src in &paths {
+        let src_path = Path::new(src);
+        let meta = std::fs::symlink_metadata(src_path)
+            .map_err(|e| format!("stat {}: {}", src_path.display(), e))?;
+        if meta.is_dir() {
+            // Archive-side root is the directory's own basename so extraction
+            // produces a sibling folder rather than dumping its contents at
+            // the archive root.
+            let root_name = src_path
+                .file_name()
+                .map(|s| s.to_string_lossy().into_owned())
+                .unwrap_or_else(|| "dir".to_string());
+            add_dir_recursive(&mut zipw, src_path, &root_name, &options)?;
+        } else {
+            let name = src_path
+                .file_name()
+                .map(|s| s.to_string_lossy().into_owned())
+                .ok_or_else(|| format!("bad filename: {}", src_path.display()))?;
+            zipw.start_file(name, options)
+                .map_err(|e| format!("start_file: {}", e))?;
+            let mut f = std::fs::File::open(src_path)
+                .map_err(|e| format!("open {}: {}", src_path.display(), e))?;
+            let mut buf = [0u8; 64 * 1024];
+            loop {
+                let n = f.read(&mut buf).map_err(|e| e.to_string())?;
+                if n == 0 {
+                    break;
+                }
+                zipw.write_all(&buf[..n]).map_err(|e| e.to_string())?;
+            }
+        }
+    }
+
+    zipw.finish().map_err(|e| format!("finish zip: {}", e))?;
+    Ok(())
+}
+
+fn add_dir_recursive<W: std::io::Write + std::io::Seek>(
+    zipw: &mut zip::ZipWriter<W>,
+    abs_dir: &Path,
+    archive_prefix: &str,
+    options: &zip::write::FileOptions<'_, ()>,
+) -> Result<(), String> {
+    use std::io::{Read, Write};
+
+    // Write the directory entry itself so empty dirs survive round-trip.
+    let dir_entry = format!("{}/", archive_prefix);
+    zipw.add_directory(dir_entry, *options)
+        .map_err(|e| format!("add_directory: {}", e))?;
+
+    let rd = std::fs::read_dir(abs_dir)
+        .map_err(|e| format!("read_dir {}: {}", abs_dir.display(), e))?;
+    for entry in rd.flatten() {
+        let child = entry.path();
+        let name = entry.file_name().to_string_lossy().into_owned();
+        let child_prefix = format!("{}/{}", archive_prefix, name);
+        let meta = match entry.metadata() {
+            Ok(m) => m,
+            Err(_) => continue,
+        };
+        if meta.file_type().is_symlink() {
+            // Skip symlinks — stored as files would duplicate content and
+            // stored as links needs unix-only extra fields. Safer to skip.
+            continue;
+        }
+        if meta.is_dir() {
+            add_dir_recursive(zipw, &child, &child_prefix, options)?;
+        } else {
+            zipw.start_file(&child_prefix, *options)
+                .map_err(|e| format!("start_file {}: {}", child_prefix, e))?;
+            let mut f = std::fs::File::open(&child)
+                .map_err(|e| format!("open {}: {}", child.display(), e))?;
+            let mut buf = [0u8; 64 * 1024];
+            loop {
+                let n = f.read(&mut buf).map_err(|e| e.to_string())?;
+                if n == 0 {
+                    break;
+                }
+                zipw.write_all(&buf[..n]).map_err(|e| e.to_string())?;
+            }
+        }
+    }
+    Ok(())
+}
+
+// ---------- sha256 hash ----------
+
+/// Stream the file at `path` in 64 KB chunks and return the lowercase hex
+/// SHA-256 digest.
+#[tauri::command]
+pub fn hash_sha256(path: String) -> Result<String, String> {
+    use sha2::{Digest, Sha256};
+    use std::io::Read;
+
+    let mut f = std::fs::File::open(&path).map_err(|e| format!("open {}: {}", path, e))?;
+    let mut hasher = Sha256::new();
+    let mut buf = [0u8; 64 * 1024];
+    loop {
+        let n = f.read(&mut buf).map_err(|e| e.to_string())?;
+        if n == 0 {
+            break;
+        }
+        hasher.update(&buf[..n]);
+    }
+    let digest = hasher.finalize();
+    let mut hex = String::with_capacity(digest.len() * 2);
+    for byte in digest {
+        use std::fmt::Write;
+        let _ = write!(&mut hex, "{:02x}", byte);
+    }
+    Ok(hex)
+}
