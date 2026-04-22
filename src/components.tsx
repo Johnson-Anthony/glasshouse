@@ -8,7 +8,7 @@ import {
   type FileKind,
   type MenuItemDef,
 } from "./data";
-import { drives as apiDrives, hashSha256, homeDir as apiHomeDir, listDir, readImageB64, readText, systemInfo as apiSystemInfo, winClose, winMinimize, winToggleMaximize, type Drive, type FileEntry, type GitInfo, type SystemInfo } from "./api";
+import { drives as apiDrives, hashSha256, homeDir as apiHomeDir, listDir, readImageB64, readText, spawnTerminal, systemInfo as apiSystemInfo, winClose, winMinimize, winToggleMaximize, type Drive, type FileEntry, type GitInfo, type SystemInfo } from "./api";
 import { fuzzyFilter } from "./fuzzy";
 
 // ============= Titlebar =============
@@ -530,19 +530,39 @@ export function Sidebar({ activePath, onGoTo, onRowContext, pins, onAddPin, tags
 
       <div className="sb-group">
         <div className="sb-title">REMOTE</div>
-        {SIDEBAR.remote.map((d, i) => (
-          <div key={i}
-               className="sb-item"
-               style={{gridTemplateColumns: "16px 1fr", cursor:"pointer", opacity:0.7}}
-               title="remote mounts coming soon"
-               onClick={() => { console.warn("remote mount not yet wired:", d.label); }}>
-            <span className="ic">{d.ic || "·"}</span>
-            <div>
-              <div>{d.label}</div>
-              <div style={{color:"var(--fg-3)", fontSize:10}}>{d.meta}</div>
+        {SIDEBAR.remote.map((d, i) => {
+          const isSsh = d.meta === "ssh" || /@/.test(d.label);
+          const onRemoteClick = () => {
+            if (isSsh) {
+              const ok = window.confirm(`connect to ${d.label}?`);
+              if (!ok) {
+                console.log(`[remote] connect cancelled for ${d.label}`);
+                return;
+              }
+              console.log(`[remote] spawning ssh terminal for ${d.label}`);
+              try {
+                void spawnTerminal(`ssh ${d.label}`);
+              } catch {
+                console.log(`[remote] clicking ${d.label} — not yet connected`);
+              }
+              return;
+            }
+            console.log(`[remote] clicking ${d.label} — not yet connected`);
+          };
+          return (
+            <div key={i}
+                 className="sb-item"
+                 style={{gridTemplateColumns: "16px 1fr", cursor:"pointer", opacity:0.7}}
+                 title={isSsh ? `connect to ${d.label}` : `${d.label} — log only`}
+                 onClick={onRemoteClick}>
+              <span className="ic">{d.ic || "·"}</span>
+              <div>
+                <div>{d.label}</div>
+                <div style={{color:"var(--fg-3)", fontSize:10}}>{d.meta}</div>
+              </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </aside>
   );
@@ -997,6 +1017,63 @@ function mimeGuess(kind: FileKind, ext: string): string {
   return "text/plain";
 }
 
+function PermissionsGrid() {
+  // 3 rows (read/write/exec) × 3 cols (owner/group/world). Each cell toggles
+  // on click; backend chmod is future-work — this just flips the unicode char
+  // and logs so the UI feels alive.
+  const [perms, setPerms] = useState<boolean[][]>([
+    [true, true, false],
+    [true, false, false],
+    [true, false, false],
+  ]);
+  const rows: Array<{ label: string; glyph: string }> = [
+    { label: "read",  glyph: "r" },
+    { label: "write", glyph: "w" },
+    { label: "exec",  glyph: "x" },
+  ];
+  const cols = ["owner", "group", "world"];
+  const toggle = (r: number, c: number) => {
+    console.log(`[inspector] perm toggle ${rows[r].label}-${cols[c]} — not persisted`);
+    setPerms(prev => prev.map((row, ri) =>
+      ri === r ? row.map((v, ci) => (ci === c ? !v : v)) : row
+    ));
+  };
+  const octalFixed = cols
+    .map((_, c) => (perms[0][c] ? 4 : 0) + (perms[1][c] ? 2 : 0) + (perms[2][c] ? 1 : 0))
+    .join("");
+  const rwxStr = cols
+    .map((_, c) => (perms[0][c] ? "r" : "-") + (perms[1][c] ? "w" : "-") + (perms[2][c] ? "x" : "-"))
+    .join("");
+  return (
+    <div className="insp-section">
+      <h4>PERMISSIONS <span style={{color:"var(--accent)", cursor:"pointer"}}>edit</span></h4>
+      <div style={{fontFamily:"var(--font-mono)", color:"var(--fg-0)", marginBottom:6}}>
+        <span>{rwxStr}</span> <span style={{color:"var(--fg-3)"}}>0{octalFixed}</span>
+      </div>
+      <div className="perm-grid">
+        <div></div><div className="h">owner</div><div className="h">group</div><div className="h">world</div>
+        {rows.map((row, ri) => (
+          <React.Fragment key={row.label}>
+            <div className="h" style={{textAlign:"right"}}>{row.label}</div>
+            {cols.map((col, ci) => {
+              const on = perms[ri][ci];
+              return (
+                <div
+                  key={col}
+                  className={"perm-cell" + (on ? "" : " off")}
+                  style={{cursor:"pointer", userSelect:"none"}}
+                  onClick={() => toggle(ri, ci)}
+                  title={`${row.label} ${col} — click to toggle`}
+                >{on ? row.glyph : "—"}</div>
+              );
+            })}
+          </React.Fragment>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export function Inspector({ file, onQuickAction }: InspectorProps) {
   const [preview, setPreview] = useState<string>("");
   const [imgSrc, setImgSrc] = useState<string>("");
@@ -1124,21 +1201,7 @@ export function Inspector({ file, onQuickAction }: InspectorProps) {
         </dl>
       </div>
 
-      <div className="insp-section">
-        <h4>PERMISSIONS <span style={{color:"var(--accent)", cursor:"pointer"}}>edit</span></h4>
-        <div style={{fontFamily:"var(--font-mono)", color:"var(--fg-0)", marginBottom:6}}>
-          <span style={{color:"var(--fg-3)"}}>…</span>
-        </div>
-        <div className="perm-grid">
-          <div></div><div className="h">owner</div><div className="h">group</div><div className="h">world</div>
-          <div className="h" style={{textAlign:"right"}}>read</div>
-          <div className="perm-cell off">—</div><div className="perm-cell off">—</div><div className="perm-cell off">—</div>
-          <div className="h" style={{textAlign:"right"}}>write</div>
-          <div className="perm-cell off">—</div><div className="perm-cell off">—</div><div className="perm-cell off">—</div>
-          <div className="h" style={{textAlign:"right"}}>exec</div>
-          <div className="perm-cell off">—</div><div className="perm-cell off">—</div><div className="perm-cell off">—</div>
-        </div>
-      </div>
+      <PermissionsGrid />
 
       <div className="insp-section">
         <h4>CHECKSUMS {sha256 && (
@@ -1265,18 +1328,43 @@ export interface TerminalDrawerProps {
 }
 
 export function TerminalDrawer({ open, onClose }: TerminalDrawerProps) {
+  const TERM_TABS: Array<{ shell: string; label: string; accent?: boolean }> = [
+    { shell: "zsh", label: "zsh · glasshouse", accent: true },
+    { shell: "ssh", label: "ssh · void@server" },
+    { shell: "wsl", label: "wsl · Ubuntu" },
+  ];
+  const [activeTerminalTab, setActiveTerminalTab] = useState<string>("zsh");
   return (
     <div className={"term-drawer" + (open ? " open" : "")}>
       <div className="term-head">
-        <div className="ttab active"><span style={{color:"var(--green)"}}>✓</span> zsh · glasshouse <span className="close">×</span></div>
-        <div className="ttab">ssh · void@server</div>
-        <div className="ttab">wsl · Ubuntu</div>
-        <div className="ttab" style={{color:"var(--fg-3)"}}>+</div>
+        {TERM_TABS.map(t => {
+          const isActive = activeTerminalTab === t.shell;
+          return (
+            <div
+              key={t.shell}
+              className={"ttab" + (isActive ? " active" : "")}
+              style={{cursor:"pointer"}}
+              onClick={() => {
+                console.log(`[terminal] switching to ${t.shell} tab`);
+                setActiveTerminalTab(t.shell);
+              }}
+            >
+              {isActive && t.accent && <span style={{color:"var(--green)"}}>✓ </span>}
+              {t.label}
+              {isActive && <span className="close" onClick={(e) => { e.stopPropagation(); console.log(`[terminal] close ${t.shell} tab (mock)`); }}>×</span>}
+            </div>
+          );
+        })}
+        <div
+          className="ttab"
+          style={{color:"var(--fg-3)", cursor:"pointer"}}
+          onClick={() => { console.log("[terminal] new tab (mock)"); }}
+        >+</div>
         <div className="right">
-          <span title="split H">⊟</span>
-          <span title="split V">⊟</span>
-          <span title="zoom">⤢</span>
-          <span title="close" onClick={onClose}>×</span>
+          <span title="split H" style={{cursor:"pointer"}} onClick={() => { console.log("[terminal] split H (mock)"); }}>⊟</span>
+          <span title="split V" style={{cursor:"pointer"}} onClick={() => { console.log("[terminal] split V (mock)"); }}>⊟</span>
+          <span title="zoom" style={{cursor:"pointer"}} onClick={() => { console.log("[terminal] zoom (mock)"); }}>⤢</span>
+          <span title="close" style={{cursor:"pointer"}} onClick={onClose}>×</span>
         </div>
       </div>
       <div className="term-body">
