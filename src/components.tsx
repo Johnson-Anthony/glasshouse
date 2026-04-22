@@ -2,14 +2,13 @@
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import {
   SIDEBAR,
-  TREE,
   MENUS,
   PALETTE,
   type FileRow,
   type FileKind,
   type MenuItemDef,
 } from "./data";
-import { drives as apiDrives, homeDir as apiHomeDir, readText, systemInfo as apiSystemInfo, winClose, winMinimize, winToggleMaximize, type Drive, type FileEntry, type GitInfo, type SystemInfo } from "./api";
+import { drives as apiDrives, homeDir as apiHomeDir, listDir, readText, systemInfo as apiSystemInfo, winClose, winMinimize, winToggleMaximize, type Drive, type FileEntry, type GitInfo, type SystemInfo } from "./api";
 import { fuzzyFilter } from "./fuzzy";
 
 // ============= Titlebar =============
@@ -280,103 +279,193 @@ export function Toolbar({ path, gitInfo, canBack, canForward, onBack, onForward,
 }
 
 // ============= Sidebar =============
-interface PinnedEntry {
-  ic: string;
-  label: string;
+interface TreeNodeState {
   path: string;
-  badge: string | null;
+  name: string;
+  depth: number;
+  open: boolean;
+  hasChildren: boolean;
+  // children are stored in a sibling map keyed by path
 }
 
-function buildPinned(home: string | null): PinnedEntry[] {
-  const out: PinnedEntry[] = [];
-  if (home) {
-    out.push({ ic: "󰋜", label: "home", path: home, badge: null });
-    const sep = home.includes("\\") ? "\\" : "/";
-    const join = (sub: string) => home.replace(/[\\/]+$/, "") + sep + sub;
-    out.push({ ic: "", label: "Desktop", path: join("Desktop"), badge: null });
-    out.push({ ic: "", label: "Documents", path: join("Documents"), badge: null });
-    out.push({ ic: "", label: "Downloads", path: join("Downloads"), badge: null });
-    out.push({ ic: "", label: "Pictures", path: join("Pictures"), badge: null });
-  }
-  return out;
+function pathBasename(p: string): string {
+  const trimmed = p.replace(/[\\/]+$/, "");
+  const idx = Math.max(trimmed.lastIndexOf("\\"), trimmed.lastIndexOf("/"));
+  if (idx < 0) return trimmed || p;
+  return trimmed.slice(idx + 1) || trimmed;
 }
+
+function formatSidebarBytes(n: number): string {
+  if (!Number.isFinite(n) || n <= 0) return "0B";
+  const units = ["B", "K", "M", "G", "T", "P"];
+  let v = n;
+  let ui = 0;
+  while (v >= 1024 && ui < units.length - 1) { v /= 1024; ui++; }
+  if (v >= 100) return `${v.toFixed(0)}${units[ui]}`;
+  if (v >= 10) return `${v.toFixed(1)}${units[ui]}`;
+  return `${v.toFixed(1)}${units[ui]}`;
+}
+
+const SEED_TAGS: { color: string; label: string }[] = [
+  { color: "var(--magenta)", label: "project" },
+  { color: "var(--green)",   label: "school"  },
+  { color: "var(--red)",     label: "secret"  },
+  { color: "var(--yellow)",  label: "review"  },
+  { color: "var(--cyan)",    label: "archive" },
+];
+
+const TAG_COLOR_MAP: Record<string, string> = Object.fromEntries(
+  SEED_TAGS.map(t => [t.label, t.color]),
+);
 
 export interface SidebarProps {
   activePath: string;
   onGoTo: (path: string) => void;
   onRowContext?: (e: React.MouseEvent, path: string) => void;
+  pins: string[];
+  onAddPin: () => void;
+  tags: Record<string, string[]>;
 }
 
-export function Sidebar({ activePath, onGoTo, onRowContext }: SidebarProps) {
+export function Sidebar({ activePath, onGoTo, onRowContext, pins, onAddPin, tags }: SidebarProps) {
   const [home, setHome] = useState<string | null>(null);
   const [driveList, setDriveList] = useState<Drive[]>([]);
 
+  // Tree: visible flattened list + map of children by path
+  const [rootPath, setRootPath] = useState<string | null>(null);
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const [children, setChildren] = useState<Record<string, FileEntry[]>>({});
+
   useEffect(() => {
     void (async () => {
-      setHome(await apiHomeDir());
+      const h = await apiHomeDir();
+      setHome(h);
       setDriveList(await apiDrives());
+      if (h) {
+        setRootPath(h);
+        const kids = await listDir(h, false);
+        setChildren(prev => ({ ...prev, [h]: kids.filter(k => k.kind === "folder") }));
+        setExpanded(prev => ({ ...prev, [h]: true }));
+      }
     })();
   }, []);
 
-  const pinned = useMemo(() => buildPinned(home), [home]);
+  const toggleNode = async (path: string) => {
+    const isOpen = expanded[path];
+    if (isOpen) {
+      setExpanded(prev => ({ ...prev, [path]: false }));
+      return;
+    }
+    if (!children[path]) {
+      const kids = await listDir(path, false);
+      setChildren(prev => ({ ...prev, [path]: kids.filter(k => k.kind === "folder") }));
+    }
+    setExpanded(prev => ({ ...prev, [path]: true }));
+  };
+
+  const treeRows = useMemo(() => {
+    const out: { path: string; name: string; depth: number; open: boolean }[] = [];
+    if (!rootPath) return out;
+    const walk = (p: string, depth: number) => {
+      const name = depth === 0 ? pathBasename(p) || p : pathBasename(p);
+      const open = !!expanded[p];
+      out.push({ path: p, name, depth, open });
+      if (open) {
+        const kids = children[p] ?? [];
+        for (const k of kids) walk(k.path, depth + 1);
+      }
+    };
+    walk(rootPath, 0);
+    return out;
+  }, [rootPath, expanded, children]);
+
+  const tagCounts = useMemo(() => {
+    const keys = Object.keys(tags);
+    if (keys.length === 0) {
+      return SEED_TAGS.map(s => ({ label: s.label, color: s.color, count: 0 }));
+    }
+    return keys.sort().map(k => ({
+      label: k,
+      color: TAG_COLOR_MAP[k] ?? "var(--fg-2)",
+      count: (tags[k] ?? []).length,
+    }));
+  }, [tags]);
 
   return (
     <aside className="sidebar">
       <div className="sb-group">
-        <div className="sb-title"><span>PINNED</span><span style={{color:"var(--fg-3)"}}>+</span></div>
-        {pinned.map((p, i) => (
-          <div key={i}
-               className={"sb-item" + (p.path === activePath ? " active" : "")}
-               onClick={() => onGoTo(p.path)}
-               onContextMenu={(e) => {
-                 if (!onRowContext) return;
-                 e.preventDefault();
-                 e.stopPropagation();
-                 onRowContext(e, p.path);
-               }}
-               style={{cursor:"pointer"}}>
-            <span className="ic">{p.ic || "·"}</span>
-            <span>{p.label}</span>
-            <span className="badge">{p.badge}</span>
+        <div className="sb-title">
+          <span>PINNED</span>
+          <span
+            style={{color:"var(--fg-3)", cursor:"pointer"}}
+            title="Pin current folder"
+            onClick={onAddPin}
+          >+</span>
+        </div>
+        {pins.length === 0 && (
+          <div className="sb-item" style={{color:"var(--fg-3)", cursor:"default"}}>
+            <span className="ic">·</span>
+            <span style={{fontStyle:"italic"}}>no pins yet</span>
+            <span className="badge"></span>
           </div>
-        ))}
-        {driveList.map((d, i) => (
-          <div key={"d" + i}
-               className={"sb-item" + (d.letter === activePath ? " active" : "")}
-               onClick={() => onGoTo(d.letter)}
+        )}
+        {pins.map((p, i) => (
+          <div key={i}
+               className={"sb-item" + (p === activePath ? " active" : "")}
+               onClick={() => onGoTo(p)}
                onContextMenu={(e) => {
                  if (!onRowContext) return;
                  e.preventDefault();
                  e.stopPropagation();
-                 onRowContext(e, d.letter);
+                 onRowContext(e, p);
                }}
+               title={p}
                style={{cursor:"pointer"}}>
-            <span className="ic"></span>
-            <span>{d.label || d.letter.replace(/\\$/, "")}</span>
-            <span className="badge">{d.fs || null}</span>
+            <span className="ic">{home && p === home ? "󰋜" : ""}</span>
+            <span style={{overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap"}}>{pathBasename(p) || p}</span>
+            <span className="badge"></span>
           </div>
         ))}
       </div>
 
       <div className="sb-group">
         <div className="sb-title"><span>TREE</span><span style={{color:"var(--fg-3)"}}>⋯</span></div>
-        {TREE.map((n, i) => (
-          <div key={i}
-               className={"tree-row" + (n.active ? " active" : "")}
-               style={{paddingLeft: 12 + n.depth * 10, opacity: n.dim ? 0.5 : 1}}>
-            <span className="chev">{n.open ? "▾" : "▸"}</span>
-            <span className="ic">{n.ic || ""}</span>
-            <span>{n.name}</span>
-            <span className={"git " + (n.git || "")}>{n.git === "mod" ? "●" : n.git === "add" ? "+" : ""}</span>
-          </div>
-        ))}
+        {treeRows.map((n) => {
+          const hasChildren = (children[n.path]?.length ?? 0) > 0 || !(n.path in children);
+          return (
+            <div key={n.path}
+                 className={"tree-row" + (n.path === activePath ? " active" : "")}
+                 style={{paddingLeft: 12 + n.depth * 10, cursor:"pointer"}}
+                 onClick={() => onGoTo(n.path)}
+                 onContextMenu={(e) => {
+                   if (!onRowContext) return;
+                   e.preventDefault();
+                   e.stopPropagation();
+                   onRowContext(e, n.path);
+                 }}
+                 title={n.path}>
+              <span
+                className="chev"
+                onClick={(e) => { e.stopPropagation(); void toggleNode(n.path); }}
+                style={{cursor:"pointer"}}
+              >{hasChildren ? (n.open ? "" : "") : ""}</span>
+              <span className="ic">{n.open ? "" : ""}</span>
+              <span style={{overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap"}}>{n.name}</span>
+              <span className="git"></span>
+            </div>
+          );
+        })}
       </div>
 
       <div className="sb-group">
         <div className="sb-title">TAGS</div>
-        {SIDEBAR.tags.map((t, i) => (
-          <div key={i} className="sb-item">
-            <span className="ic" style={{color: t.color}}>●</span>
+        {tagCounts.map((t, i) => (
+          <div key={i}
+               className="sb-item"
+               title="tag filter coming soon"
+               style={{cursor:"pointer"}}
+               onClick={() => { console.warn("tag filter not yet wired:", t.label); }}>
+            <span className="ic" style={{color: t.color}}></span>
             <span>{t.label}</span>
             <span className="badge">{t.count}</span>
           </div>
@@ -385,21 +474,46 @@ export function Sidebar({ activePath, onGoTo, onRowContext }: SidebarProps) {
 
       <div className="sb-group">
         <div className="sb-title">DEVICES</div>
-        {SIDEBAR.devices.map((d, i) => (
-          <div key={i} className="sb-item" style={{gridTemplateColumns: "16px 1fr"}}>
-            <span className="ic">{d.ic || "·"}</span>
-            <div>
-              <div>{d.label}</div>
-              <div style={{color:"var(--fg-3)", fontSize:10}}>{d.meta}</div>
-            </div>
+        {driveList.length === 0 && (
+          <div className="sb-item" style={{color:"var(--fg-3)", cursor:"default", gridTemplateColumns:"16px 1fr"}}>
+            <span className="ic">·</span>
+            <div style={{fontStyle:"italic"}}>no drives</div>
           </div>
-        ))}
+        )}
+        {driveList.map((d, i) => {
+          const used = d.total > d.free ? d.total - d.free : 0;
+          const letter = d.letter.replace(/\\$/, "");
+          const label = d.label && d.label.length > 0 ? d.label : letter;
+          return (
+            <div key={"d" + i}
+                 className={"sb-item" + (d.letter === activePath ? " active" : "")}
+                 onClick={() => onGoTo(d.letter)}
+                 onContextMenu={(e) => {
+                   if (!onRowContext) return;
+                   e.preventDefault();
+                   e.stopPropagation();
+                   onRowContext(e, d.letter);
+                 }}
+                 style={{cursor:"pointer", gridTemplateColumns:"16px 1fr"}}
+                 title={d.letter}>
+              <span className="ic"></span>
+              <div>
+                <div>{letter} {label}</div>
+                <div style={{color:"var(--fg-3)", fontSize:10}}>{formatSidebarBytes(used)} / {formatSidebarBytes(d.total)}{d.fs ? " · " + d.fs : ""}</div>
+              </div>
+            </div>
+          );
+        })}
       </div>
 
       <div className="sb-group">
         <div className="sb-title">REMOTE</div>
         {SIDEBAR.remote.map((d, i) => (
-          <div key={i} className="sb-item" style={{gridTemplateColumns: "16px 1fr"}}>
+          <div key={i}
+               className="sb-item"
+               style={{gridTemplateColumns: "16px 1fr", cursor:"pointer", opacity:0.7}}
+               title="remote mounts coming soon"
+               onClick={() => { console.warn("remote mount not yet wired:", d.label); }}>
             <span className="ic">{d.ic || "·"}</span>
             <div>
               <div>{d.label}</div>

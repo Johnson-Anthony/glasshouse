@@ -31,6 +31,9 @@ import {
   winClose,
   winMinimize,
   winToggleMaximize,
+  readPins,
+  writePins,
+  readTags,
   type FileEntry,
 } from "./api";
 
@@ -200,6 +203,16 @@ export function App() {
   const [tabHandles, setTabHandles] = useState<Record<number, UseTabResult>>({});
   const [searchQuery, setSearchQuery] = useState("");
   const searchInputRef = useRef<HTMLInputElement>(null);
+
+  const [pins, setPins] = useState<string[]>([]);
+  const [tagStore, setTagStore] = useState<Record<string, string[]>>({});
+
+  useEffect(() => {
+    void (async () => {
+      setPins(await readPins());
+      setTagStore(await readTags());
+    })();
+  }, []);
 
   useEffect(() => {
     void (async () => {
@@ -726,6 +739,16 @@ export function App() {
           activePath={activeHandle?.state.path ?? ""}
           onGoTo={(p) => activeHandle?.actions.goTo(p)}
           onRowContext={onSidebarContext}
+          pins={pins}
+          onAddPin={() => {
+            const p = activeHandle?.state.path;
+            if (!p) return;
+            if (pins.includes(p)) return;
+            const next = [...pins, p];
+            setPins(next);
+            void writePins(next);
+          }}
+          tags={tagStore}
         />
         <FilePane
           files={liveRows}
