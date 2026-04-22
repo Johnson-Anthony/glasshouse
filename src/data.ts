@@ -440,6 +440,7 @@ export const PALETTE: PaletteItem[] = [
   { g: "NAVIGATE", ic: "", label: "Open Recent →" },
   { g: "FILE",     ic: "", label: "New Folder",            kb: ["Ctrl", "Shift", "D"] },
   { g: "FILE",     ic: "", label: "Bulk Rename…",          kb: ["Ctrl", "Shift", "R"] },
+  { g: "FILE",     ic: "", label: "Paste Special…",        kb: ["Ctrl", "Shift", "V"] },
   { g: "FILE",     ic: "", label: "Batch Permissions…" },
   { g: "FILE",     ic: "", label: "Hash SHA256 of Selection" },
   { g: "GIT",      ic: "", label: "Git: Stage Selected" },

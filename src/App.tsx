@@ -12,7 +12,9 @@ import {
   ContextMenu,
   Tweaks,
   BulkRenameDialog,
+  PasteSpecialDialog,
   type BulkRenameItem,
+  type PasteSpecialItem,
   type TabDef,
   type TweakState,
   type ContextKind,
@@ -432,6 +434,9 @@ function winToWslInline(p: string): string {
 interface AppClipboard {
   op: "copy" | "cut";
   paths: string[];
+  /** Per-path kind ("file" | "folder" | …) parallel to `paths`. Used by
+   *  Paste Special to decide whether to hash-verify. */
+  kinds: string[];
 }
 let appClipboard: AppClipboard | null = null;
 
@@ -473,6 +478,11 @@ export function App() {
   const [blame, setBlame] = useState<{ path: string; lines: BlameLine[] } | null>(null);
   const [showFindModal, setShowFindModal] = useState(false);
   const [bulkRenameItems, setBulkRenameItems] = useState<BulkRenameItem[] | null>(null);
+  const [pasteSpecial, setPasteSpecial] = useState<{
+    items: PasteSpecialItem[];
+    dstDir: string;
+    clipboardMode: "copy" | "cut";
+  } | null>(null);
 
   useEffect(() => {
     void (async () => {
@@ -541,6 +551,10 @@ export function App() {
       }
       if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === "f") {
         e.preventDefault(); setShowFindModal(v => !v); return;
+      }
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === "v") {
+        if (inText) return;
+        e.preventDefault(); dispatch("Paste Special…"); return;
       }
       if ((e.ctrlKey || e.metaKey) && e.key === "`") {
         e.preventDefault(); setTermOpen(v => !v); return;
@@ -857,12 +871,18 @@ export function App() {
         }
         case "Copy": {
           if (selectedPaths.length === 0) return;
-          appClipboard = { op: "copy", paths: selectedPaths };
+          const kinds = st.selected
+            .map(i => st.entries[i]?.kind ?? "file")
+            .filter((_, idx) => Boolean(st.entries[st.selected[idx]]?.path));
+          appClipboard = { op: "copy", paths: selectedPaths, kinds };
           return;
         }
         case "Cut": {
           if (selectedPaths.length === 0) return;
-          appClipboard = { op: "cut", paths: selectedPaths };
+          const kinds = st.selected
+            .map(i => st.entries[i]?.kind ?? "file")
+            .filter((_, idx) => Boolean(st.entries[st.selected[idx]]?.path));
+          appClipboard = { op: "cut", paths: selectedPaths, kinds };
           return;
         }
         case "Paste": {
@@ -875,6 +895,20 @@ export function App() {
           }
           if (op === "cut") appClipboard = null;
           refresh();
+          return;
+        }
+        case "Paste Special":
+        case "Paste Special…": {
+          if (!appClipboard || appClipboard.paths.length === 0) {
+            console.warn("[paste-special] clipboard is empty");
+            return;
+          }
+          const { op, paths, kinds } = appClipboard;
+          const items: PasteSpecialItem[] = paths.map((p, i) => ({
+            path: p,
+            kind: kinds[i] ?? "file",
+          }));
+          setPasteSpecial({ items, dstDir: cwd, clipboardMode: op });
           return;
         }
         case "New Folder":
@@ -1396,6 +1430,20 @@ export function App() {
           onClose={() => setBulkRenameItems(null)}
           renameOne={(from, to) => renameEntry(from, to)}
           onDone={() => activeHandle?.actions.refresh()}
+        />
+      )}
+      {pasteSpecial && (
+        <PasteSpecialDialog
+          items={pasteSpecial.items}
+          dstDir={pasteSpecial.dstDir}
+          clipboardMode={pasteSpecial.clipboardMode}
+          copyEntry={copyEntry}
+          moveEntry={moveEntry}
+          onClose={() => setPasteSpecial(null)}
+          onDone={(clear) => {
+            if (clear) appClipboard = null;
+            activeHandle?.actions.refresh();
+          }}
         />
       )}
 
