@@ -91,7 +91,8 @@ export const selectionHandler: Handler = (label, ctx) => {
       return true;
     }
     case "Expand Selection to Folder": {
-      console.log("Expand Selection to Folder: MVP selects all entries");
+      const hasFolder = selected.some(i => entries[i]?.kind === "folder");
+      if (!hasFolder) return true;
       setSelected(entries.map((_, i) => i));
       return true;
     }
@@ -110,7 +111,27 @@ export const selectionHandler: Handler = (label, ctx) => {
       return true;
     }
     case "Add Next Match": {
-      console.log("Add Next Match: no-op for MVP");
+      if (selected.length === 0 || entries.length === 0) return true;
+      const first = entries[selected[0]];
+      if (!first) return true;
+      const escaped = first.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const ext = first.ext || "";
+      const pattern = ext
+        ? new RegExp("\\." + ext.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "$", "i")
+        : new RegExp("^" + escaped + "$");
+      const selSet = new Set(selected);
+      const lastIdx = Math.max(...selected);
+      let matchIdx = -1;
+      for (let i = lastIdx + 1; i < entries.length; i++) {
+        if (!selSet.has(i) && pattern.test(entries[i].name)) { matchIdx = i; break; }
+      }
+      if (matchIdx < 0) {
+        for (let i = 0; i < entries.length; i++) {
+          if (!selSet.has(i) && pattern.test(entries[i].name)) { matchIdx = i; break; }
+        }
+      }
+      if (matchIdx < 0) return true;
+      setSelected([...selected, matchIdx]);
       return true;
     }
     default:

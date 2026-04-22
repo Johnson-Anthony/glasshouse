@@ -35,7 +35,12 @@ export interface TabState {
   historyBack: string[];
   historyForward: string[];
   tagFilter: string | null;
+  private: boolean;
 }
+
+// Recent list persistence moved to backend (src-tauri commands
+// read_recent / append_recent / clear_recent) so it survives app restarts.
+// state.ts keeps appendRecent imported from ./api.
 
 export interface TabActions {
   goTo: (path: string) => void;
@@ -122,7 +127,7 @@ export function popRedo(): UndoEntry | undefined {
 
 export type TabListMutator = {
   moveTab: (from: number, to: number) => void;
-  newTab: (path?: string) => void;
+  newTab: (path?: string, opts?: { private?: boolean }) => void;
 };
 
 let tabListMutator: TabListMutator | null = null;
@@ -135,11 +140,11 @@ export function moveTab(from: number, to: number): void {
   tabListMutator?.moveTab(from, to);
 }
 
-export function newTab(path?: string): void {
-  tabListMutator?.newTab(path);
+export function newTab(path?: string, opts?: { private?: boolean }): void {
+  tabListMutator?.newTab(path, opts);
 }
 
-export function useTabState(initialPath: string): UseTabResult {
+export function useTabState(initialPath: string, isPrivate: boolean = false): UseTabResult {
   const [path, setPath] = useState<string>(initialPath);
   const [entries, setEntries] = useState<FileEntry[]>([]);
   const [gitInfo, setGitInfo] = useState<GitInfo | null>(null);
@@ -188,6 +193,11 @@ export function useTabState(initialPath: string): UseTabResult {
     }, 60);
     return () => window.clearTimeout(handle);
   }, [path, showHidden, refreshTick, fetchAll]);
+
+  useEffect(() => {
+    if (!isPrivate && initialPath) appendRecent(initialPath);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // notify-based fs watcher: subscribe per-path, with a 30s safety-net refetch
   useEffect(() => {
@@ -239,11 +249,12 @@ export function useTabState(initialPath: string): UseTabResult {
       setHistoryForward([]);
       resetNav();
       // Fire-and-forget: keep the recent list warm for File > Open Recent
-      // and Bookmarks > RECENT without blocking navigation.
-      void appendRecent(next);
+      // and Bookmarks > RECENT without blocking navigation. Private tabs
+      // opt out so the recent list stays clean.
+      if (!isPrivate) void appendRecent(next);
       return next;
     });
-  }, []);
+  }, [isPrivate]);
 
   const back = useCallback(() => {
     setHistoryBack(h => {
@@ -297,7 +308,8 @@ export function useTabState(initialPath: string): UseTabResult {
     historyBack,
     historyForward,
     tagFilter,
-  }), [path, entries, gitInfo, selected, focusIndex, anchorIndex, sortKey, sortDir, showHidden, foldersFirst, loading, error, historyBack, historyForward, tagFilter]);
+    private: isPrivate,
+  }), [path, entries, gitInfo, selected, focusIndex, anchorIndex, sortKey, sortDir, showHidden, foldersFirst, loading, error, historyBack, historyForward, tagFilter, isPrivate]);
 
   const actions: TabActions = useMemo(() => ({
     goTo,

@@ -3,6 +3,8 @@ import React, { useState, useEffect, useRef, useMemo } from "react";
 import {
   MENUS,
   PALETTE,
+  APP_VERSION,
+  TAURI_VERSION,
   type FileRow,
   type FileKind,
   type MenuItemDef,
@@ -3340,6 +3342,84 @@ export function TagPickerDialog({ path, onClose, onSaved }: TagPickerDialogProps
               borderRadius: 2, fontFamily: "inherit",
             }}
           >{saving ? "saving…" : "save"}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ============= AboutDialog =============
+export interface AboutDialogProps {
+  open: boolean;
+  onClose: () => void;
+}
+
+export function AboutDialog({ open, onClose }: AboutDialogProps) {
+  useEffect(() => {
+    if (!open) return;
+    const h = (e: KeyboardEvent) => {
+      if (e.key === "Escape") { e.preventDefault(); onClose(); }
+    };
+    window.addEventListener("keydown", h);
+    return () => window.removeEventListener("keydown", h);
+  }, [open, onClose]);
+
+  if (!open) return null;
+
+  const builtOn = new Date().toISOString().slice(0, 10);
+  const rows: Array<[string, string]> = [
+    ["app", "Glasshouse / rice://"],
+    ["version", APP_VERSION],
+    ["tauri", TAURI_VERSION],
+    ["built on", builtOn],
+  ];
+
+  return (
+    <div onClick={onClose} style={{
+      position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)",
+      zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center",
+    }}>
+      <div onClick={(e) => e.stopPropagation()} style={{
+        width: "48ch", maxWidth: "95vw",
+        background: "var(--bg-1, #1a1b26)", border: "1px solid var(--fg-3)",
+        borderRadius: 4, display: "flex", flexDirection: "column",
+        fontFamily: "var(--font-mono)", color: "var(--fg-1)",
+      }}>
+        <div style={{
+          display: "flex", alignItems: "center", justifyContent: "space-between",
+          padding: "8px 12px", borderBottom: "1px solid var(--fg-3)",
+          background: "var(--bg-2, #16161e)",
+        }}>
+          <span style={{ color: "var(--accent)" }}>about</span>
+          <button onClick={onClose} style={{
+            background: "transparent", border: "1px solid var(--fg-3)", color: "var(--fg-1)",
+            padding: "2px 8px", cursor: "pointer", borderRadius: 2,
+          }}>×</button>
+        </div>
+        <div style={{ padding: "14px 16px" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+            <tbody>
+              {rows.map(([k, v]) => (
+                <tr key={k}>
+                  <td style={{
+                    color: "var(--fg-3)", padding: "4px 12px 4px 0",
+                    width: "12ch", whiteSpace: "nowrap",
+                  }}>{k}</td>
+                  <td style={{ padding: "4px 0", wordBreak: "break-all" }}>{v}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <div style={{
+          padding: "8px 12px", borderTop: "1px solid var(--fg-3)",
+          display: "flex", justifyContent: "flex-end",
+          background: "var(--bg-2, #16161e)",
+        }}>
+          <button onClick={onClose} style={{
+            background: "transparent", border: "1px solid var(--fg-3)", color: "var(--fg-1)",
+            padding: "4px 12px", cursor: "pointer", borderRadius: 2, fontFamily: "inherit",
+          }}>close</button>
         </div>
       </div>
     </div>

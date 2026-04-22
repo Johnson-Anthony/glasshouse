@@ -19,6 +19,7 @@ import {
   ConnectServerDialog,
   TagPickerDialog,
   PropertiesDialog,
+  AboutDialog,
   type BulkRenameItem,
   type PasteSpecialItem,
   type SavedRemote,
@@ -101,6 +102,7 @@ const FALLBACK_PATH = "C:\\";
 interface TabShellProps {
   index: number;
   initialPath: string;
+  isPrivate?: boolean;
   onReady: (index: number, r: UseTabResult) => void;
 }
 
@@ -268,8 +270,8 @@ function FindInFilesModal({ root, onClose, onPick }: FindInFilesModalProps) {
   );
 }
 
-function TabShell({ index, initialPath, onReady }: TabShellProps) {
-  const tab = useTabState(initialPath);
+function TabShell({ index, initialPath, isPrivate, onReady }: TabShellProps) {
+  const tab = useTabState(initialPath, !!isPrivate);
   const onReadyRef = useRef(onReady);
   useEffect(() => { onReadyRef.current = onReady; });
   useEffect(() => {
@@ -406,6 +408,7 @@ export function App() {
   });
 
   const [initialPaths, setInitialPaths] = useState<string[] | null>(null);
+  const [privateTabs, setPrivateTabs] = useState<boolean[]>([]);
   const [tabs, setTabs] = useState<TabDef[]>([]);
   const [activeTab, setActiveTab] = useState(0);
   const [palOpen, setPalOpen] = useState(false);
@@ -436,6 +439,7 @@ export function App() {
   const [connectOpen, setConnectOpen] = useState(false);
   const [tagPickerPath, setTagPickerPath] = useState<string | null>(null);
   const [propsEntry, setPropsEntry] = useState<FileEntry | null>(null);
+  const [aboutOpen, setAboutOpen] = useState(false);
   const [homePath, setHomePath] = useState<string | null>(null);
 
   useEffect(() => {
@@ -452,6 +456,7 @@ export function App() {
       setHomePath(home);
       setInitialPaths([p]);
       setTabs([{ ic: "", color: "var(--blue)", label: p }]);
+      setPrivateTabs([false]);
       if (home) {
         const remotesPath = join(join(home, ".glasshouse"), "remotes.json");
         try {
@@ -628,11 +633,13 @@ export function App() {
     const seed = activeHandle?.state.path ?? FALLBACK_PATH;
     setTabs(prev => [...prev, { ic: "", color: "var(--cyan)", label: seed }]);
     setInitialPaths(prev => (prev ? [...prev, seed] : [seed]));
+    setPrivateTabs(prev => [...prev, false]);
   };
 
   const closeTabAt = (i: number) => {
     setTabs(prev => prev.filter((_, k) => k !== i));
     setInitialPaths(prev => (prev ? prev.filter((_, k) => k !== i) : prev));
+    setPrivateTabs(prev => prev.filter((_, k) => k !== i));
     setTabHandles(prev => {
       const next: Record<number, UseTabResult> = {};
       Object.entries(prev).forEach(([k, v]) => {
@@ -653,11 +660,13 @@ export function App() {
     const live = tabHandles[i]?.state.path ?? seed;
     setTabs(prev => [...prev, { ic: "", color: "var(--cyan)", label: live }]);
     setInitialPaths(prev => (prev ? [...prev, live] : [live]));
+    setPrivateTabs(prev => [...prev, prev[i] ?? false]);
   };
 
   const closeOtherTabsAt = (keep: number) => {
     setTabs(prev => prev.filter((_, k) => k === keep));
     setInitialPaths(prev => (prev ? prev.filter((_, k) => k === keep) : prev));
+    setPrivateTabs(prev => prev.filter((_, k) => k === keep));
     setTabHandles(prev => {
       const v = prev[keep];
       const next: Record<number, UseTabResult> = {};
@@ -667,9 +676,10 @@ export function App() {
     setActiveTab(0);
   };
 
-  const openPathInNewTab = (p: string) => {
-    setTabs(prev => [...prev, { ic: "", color: "var(--cyan)", label: p }]);
+  const openPathInNewTab = (p: string, isPrivate: boolean = false) => {
+    setTabs(prev => [...prev, { ic: "", color: isPrivate ? "var(--magenta, #bb9af7)" : "var(--cyan)", label: isPrivate ? `(private) ${p}` : p }]);
     setInitialPaths(prev => (prev ? [...prev, p] : [p]));
+    setPrivateTabs(prev => [...prev, isPrivate]);
   };
 
   useEffect(() => {
@@ -691,11 +701,18 @@ export function App() {
           next.splice(to, 0, moved);
           return next;
         });
+        setPrivateTabs(prev => {
+          if (from < 0 || from >= prev.length || to < 0 || to >= prev.length) return prev;
+          const next = [...prev];
+          const [moved] = next.splice(from, 1);
+          next.splice(to, 0, moved);
+          return next;
+        });
         setActiveTab(cur => (cur === from ? to : cur));
       },
-      newTab: (path) => {
+      newTab: (path, opts) => {
         const p = path ?? activeHandle?.state.path ?? FALLBACK_PATH;
-        openPathInNewTab(p);
+        openPathInNewTab(p, !!opts?.private);
         setActiveTab(tabs.length);
       },
     });
@@ -1220,6 +1237,7 @@ export function App() {
             dispatch: (l: string) => handleMenuCommandRef.current(l),
             openPalette: () => setPalOpen(true),
             openTweaks: () => setTweaksOpen(true),
+            openAbout: () => setAboutOpen(true),
             toggleSidebar: () => setShowSidebar(v => !v),
             pinPath: (p: string) => {
               if (pins.includes(p)) return;
@@ -1391,6 +1409,7 @@ export function App() {
           key={i}
           index={i}
           initialPath={p}
+          isPrivate={privateTabs[i]}
           onReady={(idx, r) => setTabHandles(prev => (prev[idx] === r ? prev : { ...prev, [idx]: r }))}
         />
       ))}
@@ -1626,6 +1645,7 @@ export function App() {
         />
       )}
       <PropertiesDialog entry={propsEntry} onClose={() => setPropsEntry(null)} />
+      <AboutDialog open={aboutOpen} onClose={() => setAboutOpen(false)} />
 
       {!tweaksOpen && (
         <button

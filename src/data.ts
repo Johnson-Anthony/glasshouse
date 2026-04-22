@@ -1,5 +1,8 @@
 // Mock filesystem data + menu definitions for rice:// file manager
 
+export const APP_VERSION = "0.0.1";
+export const TAURI_VERSION = "2";
+
 export type FileKind = "folder" | "text" | "code" | "img" | "archive" | "exec";
 export type GitStatus = "M" | "A" | "D" | "U" | "?" | "!";
 
@@ -232,7 +235,6 @@ export const MENUS: MenusData = {
     { kind: "item", ic: "", label: "Shred (srm)",         danger: true },
     { kind: "sep" },
     { kind: "item", ic: "", label: "Preferences…",        kb: "Ctrl+," },
-    { kind: "item", ic: "", label: "Keybindings…" },
     { kind: "item", ic: "", label: "Edit .ricerc" },
   ],
   Select: [
@@ -411,12 +413,9 @@ export const MENUS: MenusData = {
     { kind: "sep" },
     { kind: "item", ic: "", label: "Split Right" },
     { kind: "item", ic: "", label: "Split Down" },
-    { kind: "item", ic: "", label: "Focus Pane ↑" },
-    { kind: "item", ic: "", label: "Focus Pane ↓" },
     { kind: "sep" },
     { kind: "item", ic: "", label: "Always on Top" },
     { kind: "item", ic: "", label: "Pin to Workspace" },
-    { kind: "item", ic: "", label: "Snap Left / Right" },
     { kind: "item", ic: "", label: "Minimize",            kb: "Ctrl+M" },
     { kind: "item", ic: "", label: "Close Window" },
   ],
@@ -428,7 +427,7 @@ export const MENUS: MenusData = {
     { kind: "sep" },
     { kind: "item", ic: "", label: "Report Bug…" },
     { kind: "item", ic: "", label: "Check for Updates" },
-    { kind: "item", ic: "", label: "About rice://" },
+    { kind: "item", ic: "", label: "About" },
   ],
 };
 

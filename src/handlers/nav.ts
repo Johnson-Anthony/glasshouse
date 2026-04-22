@@ -74,8 +74,7 @@ export const navHandler: Handler = (label, ctx) => {
       return true;
 
     case "New Private Session":
-      window.alert("Private mode not tracked yet");
-      ctx.newTab?.(ctx.cwd);
+      ctx.newTab?.(ctx.cwd, { private: true });
       return true;
 
     case "Open…": {
@@ -166,15 +165,6 @@ export const navHandler: Handler = (label, ctx) => {
       target.classList.toggle("zoomed");
       return true;
     }
-
-    case "Snap Left":
-    case "Snap Right":
-    case "Snap Left / Right":
-    case "Focus Pane":
-    case "Focus Pane ↑":
-    case "Focus Pane ↓":
-      console.log(`[nav] not implemented: ${label}`);
-      return true;
 
     case "Root  /":
       ctx.activeHandle?.actions.goTo("/");
