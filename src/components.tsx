@@ -545,59 +545,271 @@ function tagColor(tag: string | null): string {
 
 export type ContextKind = "file" | "empty" | "sidebar" | "tab" | "breadcrumb";
 
+export type SortColumn = "name" | "size" | "modified";
+export type SortDirection = "asc" | "desc";
+
 export interface FilePaneProps {
   files: FileRow[];
   selected: number[];
   setSelected: (sel: number[]) => void;
+  focusIndex: number;
+  setFocusIndex: (i: number) => void;
+  anchorIndex: number;
+  setAnchorIndex: (i: number) => void;
+  paneFocused: boolean;
+  setPaneFocused: (v: boolean) => void;
+  sortKey: SortColumn;
+  sortDir: SortDirection;
+  onSortChange: (k: SortColumn) => void;
   onContext: (e: React.MouseEvent, kind: ContextKind) => void;
   onOpen?: (index: number) => void;
+  onUp?: () => void;
+  onCopy?: () => void;
+  onCut?: () => void;
+  onDelete?: (permanent: boolean) => void;
   searchQuery?: string;
 }
 
-export function FilePane({ files, selected, setSelected, onContext, onOpen, searchQuery }: FilePaneProps) {
+const PAGE_STEP = 10;
+
+export function FilePane({
+  files,
+  selected,
+  setSelected,
+  focusIndex,
+  setFocusIndex,
+  anchorIndex,
+  setAnchorIndex,
+  paneFocused,
+  setPaneFocused,
+  sortKey,
+  sortDir,
+  onSortChange,
+  onContext,
+  onOpen,
+  onUp,
+  onCopy,
+  onCut,
+  onDelete,
+  searchQuery,
+}: FilePaneProps) {
+  const paneRef = useRef<HTMLElement>(null);
+
+  // Filtered + sorted, preserving origIndex so selection still refers to the
+  // underlying `files` array (which is what App's clipboard/selection logic
+  // indexes into).
   const displayFiles = useMemo(() => {
-    const q = (searchQuery || "").trim();
-    if (!q) return files.map((f, i) => ({ file: f, origIndex: i }));
     const indexed = files.map((f, i) => ({ file: f, origIndex: i }));
-    return fuzzyFilter(
-      q,
-      indexed,
-      x => (x.file.ext && x.file.kind !== "folder") ? `${x.file.name}.${x.file.ext}` : x.file.name,
-    ).map(r => r.item);
-  }, [files, searchQuery]);
-  const handleRowClick = (i: number, e: React.MouseEvent) => {
+    const q = (searchQuery || "").trim();
+    const filtered = q
+      ? fuzzyFilter(
+          q,
+          indexed,
+          x => (x.file.ext && x.file.kind !== "folder") ? `${x.file.name}.${x.file.ext}` : x.file.name,
+        ).map(r => r.item)
+      : indexed;
+
+    const dir = sortDir === "asc" ? 1 : -1;
+    const sorted = [...filtered].sort((a, b) => {
+      // Folders before files, always — matches Explorer/Finder convention.
+      const af = a.file.kind === "folder" ? 0 : 1;
+      const bf = b.file.kind === "folder" ? 0 : 1;
+      if (af !== bf) return af - bf;
+      if (sortKey === "name") {
+        const an = (a.file.name + (a.file.ext ? "." + a.file.ext : "")).toLowerCase();
+        const bn = (b.file.name + (b.file.ext ? "." + b.file.ext : "")).toLowerCase();
+        return an < bn ? -1 * dir : an > bn ? 1 * dir : 0;
+      }
+      if (sortKey === "size") {
+        const as = (a.file as unknown as { entry?: { size?: number } }).entry?.size ?? 0;
+        const bs = (b.file as unknown as { entry?: { size?: number } }).entry?.size ?? 0;
+        return (as - bs) * dir;
+      }
+      // modified
+      const am = (a.file as unknown as { entry?: { modified_ms?: number } }).entry?.modified_ms ?? 0;
+      const bm = (b.file as unknown as { entry?: { modified_ms?: number } }).entry?.modified_ms ?? 0;
+      return (am - bm) * dir;
+    });
+    return sorted;
+  }, [files, searchQuery, sortKey, sortDir]);
+
+  // Map origIndex -> visible row position, for keyboard nav (which operates
+  // on the currently-displayed ordering, not the raw entries array).
+  const visibleOrig = useMemo(() => displayFiles.map(d => d.origIndex), [displayFiles]);
+  const visiblePos = useMemo(() => {
+    const m = new Map<number, number>();
+    visibleOrig.forEach((o, i) => m.set(o, i));
+    return m;
+  }, [visibleOrig]);
+
+  const rangeSelect = (fromOrig: number, toOrig: number) => {
+    const a = visiblePos.get(fromOrig);
+    const b = visiblePos.get(toOrig);
+    if (a === undefined || b === undefined) {
+      setSelected([toOrig]);
+      return;
+    }
+    const lo = Math.min(a, b), hi = Math.max(a, b);
+    const origs: number[] = [];
+    for (let i = lo; i <= hi; i++) origs.push(visibleOrig[i]);
+    setSelected(origs);
+  };
+
+  const handleRowClick = (origIndex: number, e: React.MouseEvent) => {
+    setFocusIndex(origIndex);
     if (e.shiftKey && selected.length) {
-      const last = selected[selected.length - 1];
-      const a = Math.min(last, i), b = Math.max(last, i);
-      setSelected(Array.from({length: b-a+1}, (_, k) => a+k));
+      rangeSelect(anchorIndex, origIndex);
     } else if (e.ctrlKey || e.metaKey) {
-      setSelected(selected.includes(i) ? selected.filter(x => x !== i) : [...selected, i]);
+      setSelected(selected.includes(origIndex) ? selected.filter(x => x !== origIndex) : [...selected, origIndex]);
+      setAnchorIndex(origIndex);
     } else {
-      setSelected([i]);
+      setSelected([origIndex]);
+      setAnchorIndex(origIndex);
     }
   };
 
+  // Pane-local keyboard handling. Fires only when focus is inside the pane
+  // (the global App-level listener covers app-wide shortcuts; we do NOT want
+  // arrow-key selection to fire while focus is in the search box or sidebar).
+  const onKeyDown = (e: React.KeyboardEvent) => {
+    if (displayFiles.length === 0) return;
+
+    const currentPos = visiblePos.get(focusIndex);
+    const safePos = currentPos ?? 0;
+
+    const move = (nextPos: number, extend: boolean) => {
+      const clamped = Math.max(0, Math.min(displayFiles.length - 1, nextPos));
+      const nextOrig = visibleOrig[clamped];
+      setFocusIndex(nextOrig);
+      if (extend) {
+        rangeSelect(anchorIndex, nextOrig);
+      } else {
+        setSelected([nextOrig]);
+        setAnchorIndex(nextOrig);
+      }
+    };
+
+    // Ctrl+A — select all visible
+    if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "a") {
+      e.preventDefault();
+      setSelected(visibleOrig.slice());
+      return;
+    }
+
+    // Ctrl+C / Ctrl+X — let these through to pane handlers (App-level also
+    // catches, but when pane is focused we want to be explicit).
+    if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey) {
+      const k = e.key.toLowerCase();
+      if (k === "c" && onCopy) { e.preventDefault(); onCopy(); return; }
+      if (k === "x" && onCut) { e.preventDefault(); onCut(); return; }
+    }
+
+    switch (e.key) {
+      case "ArrowDown":
+        e.preventDefault();
+        move(safePos + 1, e.shiftKey);
+        return;
+      case "ArrowUp":
+        e.preventDefault();
+        move(safePos - 1, e.shiftKey);
+        return;
+      case "Home":
+        e.preventDefault();
+        move(0, e.shiftKey);
+        return;
+      case "End":
+        e.preventDefault();
+        move(displayFiles.length - 1, e.shiftKey);
+        return;
+      case "PageDown":
+        e.preventDefault();
+        move(safePos + PAGE_STEP, e.shiftKey);
+        return;
+      case "PageUp":
+        e.preventDefault();
+        move(safePos - PAGE_STEP, e.shiftKey);
+        return;
+      case "Escape":
+        e.preventDefault();
+        setSelected([]);
+        return;
+      case "Enter":
+        e.preventDefault();
+        e.nativeEvent.stopImmediatePropagation();
+        if (onOpen) onOpen(focusIndex);
+        return;
+      case "Backspace":
+        e.preventDefault();
+        e.nativeEvent.stopImmediatePropagation();
+        if (onUp) onUp();
+        return;
+      case "Delete":
+        e.preventDefault();
+        e.nativeEvent.stopImmediatePropagation();
+        if (onDelete) onDelete(e.shiftKey);
+        return;
+    }
+  };
+
+  // Scroll focused row into view when it changes via keyboard.
+  useEffect(() => {
+    if (!paneFocused) return;
+    const pos = visiblePos.get(focusIndex);
+    if (pos === undefined) return;
+    const root = paneRef.current;
+    if (!root) return;
+    const el = root.querySelector<HTMLDivElement>(`.row[data-orig="${focusIndex}"]`);
+    if (el) el.scrollIntoView({ block: "nearest" });
+  }, [focusIndex, paneFocused, visiblePos]);
+
+  const sortArrow = (col: SortColumn) => (sortKey === col ? (sortDir === "asc" ? "↑" : "↓") : "");
+
   return (
-    <section className="pane" onContextMenu={(e) => { e.preventDefault(); onContext(e, selected.length ? "file" : "empty"); }}>
+    <section
+      ref={paneRef}
+      className={"pane" + (paneFocused ? " pane-focused" : "")}
+      tabIndex={0}
+      onFocus={() => setPaneFocused(true)}
+      onBlur={(e) => {
+        // Only drop focus if the new focus target is outside the pane.
+        if (!paneRef.current?.contains(e.relatedTarget as Node)) setPaneFocused(false);
+      }}
+      onKeyDown={onKeyDown}
+      onMouseDown={() => {
+        // Take focus on click so arrow keys work without an explicit tab.
+        if (paneRef.current && document.activeElement !== paneRef.current) {
+          paneRef.current.focus();
+        }
+      }}
+      onContextMenu={(e) => { e.preventDefault(); onContext(e, selected.length ? "file" : "empty"); }}
+    >
       <div className="pane-head">
         <div className="col"></div>
-        <div className="col">name <span className="sort">↑</span></div>
+        <div className="col" onClick={() => onSortChange("name")}>name <span className="sort">{sortArrow("name")}</span></div>
         <div className="col">tag</div>
-        <div className="col" style={{justifyContent:"flex-end"}}>size</div>
-        <div className="col">modified</div>
+        <div className="col" style={{justifyContent:"flex-end"}} onClick={() => onSortChange("size")}>size <span className="sort">{sortArrow("size")}</span></div>
+        <div className="col" onClick={() => onSortChange("modified")}>modified <span className="sort">{sortArrow("modified")}</span></div>
         <div className="col" style={{justifyContent:"flex-end"}}>git</div>
       </div>
       <div className="rows">
         {displayFiles.map(({ file: f, origIndex: i }) => {
           const ki = kindIcon(f.kind);
           const isSel = selected.includes(i);
+          const isFocus = paneFocused && focusIndex === i;
           return (
             <div key={i}
-                 className={"row" + (isSel ? " selected" : "")}
+                 data-orig={i}
+                 className={"row" + (isSel ? " selected" : "") + (isFocus ? " focused" : "")}
                  style={{opacity: f.dimmed ? 0.55 : 1}}
                  onClick={(e) => handleRowClick(i, e)}
                  onDoubleClick={() => onOpen && onOpen(i)}
-                 onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); if (!isSel) setSelected([i]); onContext(e, "file"); }}>
+                 onContextMenu={(e) => {
+                   e.preventDefault();
+                   e.stopPropagation();
+                   if (!isSel) { setSelected([i]); setAnchorIndex(i); }
+                   setFocusIndex(i);
+                   onContext(e, "file");
+                 }}>
               <span className={"ic " + ki.cls}>{ki.ic}</span>
               <span className="name">
                 {f.git && <span className={"git-dot " + f.git}></span>}
@@ -631,6 +843,7 @@ export interface InspectableFile extends FileRow {
 
 export interface InspectorProps {
   file: InspectableFile | null;
+  onQuickAction?: (action: "run" | "copy-path" | "open-in-code" | "git-blame") => void;
 }
 
 function mimeGuess(kind: FileKind, ext: string): string {
@@ -653,7 +866,7 @@ function mimeGuess(kind: FileKind, ext: string): string {
   return "text/plain";
 }
 
-export function Inspector({ file }: InspectorProps) {
+export function Inspector({ file, onQuickAction }: InspectorProps) {
   const [preview, setPreview] = useState<string>("");
   const isTextLike = !!file && (file.kind === "text" || file.kind === "code");
 
@@ -762,12 +975,12 @@ export function Inspector({ file }: InspectorProps) {
       <div className="insp-section">
         <h4>QUICK ACTIONS</h4>
         <div style={{display:"flex", flexWrap:"wrap", gap:4}}>
-          <span className="chip" style={{cursor:"pointer"}}>▶ run</span>
-          <span className="chip" style={{cursor:"pointer"}}>⌨ open in code</span>
-          <span className="chip" style={{cursor:"pointer"}}>⎇ git blame</span>
-          <span className="chip" style={{cursor:"pointer"}}>⌘ copy path</span>
-          <span className="chip" style={{cursor:"pointer"}}>◫ compress</span>
-          <span className="chip" style={{cursor:"pointer"}}># hash</span>
+          <span className="chip" style={{cursor:"pointer"}} onClick={() => onQuickAction?.("run")}>▶ run</span>
+          <span className="chip" style={{cursor:"pointer"}} onClick={() => onQuickAction?.("open-in-code")}>⌨ open in code</span>
+          <span className="chip" style={{cursor:"pointer"}} onClick={() => onQuickAction?.("git-blame")}>⎇ git blame</span>
+          <span className="chip" style={{cursor:"pointer"}} onClick={() => onQuickAction?.("copy-path")}>⌘ copy path</span>
+          <span className="chip" style={{cursor:"not-allowed", opacity: 0.5}} title="UNWIRED">◫ compress</span>
+          <span className="chip" style={{cursor:"not-allowed", opacity: 0.5}} title="UNWIRED"># hash</span>
         </div>
       </div>
     </aside>

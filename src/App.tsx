@@ -202,6 +202,7 @@ export function App() {
 
   const [tabHandles, setTabHandles] = useState<Record<number, UseTabResult>>({});
   const [searchQuery, setSearchQuery] = useState("");
+  const [paneFocused, setPaneFocused] = useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
 
   const [pins, setPins] = useState<string[]>([]);
@@ -754,16 +755,64 @@ export function App() {
           files={liveRows}
           selected={selected}
           setSelected={setSelected}
+          focusIndex={activeHandle?.state.focusIndex ?? 0}
+          setFocusIndex={activeHandle?.actions.setFocusIndex ?? (() => {})}
+          anchorIndex={activeHandle?.state.anchorIndex ?? 0}
+          setAnchorIndex={activeHandle?.actions.setAnchorIndex ?? (() => {})}
+          paneFocused={paneFocused}
+          setPaneFocused={setPaneFocused}
+          sortKey={activeHandle?.state.sortKey ?? "name"}
+          sortDir={activeHandle?.state.sortDir ?? "asc"}
+          onSortChange={(k) => {
+            if (!activeHandle) return;
+            if (activeHandle.state.sortKey === k) {
+              activeHandle.actions.setSortDir(activeHandle.state.sortDir === "asc" ? "desc" : "asc");
+            } else {
+              activeHandle.actions.setSortKey(k);
+              activeHandle.actions.setSortDir("asc");
+            }
+          }}
           onContext={onContext}
           searchQuery={searchQuery}
           onOpen={(i) => {
             const row = liveRows[i];
-            if (row && row.entry.kind === "folder") {
+            if (!row) return;
+            if (row.entry.kind === "folder") {
               activeHandle?.actions.goTo(row.entry.path);
+            } else {
+              void openWithDefault(row.entry.path);
             }
           }}
+          onUp={() => activeHandle?.actions.up()}
+          onCopy={() => handleMenuCommandRef.current("Copy")}
+          onCut={() => handleMenuCommandRef.current("Cut")}
+          onDelete={(permanent) => handleMenuCommandRef.current(permanent ? "Delete Permanently" : "Move to Trash")}
         />
-        {showInspector && <Inspector file={selectedFile} />}
+        {showInspector && (
+          <Inspector
+            file={selectedFile}
+            onQuickAction={(action) => {
+              const path = selectedFile?.entry.path;
+              if (!path) return;
+              switch (action) {
+                case "copy-path":
+                  try { void navigator.clipboard.writeText(path); } catch { /* clipboard unavailable */ }
+                  return;
+                case "run":
+                  void openWithDefault(path);
+                  return;
+                case "open-in-code":
+                  // TODO: backend command to spawn `code <path>` not yet wired.
+                  console.warn("open in code: backend not wired");
+                  return;
+                case "git-blame":
+                  // TODO: git blame panel / backend not yet wired.
+                  console.warn("git blame: not wired");
+                  return;
+              }
+            }}
+          />
+        )}
         <TerminalDrawer open={termOpen} onClose={() => setTermOpen(false)} />
       </div>
       <StatusBar

@@ -13,15 +13,18 @@ function normalizePath(p: string): string {
   return p.replace(/[\\/]+$/, "").toLowerCase();
 }
 
-export type SortKey = "name" | "size" | "modified" | "type" | "git";
+export type SortKey = "name" | "size" | "modified";
+export type SortDir = "asc" | "desc";
 
 export interface TabState {
   path: string;
   entries: FileEntry[];
   gitInfo: GitInfo | null;
   selected: number[];
+  focusIndex: number;
+  anchorIndex: number;
   sortKey: SortKey;
-  sortDesc: boolean;
+  sortDir: SortDir;
   showHidden: boolean;
   loading: boolean;
   error: string | null;
@@ -36,9 +39,11 @@ export interface TabActions {
   up: () => void;
   refresh: () => void;
   setSelected: (sel: number[]) => void;
+  setFocusIndex: (i: number) => void;
+  setAnchorIndex: (i: number) => void;
   setShowHidden: (v: boolean) => void;
   setSortKey: (k: SortKey) => void;
-  setSortDesc: (v: boolean) => void;
+  setSortDir: (v: SortDir) => void;
 }
 
 export interface UseTabResult {
@@ -68,8 +73,10 @@ export function useTabState(initialPath: string): UseTabResult {
   const [entries, setEntries] = useState<FileEntry[]>([]);
   const [gitInfo, setGitInfo] = useState<GitInfo | null>(null);
   const [selected, setSelected] = useState<number[]>([]);
+  const [focusIndex, setFocusIndex] = useState<number>(0);
+  const [anchorIndex, setAnchorIndex] = useState<number>(0);
   const [sortKey, setSortKey] = useState<SortKey>("name");
-  const [sortDesc, setSortDesc] = useState<boolean>(false);
+  const [sortDir, setSortDir] = useState<SortDir>("asc");
   const [showHidden, setShowHidden] = useState<boolean>(false);
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
@@ -146,12 +153,18 @@ export function useTabState(initialPath: string): UseTabResult {
     };
   }, [path, fetchAll]);
 
+  const resetNav = () => {
+    setSelected([]);
+    setFocusIndex(0);
+    setAnchorIndex(0);
+  };
+
   const goTo = useCallback((next: string) => {
     setPath(prev => {
       if (prev === next) return prev;
       setHistoryBack(h => [...h, prev]);
       setHistoryForward([]);
-      setSelected([]);
+      resetNav();
       return next;
     });
   }, []);
@@ -162,7 +175,7 @@ export function useTabState(initialPath: string): UseTabResult {
       const prev = h[h.length - 1];
       setHistoryForward(f => [...f, pathRef.current]);
       setPath(prev);
-      setSelected([]);
+      resetNav();
       return h.slice(0, -1);
     });
   }, []);
@@ -173,7 +186,7 @@ export function useTabState(initialPath: string): UseTabResult {
       const next = f[f.length - 1];
       setHistoryBack(h => [...h, pathRef.current]);
       setPath(next);
-      setSelected([]);
+      resetNav();
       return f.slice(0, -1);
     });
   }, []);
@@ -192,14 +205,16 @@ export function useTabState(initialPath: string): UseTabResult {
     entries,
     gitInfo,
     selected,
+    focusIndex,
+    anchorIndex,
     sortKey,
-    sortDesc,
+    sortDir,
     showHidden,
     loading,
     error,
     historyBack,
     historyForward,
-  }), [path, entries, gitInfo, selected, sortKey, sortDesc, showHidden, loading, error, historyBack, historyForward]);
+  }), [path, entries, gitInfo, selected, focusIndex, anchorIndex, sortKey, sortDir, showHidden, loading, error, historyBack, historyForward]);
 
   const actions: TabActions = useMemo(() => ({
     goTo,
@@ -208,9 +223,11 @@ export function useTabState(initialPath: string): UseTabResult {
     up,
     refresh,
     setSelected,
+    setFocusIndex,
+    setAnchorIndex,
     setShowHidden,
     setSortKey,
-    setSortDesc,
+    setSortDir,
   }), [goTo, back, forward, up, refresh]);
 
   return useMemo(() => ({ state, actions }), [state, actions]);
