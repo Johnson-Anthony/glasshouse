@@ -1,18 +1,23 @@
 # glasshouse UI Wiring Audit
-**Commit:** `8be8f77` (Wave 10 complete)  
+**Commit:** `0ee4c99` (Wave 11 complete)  
 **Date:** 2026-04-22  
-**Frontend:** ~2520 LOC (App.tsx, components.tsx, state.ts, data.ts, api.ts)  
-**Backend:** 30 Tauri commands fully wired
+**Frontend:** ~2550 LOC (App.tsx, components.tsx, state.ts, data.ts, api.ts)  
+**Backend:** 31 Tauri commands fully wired
 
 ---
 
 ## Executive Summary
 
 **Total Click Surfaces:** 315  
-**WIRED:** 107 (↑1 — paste special dialog with move/copy/copy+verify SHA256)  
-**STUB:** 19  
-**UNWIRED:** 189 (↓1)  
+**WIRED:** 108 (↑1 — real image thumbnail preview in inspector)  
+**STUB:** 18 (↓1 — inspector image placeholder now renders actual bytes)  
+**UNWIRED:** 189  
 **MOCK (layout only):** 0
+
+### Wave 11 delta
+- **+1 new WIRED surface:** Inspector image preview (replaces `[image preview — EXT]` placeholder). Selecting a kind=img row now renders the bytes as a base64 data URL `<img>` with `object-fit: contain`.
+- **+1 backend command:** `read_image_b64` — reads up to 8 MiB, rejects larger files with a size-in-error message, maps extension → mime (png/jpg/jpeg/gif/webp/svg/bmp/ico). Uses `base64` crate.
+- **Smoke-tested** against `C:\Users\ajohn\glasshouse\src-tauri\icons\128x128.png`: thumbnail rendered correctly, metadata mime = image/png.
 
 ### Wave 10 delta
 - **+1 new WIRED surface:** Palette "Paste Special…" / Ctrl+Shift+V → `PasteSpecialDialog` modal. Three modes: Move (renames/relocates, backend `moveEntry`), Copy (duplicates, backend `copyEntry`), Copy + verify SHA256 (copies then hashes both sides and compares; files only, dirs skipped). Per-row live status with hash prefix; FAIL on mismatch. Clipboard clears on successful cut+move. Smoke-tested with alpha.txt + beta.txt: hashes matched `sha256sum`.
