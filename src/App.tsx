@@ -372,7 +372,16 @@ export function App() {
           return;
         }
         case "Move to Trash": {
+          // TODO: wire to a real trash backend. Needs a new Rust command using
+          // `windows-rs` IFileOperation (or the `trash` crate) so items land in
+          // the recycle bin. Until then, this path PERMANENTLY deletes — the
+          // second arg of deleteEntry is `recursive`, not recycle-bin. Ship an
+          // explicit confirm so users aren't misled by the menu label.
           if (selectedPaths.length === 0) return;
+          const ok = window.confirm(
+            `No recycle bin yet — this will PERMANENTLY delete ${selectedPaths.length} item(s). Continue?`,
+          );
+          if (!ok) return;
           for (const p of selectedPaths) await deleteEntry(p, true);
           refresh();
           return;
