@@ -116,7 +116,18 @@ export const toolsHandler: Handler = async (label, ctx) => {
     }
 
     case "Diff with Clipboard": {
-      console.log("[tools] not implemented: Diff with Clipboard");
+      const b = ctx.firstPath;
+      const cb = ctx.clipboardPaths?.() ?? [];
+      if (!b) { window.alert("Diff with Clipboard: select a file first."); return true; }
+      if (cb.length === 0) { window.alert("Diff with Clipboard: clipboard is empty (Copy/Cut a file first)."); return true; }
+      const a = cb[0];
+      try {
+        const diff = await diffFiles(a, b);
+        ctx.setDiffView?.({ a, b, diff });
+      } catch (e) {
+        console.log("[tools] diff with clipboard failed:", e);
+        window.alert(`diff failed: ${e}`);
+      }
       return true;
     }
 

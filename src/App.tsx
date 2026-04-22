@@ -1160,6 +1160,7 @@ export function App() {
             setBlame,
             setHexView,
             setDiffView,
+            clipboardPaths: () => appClipboard?.paths ?? [],
             pushUndo,
             undo: () => {
               const e = popUndo();
