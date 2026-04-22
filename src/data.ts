@@ -470,6 +470,8 @@ export const CONTEXT_FILE: MenuItemDef[] = [
   { kind: "item", ic: "", label: "Move to…",          kb: "F6" },
   { kind: "item", ic: "", label: "Create Symlink…" },
   { kind: "item", ic: "", label: "Tag →" },
+  { kind: "item", ic: "", label: "Add Tag…" },
+  { kind: "item", ic: "", label: "Remove Tag…" },
   { kind: "sep" },
   { kind: "item", ic: "", label: "Compress →" },
   { kind: "item", ic: "", label: "Checksum SHA256" },
@@ -490,6 +492,19 @@ export const CONTEXT_SIDEBAR: MenuItemDef[] = [
   { kind: "sep" },
   { kind: "item", ic: "", label: "Copy Path" },
   { kind: "item", ic: "", label: "Reveal in Explorer" },
+];
+
+// Menu shown for sidebar rows that are pinned. Adds Unpin on top of the
+// standard sidebar menu. App.tsx picks between this and CONTEXT_SIDEBAR
+// based on whether the right-clicked path is in the pins array.
+export const CONTEXT_SIDEBAR_PINNED: MenuItemDef[] = [
+  { kind: "item", ic: "", label: "Open" },
+  { kind: "item", ic: "", label: "Open in New Tab" },
+  { kind: "sep" },
+  { kind: "item", ic: "", label: "Copy Path" },
+  { kind: "item", ic: "", label: "Reveal in Explorer" },
+  { kind: "sep" },
+  { kind: "item", ic: "", label: "Unpin" },
 ];
 
 export const CONTEXT_TAB: MenuItemDef[] = [

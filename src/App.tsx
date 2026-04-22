@@ -15,7 +15,7 @@ import {
   type TweakState,
   type ContextKind,
 } from "./components";
-import { CONTEXT_FILE, CONTEXT_EMPTY, CONTEXT_SIDEBAR, CONTEXT_TAB, CONTEXT_BREADCRUMB, type MenuItemDef, type FileRow, type FileKind, type GitStatus } from "./data";
+import { CONTEXT_FILE, CONTEXT_EMPTY, CONTEXT_SIDEBAR, CONTEXT_SIDEBAR_PINNED, CONTEXT_TAB, CONTEXT_BREADCRUMB, type MenuItemDef, type FileRow, type FileKind, type GitStatus } from "./data";
 import { useTabState, type UseTabResult } from "./state";
 import {
   homeDir,
@@ -37,6 +37,7 @@ import {
   readPins,
   writePins,
   readTags,
+  writeTags,
   type FileEntry,
 } from "./api";
 
@@ -117,7 +118,12 @@ export interface LiveFileRow extends FileRow {
   entry: FileEntry;
 }
 
-function entryToRow(e: FileEntry, git: Record<string, string> | null, repoRoot: string | null): LiveFileRow {
+function entryToRow(
+  e: FileEntry,
+  git: Record<string, string> | null,
+  repoRoot: string | null,
+  tagStore: Record<string, string[]>,
+): LiveFileRow {
   const kind = kindFromEntry(e.kind);
   let relKey: string | null = null;
   if (git && repoRoot) {
@@ -132,12 +138,14 @@ function entryToRow(e: FileEntry, git: Record<string, string> | null, repoRoot: 
   const nameNoExt = e.ext && e.name.toLowerCase().endsWith("." + e.ext.toLowerCase())
     ? e.name.slice(0, -(e.ext.length + 1))
     : e.name;
+  const rowTags = tagStore[e.path];
+  const firstTag = rowTags && rowTags.length > 0 ? rowTags[0] : null;
   return {
     name: nameNoExt,
     kind,
     size: formatBytes(e.size, kind === "folder"),
     date: formatDate(e.modified_ms),
-    tag: null,
+    tag: firstTag,
     git: mapGitFlag(flag),
     hidden: e.hidden,
     ext: e.ext,
@@ -429,6 +437,15 @@ export function App() {
           case "Reveal in Explorer":
             contextTarget = null;
             void revealInExplorer(ctxT.path); return;
+          case "Unpin": {
+            const target = ctxT.path;
+            contextTarget = null;
+            if (!pins.includes(target)) return;
+            const next = pins.filter(p => p !== target);
+            setPins(next);
+            void writePins(next);
+            return;
+          }
         }
       }
     }
@@ -639,6 +656,47 @@ export function App() {
           await navigator.clipboard.writeText(wsl);
           return;
         }
+        case "Add Tag…":
+        case "Add Tag": {
+          if (!firstPath) return;
+          // TODO: replace with custom dialog
+          const raw = window.prompt("Tag name:");
+          if (raw === null) return;
+          const tag = raw.trim();
+          if (!tag) return;
+          setTagStore(prev => {
+            const existing = prev[firstPath] ?? [];
+            if (existing.includes(tag)) return prev;
+            const next = { ...prev, [firstPath]: [...existing, tag] };
+            void writeTags(next);
+            return next;
+          });
+          return;
+        }
+        case "Remove Tag…":
+        case "Remove Tag": {
+          if (!firstPath) return;
+          const existing = tagStore[firstPath] ?? [];
+          if (existing.length === 0) return;
+          // TODO: replace with custom dialog
+          const raw = window.prompt(
+            `Remove which tag? (${existing.join(", ")})`,
+            existing[0],
+          );
+          if (raw === null) return;
+          const tag = raw.trim();
+          if (!tag || !existing.includes(tag)) return;
+          setTagStore(prev => {
+            const cur = prev[firstPath] ?? [];
+            const filtered = cur.filter(t => t !== tag);
+            const next = { ...prev };
+            if (filtered.length === 0) delete next[firstPath];
+            else next[firstPath] = filtered;
+            void writeTags(next);
+            return next;
+          });
+          return;
+        }
         case "Properties": {
           console.log("Properties: not wired yet", firstPath ?? cwd);
           return;
@@ -666,12 +724,25 @@ export function App() {
     // File-pane surfaces act on the current selection; clear the module target
     // so stale sidebar/tab/breadcrumb right-clicks can't leak into file ops.
     contextTarget = null;
-    openCtxMenu(e, kind === "file" ? CONTEXT_FILE : CONTEXT_EMPTY);
+    if (kind === "file") {
+      // Hide "Remove Tag…" when the selected row has no tags — keeps the
+      // menu honest instead of dangling a no-op command.
+      const st = activeHandle?.state;
+      const firstPath = st ? st.entries[st.selected[0]]?.path : undefined;
+      const hasTags = !!firstPath && (tagStore[firstPath]?.length ?? 0) > 0;
+      const items = hasTags
+        ? CONTEXT_FILE
+        : CONTEXT_FILE.filter(it => !(it.kind === "item" && it.label === "Remove Tag…"));
+      openCtxMenu(e, items);
+      return;
+    }
+    openCtxMenu(e, CONTEXT_EMPTY);
   };
 
   const onSidebarContext = (e: React.MouseEvent, path: string) => {
     contextTarget = { kind: "sidebar", path };
-    openCtxMenu(e, CONTEXT_SIDEBAR);
+    const menu = pins.includes(path) ? CONTEXT_SIDEBAR_PINNED : CONTEXT_SIDEBAR;
+    openCtxMenu(e, menu);
   };
 
   const onTabContext = (e: React.MouseEvent, tabIndex: number) => {
@@ -688,9 +759,9 @@ export function App() {
     if (!activeHandle) return [];
     const git = activeHandle.state.gitInfo;
     return activeHandle.state.entries.map(e =>
-      entryToRow(e, git?.status ?? null, git?.repo_root ?? null),
+      entryToRow(e, git?.status ?? null, git?.repo_root ?? null, tagStore),
     );
-  }, [activeHandle?.state.entries, activeHandle?.state.gitInfo]);
+  }, [activeHandle?.state.entries, activeHandle?.state.gitInfo, tagStore]);
 
   const selected = activeHandle?.state.selected ?? [];
   const setSelected = activeHandle?.actions.setSelected ?? (() => {});
@@ -736,6 +807,8 @@ export function App() {
         showInspector={showInspector}
         onToggleInspector={() => setShowInspector(v => !v)}
         onCrumbContext={onCrumbContext}
+        tagFilter={activeHandle?.state.tagFilter ?? null}
+        onClearTagFilter={() => activeHandle?.actions.setTagFilter(null)}
       />
       <div className="body">
         <Sidebar
@@ -752,6 +825,13 @@ export function App() {
             void writePins(next);
           }}
           tags={tagStore}
+          activeTagFilter={activeHandle?.state.tagFilter ?? null}
+          onTagFilter={(tag) => {
+            if (!activeHandle) return;
+            const cur = activeHandle.state.tagFilter;
+            // Clicking the already-active filter clears it.
+            activeHandle.actions.setTagFilter(cur === tag ? null : tag);
+          }}
         />
         <FilePane
           files={liveRows}
@@ -776,6 +856,8 @@ export function App() {
           }}
           onContext={onContext}
           searchQuery={searchQuery}
+          tagFilter={activeHandle?.state.tagFilter ?? null}
+          tagStore={tagStore}
           onOpen={(i) => {
             const row = liveRows[i];
             if (!row) return;

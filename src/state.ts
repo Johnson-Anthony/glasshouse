@@ -13,7 +13,7 @@ function normalizePath(p: string): string {
   return p.replace(/[\\/]+$/, "").toLowerCase();
 }
 
-export type SortKey = "name" | "size" | "modified";
+export type SortKey = "name" | "size" | "modified" | "tag";
 export type SortDir = "asc" | "desc";
 
 export interface TabState {
@@ -30,6 +30,7 @@ export interface TabState {
   error: string | null;
   historyBack: string[];
   historyForward: string[];
+  tagFilter: string | null;
 }
 
 export interface TabActions {
@@ -44,6 +45,7 @@ export interface TabActions {
   setShowHidden: (v: boolean) => void;
   setSortKey: (k: SortKey) => void;
   setSortDir: (v: SortDir) => void;
+  setTagFilter: (v: string | null) => void;
 }
 
 export interface UseTabResult {
@@ -83,6 +85,7 @@ export function useTabState(initialPath: string): UseTabResult {
   const [historyBack, setHistoryBack] = useState<string[]>([]);
   const [historyForward, setHistoryForward] = useState<string[]>([]);
   const [refreshTick, setRefreshTick] = useState<number>(0);
+  const [tagFilter, setTagFilter] = useState<string | null>(null);
 
   const pathRef = useRef(path);
   const showHiddenRef = useRef(showHidden);
@@ -214,7 +217,8 @@ export function useTabState(initialPath: string): UseTabResult {
     error,
     historyBack,
     historyForward,
-  }), [path, entries, gitInfo, selected, focusIndex, anchorIndex, sortKey, sortDir, showHidden, loading, error, historyBack, historyForward]);
+    tagFilter,
+  }), [path, entries, gitInfo, selected, focusIndex, anchorIndex, sortKey, sortDir, showHidden, loading, error, historyBack, historyForward, tagFilter]);
 
   const actions: TabActions = useMemo(() => ({
     goTo,
@@ -228,6 +232,7 @@ export function useTabState(initialPath: string): UseTabResult {
     setShowHidden,
     setSortKey,
     setSortDir,
+    setTagFilter,
   }), [goTo, back, forward, up, refresh]);
 
   return useMemo(() => ({ state, actions }), [state, actions]);

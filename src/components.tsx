@@ -174,6 +174,8 @@ export interface ToolbarProps {
   showInspector: boolean;
   onToggleInspector: () => void;
   onCrumbContext?: (e: React.MouseEvent, path: string) => void;
+  tagFilter?: string | null;
+  onClearTagFilter?: () => void;
 }
 
 interface Crumb {
@@ -211,7 +213,7 @@ function splitBreadcrumb(path: string): Crumb[] {
   return out;
 }
 
-export function Toolbar({ path, gitInfo, canBack, canForward, onBack, onForward, onUp, onRefresh, onGoTo, onSearchFocus, searchQuery, onSearchChange, searchInputRef, showHidden, onToggleHidden, showInspector, onToggleInspector, onCrumbContext }: ToolbarProps) {
+export function Toolbar({ path, gitInfo, canBack, canForward, onBack, onForward, onUp, onRefresh, onGoTo, onSearchFocus, searchQuery, onSearchChange, searchInputRef, showHidden, onToggleHidden, showInspector, onToggleInspector, onCrumbContext, tagFilter, onClearTagFilter }: ToolbarProps) {
   const parts = splitBreadcrumb(path);
   return (
     <div className="toolbar">
@@ -241,6 +243,24 @@ export function Toolbar({ path, gitInfo, canBack, canForward, onBack, onForward,
         ))}
         {gitInfo && (
           <span className="git-branch">⎇ {gitInfo.branch} ↑{gitInfo.ahead} ↓{gitInfo.behind}</span>
+        )}
+        {tagFilter && (
+          <span
+            className="tag-chip"
+            onClick={onClearTagFilter}
+            title="clear tag filter"
+            style={{
+              marginLeft: 8,
+              padding: "2px 8px",
+              borderRadius: 10,
+              background: "var(--bg-2)",
+              color: "var(--fg-1)",
+              border: "1px solid var(--fg-3)",
+              cursor: "pointer",
+              fontSize: 11,
+              whiteSpace: "nowrap",
+            }}
+          >Tag: {tagFilter} <span style={{color:"var(--fg-3)", marginLeft:4}}>✕</span></span>
         )}
       </div>
       <div className="search" onClick={onSearchFocus}>
@@ -325,9 +345,11 @@ export interface SidebarProps {
   pins: string[];
   onAddPin: () => void;
   tags: Record<string, string[]>;
+  onTagFilter?: (tag: string) => void;
+  activeTagFilter?: string | null;
 }
 
-export function Sidebar({ activePath, onGoTo, onRowContext, pins, onAddPin, tags }: SidebarProps) {
+export function Sidebar({ activePath, onGoTo, onRowContext, pins, onAddPin, tags, onTagFilter, activeTagFilter }: SidebarProps) {
   const [home, setHome] = useState<string | null>(null);
   const [driveList, setDriveList] = useState<Drive[]>([]);
 
@@ -461,10 +483,10 @@ export function Sidebar({ activePath, onGoTo, onRowContext, pins, onAddPin, tags
         <div className="sb-title">TAGS</div>
         {tagCounts.map((t, i) => (
           <div key={i}
-               className="sb-item"
-               title="tag filter coming soon"
+               className={"sb-item" + (activeTagFilter === t.label ? " active" : "")}
+               title={`filter by tag: ${t.label}`}
                style={{cursor:"pointer"}}
-               onClick={() => { console.warn("tag filter not yet wired:", t.label); }}>
+               onClick={() => onTagFilter && onTagFilter(t.label)}>
             <span className="ic" style={{color: t.color}}></span>
             <span>{t.label}</span>
             <span className="badge">{t.count}</span>
@@ -545,7 +567,7 @@ function tagColor(tag: string | null): string {
 
 export type ContextKind = "file" | "empty" | "sidebar" | "tab" | "breadcrumb";
 
-export type SortColumn = "name" | "size" | "modified";
+export type SortColumn = "name" | "size" | "modified" | "tag";
 export type SortDirection = "asc" | "desc";
 
 export interface FilePaneProps {
@@ -568,6 +590,8 @@ export interface FilePaneProps {
   onCut?: () => void;
   onDelete?: (permanent: boolean) => void;
   searchQuery?: string;
+  tagFilter?: string | null;
+  tagStore?: Record<string, string[]>;
 }
 
 const PAGE_STEP = 10;
@@ -592,6 +616,8 @@ export function FilePane({
   onCut,
   onDelete,
   searchQuery,
+  tagFilter,
+  tagStore,
 }: FilePaneProps) {
   const paneRef = useRef<HTMLElement>(null);
 
@@ -601,13 +627,32 @@ export function FilePane({
   const displayFiles = useMemo(() => {
     const indexed = files.map((f, i) => ({ file: f, origIndex: i }));
     const q = (searchQuery || "").trim();
-    const filtered = q
+    const afterSearch = q
       ? fuzzyFilter(
           q,
           indexed,
           x => (x.file.ext && x.file.kind !== "folder") ? `${x.file.name}.${x.file.ext}` : x.file.name,
         ).map(r => r.item)
       : indexed;
+
+    // Tag filter — keep only rows whose path is tagged with tagFilter in the
+    // shared tag store. Applied after search, before sort.
+    const filtered = tagFilter
+      ? afterSearch.filter(x => {
+          const entry = (x.file as unknown as { entry?: { path?: string } }).entry;
+          const path = entry?.path;
+          if (!path) return false;
+          const rowTags = tagStore?.[path];
+          return !!rowTags && rowTags.includes(tagFilter);
+        })
+      : afterSearch;
+
+    const tagKey = (x: { file: FileRow }): string => {
+      const entry = (x.file as unknown as { entry?: { path?: string } }).entry;
+      const path = entry?.path;
+      if (!path) return "";
+      return (tagStore?.[path] ?? []).join(",");
+    };
 
     const dir = sortDir === "asc" ? 1 : -1;
     const sorted = [...filtered].sort((a, b) => {
@@ -625,13 +670,22 @@ export function FilePane({
         const bs = (b.file as unknown as { entry?: { size?: number } }).entry?.size ?? 0;
         return (as - bs) * dir;
       }
+      if (sortKey === "tag") {
+        const at = tagKey(a);
+        const bt = tagKey(b);
+        // Untagged rows ("") sort to the end on asc, start on desc — matches
+        // convention for "group the boring stuff last".
+        if (at === "" && bt !== "") return 1;
+        if (bt === "" && at !== "") return -1;
+        return at < bt ? -1 * dir : at > bt ? 1 * dir : 0;
+      }
       // modified
       const am = (a.file as unknown as { entry?: { modified_ms?: number } }).entry?.modified_ms ?? 0;
       const bm = (b.file as unknown as { entry?: { modified_ms?: number } }).entry?.modified_ms ?? 0;
       return (am - bm) * dir;
     });
     return sorted;
-  }, [files, searchQuery, sortKey, sortDir]);
+  }, [files, searchQuery, sortKey, sortDir, tagFilter, tagStore]);
 
   // Map origIndex -> visible row position, for keyboard nav (which operates
   // on the currently-displayed ordering, not the raw entries array).
@@ -786,7 +840,7 @@ export function FilePane({
       <div className="pane-head">
         <div className="col"></div>
         <div className="col" onClick={() => onSortChange("name")}>name <span className="sort">{sortArrow("name")}</span></div>
-        <div className="col">tag</div>
+        <div className="col" onClick={() => onSortChange("tag")}>tag <span className="sort">{sortArrow("tag")}</span></div>
         <div className="col" style={{justifyContent:"flex-end"}} onClick={() => onSortChange("size")}>size <span className="sort">{sortArrow("size")}</span></div>
         <div className="col" onClick={() => onSortChange("modified")}>modified <span className="sort">{sortArrow("modified")}</span></div>
         <div className="col" style={{justifyContent:"flex-end"}}>git</div>
