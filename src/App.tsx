@@ -21,7 +21,7 @@ import { homeDir, type FileEntry } from "./api";
 
 const TWEAK_DEFAULTS: TweakState = {
   theme: "gruvbox-dark",
-  font: '"JetBrains Mono", ui-monospace, monospace',
+  font: '"JetBrainsMono Nerd Font", "JetBrains Mono", ui-monospace, monospace',
   density: "default",
   scanlines: false,
   hidden: false,
@@ -200,6 +200,79 @@ export function App() {
     return () => window.removeEventListener("keydown", h);
   }, []);
 
+  useEffect(() => {
+    const h = (e: MouseEvent) => { e.preventDefault(); };
+    document.addEventListener("contextmenu", h);
+    return () => document.removeEventListener("contextmenu", h);
+  }, []);
+
+  const openNewTab = () => {
+    const seed = activeHandle?.state.path ?? FALLBACK_PATH;
+    setTabs(prev => [...prev, { ic: "", color: "var(--cyan)", label: seed }]);
+    setInitialPaths(prev => (prev ? [...prev, seed] : [seed]));
+  };
+
+  const closeTabAt = (i: number) => {
+    setTabs(prev => prev.filter((_, k) => k !== i));
+    setInitialPaths(prev => (prev ? prev.filter((_, k) => k !== i) : prev));
+    setTabHandles(prev => {
+      const next: Record<number, UseTabResult> = {};
+      Object.entries(prev).forEach(([k, v]) => {
+        const ki = Number(k);
+        if (ki < i) next[ki] = v;
+        else if (ki > i) next[ki - 1] = v;
+      });
+      return next;
+    });
+    if (activeTab >= i && activeTab > 0) setActiveTab(activeTab - 1);
+  };
+
+  const THEMES = ["tokyo-night","catppuccin-mocha","gruvbox-dark","rose-pine","everforest","solarized-dark","green-crt","synthwave"];
+
+  const handleMenuCommand = (label: string) => {
+    switch (label) {
+      case "Toggle Drawer":
+      case "Terminal Drawer":
+        setTermOpen(v => !v); return;
+      case "Command Palette":
+      case "Palette":
+        setPalOpen(v => !v); return;
+      case "Tweaks":
+      case "Preferences…":
+      case "Preferences":
+      case "Settings":
+        setTweaksOpen(v => !v); return;
+      case "New Tab":
+        openNewTab(); return;
+      case "Close Tab":
+        closeTabAt(activeTab); return;
+      case "Refresh":
+      case "Reload":
+        activeHandle?.actions.refresh(); return;
+      case "Back":
+        activeHandle?.actions.back(); return;
+      case "Forward":
+        activeHandle?.actions.forward(); return;
+      case "Up":
+      case "Up one level":
+      case "Open Parent":
+        activeHandle?.actions.up(); return;
+      case "Toggle Hidden Files":
+      case "Show Hidden":
+      case "Show Hidden Files":
+        setState(prev => ({ ...prev, hidden: !prev.hidden })); return;
+      case "Switch Theme":
+      case "Switch Theme →": {
+        const i = THEMES.indexOf(state.theme);
+        const next = THEMES[(i < 0 ? 0 : i + 1) % THEMES.length];
+        setState(prev => ({ ...prev, theme: next }));
+        return;
+      }
+      default:
+        return;
+    }
+  };
+
   const onContext = (e: React.MouseEvent, kind: ContextKind) => {
     setCtx({
       x: Math.min(e.clientX, window.innerWidth - 240),
@@ -237,27 +310,10 @@ export function App() {
         tabs={tabs}
         activeTab={activeTab}
         onSelectTab={setActiveTab}
-        onCloseTab={(i) => {
-          setTabs(tabs.filter((_, k) => k !== i));
-          setInitialPaths(prev => (prev ? prev.filter((_, k) => k !== i) : prev));
-          setTabHandles(prev => {
-            const next: Record<number, UseTabResult> = {};
-            Object.entries(prev).forEach(([k, v]) => {
-              const ki = Number(k);
-              if (ki < i) next[ki] = v;
-              else if (ki > i) next[ki - 1] = v;
-            });
-            return next;
-          });
-          if (activeTab >= i && activeTab > 0) setActiveTab(activeTab - 1);
-        }}
-        onNewTab={() => {
-          const seed = activeHandle?.state.path ?? FALLBACK_PATH;
-          setTabs([...tabs, { ic: "", color: "var(--cyan)", label: seed }]);
-          setInitialPaths(prev => (prev ? [...prev, seed] : [seed]));
-        }}
+        onCloseTab={closeTabAt}
+        onNewTab={openNewTab}
       />
-      <Menubar onOpenPalette={() => setPalOpen(true)} />
+      <Menubar onOpenPalette={() => setPalOpen(true)} onCommand={handleMenuCommand} />
       <Toolbar
         path={activeHandle?.state.path ?? ""}
         gitInfo={activeHandle?.state.gitInfo ?? null}
@@ -298,7 +354,7 @@ export function App() {
         onToggleTerm={() => setTermOpen(v => !v)}
       />
 
-      {palOpen && <Palette onClose={() => setPalOpen(false)} />}
+      {palOpen && <Palette onClose={() => setPalOpen(false)} onCommand={handleMenuCommand} />}
       {ctx && <ContextMenu items={ctx.items} x={ctx.x} y={ctx.y} onClose={() => setCtx(null)} />}
       {tweaksOpen && <Tweaks state={state} setState={setState} onClose={() => setTweaksOpen(false)} />}
 

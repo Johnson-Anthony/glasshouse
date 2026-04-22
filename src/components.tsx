@@ -94,9 +94,10 @@ function MenuItem({ item, onAction, onSubHover, subOpen }: MenuItemProps) {
 
 export interface MenubarProps {
   onOpenPalette: () => void;
+  onCommand: (label: string) => void;
 }
 
-export function Menubar({ onOpenPalette }: MenubarProps) {
+export function Menubar({ onOpenPalette, onCommand }: MenubarProps) {
   const [open, setOpen] = useState<string | null>(null);
   const [subHover, setSubHover] = useState<MenuItemDef | null>(null);
   const ref = useRef<HTMLDivElement>(null);
@@ -128,7 +129,7 @@ export function Menubar({ onOpenPalette }: MenubarProps) {
                   item={it}
                   subOpen={subHover !== null && "label" in subHover && "label" in it && subHover.label === (it as { label: string }).label}
                   onSubHover={(s) => setSubHover(s)}
-                  onAction={() => setOpen(null)}
+                  onAction={(label) => { setOpen(null); onCommand(label); }}
                 />
               ))}
             </div>
@@ -697,9 +698,10 @@ export function TerminalDrawer({ open, onClose }: TerminalDrawerProps) {
 // ============= Command palette =============
 export interface PaletteProps {
   onClose: () => void;
+  onCommand: (label: string) => void;
 }
 
-export function Palette({ onClose }: PaletteProps) {
+export function Palette({ onClose, onCommand }: PaletteProps) {
   const [q, setQ] = useState("");
   const [idx, setIdx] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -711,11 +713,17 @@ export function Palette({ onClose }: PaletteProps) {
   useEffect(() => { inputRef.current?.focus(); }, []);
   useEffect(() => { setIdx(0); }, [q]);
 
+  const run = (label: string) => { onCommand(label); onClose(); };
   const onKey = (e: React.KeyboardEvent) => {
     if (e.key === "Escape") onClose();
     if (e.key === "ArrowDown") { e.preventDefault(); setIdx((idx + 1) % items.length); }
     if (e.key === "ArrowUp") { e.preventDefault(); setIdx((idx - 1 + items.length) % items.length); }
-    if (e.key === "Enter") onClose();
+    if (e.key === "Enter") {
+      e.preventDefault();
+      const sel = items[idx];
+      if (sel) run(sel.label);
+      else onClose();
+    }
   };
 
   const groups: Record<string, Array<(typeof PALETTE)[number] & { _i: number }>> = {};
@@ -734,7 +742,7 @@ export function Palette({ onClose }: PaletteProps) {
             <div key={g}>
               <div className="pal-group">{g}</div>
               {arr.map((p) => (
-                <div key={p._i} className={"pal-row" + (p._i === idx ? " active" : "")} onMouseEnter={() => setIdx(p._i)}>
+                <div key={p._i} className={"pal-row" + (p._i === idx ? " active" : "")} onMouseEnter={() => setIdx(p._i)} onClick={() => run(p.label)}>
                   <span className="ic">{p.ic}</span>
                   <span>{p.label}</span>
                   <span className="kb">{(p.kb || []).map((k, i) => <span key={i}>{k}</span>)}</span>
@@ -809,13 +817,14 @@ export function Tweaks({ state, setState, onClose }: TweaksProps) {
     "everforest", "solarized-dark", "green-crt", "synthwave",
   ];
   const fonts = [
+    '"JetBrainsMono Nerd Font", "JetBrains Mono", ui-monospace, monospace',
     '"JetBrains Mono", ui-monospace, monospace',
     '"Iosevka", ui-monospace, monospace',
     '"IBM Plex Mono", ui-monospace, monospace',
     '"Fira Code", ui-monospace, monospace',
     '"Berkeley Mono", ui-monospace, monospace',
   ];
-  const fontLabels = ["JetBrains Mono", "Iosevka", "IBM Plex Mono", "Fira Code", "Berkeley Mono"];
+  const fontLabels = ["JetBrainsMono Nerd Font", "JetBrains Mono", "Iosevka", "IBM Plex Mono", "Fira Code", "Berkeley Mono"];
 
   return (
     <div className="tweaks">
