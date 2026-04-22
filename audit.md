@@ -1,18 +1,28 @@
 # glasshouse UI Wiring Audit
-**Commit:** `688ac96` (Wave 12 — wiring sweep complete)  
+**Commit:** `802def5` (Wave 13 — real backends + modals)  
 **Date:** 2026-04-22  
-**Frontend:** ~2800 LOC (App.tsx, components.tsx, state.ts, data.ts, api.ts, handlers/*)  
-**Backend:** 31 Tauri commands fully wired
+**Frontend:** ~3100 LOC (App.tsx, components.tsx, state.ts, data.ts, api.ts, handlers/*)  
+**Backend:** 34 Tauri commands fully wired (+3: set_permissions, read_hex_dump, diff_files)
 
 ---
 
 ## Executive Summary
 
 **Total Click Surfaces:** 315  
-**WIRED:** ~260 (↑152 — every palette / menubar / sidebar / context-menu label now consumed)  
-**STUB:** ~40 (log-only but return true — no more "menu command not wired" warnings in console)  
-**UNWIRED:** ~15 (only surfaces that need new backend: chmod/chown, hex-viewer, signature-verify)  
+**WIRED:** ~268 (↑8 — hex viewer, diff modal, perm grid persistence, chmod batch, blame modal, undo/redo, tab reorder, new tab)  
+**STUB:** ~32 (log-only, still consumed)  
+**UNWIRED:** ~15 (chown, signature verify, shred, new window)  
 **MOCK (layout only):** 0
+
+### Wave 13 delta (real backends + modals + undo/redo)
+- **+3 backend commands:** `set_permissions` (unix uses PermissionsExt, windows toggles readonly off owner-write bit), `read_hex_dump(path, offset, length)` (16-byte rows w/ ascii, capped at 64 KiB), `diff_files(a, b)` (unified diff via `similar` crate, new dep `similar = "2"`).
+- **+3 api.ts wrappers:** `setPermissions`, `readHexDump`, `diffFiles`.
+- **+3 modal components** in `components.tsx`: `BlameDialog`, `HexDialog`, `DiffDialog` — consistent styling (backdrop click / Esc to close, mono font, accent-bordered header, scrollable body).
+- **App.tsx state:** `hexView`, `diffView` for the new modals; HandlerCtx extended with `setHexView`, `setDiffView`, `pushUndo`, `undo`, `redo`, `moveTab`, `newTab`.
+- **Undo/redo stack** (`state.ts`): bounded LIFO at 20 entries, fresh `pushUndo` clears redo. `popUndo` pushes to redo; `popRedo` pushes back. Wired via misc.ts Undo/Redo handlers. Awaiting instrumentation in doFileOp rename/move/copy/delete paths to populate the stack (infrastructure ready).
+- **Tab operations** (`state.ts` + `App.tsx`): `registerTabListMutator` pattern; App registers a mutator each render that splices the tab array and adjusts `activeTab`. New Tab pushes a new tab at `cwd`, Move Tab Left/Right reorders.
+- **Inspector perm grid** now actually persists: each cell click computes the new octal mode from all 9 bits, calls `setPermissions(path, mode)`.
+- **tools.ts upgrades:** Hex Viewer → readHexDump + setHexView; Compare Files (diff) → diffFiles + setDiffView (requires exactly 2 selected); Batch Permissions → setPermissions across selection with parseInt octal.
 
 ### Wave 12 delta (multi-agent parallel wiring sweep)
 - **Architecture:** new `src/handlers/` registry — 8 files (`types.ts`, `index.ts`, `selection.ts`, `view.ts`, `git.ts`, `archive.ts`, `tools.ts`, `nav.ts`, `misc.ts`). Each owns a disjoint slice of labels. `App.tsx` builds a `HandlerCtx` (active handle, cwd, selection, dispatch, openPalette, openTweaks, toggleSidebar, pinPath, tabs, refresh, setBlame) and iterates the registry; first handler returning `true` consumes the command. Unmatched labels still log `menu command not wired:` so later waves can see gaps.
