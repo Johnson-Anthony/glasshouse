@@ -16,8 +16,12 @@ import {
   BlameDialog,
   HexDialog,
   DiffDialog,
+  ConnectServerDialog,
+  TagPickerDialog,
+  PropertiesDialog,
   type BulkRenameItem,
   type PasteSpecialItem,
+  type SavedRemote,
   type TabDef,
   type TweakState,
   type ContextKind,
@@ -55,6 +59,7 @@ import {
   writePins,
   readTags,
   writeTags,
+  readText,
   gitBlame,
   gitStage,
   gitUnstage,
@@ -74,6 +79,10 @@ const TWEAK_DEFAULTS: TweakState = {
   density: "default",
   scanlines: false,
   hidden: false,
+  showExtensions: true,
+  showGitGutters: true,
+  showIgnored: false,
+  foldersFirst: true,
 };
 
 interface CtxState {
@@ -418,6 +427,11 @@ export function App() {
     dstDir: string;
     clipboardMode: "copy" | "cut";
   } | null>(null);
+  const [savedRemotes, setSavedRemotes] = useState<SavedRemote[]>([]);
+  const [connectOpen, setConnectOpen] = useState(false);
+  const [tagPickerPath, setTagPickerPath] = useState<string | null>(null);
+  const [propsEntry, setPropsEntry] = useState<FileEntry | null>(null);
+  const [homePath, setHomePath] = useState<string | null>(null);
 
   useEffect(() => {
     void (async () => {
@@ -430,10 +444,41 @@ export function App() {
     void (async () => {
       const home = await homeDir();
       const p = home ?? FALLBACK_PATH;
+      setHomePath(home);
       setInitialPaths([p]);
       setTabs([{ ic: "", color: "var(--blue)", label: p }]);
+      if (home) {
+        const remotesPath = join(join(home, ".glasshouse"), "remotes.json");
+        try {
+          const txt = await readText(remotesPath, 0);
+          if (txt) {
+            const parsed: unknown = JSON.parse(txt);
+            if (Array.isArray(parsed)) {
+              const valid = parsed.filter((r): r is SavedRemote =>
+                !!r && typeof r === "object" &&
+                typeof (r as SavedRemote).label === "string" &&
+                typeof (r as SavedRemote).host === "string" &&
+                typeof (r as SavedRemote).path === "string",
+              );
+              setSavedRemotes(valid);
+            }
+          }
+        } catch { /* missing / malformed — start empty */ }
+      }
     })();
   }, []);
+
+  const persistRemotes = (next: SavedRemote[]) => {
+    setSavedRemotes(next);
+    if (!homePath) return;
+    const dir = join(homePath, ".glasshouse");
+    const file = join(dir, "remotes.json");
+    void (async () => {
+      try { await makeDir(dir); } catch { /* already exists */ }
+      try { await writeText(file, JSON.stringify(next, null, 2)); }
+      catch (err) { console.error("remotes.json write failed:", err); }
+    })();
+  };
 
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", state.theme);
@@ -898,7 +943,12 @@ export function App() {
           // TODO: replace with custom dialog
           const name = window.prompt("new folder name", "new-folder");
           if (!name) return;
-          await makeDir(join(cwd, name));
+          const dst = join(cwd, name);
+          await makeDir(dst);
+          pushUndo({
+            label: `new folder ${name}`,
+            inverse: async () => { await deleteEntry(dst, true); },
+          });
           refresh();
           return;
         }
@@ -907,7 +957,12 @@ export function App() {
           // TODO: replace with custom dialog
           const name = window.prompt("new file name", "untitled.txt");
           if (!name) return;
-          await writeText(join(cwd, name), "");
+          const dst = join(cwd, name);
+          await writeText(dst, "");
+          pushUndo({
+            label: `new file ${name}`,
+            inverse: async () => { await deleteEntry(dst, false); },
+          });
           refresh();
           return;
         }
@@ -915,7 +970,12 @@ export function App() {
           // TODO: replace with custom dialog
           const name = window.prompt("new note name", "note.md");
           if (!name) return;
-          await writeText(join(cwd, name), "");
+          const dst = join(cwd, name);
+          await writeText(dst, "");
+          pushUndo({
+            label: `new note ${name}`,
+            inverse: async () => { await deleteEntry(dst, false); },
+          });
           refresh();
           return;
         }
@@ -923,7 +983,12 @@ export function App() {
           // TODO: replace with custom dialog
           const name = window.prompt("new script name", "script.sh");
           if (!name) return;
-          await writeText(join(cwd, name), "#!/usr/bin/env bash\n");
+          const dst = join(cwd, name);
+          await writeText(dst, "#!/usr/bin/env bash\n");
+          pushUndo({
+            label: `new script ${name}`,
+            inverse: async () => { await deleteEntry(dst, false); },
+          });
           refresh();
           return;
         }
@@ -970,21 +1035,12 @@ export function App() {
           await navigator.clipboard.writeText(wsl);
           return;
         }
+        case "Tag":
+        case "Tag →":
         case "Add Tag…":
         case "Add Tag": {
           if (!firstPath) return;
-          // TODO: replace with custom dialog
-          const raw = window.prompt("Tag name:");
-          if (raw === null) return;
-          const tag = raw.trim();
-          if (!tag) return;
-          setTagStore(prev => {
-            const existing = prev[firstPath] ?? [];
-            if (existing.includes(tag)) return prev;
-            const next = { ...prev, [firstPath]: [...existing, tag] };
-            void writeTags(next);
-            return next;
-          });
+          setTagPickerPath(firstPath);
           return;
         }
         case "Remove Tag…":
@@ -1132,7 +1188,7 @@ export function App() {
           return;
         }
         case "Properties": {
-          console.log("Properties: not wired yet", firstPath ?? cwd);
+          if (firstEntry) setPropsEntry(firstEntry);
           return;
         }
         default: {
@@ -1175,6 +1231,8 @@ export function App() {
             moveTab: stateMoveTab,
             newTab: stateNewTab,
             refresh,
+            tweaks: state,
+            setTweaks: setState,
           };
           for (const h of HANDLERS) {
             // eslint-disable-next-line no-await-in-loop
@@ -1351,6 +1409,15 @@ export function App() {
             // Clicking the already-active filter clears it.
             activeHandle.actions.setTagFilter(cur === tag ? null : tag);
           }}
+          savedRemotes={savedRemotes}
+          onOpenConnectDialog={() => setConnectOpen(true)}
+          onRemoteClick={(r) => {
+            const cmd = `ssh ${r.host}`;
+            void (async () => {
+              try { await navigator.clipboard.writeText(cmd); } catch { /* clipboard unavailable */ }
+              try { alert(`SSH command copied. Paste into terminal.\n\n${cmd}`); } catch { /* no window */ }
+            })();
+          }}
         />}
         <FilePane
           files={liveRows}
@@ -1364,6 +1431,9 @@ export function App() {
           setPaneFocused={setPaneFocused}
           sortKey={activeHandle?.state.sortKey ?? "name"}
           sortDir={activeHandle?.state.sortDir ?? "asc"}
+          foldersFirst={state.foldersFirst}
+          showExtensions={state.showExtensions}
+          showGitGutters={state.showGitGutters}
           onSortChange={(k) => {
             if (!activeHandle) return;
             if (activeHandle.state.sortKey === k) {
@@ -1495,6 +1565,27 @@ export function App() {
           }}
         />
       )}
+
+      {connectOpen && (
+        <ConnectServerDialog
+          onClose={() => setConnectOpen(false)}
+          onSave={(r) => {
+            persistRemotes([...savedRemotes, r]);
+            setConnectOpen(false);
+          }}
+        />
+      )}
+      {tagPickerPath && (
+        <TagPickerDialog
+          path={tagPickerPath}
+          onClose={() => setTagPickerPath(null)}
+          onSaved={(store) => {
+            setTagStore(store);
+            setTagPickerPath(null);
+          }}
+        />
+      )}
+      <PropertiesDialog entry={propsEntry} onClose={() => setPropsEntry(null)} />
 
       {!tweaksOpen && (
         <button

@@ -13,7 +13,9 @@ function normalizePath(p: string): string {
   return p.replace(/[\\/]+$/, "").toLowerCase();
 }
 
-export type SortKey = "name" | "size" | "modified" | "tag" | "git";
+export const lastCommandRef = { value: null as string | null };
+
+export type SortKey = "name" | "size" | "modified" | "tag" | "git" | "type";
 export type SortDir = "asc" | "desc";
 
 export interface TabState {
@@ -26,6 +28,7 @@ export interface TabState {
   sortKey: SortKey;
   sortDir: SortDir;
   showHidden: boolean;
+  foldersFirst: boolean;
   loading: boolean;
   error: string | null;
   historyBack: string[];
@@ -43,9 +46,11 @@ export interface TabActions {
   setFocusIndex: (i: number) => void;
   setAnchorIndex: (i: number) => void;
   setShowHidden: (v: boolean) => void;
+  setFoldersFirst: (v: boolean) => void;
   setSortKey: (k: SortKey) => void;
   setSortDir: (v: SortDir) => void;
   setTagFilter: (v: string | null) => void;
+  clearHistory: () => void;
 }
 
 export interface UseTabResult {
@@ -143,6 +148,7 @@ export function useTabState(initialPath: string): UseTabResult {
   const [sortKey, setSortKey] = useState<SortKey>("name");
   const [sortDir, setSortDir] = useState<SortDir>("asc");
   const [showHidden, setShowHidden] = useState<boolean>(false);
+  const [foldersFirst, setFoldersFirst] = useState<boolean>(true);
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [historyBack, setHistoryBack] = useState<string[]>([]);
@@ -266,6 +272,11 @@ export function useTabState(initialPath: string): UseTabResult {
     setRefreshTick(t => t + 1);
   }, []);
 
+  const clearHistory = useCallback(() => {
+    setHistoryBack([]);
+    setHistoryForward([]);
+  }, []);
+
   const state: TabState = useMemo(() => ({
     path,
     entries,
@@ -276,12 +287,13 @@ export function useTabState(initialPath: string): UseTabResult {
     sortKey,
     sortDir,
     showHidden,
+    foldersFirst,
     loading,
     error,
     historyBack,
     historyForward,
     tagFilter,
-  }), [path, entries, gitInfo, selected, focusIndex, anchorIndex, sortKey, sortDir, showHidden, loading, error, historyBack, historyForward, tagFilter]);
+  }), [path, entries, gitInfo, selected, focusIndex, anchorIndex, sortKey, sortDir, showHidden, foldersFirst, loading, error, historyBack, historyForward, tagFilter]);
 
   const actions: TabActions = useMemo(() => ({
     goTo,
@@ -293,10 +305,12 @@ export function useTabState(initialPath: string): UseTabResult {
     setFocusIndex,
     setAnchorIndex,
     setShowHidden,
+    setFoldersFirst,
     setSortKey,
     setSortDir,
     setTagFilter,
-  }), [goTo, back, forward, up, refresh]);
+    clearHistory,
+  }), [goTo, back, forward, up, refresh, clearHistory]);
 
   return useMemo(() => ({ state, actions }), [state, actions]);
 }

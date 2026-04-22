@@ -1,5 +1,19 @@
 import type { Handler, HandlerCtx } from "./types";
-import { makeDir, writeText } from "../api";
+import {
+  makeDir,
+  writeText,
+  readText,
+  openUrl,
+  createSymlink,
+  createHardLink,
+  createShortcut,
+  shred,
+  homeDir,
+  renameEntry,
+  readTags,
+  writeTags,
+} from "../api";
+import { lastCommandRef } from "../state";
 
 // Join a directory with a filename using whichever separator the cwd appears
 // to use. Matches parentPath() in state.ts — backslash wins only if the path
@@ -9,6 +23,21 @@ function joinPath(dir: string, name: string): string {
   const sep = dir.includes("\\") && !dir.includes("/") ? "\\" : "/";
   const trimmed = dir.replace(/[\\/]+$/, "");
   return trimmed + sep + name;
+}
+
+function basename(p: string): string {
+  const idx = Math.max(p.lastIndexOf("/"), p.lastIndexOf("\\"));
+  return idx < 0 ? p : p.slice(idx + 1);
+}
+
+async function sessionDir(): Promise<string> {
+  const home = await homeDir();
+  const base = home ?? ".";
+  return joinPath(base, ".glasshouse");
+}
+
+async function sessionPath(): Promise<string> {
+  return joinPath(await sessionDir(), "session.json");
 }
 
 async function createFileAt(ctx: HandlerCtx, name: string, body: string): Promise<void> {
@@ -33,6 +62,17 @@ async function createPythonModule(ctx: HandlerCtx): Promise<void> {
   ctx.refresh();
 }
 
+async function writeSession(ctx: HandlerCtx, path: string): Promise<void> {
+  const payload = {
+    version: 1,
+    activeTab: ctx.activeTab,
+    tabs: ctx.tabs,
+  };
+  const dir = path.slice(0, Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\")));
+  if (dir) await makeDir(dir);
+  await writeText(path, JSON.stringify(payload, null, 2));
+}
+
 export const miscHandler: Handler = async (label, ctx) => {
   switch (label) {
     // ─── Help / About ──────────────────────────────────────────────────────
@@ -45,20 +85,21 @@ export const miscHandler: Handler = async (label, ctx) => {
       return true;
 
     case "Documentation":
-      console.log("[misc] not implemented: Documentation");
+      await openUrl("https://github.com/anthony/glasshouse#readme");
       return true;
 
     case "Release Notes":
-      console.log("[misc] not implemented: Release Notes");
+      await openUrl("https://github.com/anthony/glasshouse/releases");
       return true;
 
     case "Check for Updates":
-      console.log("[misc] not implemented: Check for Updates");
+      window.alert("Current version: 0.0.1. Opening releases page…");
+      await openUrl("https://github.com/anthony/glasshouse/releases");
       return true;
 
     case "Report Bug":
     case "Report Bug…":
-      console.log("[misc] not implemented: Report Bug");
+      await openUrl("https://github.com/anthony/glasshouse/issues/new");
       return true;
 
     case "Keybindings":
@@ -74,13 +115,52 @@ export const miscHandler: Handler = async (label, ctx) => {
       return true;
 
     // ─── Session ───────────────────────────────────────────────────────────
-    case "Save Session":
-    case "Import Session":
-    case "Import Session…":
-    case "Export Session":
-    case "Export Layout (.ricerc)":
-      console.log(`[misc] not implemented: ${label}`);
+    case "Save Session": {
+      const path = await sessionPath();
+      await writeSession(ctx, path);
+      window.alert(`saved session: ${path}`);
       return true;
+    }
+
+    case "Import Session":
+    case "Import Session…": {
+      const path = await sessionPath();
+      const raw = await readText(path, 1024 * 1024);
+      if (!raw) {
+        window.alert(`no session found at ${path}`);
+        return true;
+      }
+      try {
+        const parsed = JSON.parse(raw) as { tabs?: Array<{ path?: string }> };
+        const paths = (parsed.tabs ?? []).map(t => t?.path ?? "").filter(Boolean);
+        window.alert(
+          paths.length
+            ? `session tabs:\n${paths.join("\n")}`
+            : "session has no tabs",
+        );
+      } catch (e) {
+        window.alert(`failed to parse session: ${e instanceof Error ? e.message : String(e)}`);
+      }
+      return true;
+    }
+
+    case "Export Session": {
+      const def = await sessionPath();
+      const target = window.prompt("export session to:", def);
+      if (target == null || target.trim() === "") return true;
+      await writeSession(ctx, target.trim());
+      window.alert(`exported session: ${target.trim()}`);
+      return true;
+    }
+
+    case "Export Layout (.ricerc)": {
+      const target = joinPath(ctx.cwd, ".ricerc");
+      const body = JSON.stringify({ version: 1, cwd: ctx.cwd }, null, 2);
+      await writeText(target, body);
+      console.log(`[misc] exported layout: ${target}`);
+      ctx.refresh();
+      return true;
+    }
 
     // ─── Settings ──────────────────────────────────────────────────────────
     case "Edit .ricerc":
@@ -108,29 +188,130 @@ export const miscHandler: Handler = async (label, ctx) => {
         console.log("[misc] shred: nothing selected");
         return true;
       }
-      if (window.confirm(`shred ${target}?`)) {
-        console.log(`[misc] not implemented: Shred ${target}`);
-      }
+      if (!window.confirm(`shred ${target}? this is irreversible.`)) return true;
+      await shred(target, 3);
+      window.alert(`shredded ${target}`);
+      ctx.refresh();
       return true;
     }
 
     case "Create Symlink":
     case "Create Symlink…": {
       const target = window.prompt("symlink target:");
-      if (target == null) return true;
-      console.log(`[misc] not implemented: Create Symlink -> ${target}`);
+      if (target == null || target.trim() === "") return true;
+      const defLink = joinPath(ctx.cwd, basename(target.trim()));
+      const linkPath = window.prompt("link path:", defLink);
+      if (linkPath == null || linkPath.trim() === "") return true;
+      await createSymlink(target.trim(), linkPath.trim());
+      window.alert(`symlink: ${linkPath.trim()} -> ${target.trim()}`);
+      ctx.refresh();
       return true;
     }
 
     // ─── Clipboard special paste ──────────────────────────────────────────
     case "Paste as Symlink":
-    case "Paste as Link (symlink)":
-    case "Paste as Hard Link":
-    case "Paste as Shortcut":
-    case "Paste as Copy (verify SHA256)":
-    case "Paste Text into Filename":
-      console.log(`[misc] not implemented: ${label}`);
+    case "Paste as Link (symlink)": {
+      const paths = ctx.clipboardPaths?.() ?? [];
+      if (paths.length === 0) {
+        window.alert("clipboard is empty");
+        return true;
+      }
+      let ok = 0;
+      for (const p of paths) {
+        try {
+          await createSymlink(p, joinPath(ctx.cwd, basename(p)));
+          ok++;
+        } catch (e) {
+          console.error("[misc] symlink failed", p, e);
+        }
+      }
+      window.alert(`created ${ok}/${paths.length} symlink(s)`);
+      ctx.refresh();
       return true;
+    }
+
+    case "Paste as Hard Link": {
+      const paths = ctx.clipboardPaths?.() ?? [];
+      if (paths.length === 0) {
+        window.alert("clipboard is empty");
+        return true;
+      }
+      let ok = 0;
+      for (const p of paths) {
+        try {
+          await createHardLink(p, joinPath(ctx.cwd, basename(p)));
+          ok++;
+        } catch (e) {
+          console.error("[misc] hard link failed", p, e);
+        }
+      }
+      window.alert(`created ${ok}/${paths.length} hard link(s)`);
+      ctx.refresh();
+      return true;
+    }
+
+    case "Paste as Shortcut": {
+      const paths = ctx.clipboardPaths?.() ?? [];
+      if (paths.length === 0) {
+        window.alert("clipboard is empty");
+        return true;
+      }
+      let ok = 0;
+      for (const p of paths) {
+        try {
+          await createShortcut(p, joinPath(ctx.cwd, basename(p) + ".lnk"));
+          ok++;
+        } catch (e) {
+          console.error("[misc] shortcut failed", p, e);
+        }
+      }
+      window.alert(`created ${ok}/${paths.length} shortcut(s)`);
+      ctx.refresh();
+      return true;
+    }
+
+    case "Clear All Tags": {
+      const firstPath = ctx.firstPath;
+      if (!firstPath) {
+        window.alert("no selection");
+        return true;
+      }
+      const tags = await readTags();
+      delete tags[firstPath];
+      await writeTags(tags);
+      ctx.refresh();
+      window.alert("ok");
+      return true;
+    }
+
+    case "Paste as Copy (verify SHA256)":
+      window.alert("use Ctrl+Shift+V for PasteSpecial");
+      return true;
+
+    case "Paste Text into Filename": {
+      const target = ctx.firstPath;
+      if (!target) {
+        window.alert("no selection to rename");
+        return true;
+      }
+      let text = "";
+      try {
+        text = await navigator.clipboard.readText();
+      } catch (e) {
+        window.alert(`clipboard read failed: ${e instanceof Error ? e.message : String(e)}`);
+        return true;
+      }
+      const name = text.trim();
+      if (!name) {
+        window.alert("clipboard text is empty");
+        return true;
+      }
+      const dir = target.slice(0, Math.max(target.lastIndexOf("/"), target.lastIndexOf("\\")));
+      const dest = joinPath(dir, name);
+      await renameEntry(target, dest);
+      ctx.refresh();
+      return true;
+    }
 
     // ─── File → New submenu ───────────────────────────────────────────────
     case "Python Module":
@@ -162,9 +343,15 @@ export const miscHandler: Handler = async (label, ctx) => {
       return true;
 
     // ─── Terminal misc ────────────────────────────────────────────────────
-    case "Run Last Command":
-      console.log("[misc] not implemented: Run Last Command");
+    case "Run Last Command": {
+      const last = lastCommandRef.value;
+      if (!last) {
+        window.alert("no last command");
+        return true;
+      }
+      ctx.dispatch(last);
       return true;
+    }
 
     // ─── Refresh / Reload ─────────────────────────────────────────────────
     case "Refresh":

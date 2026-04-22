@@ -270,6 +270,64 @@ export function diffFiles(a: string, b: string): Promise<string> {
   return invoke<string>("diff_files", { a, b });
 }
 
+export function findFileByName(
+  root: string,
+  pattern: string,
+  maxResults: number = 0,
+): Promise<string[]> {
+  return safe(
+    () => invoke<string[]>("find_file_by_name", { root, pattern, maxResults }),
+    [],
+  );
+}
+
+export function createSymlink(target: string, linkPath: string): Promise<void> {
+  if (!TAURI_AVAILABLE) return Promise.reject(new Error("tauri unavailable"));
+  return invoke<void>("create_symlink", { target, linkPath });
+}
+
+export function createHardLink(target: string, linkPath: string): Promise<void> {
+  if (!TAURI_AVAILABLE) return Promise.reject(new Error("tauri unavailable"));
+  return invoke<void>("create_hard_link", { target, linkPath });
+}
+
+export function createShortcut(target: string, linkPath: string): Promise<void> {
+  if (!TAURI_AVAILABLE) return Promise.reject(new Error("tauri unavailable"));
+  return invoke<void>("create_shortcut", { target, linkPath });
+}
+
+export function shred(path: string, passes: number = 3): Promise<void> {
+  if (!TAURI_AVAILABLE) return Promise.reject(new Error("tauri unavailable"));
+  return invoke<void>("shred", { path, passes });
+}
+
+export function verifySignature(path: string): Promise<string> {
+  if (!TAURI_AVAILABLE) return Promise.reject(new Error("tauri unavailable"));
+  return invoke<string>("verify_signature", { path });
+}
+
+export function changeOwner(path: string, owner: string): Promise<void> {
+  if (!TAURI_AVAILABLE) return Promise.reject(new Error("tauri unavailable"));
+  return invoke<void>("change_owner", { path, owner });
+}
+
+export function runScript(script: string, targets: string[]): Promise<string> {
+  if (!TAURI_AVAILABLE) return Promise.reject(new Error("tauri unavailable"));
+  return invoke<string>("run_script", { script, targets });
+}
+
+export function openUrl(url: string): Promise<void> {
+  return safe(() => invoke<void>("open_url", { url }), undefined);
+}
+
+export function spawnNewWindow(): Promise<void> {
+  return safe(() => invoke<void>("spawn_new_window"), undefined);
+}
+
+export function setAlwaysOnTop(enabled: boolean): Promise<void> {
+  return safe(() => invoke<void>("set_always_on_top", { enabled }), undefined);
+}
+
 /**
  * Open a native directory-picker dialog via the Tauri dialog plugin. Returns
  * the absolute path chosen, or null if the user cancelled.

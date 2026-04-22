@@ -1,14 +1,13 @@
 // rice:// file manager — components
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import {
-  SIDEBAR,
   MENUS,
   PALETTE,
   type FileRow,
   type FileKind,
   type MenuItemDef,
 } from "./data";
-import { drives as apiDrives, hashSha256, homeDir as apiHomeDir, listDir, readImageB64, readText, setPermissions, spawnTerminal, systemInfo as apiSystemInfo, winClose, winMinimize, winToggleMaximize, type BlameLine, type Drive, type FileEntry, type GitInfo, type SystemInfo } from "./api";
+import { drives as apiDrives, hashSha256, homeDir as apiHomeDir, listDir, readImageB64, readTags, readText, setPermissions, systemInfo as apiSystemInfo, winClose, winMinimize, winToggleMaximize, writeTags, writeText, type BlameLine, type Drive, type FileEntry, type GitInfo, type SystemInfo } from "./api";
 import { fuzzyFilter } from "./fuzzy";
 
 // ============= Titlebar =============
@@ -338,6 +337,12 @@ const TAG_COLOR_MAP: Record<string, string> = Object.fromEntries(
   SEED_TAGS.map(t => [t.label, t.color]),
 );
 
+export interface SavedRemote {
+  label: string;
+  host: string;
+  path: string;
+}
+
 export interface SidebarProps {
   activePath: string;
   onGoTo: (path: string) => void;
@@ -347,9 +352,12 @@ export interface SidebarProps {
   tags: Record<string, string[]>;
   onTagFilter?: (tag: string) => void;
   activeTagFilter?: string | null;
+  savedRemotes: SavedRemote[];
+  onOpenConnectDialog: () => void;
+  onRemoteClick: (r: SavedRemote) => void;
 }
 
-export function Sidebar({ activePath, onGoTo, onRowContext, pins, onAddPin, tags, onTagFilter, activeTagFilter }: SidebarProps) {
+export function Sidebar({ activePath, onGoTo, onRowContext, pins, onAddPin, tags, onTagFilter, activeTagFilter, savedRemotes, onOpenConnectDialog, onRemoteClick }: SidebarProps) {
   const [home, setHome] = useState<string | null>(null);
   const [driveList, setDriveList] = useState<Drive[]>([]);
 
@@ -529,40 +537,34 @@ export function Sidebar({ activePath, onGoTo, onRowContext, pins, onAddPin, tags
       </div>
 
       <div className="sb-group">
-        <div className="sb-title">REMOTE</div>
-        {SIDEBAR.remote.map((d, i) => {
-          const isSsh = d.meta === "ssh" || /@/.test(d.label);
-          const onRemoteClick = () => {
-            if (isSsh) {
-              const ok = window.confirm(`connect to ${d.label}?`);
-              if (!ok) {
-                console.log(`[remote] connect cancelled for ${d.label}`);
-                return;
-              }
-              console.log(`[remote] spawning ssh terminal for ${d.label}`);
-              try {
-                void spawnTerminal(`ssh ${d.label}`);
-              } catch {
-                console.log(`[remote] clicking ${d.label} — not yet connected`);
-              }
-              return;
-            }
-            console.log(`[remote] clicking ${d.label} — not yet connected`);
-          };
-          return (
-            <div key={i}
-                 className="sb-item"
-                 style={{gridTemplateColumns: "16px 1fr", cursor:"pointer", opacity:0.7}}
-                 title={isSsh ? `connect to ${d.label}` : `${d.label} — log only`}
-                 onClick={onRemoteClick}>
-              <span className="ic">{d.ic || "·"}</span>
-              <div>
-                <div>{d.label}</div>
-                <div style={{color:"var(--fg-3)", fontSize:10}}>{d.meta}</div>
-              </div>
+        <div className="sb-title">
+          <span>REMOTE</span>
+          <span
+            style={{color:"var(--fg-3)", cursor:"pointer"}}
+            title="Add remote server"
+            onClick={onOpenConnectDialog}
+          >+</span>
+        </div>
+        {savedRemotes.length === 0 && (
+          <div className="sb-item" style={{color:"var(--fg-3)", cursor:"default"}}>
+            <span className="ic">·</span>
+            <span style={{fontStyle:"italic"}}>no saved remotes</span>
+            <span className="badge"></span>
+          </div>
+        )}
+        {savedRemotes.map((r, i) => (
+          <div key={"r" + i}
+               className="sb-item"
+               style={{gridTemplateColumns: "16px 1fr", cursor:"pointer"}}
+               title={`ssh ${r.host}${r.path ? " — " + r.path : ""}`}
+               onClick={() => onRemoteClick(r)}>
+            <span className="ic"></span>
+            <div>
+              <div>{r.label}</div>
+              <div style={{color:"var(--fg-3)", fontSize:10}}>{r.host}{r.path ? " · " + r.path : ""}</div>
             </div>
-          );
-        })}
+          </div>
+        ))}
       </div>
     </aside>
   );
@@ -601,7 +603,7 @@ function gitDotClass(code: string): string {
 
 export type ContextKind = "file" | "empty" | "sidebar" | "tab" | "breadcrumb";
 
-export type SortColumn = "name" | "size" | "modified" | "tag" | "git";
+export type SortColumn = "name" | "size" | "modified" | "tag" | "git" | "type";
 export type SortDirection = "asc" | "desc";
 
 export interface FilePaneProps {
@@ -617,6 +619,9 @@ export interface FilePaneProps {
   sortKey: SortColumn;
   sortDir: SortDirection;
   onSortChange: (k: SortColumn) => void;
+  foldersFirst?: boolean;
+  showExtensions?: boolean;
+  showGitGutters?: boolean;
   onContext: (e: React.MouseEvent, kind: ContextKind, rowIndex?: number) => void;
   onOpen?: (index: number) => void;
   onUp?: () => void;
@@ -649,6 +654,9 @@ export function FilePane({
   sortKey,
   sortDir,
   onSortChange,
+  foldersFirst = true,
+  showExtensions = true,
+  showGitGutters = true,
   onContext,
   onOpen,
   onUp,
@@ -698,10 +706,19 @@ export function FilePane({
 
     const dir = sortDir === "asc" ? 1 : -1;
     const sorted = [...filtered].sort((a, b) => {
-      // Folders before files, always — matches Explorer/Finder convention.
-      const af = a.file.kind === "folder" ? 0 : 1;
-      const bf = b.file.kind === "folder" ? 0 : 1;
-      if (af !== bf) return af - bf;
+      if (foldersFirst) {
+        const af = a.file.kind === "folder" ? 0 : 1;
+        const bf = b.file.kind === "folder" ? 0 : 1;
+        if (af !== bf) return af - bf;
+      }
+      if (sortKey === "type") {
+        const ae = (a.file.ext ?? "").toLowerCase();
+        const be = (b.file.ext ?? "").toLowerCase();
+        if (ae !== be) return ae < be ? -1 * dir : 1 * dir;
+        const an = a.file.name.toLowerCase();
+        const bn = b.file.name.toLowerCase();
+        return an < bn ? -1 * dir : an > bn ? 1 * dir : 0;
+      }
       if (sortKey === "name") {
         const an = (a.file.name + (a.file.ext ? "." + a.file.ext : "")).toLowerCase();
         const bn = (b.file.name + (b.file.ext ? "." + b.file.ext : "")).toLowerCase();
@@ -734,7 +751,7 @@ export function FilePane({
       return (am - bm) * dir;
     });
     return sorted;
-  }, [files, searchQuery, sortKey, sortDir, tagFilter, tagStore]);
+  }, [files, searchQuery, sortKey, sortDir, tagFilter, tagStore, foldersFirst]);
 
   // Map origIndex -> visible row position, for keyboard nav (which operates
   // on the currently-displayed ordering, not the raw entries array).
@@ -961,9 +978,9 @@ export function FilePane({
                  }}>
               <span className={"ic " + ki.cls}>{ki.ic}</span>
               <span className="name">
-                {f.git && <span className={"git-dot " + gitDotClass(f.git)}></span>}
+                {showGitGutters && f.git && <span className={"git-dot " + gitDotClass(f.git)}></span>}
                 <span style={{color: f.hidden ? "var(--fg-3)" : "inherit"}}>{f.name}</span>
-                {f.ext && !f.hidden && f.kind !== "folder" && <span className="ext">.{f.ext}</span>}
+                {showExtensions && f.ext && !f.hidden && f.kind !== "folder" && <span className="ext">.{f.ext}</span>}
               </span>
               <span className="tag">
                 {f.tag ? <><span className="dot" style={{background: tagColor(f.tag)}}></span>{f.tag}</> : <span style={{color:"var(--fg-3)"}}>—</span>}
@@ -971,7 +988,8 @@ export function FilePane({
               <span className="size">{f.size}</span>
               <span className="date">{f.date}</span>
               <span className="tag" style={{textAlign:"right"}}>
-                {f.git === "M" ? <span style={{color:"var(--yellow)"}}>M</span>
+                {!showGitGutters ? <span style={{color:"var(--fg-3)"}}>—</span>
+                 : f.git === "M" ? <span style={{color:"var(--yellow)"}}>M</span>
                  : f.git === "A" ? <span style={{color:"var(--green)"}}>A</span>
                  : f.git === "D" ? <span style={{color:"var(--red)"}}>D</span>
                  : f.git === "U" ? <span style={{color:"var(--red)"}}>U</span>
@@ -1507,6 +1525,10 @@ export interface TweakState {
   density: TweakDensity;
   scanlines: boolean;
   hidden: boolean;
+  showExtensions: boolean;
+  showGitGutters: boolean;
+  showIgnored: boolean;
+  foldersFirst: boolean;
 }
 
 export interface TweaksProps {
@@ -1570,6 +1592,34 @@ export function Tweaks({ state, setState, onClose }: TweaksProps) {
           <div className="segmented">
             <button className={state.hidden ? "" : "active"} onClick={() => setState({...state, hidden: false})}>hide</button>
             <button className={state.hidden ? "active" : ""} onClick={() => setState({...state, hidden: true})}>show</button>
+          </div>
+        </div>
+        <div className="tweak">
+          <label>file extensions</label>
+          <div className="segmented">
+            <button className={state.showExtensions ? "" : "active"} onClick={() => setState({...state, showExtensions: false})}>hide</button>
+            <button className={state.showExtensions ? "active" : ""} onClick={() => setState({...state, showExtensions: true})}>show</button>
+          </div>
+        </div>
+        <div className="tweak">
+          <label>git gutters</label>
+          <div className="segmented">
+            <button className={state.showGitGutters ? "" : "active"} onClick={() => setState({...state, showGitGutters: false})}>hide</button>
+            <button className={state.showGitGutters ? "active" : ""} onClick={() => setState({...state, showGitGutters: true})}>show</button>
+          </div>
+        </div>
+        <div className="tweak">
+          <label>ignored (.gitignore)</label>
+          <div className="segmented">
+            <button className={state.showIgnored ? "" : "active"} onClick={() => setState({...state, showIgnored: false})}>hide</button>
+            <button className={state.showIgnored ? "active" : ""} onClick={() => setState({...state, showIgnored: true})}>show</button>
+          </div>
+        </div>
+        <div className="tweak">
+          <label>folders first</label>
+          <div className="segmented">
+            <button className={state.foldersFirst ? "" : "active"} onClick={() => setState({...state, foldersFirst: false})}>off</button>
+            <button className={state.foldersFirst ? "active" : ""} onClick={() => setState({...state, foldersFirst: true})}>on</button>
           </div>
         </div>
       </div>
@@ -2552,6 +2602,420 @@ export function DiffDialog({ a, b, diff, onClose }: DiffDialogProps) {
               color: colorFor(line), padding: "0 12px", whiteSpace: "pre",
             }}>{line || " "}</div>
           ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ============= PropertiesDialog =============
+export interface PropertiesDialogProps {
+  entry: FileEntry | null;
+  onClose: () => void;
+}
+
+function formatBytes(n: number): string {
+  if (n < 1024) return `${n} B`;
+  const kb = n / 1024;
+  if (kb < 1024) return `${kb.toFixed(1)} KB`;
+  const mb = kb / 1024;
+  if (mb < 1024) return `${mb.toFixed(1)} MB`;
+  const gb = mb / 1024;
+  return `${gb.toFixed(2)} GB`;
+}
+
+export function PropertiesDialog({ entry, onClose }: PropertiesDialogProps) {
+  const [sha, setSha] = useState<string | null>(null);
+  const [hashing, setHashing] = useState(false);
+  const [hashErr, setHashErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    setSha(null);
+    setHashing(false);
+    setHashErr(null);
+  }, [entry?.path]);
+
+  useEffect(() => {
+    if (!entry) return;
+    const h = (e: KeyboardEvent) => {
+      if (e.key === "Escape") { e.preventDefault(); onClose(); }
+    };
+    window.addEventListener("keydown", h);
+    return () => window.removeEventListener("keydown", h);
+  }, [entry, onClose]);
+
+  if (!entry) return null;
+
+  const isFolder = entry.kind === "folder";
+  const computeHash = async () => {
+    if (isFolder || hashing) return;
+    setHashing(true);
+    setHashErr(null);
+    try {
+      const hex = await hashSha256(entry.path);
+      setSha(hex);
+    } catch (err) {
+      setHashErr(err instanceof Error ? err.message : String(err));
+    } finally {
+      setHashing(false);
+    }
+  };
+
+  const rows: Array<[string, React.ReactNode]> = [
+    ["name", entry.name],
+    ["path", entry.path],
+    ["kind", entry.kind],
+    ["size", isFolder ? "—" : formatBytes(entry.size)],
+    ["modified", entry.modified_ms ? new Date(entry.modified_ms).toLocaleString() : "—"],
+    ["extension", entry.ext && entry.ext.length > 0 ? entry.ext : "—"],
+    ["hidden", entry.hidden ? "yes" : "no"],
+    ["symlink", entry.is_symlink ? "yes" : "no"],
+    ["git", entry.git ?? "—"],
+    [
+      "sha256",
+      isFolder ? (
+        <span style={{ color: "var(--fg-3)" }}>— (folder)</span>
+      ) : sha ? (
+        <span style={{ wordBreak: "break-all" }}>{sha}</span>
+      ) : hashErr ? (
+        <span style={{ color: "var(--red, #f7768e)" }}>error: {hashErr}</span>
+      ) : (
+        <button
+          onClick={() => { void computeHash(); }}
+          disabled={hashing}
+          style={{
+            background: "transparent", border: "1px solid var(--fg-3)", color: "var(--fg-1)",
+            padding: "2px 10px", cursor: hashing ? "wait" : "pointer",
+            borderRadius: 2, fontFamily: "inherit", fontSize: 12,
+          }}
+        >{hashing ? "computing…" : "Compute…"}</button>
+      ),
+    ],
+  ];
+
+  return (
+    <div onClick={onClose} style={{
+      position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)",
+      zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center",
+    }}>
+      <div onClick={(e) => e.stopPropagation()} style={{
+        width: "64ch", maxWidth: "95vw", maxHeight: "85vh",
+        background: "var(--bg-1, #1a1b26)", border: "1px solid var(--fg-3)",
+        borderRadius: 4, display: "flex", flexDirection: "column",
+        fontFamily: "var(--font-mono)", color: "var(--fg-1)",
+      }}>
+        <div style={{
+          display: "flex", alignItems: "center", justifyContent: "space-between",
+          padding: "8px 12px", borderBottom: "1px solid var(--fg-3)",
+          background: "var(--bg-2, #16161e)",
+        }}>
+          <span style={{ color: "var(--accent)" }}>ℹ properties</span>
+          <button onClick={onClose} style={{
+            background: "transparent", border: "1px solid var(--fg-3)", color: "var(--fg-1)",
+            padding: "2px 8px", cursor: "pointer", borderRadius: 2,
+          }}>×</button>
+        </div>
+        <div style={{ padding: "10px 12px", overflow: "auto" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+            <tbody>
+              {rows.map(([k, v]) => (
+                <tr key={k}>
+                  <td style={{
+                    color: "var(--fg-3)", padding: "4px 12px 4px 0", verticalAlign: "top",
+                    width: "12ch", whiteSpace: "nowrap",
+                  }}>{k}</td>
+                  <td style={{ padding: "4px 0", verticalAlign: "top", wordBreak: "break-all" }}>{v}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <div style={{
+          padding: "8px 12px", borderTop: "1px solid var(--fg-3)",
+          display: "flex", justifyContent: "flex-end", gap: 6,
+          background: "var(--bg-2, #16161e)",
+        }}>
+          <button onClick={onClose} style={{
+            background: "transparent", border: "1px solid var(--fg-3)", color: "var(--fg-1)",
+            padding: "4px 12px", cursor: "pointer", borderRadius: 2, fontFamily: "inherit",
+          }}>close</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ============= ConnectServerDialog =============
+export interface ConnectServerDialogProps {
+  onClose: () => void;
+  onSave: (r: SavedRemote) => void;
+}
+
+export function ConnectServerDialog({ onClose, onSave }: ConnectServerDialogProps) {
+  const [label, setLabel] = useState("");
+  const [host, setHost] = useState("");
+  const [path, setPath] = useState("");
+  const labelRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => { labelRef.current?.focus(); }, []);
+
+  useEffect(() => {
+    const h = (e: KeyboardEvent) => {
+      if (e.key === "Escape") { e.preventDefault(); onClose(); }
+    };
+    window.addEventListener("keydown", h);
+    return () => window.removeEventListener("keydown", h);
+  }, [onClose]);
+
+  const canSave = label.trim().length > 0 && host.trim().length > 0;
+  const submit = () => {
+    if (!canSave) return;
+    onSave({ label: label.trim(), host: host.trim(), path: path.trim() });
+  };
+
+  const inputStyle: React.CSSProperties = {
+    background: "var(--bg-0, #0f0f14)", color: "var(--fg-1)",
+    border: "1px solid var(--fg-3)", borderRadius: 2,
+    padding: "4px 8px", fontFamily: "var(--font-mono)", fontSize: 13,
+    outline: "none",
+  };
+
+  return (
+    <div onClick={onClose} style={{
+      position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)",
+      zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center",
+    }}>
+      <div onClick={(e) => e.stopPropagation()} style={{
+        width: "52ch", maxWidth: "95vw",
+        background: "var(--bg-1, #1a1b26)", border: "1px solid var(--fg-3)",
+        borderRadius: 4, display: "flex", flexDirection: "column",
+        fontFamily: "var(--font-mono)", color: "var(--fg-1)",
+      }}>
+        <div style={{
+          display: "flex", alignItems: "center", justifyContent: "space-between",
+          padding: "8px 12px", borderBottom: "1px solid var(--fg-3)",
+          background: "var(--bg-2, #16161e)",
+        }}>
+          <span style={{ color: "var(--accent)" }}>⌁ connect to server</span>
+          <button onClick={onClose} style={{
+            background: "transparent", border: "1px solid var(--fg-3)", color: "var(--fg-1)",
+            padding: "2px 8px", cursor: "pointer", borderRadius: 2,
+          }}>×</button>
+        </div>
+        <div style={{ padding: "10px 12px", display: "flex", flexDirection: "column", gap: 8 }}>
+          <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 11, color: "var(--fg-3)" }}>
+            label
+            <input ref={labelRef} value={label} onChange={(e) => setLabel(e.target.value)} placeholder="home-nas" style={inputStyle} />
+          </label>
+          <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 11, color: "var(--fg-3)" }}>
+            user@host
+            <input
+              value={host}
+              onChange={(e) => setHost(e.target.value)}
+              placeholder="user@192.168.1.10"
+              style={inputStyle}
+              onKeyDown={(e) => { if (e.key === "Enter" && canSave) { e.preventDefault(); submit(); } }}
+            />
+          </label>
+          <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 11, color: "var(--fg-3)" }}>
+            remote path (optional)
+            <input
+              value={path}
+              onChange={(e) => setPath(e.target.value)}
+              placeholder="/home/user"
+              style={inputStyle}
+              onKeyDown={(e) => { if (e.key === "Enter" && canSave) { e.preventDefault(); submit(); } }}
+            />
+          </label>
+        </div>
+        <div style={{
+          padding: "8px 12px", borderTop: "1px solid var(--fg-3)",
+          display: "flex", justifyContent: "flex-end", gap: 6,
+          background: "var(--bg-2, #16161e)",
+        }}>
+          <button onClick={onClose} style={{
+            background: "transparent", border: "1px solid var(--fg-3)", color: "var(--fg-1)",
+            padding: "4px 12px", cursor: "pointer", borderRadius: 2, fontFamily: "inherit",
+          }}>cancel</button>
+          <button
+            onClick={submit}
+            disabled={!canSave}
+            style={{
+              background: canSave ? "var(--accent)" : "var(--bg-0)",
+              border: "1px solid " + (canSave ? "var(--accent)" : "var(--fg-3)"),
+              color: canSave ? "var(--bg-0)" : "var(--fg-3)",
+              padding: "4px 12px", cursor: canSave ? "pointer" : "not-allowed",
+              borderRadius: 2, fontFamily: "inherit",
+            }}
+          >save</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ============= TagPickerDialog =============
+export interface TagPickerDialogProps {
+  path: string;
+  onClose: () => void;
+  onSaved: (tagStore: Record<string, string[]>) => void;
+}
+
+export function TagPickerDialog({ path, onClose, onSaved }: TagPickerDialogProps) {
+  const [store, setStore] = useState<Record<string, string[]>>({});
+  const [newTag, setNewTag] = useState("");
+  const [loaded, setLoaded] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const newTagRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    void (async () => {
+      const s = await readTags();
+      setStore(s);
+      setLoaded(true);
+    })();
+  }, []);
+
+  useEffect(() => {
+    const h = (e: KeyboardEvent) => {
+      if (e.key === "Escape") { e.preventDefault(); onClose(); }
+    };
+    window.addEventListener("keydown", h);
+    return () => window.removeEventListener("keydown", h);
+  }, [onClose]);
+
+  const allTags = useMemo(() => {
+    const set = new Set<string>();
+    for (const tags of Object.values(store)) for (const t of tags) set.add(t);
+    return Array.from(set).sort();
+  }, [store]);
+
+  const current = store[path] ?? [];
+  const hasTag = (t: string) => current.includes(t);
+
+  const toggleTag = (t: string) => {
+    setStore(prev => {
+      const cur = prev[path] ?? [];
+      const next = { ...prev };
+      if (cur.includes(t)) {
+        const filtered = cur.filter(x => x !== t);
+        if (filtered.length === 0) delete next[path];
+        else next[path] = filtered;
+      } else {
+        next[path] = [...cur, t];
+      }
+      return next;
+    });
+  };
+
+  const addNewTag = () => {
+    const t = newTag.trim();
+    if (!t) return;
+    setStore(prev => {
+      const cur = prev[path] ?? [];
+      if (cur.includes(t)) return prev;
+      return { ...prev, [path]: [...cur, t] };
+    });
+    setNewTag("");
+    newTagRef.current?.focus();
+  };
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      await writeTags(store);
+      onSaved(store);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const shownTags = useMemo(() => {
+    const set = new Set(allTags);
+    for (const t of current) set.add(t);
+    return Array.from(set).sort();
+  }, [allTags, current]);
+
+  return (
+    <div onClick={onClose} style={{
+      position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)",
+      zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center",
+    }}>
+      <div onClick={(e) => e.stopPropagation()} style={{
+        width: "48ch", maxWidth: "95vw", maxHeight: "80vh",
+        background: "var(--bg-1, #1a1b26)", border: "1px solid var(--fg-3)",
+        borderRadius: 4, display: "flex", flexDirection: "column",
+        fontFamily: "var(--font-mono)", color: "var(--fg-1)",
+      }}>
+        <div style={{
+          display: "flex", alignItems: "center", justifyContent: "space-between",
+          padding: "8px 12px", borderBottom: "1px solid var(--fg-3)",
+          background: "var(--bg-2, #16161e)",
+        }}>
+          <span style={{ color: "var(--accent)" }}># tag picker</span>
+          <button onClick={onClose} style={{
+            background: "transparent", border: "1px solid var(--fg-3)", color: "var(--fg-1)",
+            padding: "2px 8px", cursor: "pointer", borderRadius: 2,
+          }}>×</button>
+        </div>
+        <div style={{ padding: "6px 12px", borderBottom: "1px solid var(--fg-3)", fontSize: 11, color: "var(--fg-3)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+          {path}
+        </div>
+        <div style={{ overflow: "auto", flex: 1, padding: "8px 12px", display: "flex", flexDirection: "column", gap: 4 }}>
+          {!loaded && <div style={{ color: "var(--fg-3)" }}>loading…</div>}
+          {loaded && shownTags.length === 0 && (
+            <div style={{ color: "var(--fg-3)" }}>no tags yet — add one below</div>
+          )}
+          {shownTags.map(t => (
+            <label key={t} style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", padding: "2px 0" }}>
+              <input type="checkbox" checked={hasTag(t)} onChange={() => toggleTag(t)} />
+              <span style={{ color: hasTag(t) ? "var(--fg-1)" : "var(--fg-2, var(--fg-1))" }}>{t}</span>
+            </label>
+          ))}
+        </div>
+        <div style={{ padding: "8px 12px", borderTop: "1px solid var(--fg-3)", display: "flex", gap: 6 }}>
+          <input
+            ref={newTagRef}
+            value={newTag}
+            onChange={(e) => setNewTag(e.target.value)}
+            placeholder="add new tag…"
+            onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addNewTag(); } }}
+            style={{
+              flex: 1,
+              background: "var(--bg-0, #0f0f14)", color: "var(--fg-1)",
+              border: "1px solid var(--fg-3)", borderRadius: 2,
+              padding: "4px 8px", fontFamily: "var(--font-mono)", fontSize: 13,
+              outline: "none",
+            }}
+          />
+          <button
+            onClick={addNewTag}
+            disabled={!newTag.trim()}
+            style={{
+              background: "transparent", border: "1px solid var(--fg-3)", color: "var(--fg-1)",
+              padding: "4px 10px", cursor: newTag.trim() ? "pointer" : "not-allowed",
+              borderRadius: 2, fontFamily: "inherit",
+            }}
+          >+</button>
+        </div>
+        <div style={{
+          padding: "8px 12px", borderTop: "1px solid var(--fg-3)",
+          display: "flex", justifyContent: "flex-end", gap: 6,
+          background: "var(--bg-2, #16161e)",
+        }}>
+          <button onClick={onClose} style={{
+            background: "transparent", border: "1px solid var(--fg-3)", color: "var(--fg-1)",
+            padding: "4px 12px", cursor: "pointer", borderRadius: 2, fontFamily: "inherit",
+          }}>cancel</button>
+          <button
+            onClick={() => { void save(); }}
+            disabled={saving}
+            style={{
+              background: "var(--accent)", border: "1px solid var(--accent)", color: "var(--bg-0)",
+              padding: "4px 12px", cursor: saving ? "wait" : "pointer",
+              borderRadius: 2, fontFamily: "inherit",
+            }}
+          >{saving ? "saving…" : "save"}</button>
         </div>
       </div>
     </div>

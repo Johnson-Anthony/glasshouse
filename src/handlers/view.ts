@@ -9,6 +9,21 @@ function adjustZoom(delta: number): void {
   el.style.fontSize = `${next}px`;
 }
 
+const DISPLAY_MODE_KEY = "glasshouse.displayMode";
+const LAYOUT_KEY = "glasshouse.layout";
+
+function setDisplayMode(mode: string): void {
+  localStorage.setItem(DISPLAY_MODE_KEY, mode);
+  const slug = mode.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
+  document.documentElement.setAttribute("data-display-mode", slug);
+}
+
+function setLayout(layout: string): void {
+  localStorage.setItem(LAYOUT_KEY, layout);
+  const slug = layout.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
+  document.documentElement.setAttribute("data-layout", slug);
+}
+
 export const viewHandler: Handler = (label, ctx) => {
   switch (label) {
     case "Zoom In":
@@ -43,11 +58,13 @@ export const viewHandler: Handler = (label, ctx) => {
       return true;
     case "Type":
     case "Type / Extension":
-      ctx.activeHandle?.actions.setSortKey("name");
-      console.log("[view] sort by type not implemented; falling back to name");
+      ctx.activeHandle?.actions.setSortKey("type");
       return true;
     case "Tag / Color":
       ctx.activeHandle?.actions.setSortKey("tag");
+      return true;
+    case "Git Column":
+      ctx.activeHandle?.actions.setSortKey("git");
       return true;
 
     case "Descending": {
@@ -56,14 +73,29 @@ export const viewHandler: Handler = (label, ctx) => {
       return true;
     }
 
-    case "Folders First":
-      console.log("[view] folders first not implemented");
+    case "Folders First": {
+      if (ctx.tweaks && ctx.setTweaks) {
+        ctx.setTweaks({ ...ctx.tweaks, foldersFirst: !ctx.tweaks.foldersFirst });
+      }
+      const next = !(ctx.activeHandle?.state.foldersFirst ?? true);
+      ctx.activeHandle?.actions.setFoldersFirst(next);
       return true;
+    }
 
     case "Show File Extensions":
+      if (ctx.tweaks && ctx.setTweaks) {
+        ctx.setTweaks({ ...ctx.tweaks, showExtensions: !ctx.tweaks.showExtensions });
+      }
+      return true;
     case "Show Git Gutters":
+      if (ctx.tweaks && ctx.setTweaks) {
+        ctx.setTweaks({ ...ctx.tweaks, showGitGutters: !ctx.tweaks.showGitGutters });
+      }
+      return true;
     case "Show Ignored (.gitignore)":
-      console.log(`[view] toggle not implemented: ${label}`);
+      if (ctx.tweaks && ctx.setTweaks) {
+        ctx.setTweaks({ ...ctx.tweaks, showIgnored: !ctx.tweaks.showIgnored });
+      }
       return true;
 
     case "Compact List":
@@ -73,7 +105,7 @@ export const viewHandler: Handler = (label, ctx) => {
     case "Tiles":
     case "Miller Columns (ranger)":
     case "Tree Flat":
-      console.log(`[view] display mode not implemented: ${label}`);
+      setDisplayMode(label);
       return true;
 
     case "Tree + Pane + Inspector":
@@ -84,7 +116,7 @@ export const viewHandler: Handler = (label, ctx) => {
     case "Tmux Quad (4-pane)":
     case "Split Down":
     case "Split Right":
-      console.log(`[view] layout not implemented: ${label}`);
+      setLayout(label);
       return true;
 
     case "Sidebar":
@@ -92,8 +124,15 @@ export const viewHandler: Handler = (label, ctx) => {
       return true;
 
     case "Status Bar":
-    case "Always on Top":
-      console.log(`[view] toggle not implemented: ${label}`);
+      document.documentElement.classList.toggle("no-status");
+      return true;
+
+    case "Show Checksums":
+      if (ctx.tweaks && ctx.setTweaks) {
+        // TODO: add showChecksums to TweakState in components.tsx
+        const prev = (ctx.tweaks as any).showChecksums;
+        ctx.setTweaks({ ...ctx.tweaks, showChecksums: !prev } as any);
+      }
       return true;
 
     default:

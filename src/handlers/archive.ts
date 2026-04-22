@@ -1,5 +1,5 @@
 import type { Handler } from "./types";
-import { openWithDefault } from "../api";
+import { openWithDefault, compress } from "../api";
 
 export const archiveHandler: Handler = async (label, ctx) => {
   switch (label) {
@@ -28,6 +28,39 @@ export const archiveHandler: Handler = async (label, ctx) => {
       window.alert("(format not yet supported — use Zip (.zip))");
       return true;
     }
+    case "ZIP (bundled)": {
+      ctx.dispatch("Compress to ZIP…");
+      return true;
+    }
+    case "ZIP (each individually)": {
+      const paths = ctx.selectedPaths.length
+        ? ctx.selectedPaths
+        : ctx.firstPath
+          ? [ctx.firstPath]
+          : [];
+      if (paths.length === 0) {
+        window.alert("no selection");
+        return true;
+      }
+      let ok = 0;
+      for (const p of paths) {
+        try {
+          await compress([p], p + ".zip");
+          ok++;
+        } catch (e) {
+          console.log(`[archive] compress failed for ${p}:`, e);
+        }
+      }
+      ctx.refresh();
+      window.alert(`compressed ${ok}/${paths.length} file(s)`);
+      return true;
+    }
+    case "TAR.GZ":
+      window.alert("tar.gz not supported yet");
+      return true;
+    case "7-Zip":
+      window.alert("7z not supported yet");
+      return true;
     default:
       return false;
   }

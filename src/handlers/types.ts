@@ -6,6 +6,7 @@
 
 import type { UseTabResult } from "../state";
 import type { FileEntry, BlameLine } from "../api";
+import type { TweakState } from "../components";
 
 export interface HandlerCtx {
   activeHandle: UseTabResult | undefined;
@@ -32,6 +33,8 @@ export interface HandlerCtx {
   redo?: () => void;
   moveTab?: (from: number, to: number) => void;
   newTab?: (path?: string) => void;
+  tweaks?: TweakState;
+  setTweaks?: (s: TweakState) => void;
 }
 
 export type Handler = (label: string, ctx: HandlerCtx) => Promise<boolean> | boolean;

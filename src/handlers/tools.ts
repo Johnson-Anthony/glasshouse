@@ -1,5 +1,29 @@
 import type { Handler } from "./types";
-import { hashSha256, findInFiles, readHexDump, diffFiles, setPermissions } from "../api";
+import {
+  hashSha256,
+  findInFiles,
+  readHexDump,
+  diffFiles,
+  setPermissions,
+  verifySignature,
+  runScript,
+  findFileByName,
+  changeOwner,
+  openWithDefault,
+  makeDir,
+  moveEntry,
+  readText,
+  writeText,
+} from "../api";
+
+function joinToolPath(dir: string, name: string): string {
+  if (!dir) return name;
+  const sep = dir.includes("\\") && !dir.includes("/") ? "\\" : "/";
+  const trimmed = dir.replace(/[\\/]+$/, "");
+  return trimmed + sep + name;
+}
+
+const clipboardStack: string[][] = [];
 
 async function copyToClipboard(text: string): Promise<void> {
   try {
@@ -33,6 +57,47 @@ export const toolsHandler: Handler = async (label, ctx) => {
     case "Extract →":
     case "Open With →":
       return true;
+
+    case "Default App":
+    case "Text Editor (.txt)": {
+      const p = ctx.firstPath;
+      if (!p) {
+        console.log(`[tools] ${label}: no selection`);
+        return true;
+      }
+      try {
+        await openWithDefault(p);
+      } catch (e) {
+        console.log(`[tools] openWithDefault failed for ${p}:`, e);
+      }
+      return true;
+    }
+
+    case "VS Code":
+      ctx.dispatch("Open in VS Code");
+      return true;
+
+    case "Terminal":
+      ctx.dispatch("Open in Terminal");
+      return true;
+
+    case "Custom Command…": {
+      const p = ctx.firstPath;
+      if (!p) {
+        console.log("[tools] Custom Command: no selection");
+        return true;
+      }
+      const cmd = window.prompt("Command:");
+      if (cmd == null || cmd.trim() === "") return true;
+      try {
+        const output = await runScript(cmd.trim(), [p]);
+        window.alert(output || "(no output)");
+      } catch (e) {
+        console.log(`[tools] Custom Command failed (cmd=${cmd}):`, e);
+        window.alert(`command failed: ${e}`);
+      }
+      return true;
+    }
 
     case "Hash SHA256 of Selection": {
       const paths = ctx.selectedPaths.length
@@ -133,33 +198,113 @@ export const toolsHandler: Handler = async (label, ctx) => {
 
     case "Verify Signature…":
     case "Verify Signature": {
-      console.log("[tools] not implemented: Verify Signature");
+      const p = ctx.firstPath;
+      if (!p) {
+        console.log("[tools] Verify Signature: no selection");
+        return true;
+      }
+      try {
+        const result = await verifySignature(p);
+        window.alert(`Signature: ${result}\n${p}`);
+      } catch (e) {
+        console.log(`[tools] verifySignature failed for ${p}:`, e);
+        window.alert(`verify failed: ${e}`);
+      }
       return true;
     }
 
     case "Run Script on Selection…":
     case "Run Script on Selection": {
       const script = window.prompt("Script path:");
-      if (script == null) return true;
-      console.log(
-        `[tools] not implemented: Run Script on Selection (script=${script}, targets=${ctx.selectedPaths.length})`,
-      );
+      if (script == null || script.trim() === "") return true;
+      const targets = ctx.selectedPaths.length
+        ? ctx.selectedPaths
+        : ctx.firstPath
+          ? [ctx.firstPath]
+          : [];
+      try {
+        const output = await runScript(script, targets);
+        window.alert(output || "(no output)");
+      } catch (e) {
+        console.log(`[tools] runScript failed (script=${script}):`, e);
+        window.alert(`script failed: ${e}`);
+      }
       return true;
     }
 
     case "Find & Replace in Files": {
-      const needle = window.prompt("Find:");
-      if (needle == null) return true;
-      const replacement = window.prompt("Replace with:");
+      const needle = window.prompt("search pattern:");
+      if (needle == null || needle === "") return true;
+      const replacement = window.prompt("replace with:");
       if (replacement == null) return true;
       try {
         const matches = await findInFiles(ctx.cwd, needle, true, 500);
-        console.log(
-          `[tools] Find & Replace: found ${matches.length} match(es) for "${needle}"; replacement not wired (would write "${replacement}")`,
-        );
+        if (matches.length === 0) {
+          window.alert(`no matches for "${needle}"`);
+          return true;
+        }
+        const uniquePaths = Array.from(new Set(matches.map((m) => m.path)));
+        if (
+          !window.confirm(
+            `${matches.length} match(es) across ${uniquePaths.length} file(s). Replace?`,
+          )
+        ) {
+          return true;
+        }
+        let filesWritten = 0;
+        for (const p of uniquePaths) {
+          try {
+            const content = await readText(p, 2_000_000);
+            if (!content.includes(needle)) continue;
+            const next = content.split(needle).join(replacement);
+            await writeText(p, next);
+            filesWritten++;
+          } catch (e) {
+            console.log(`[tools] Find & Replace: failed for ${p}:`, e);
+          }
+        }
+        window.alert(`replaced in ${filesWritten} files`);
+        ctx.refresh();
       } catch (e) {
         console.log("[tools] findInFiles failed:", e);
       }
+      return true;
+    }
+
+    case "Screenshot → Auto-sort": {
+      const entries = ctx.activeHandle?.state.entries ?? [];
+      const screenshotRe1 = /^Screenshot[_-]?\d{4}/i;
+      const screenshotRe2 = /screenshot.*\.(png|jpg|jpeg|webp)$/i;
+      const matches = entries.filter(
+        (e) => screenshotRe1.test(e.name) || screenshotRe2.test(e.name),
+      );
+      if (matches.length === 0) {
+        window.alert("no screenshot files found");
+        return true;
+      }
+      const subfolders = new Set<string>();
+      let moved = 0;
+      for (const entry of matches) {
+        const d = new Date(entry.modified_ms);
+        if (!Number.isFinite(d.getTime())) continue;
+        const yyyy = d.getFullYear();
+        const mm = String(d.getMonth() + 1).padStart(2, "0");
+        const sub = `${yyyy}-${mm}`;
+        const targetDir = joinToolPath(ctx.cwd, sub);
+        try {
+          if (!subfolders.has(sub)) {
+            await makeDir(targetDir);
+            subfolders.add(sub);
+          }
+          const dest = joinToolPath(targetDir, entry.name);
+          await moveEntry(entry.path, dest);
+          moved++;
+        } catch (e) {
+          console.log(`[tools] Screenshot Auto-sort: failed for ${entry.path}:`, e);
+        }
+      }
+      window.alert(`moved ${moved} screenshots into Y-MM subfolders`);
+      ctx.refresh();
       return true;
     }
 
@@ -181,10 +326,19 @@ export const toolsHandler: Handler = async (label, ctx) => {
     case "Find File by Name (fuzzy)":
     case "Find File by Name": {
       const pattern = window.prompt("Find file by name:");
-      if (pattern == null) return true;
-      console.log(
-        `[tools] not implemented: Find File by Name (pattern=${pattern}) — backend findFileByName not present`,
-      );
+      if (pattern == null || pattern.trim() === "") return true;
+      try {
+        const matches = await findFileByName(ctx.cwd, pattern, 500);
+        if (matches.length === 0) {
+          window.alert(`No matches for "${pattern}"`);
+        } else {
+          const top = matches.slice(0, 20).join("\n");
+          const extra = matches.length > 20 ? `\n… (${matches.length - 20} more)` : "";
+          window.alert(`Matches for "${pattern}" (${matches.length}):\n${top}${extra}`);
+        }
+      } catch (e) {
+        console.log(`[tools] findFileByName failed (pattern=${pattern}):`, e);
+      }
       return true;
     }
 
@@ -212,9 +366,30 @@ export const toolsHandler: Handler = async (label, ctx) => {
       return true;
     }
 
-    case "Clipboard Stack":
+    case "Clipboard Stack": {
+      const current = ctx.clipboardPaths?.() ?? [];
+      if (current.length > 0) {
+        clipboardStack.push(current);
+        if (clipboardStack.length > 10) clipboardStack.shift();
+      }
+      if (clipboardStack.length === 0) {
+        window.alert("Clipboard stack is empty.");
+      } else {
+        const lines = clipboardStack
+          .map((entry, i) => `${i + 1}. [${entry.length}] ${entry.join(", ")}`)
+          .join("\n");
+        window.alert(`Clipboard Stack (${clipboardStack.length}):\n${lines}`);
+      }
+      return true;
+    }
+
     case "File Queue": {
-      console.log(`[tools] not implemented: ${label}`);
+      const cb = ctx.clipboardPaths?.() ?? [];
+      if (cb.length === 0) {
+        window.alert("queue empty");
+      } else {
+        window.alert(`File Queue (${cb.length}):\n${cb.join("\n")}`);
+      }
       return true;
     }
 
@@ -254,13 +429,48 @@ export const toolsHandler: Handler = async (label, ctx) => {
 
     case "Change Owner (chown)…":
     case "Change Owner": {
-      console.log("[tools] not implemented: Change Owner");
+      const p = ctx.firstPath;
+      if (!p) {
+        console.log("[tools] Change Owner: no selection");
+        return true;
+      }
+      const owner = window.prompt("Owner (uid:gid):");
+      if (owner == null || owner.trim() === "") return true;
+      try {
+        await changeOwner(p, owner.trim());
+        window.alert(`chown ${owner} ${p}: ok`);
+        ctx.refresh();
+      } catch (e) {
+        console.log(`[tools] changeOwner failed for ${p}:`, e);
+        window.alert(`chown failed: ${e}`);
+      }
       return true;
     }
 
     case "Connect to Server…":
     case "Connect to Server": {
-      console.log("[tools] not implemented: Connect to Server");
+      const host = window.prompt("Server (user@host:port):");
+      if (host == null || host.trim() === "") return true;
+      const label2 = window.prompt("Label:", host.trim()) ?? host.trim();
+      const key = "glasshouse.remote.servers";
+      let list: { label: string; host: string }[] = [];
+      try {
+        const raw = localStorage.getItem(key);
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (Array.isArray(parsed)) list = parsed;
+        }
+      } catch (e) {
+        console.log("[tools] Connect to Server: failed to read existing list:", e);
+      }
+      list.push({ label: label2, host: host.trim() });
+      try {
+        localStorage.setItem(key, JSON.stringify(list));
+      } catch (e) {
+        console.log("[tools] Connect to Server: failed to persist:", e);
+      }
+      window.alert(`Saved server: ${label2} (${host.trim()})`);
+      ctx.refresh();
       return true;
     }
 

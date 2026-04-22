@@ -83,6 +83,14 @@ export const gitHandler: Handler = async (label, ctx) => {
     case "Git: Checkout Branch →": {
       return true;
     }
+    case "* main":
+    case "  feat/command-palette":
+    case "  wip/theme-switcher": {
+      const branch = label.replace(/^[*\s]+/, "").trim();
+      await spawnTerminal(ctx.cwd);
+      console.log(`git intent: checkout ${branch}`);
+      return true;
+    }
     default:
       return false;
   }

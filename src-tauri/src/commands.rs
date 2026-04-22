@@ -1316,3 +1316,380 @@ pub fn diff_files(a: String, b: String) -> Result<String, String> {
     let diff = similar::TextDiff::from_lines(a_text, b_text);
     Ok(diff.unified_diff().header(a_name, b_name).to_string())
 }
+
+// ---------- find file by name ----------
+
+/// Walk `root` recursively via ignore::WalkBuilder honoring .gitignore/hidden,
+/// and return up to `max_results` paths whose filename contains `pattern`
+/// (case-insensitive substring match). Empty pattern → empty result.
+#[tauri::command]
+pub fn find_file_by_name(
+    root: String,
+    pattern: String,
+    max_results: u32,
+) -> Result<Vec<String>, String> {
+    use ignore::WalkBuilder;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::{Arc, Mutex};
+
+    if pattern.is_empty() {
+        return Ok(Vec::new());
+    }
+    let cap = if max_results == 0 { 500 } else { max_results.min(10_000) } as usize;
+    let needle = pattern.to_ascii_lowercase();
+
+    let results: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+    let done = Arc::new(AtomicBool::new(false));
+
+    let walker = WalkBuilder::new(&root).standard_filters(true).build_parallel();
+    walker.run(|| {
+        let results = Arc::clone(&results);
+        let done = Arc::clone(&done);
+        let needle = needle.clone();
+        Box::new(move |entry| {
+            use ignore::WalkState;
+            if done.load(Ordering::Relaxed) {
+                return WalkState::Quit;
+            }
+            let entry = match entry {
+                Ok(e) => e,
+                Err(_) => return WalkState::Continue,
+            };
+            let name = entry.file_name().to_string_lossy().to_ascii_lowercase();
+            if !name.contains(&needle) {
+                return WalkState::Continue;
+            }
+            let path_str = entry.path().to_string_lossy().to_string();
+            let mut guard = match results.lock() {
+                Ok(g) => g,
+                Err(_) => return WalkState::Continue,
+            };
+            if guard.len() >= cap {
+                done.store(true, Ordering::Relaxed);
+                return WalkState::Quit;
+            }
+            guard.push(path_str);
+            if guard.len() >= cap {
+                done.store(true, Ordering::Relaxed);
+                return WalkState::Quit;
+            }
+            WalkState::Continue
+        })
+    });
+
+    let out = Arc::try_unwrap(results)
+        .map(|m| m.into_inner().unwrap_or_default())
+        .unwrap_or_else(|arc| arc.lock().map(|g| g.clone()).unwrap_or_default());
+    Ok(out)
+}
+
+// ---------- symlink / hard link ----------
+
+/// Create a symbolic link at `link_path` pointing at `target`. On windows,
+/// chooses symlink_dir when the target is an existing directory, else
+/// symlink_file. Requires developer mode or admin on pre-1703 Windows.
+#[tauri::command]
+pub fn create_symlink(target: String, link_path: String) -> Result<(), String> {
+    #[cfg(unix)]
+    {
+        std::os::unix::fs::symlink(&target, &link_path)
+            .map_err(|e| format!("symlink {} -> {}: {}", link_path, target, e))
+    }
+    #[cfg(windows)]
+    {
+        let is_dir = std::fs::metadata(&target).map(|m| m.is_dir()).unwrap_or(false);
+        let res = if is_dir {
+            std::os::windows::fs::symlink_dir(&target, &link_path)
+        } else {
+            std::os::windows::fs::symlink_file(&target, &link_path)
+        };
+        res.map_err(|e| format!("symlink {} -> {}: {}", link_path, target, e))
+    }
+    #[cfg(not(any(unix, windows)))]
+    {
+        let _ = (target, link_path);
+        Err("create_symlink: unsupported platform".into())
+    }
+}
+
+/// Create a hard link at `link_path` pointing at `target`. Requires both on
+/// the same volume; errors otherwise.
+#[tauri::command]
+pub fn create_hard_link(target: String, link_path: String) -> Result<(), String> {
+    std::fs::hard_link(&target, &link_path)
+        .map_err(|e| format!("hard_link {} -> {}: {}", link_path, target, e))
+}
+
+// ---------- create shortcut (.lnk) ----------
+
+/// Create a Windows .lnk shortcut at `link_path` pointing at `target`. Shells
+/// out to PowerShell's WScript.Shell COM object — no extra Cargo deps. Errors
+/// when `link_path` does not end in `.lnk`, or on non-Windows platforms.
+#[tauri::command]
+pub fn create_shortcut(target: String, link_path: String) -> Result<(), String> {
+    if !link_path.to_ascii_lowercase().ends_with(".lnk") {
+        return Err("link path must end with .lnk".into());
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        use std::process::Command;
+
+        let script = format!(
+            "$s = (New-Object -ComObject WScript.Shell).CreateShortcut('{}'); $s.TargetPath='{}'; $s.Save()",
+            link_path.replace('\'', "''"),
+            target.replace('\'', "''"),
+        );
+        let out = Command::new("powershell.exe")
+            .args(["-NoProfile", "-NonInteractive", "-Command", &script])
+            .creation_flags(CREATE_NO_WINDOW)
+            .output()
+            .map_err(|e| format!("powershell: {}", e))?;
+        if !out.status.success() {
+            let stderr = String::from_utf8_lossy(&out.stderr).trim().to_string();
+            return Err(format!("create_shortcut: {}", stderr));
+        }
+        Ok(())
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = target;
+        Err("create_shortcut is Windows-only".into())
+    }
+}
+
+// ---------- shred ----------
+
+/// Overwrite `path` with fixed-pattern passes (cycling 0xFF, 0x00, 0xAA) then
+/// delete it. Files only; rejects directories. `passes` is clamped to 1..=10.
+#[tauri::command]
+pub fn shred(path: String, passes: u32) -> Result<(), String> {
+    use std::fs::OpenOptions;
+    use std::io::{Seek, SeekFrom, Write};
+
+    let meta = std::fs::metadata(&path).map_err(|e| format!("stat {}: {}", path, e))?;
+    if meta.is_dir() {
+        return Err(format!("shred: {} is a directory", path));
+    }
+    let len = meta.len();
+    let n = passes.clamp(1, 10);
+    let patterns: [u8; 3] = [0xFF, 0x00, 0xAA];
+
+    let mut f = OpenOptions::new()
+        .write(true)
+        .open(&path)
+        .map_err(|e| format!("open {}: {}", path, e))?;
+
+    const CHUNK: usize = 64 * 1024;
+    for i in 0..n {
+        let byte = patterns[(i as usize) % patterns.len()];
+        let buf = vec![byte; CHUNK];
+        f.seek(SeekFrom::Start(0))
+            .map_err(|e| format!("seek {}: {}", path, e))?;
+        let mut remaining = len;
+        while remaining > 0 {
+            let w = remaining.min(CHUNK as u64) as usize;
+            f.write_all(&buf[..w])
+                .map_err(|e| format!("write {}: {}", path, e))?;
+            remaining -= w as u64;
+        }
+        f.flush().map_err(|e| format!("flush {}: {}", path, e))?;
+        f.sync_all().ok();
+    }
+    drop(f);
+    std::fs::remove_file(&path).map_err(|e| format!("remove {}: {}", path, e))
+}
+
+// ---------- verify signature ----------
+
+/// Verify the Authenticode signature on `path`. Returns "valid", "invalid",
+/// or "unsigned". Windows only; shells out to PowerShell Get-AuthenticodeSignature
+/// to avoid hand-rolling WinVerifyTrust bindings.
+#[tauri::command]
+pub fn verify_signature(path: String) -> Result<String, String> {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        use std::process::Command;
+
+        let script = format!(
+            "(Get-AuthenticodeSignature -FilePath '{}').Status",
+            path.replace('\'', "''")
+        );
+        let out = Command::new("powershell.exe")
+            .args(["-NoProfile", "-NonInteractive", "-Command", &script])
+            .creation_flags(CREATE_NO_WINDOW)
+            .output()
+            .map_err(|e| format!("powershell: {}", e))?;
+        if !out.status.success() {
+            let stderr = String::from_utf8_lossy(&out.stderr).trim().to_string();
+            return Err(format!("verify_signature: {}", stderr));
+        }
+        let status = String::from_utf8_lossy(&out.stdout).trim().to_string();
+        let result = match status.as_str() {
+            "Valid" => "valid",
+            "NotSigned" | "MissingSignature" => "unsigned",
+            _ => "invalid",
+        };
+        Ok(result.to_string())
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = path;
+        Err("verify_signature: windows only".into())
+    }
+}
+
+// ---------- change owner ----------
+
+/// Change ownership of `path`. On unix accepts "uid:gid" with numeric ids
+/// (either side may be omitted: "uid:", ":gid"). On windows returns an
+/// unsupported error.
+#[tauri::command]
+pub fn change_owner(path: String, owner: String) -> Result<(), String> {
+    #[cfg(unix)]
+    {
+        let (uid_s, gid_s) = owner
+            .split_once(':')
+            .ok_or_else(|| "change_owner: expected 'uid:gid'".to_string())?;
+        let uid = if uid_s.is_empty() {
+            None
+        } else {
+            Some(uid_s.parse::<u32>().map_err(|_| "change_owner: non-numeric uid".to_string())?)
+        };
+        let gid = if gid_s.is_empty() {
+            None
+        } else {
+            Some(gid_s.parse::<u32>().map_err(|_| "change_owner: non-numeric gid".to_string())?)
+        };
+        std::os::unix::fs::chown(&path, uid, gid)
+            .map_err(|e| format!("chown {}: {}", path, e))
+    }
+    #[cfg(windows)]
+    {
+        let _ = (path, owner);
+        Err("change_owner: not supported on windows".into())
+    }
+    #[cfg(not(any(unix, windows)))]
+    {
+        let _ = (path, owner);
+        Err("change_owner: unsupported platform".into())
+    }
+}
+
+// ---------- run script ----------
+
+/// Execute `script` with `targets` as positional arguments, blocking until it
+/// exits, and return combined output as "stdout\n---STDERR---\nstderr". On
+/// windows, `.ps1` is run via `powershell -File`, `.bat`/`.cmd` via `cmd /c`,
+/// otherwise executed directly.
+#[tauri::command]
+pub fn run_script(script: String, targets: Vec<String>) -> Result<String, String> {
+    use std::process::Command;
+
+    let lower = script.to_ascii_lowercase();
+    let mut cmd;
+    #[cfg(windows)]
+    {
+        if lower.ends_with(".ps1") {
+            cmd = Command::new("powershell.exe");
+            cmd.args(["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", &script]);
+        } else if lower.ends_with(".bat") || lower.ends_with(".cmd") {
+            cmd = Command::new("cmd");
+            cmd.args(["/C", &script]);
+        } else {
+            cmd = Command::new(&script);
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = lower;
+        cmd = Command::new(&script);
+    }
+    for t in &targets {
+        cmd.arg(t);
+    }
+
+    let output = cmd
+        .output()
+        .map_err(|e| format!("run_script {}: {}", script, e))?;
+    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+    Ok(format!("{}\n---STDERR---\n{}", stdout, stderr))
+}
+
+// ---------- open url ----------
+
+/// Open `url` in the system default browser.
+#[tauri::command]
+pub fn open_url(url: String) -> Result<(), String> {
+    #[cfg(windows)]
+    {
+        std::process::Command::new("cmd")
+            .args(["/C", "start", "", &url])
+            .spawn()
+            .map(|_| ())
+            .map_err(|e| format!("open_url: {}", e))
+    }
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open")
+            .arg(&url)
+            .spawn()
+            .map(|_| ())
+            .map_err(|e| format!("open_url: {}", e))
+    }
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        std::process::Command::new("xdg-open")
+            .arg(&url)
+            .spawn()
+            .map(|_| ())
+            .map_err(|e| format!("open_url: {}", e))
+    }
+}
+
+// ---------- spawn new window ----------
+
+/// Launch a detached copy of the current executable (new app window).
+#[tauri::command]
+pub fn spawn_new_window() -> Result<(), String> {
+    use std::process::{Command, Stdio};
+    let exe = std::env::current_exe()
+        .map_err(|e| format!("current_exe: {}", e))?;
+
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        let child = Command::new(&exe)
+            .creation_flags(CREATE_NO_WINDOW)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .map_err(|e| format!("spawn_new_window: {}", e))?;
+        drop(child);
+        Ok(())
+    }
+    #[cfg(not(windows))]
+    {
+        let child = Command::new(&exe)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .map_err(|e| format!("spawn_new_window: {}", e))?;
+        drop(child);
+        Ok(())
+    }
+}
+
+// ---------- window always-on-top ----------
+
+/// Toggle the always-on-top flag on the invoking window.
+#[tauri::command]
+pub fn set_always_on_top(window: tauri::Window, enabled: bool) -> Result<(), String> {
+    window
+        .set_always_on_top(enabled)
+        .map_err(|e| format!("set_always_on_top: {}", e))
+}
