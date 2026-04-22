@@ -1,0 +1,31 @@
+# Node
+node_modules/
+dist/
+dist-ssr/
+.vite/
+pnpm-debug.log*
+
+# Rust / Tauri
+/src-tauri/target/
+/src-tauri/gen/schemas/
+Cargo.lock.bak
+
+# OS
+.DS_Store
+Thumbs.db
+*:Zone.Identifier
+
+# Editor
+.vscode/*
+!.vscode/extensions.json
+.idea/
+*.swp
+
+# Build artefacts
+*.exe
+*.msi
+*.pdb
+
+# Env
+.env
+.env.local
