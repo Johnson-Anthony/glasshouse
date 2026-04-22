@@ -14,6 +14,7 @@ import {
   BulkRenameDialog,
   PasteSpecialDialog,
   BlameDialog,
+  GitOutputDialog,
   HexDialog,
   DiffDialog,
   ConnectServerDialog,
@@ -25,6 +26,8 @@ import {
   type TabDef,
   type TweakState,
   type ContextKind,
+  type GitOutputState,
+  setDynamicGitCwd,
 } from "./components";
 import { CONTEXT_FILE, CONTEXT_EMPTY, CONTEXT_SIDEBAR, CONTEXT_SIDEBAR_PINNED, CONTEXT_TAB, CONTEXT_BREADCRUMB, type MenuItemDef, type DynamicPayload, type FileRow, type FileKind, type GitStatus } from "./data";
 import {
@@ -419,6 +422,7 @@ export function App() {
   const [pins, setPins] = useState<string[]>([]);
   const [tagStore, setTagStore] = useState<Record<string, string[]>>({});
   const [blame, setBlame] = useState<{ path: string; lines: BlameLine[] } | null>(null);
+  const [gitOutput, setGitOutput] = useState<GitOutputState | null>(null);
   const [hexView, setHexView] = useState<{ path: string; hex: string } | null>(null);
   const [diffView, setDiffView] = useState<{ a: string; b: string; diff: string } | null>(null);
   const [showFindModal, setShowFindModal] = useState(false);
@@ -1217,6 +1221,7 @@ export function App() {
             setBlame,
             setHexView,
             setDiffView,
+            setGitOutput,
             clipboardPaths: () => appClipboard?.paths ?? [],
             pushUndo,
             undo: () => {
@@ -1359,6 +1364,13 @@ export function App() {
 
   const totalBytes = liveRows.reduce((acc, r) => acc + (r.kind === "folder" ? 0 : r.entry.size), 0);
   const totalSize = formatBytes(totalBytes, false);
+
+  const currentCwd = activeHandle?.state.path ?? "";
+  // Feed cwd into the module-level ref used by loadDynamic's "git-branches"
+  // case so the Git > Branches submenu resolves against the active tab.
+  useEffect(() => {
+    setDynamicGitCwd(currentCwd);
+  }, [currentCwd]);
 
   return (
     <div className="app">
@@ -1543,6 +1555,7 @@ export function App() {
       {ctx && <ContextMenu items={ctx.items} x={ctx.x} y={ctx.y} onClose={() => setCtx(null)} onCommand={handleMenuCommand} onPayload={handleMenuPayload} />}
       {tweaksOpen && <Tweaks state={state} setState={setState} onClose={() => setTweaksOpen(false)} />}
       {blame && <BlameDialog blame={blame} onClose={() => setBlame(null)} />}
+      {gitOutput && <GitOutputDialog state={gitOutput} onClose={() => setGitOutput(null)} />}
       {hexView && <HexDialog path={hexView.path} hex={hexView.hex} onClose={() => setHexView(null)} />}
       {diffView && <DiffDialog a={diffView.a} b={diffView.b} diff={diffView.diff} onClose={() => setDiffView(null)} />}
       {showFindModal && (

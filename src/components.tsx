@@ -8,7 +8,7 @@ import {
   type MenuItemDef,
   type DynamicPayload,
 } from "./data";
-import { drives as apiDrives, fileStatExtended, gitFileInfo, hashCrc32, hashMd5, hashSha256, homeDir as apiHomeDir, listDir, listShellProfiles, netRate, pathFsType, readImageB64, readPins, readRecent, readTags, readText, setPermissions, systemInfo as apiSystemInfo, winClose, winMinimize, winToggleMaximize, writeTags, writeText, type BlameLine, type Drive, type FileEntry, type FileStatExt, type GitFileInfo, type GitInfo, type NetRate, type ShellProfile, type SystemInfo } from "./api";
+import { drives as apiDrives, fileStatExtended, gitBranchList, gitFileInfo, hashCrc32, hashMd5, hashSha256, homeDir as apiHomeDir, listDir, listShellProfiles, netRate, pathFsType, readImageB64, readPins, readRecent, readTags, readText, setPermissions, systemInfo as apiSystemInfo, winClose, winMinimize, winToggleMaximize, writeTags, writeText, type BlameLine, type Drive, type FileEntry, type FileStatExt, type GitFileInfo, type GitInfo, type NetRate, type ShellProfile, type SystemInfo } from "./api";
 import { getVersion } from "@tauri-apps/api/app";
 import { fuzzyFilter } from "./fuzzy";
 
@@ -19,7 +19,15 @@ import { fuzzyFilter } from "./fuzzy";
 // path or run a terminal profile. Results are cached per-mount in component
 // state, so the menu only fetches once per open.
 
-type DynamicSource = "recent" | "bookmarks-pinned" | "terminal-profiles" | "ssh-hosts";
+type DynamicSource = "recent" | "bookmarks-pinned" | "terminal-profiles" | "ssh-hosts" | "git-branches";
+
+// Git branch resolver needs cwd; loadDynamic is cwd-agnostic, so App sets
+// this module-level ref on tab change. Hacky but avoids threading cwd
+// through every menu prop.
+let currentCwdForBranches = "";
+export function setDynamicGitCwd(cwd: string): void {
+  currentCwdForBranches = cwd;
+}
 
 async function loadDynamic(source: DynamicSource): Promise<MenuItemDef[]> {
   switch (source) {
@@ -56,6 +64,21 @@ async function loadDynamic(source: DynamicSource): Promise<MenuItemDef[]> {
           label: profile.label,
           payload: { type: "run-profile", profile },
         }));
+    }
+    case "git-branches": {
+      if (!currentCwdForBranches) return [];
+      try {
+        const branches = await gitBranchList(currentCwdForBranches);
+        return branches.map<MenuItemDef>((b) => ({
+          kind: "item",
+          // show * prefix on current; dispatch via action so handler can
+          // identify the target without parsing cosmetic prefixes.
+          label: `${b.current ? "* " : "  "}${b.name}`,
+          action: `git-branch:${b.name}`,
+        }));
+      } catch {
+        return [];
+      }
     }
   }
 }
@@ -162,6 +185,7 @@ export function Titlebar({ tabs, activeTab, onSelectTab, onCloseTab, onNewTab, o
 }
 
 // ============= Menu bar + dropdown =============
+
 interface MenuItemProps {
   item: MenuItemDef;
   onAction?: (label: string) => void;
@@ -190,7 +214,13 @@ function MenuItem({ item, onAction, onPayload, onSubHover, subOpen }: MenuItemPr
       onClick={() => {
         if (isSub) return;
         if (payload && onPayload) onPayload(payload);
-        else if (onAction) onAction(item.label);
+        else if (onAction) {
+          // `action` field lets a dynamic entry display one label ("main")
+          // while dispatching another ("git-branch:main") so branch click
+          // handlers can identify the target without parsing cosmetics.
+          const dispatch = item.kind === "item" && item.action ? item.action : item.label;
+          onAction(dispatch);
+        }
       }}
     >
       <span className="ic">{check ? "✓" : ic || ""}</span>
@@ -2745,6 +2775,92 @@ export function BlameDialog({ blame, onClose }: BlameDialogProps) {
             </div>
           ))}
         </div>
+      </div>
+    </div>
+  );
+}
+
+// ============= GitOutputDialog =============
+export interface GitOutputState {
+  title: string;
+  output: string;
+  ok: boolean;
+  exit?: number;
+  stderr?: string;
+}
+
+export interface GitOutputDialogProps {
+  state: GitOutputState;
+  onClose: () => void;
+}
+
+export function GitOutputDialog({ state, onClose }: GitOutputDialogProps) {
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        onClose();
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [onClose]);
+
+  const statusColor = state.ok ? "var(--green, #9ece6a)" : "var(--red, #f7768e)";
+  const statusLabel = state.ok ? "ok" : `exit ${state.exit ?? "?"}`;
+
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)",
+        zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center",
+      }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          width: "100ch", maxWidth: "95vw", maxHeight: "85vh",
+          background: "var(--bg-1, #1a1b26)", border: "1px solid var(--fg-3)",
+          borderRadius: 4, display: "flex", flexDirection: "column",
+          fontFamily: "var(--font-mono)", color: "var(--fg-1)",
+        }}
+      >
+        <div
+          style={{
+            display: "flex", alignItems: "center", justifyContent: "space-between",
+            padding: "8px 12px", borderBottom: "1px solid var(--fg-3)",
+            background: "var(--bg-2, #16161e)",
+          }}
+        >
+          <span style={{ color: "var(--accent)" }}>⎇ {state.title}</span>
+          <span style={{ color: statusColor, fontSize: 12 }}>{statusLabel}</span>
+          <button
+            onClick={onClose}
+            style={{
+              background: "transparent", border: "1px solid var(--fg-3)", color: "var(--fg-1)",
+              padding: "2px 8px", cursor: "pointer", borderRadius: 2,
+            }}
+            aria-label="close"
+          >×</button>
+        </div>
+        <pre
+          style={{
+            margin: 0, padding: "10px 12px", overflow: "auto", flex: 1,
+            fontSize: 12, lineHeight: 1.45, whiteSpace: "pre-wrap", wordBreak: "break-word",
+            color: "var(--fg-1)",
+          }}
+        >{state.output || "(no output)"}</pre>
+        {!state.ok && state.stderr && state.stderr !== state.output && (
+          <pre
+            style={{
+              margin: 0, padding: "8px 12px", borderTop: "1px solid var(--fg-3)",
+              background: "var(--bg-2, #16161e)", color: "var(--red, #f7768e)",
+              fontSize: 12, lineHeight: 1.45, whiteSpace: "pre-wrap",
+              maxHeight: "30vh", overflow: "auto",
+            }}
+          >{state.stderr}</pre>
+        )}
       </div>
     </div>
   );

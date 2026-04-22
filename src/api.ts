@@ -191,6 +191,36 @@ export function gitDiscard(paths: string[]): Promise<void> {
   return invoke<void>("git_discard", { paths });
 }
 
+export interface GitRunResult {
+  ok: boolean;
+  stdout: string;
+  stderr: string;
+  exit: number;
+}
+
+export interface GitBranch {
+  name: string;
+  current: boolean;
+  upstream: string | null;
+  ahead: number;
+  behind: number;
+}
+
+export function gitRun(cwd: string, args: string[]): Promise<GitRunResult> {
+  if (!TAURI_AVAILABLE) return Promise.reject(new Error("tauri unavailable"));
+  return invoke<GitRunResult>("git_run", { cwd, args });
+}
+
+export function gitBranchList(cwd: string): Promise<GitBranch[]> {
+  if (!TAURI_AVAILABLE) return Promise.reject(new Error("tauri unavailable"));
+  return invoke<GitBranch[]>("git_branch_list", { cwd });
+}
+
+export function gitAheadBehind(cwd: string): Promise<[number, number]> {
+  if (!TAURI_AVAILABLE) return Promise.reject(new Error("tauri unavailable"));
+  return invoke<[number, number]>("git_ahead_behind", { cwd });
+}
+
 export function findInFiles(
   root: string,
   query: string,
