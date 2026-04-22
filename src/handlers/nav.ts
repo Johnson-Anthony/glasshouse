@@ -39,9 +39,11 @@ export const navHandler: Handler = (label, ctx) => {
 
     case "Move Tab Left":
     case "Move Tab ←":
+      ctx.moveTab?.(ctx.activeTab, Math.max(0, ctx.activeTab - 1));
+      return true;
     case "Move Tab Right":
     case "Move Tab →":
-      console.log(`[nav] not implemented: ${label}`);
+      ctx.moveTab?.(ctx.activeTab, Math.min(ctx.tabs.length - 1, ctx.activeTab + 1));
       return true;
 
     case "New Window":
@@ -50,7 +52,7 @@ export const navHandler: Handler = (label, ctx) => {
       return true;
 
     case "New Tab":
-      console.log("[nav] not implemented: New Tab");
+      ctx.newTab?.(ctx.cwd);
       return true;
 
     case "New Private Session":

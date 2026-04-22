@@ -70,6 +70,69 @@ function parentPath(p: string): string {
   return trimmed.slice(0, idx) || sep;
 }
 
+// ─── Undo/redo stack ──────────────────────────────────────────────────────
+// In-memory, frontend-only. Bounded at 20 entries; oldest shifts out.
+// pushUndo clears the redo stack (fresh action invalidates forward history).
+
+export type UndoEntry = { label: string; inverse: () => Promise<void> | void };
+
+const UNDO_LIMIT = 20;
+
+export const undoStack: UndoEntry[] = [];
+export const redoStack: UndoEntry[] = [];
+
+export function clearRedo(): void {
+  redoStack.length = 0;
+}
+
+export function pushUndo(entry: UndoEntry): void {
+  undoStack.push(entry);
+  if (undoStack.length > UNDO_LIMIT) undoStack.shift();
+  clearRedo();
+}
+
+export function popUndo(): UndoEntry | undefined {
+  const entry = undoStack.pop();
+  if (entry) {
+    redoStack.push(entry);
+    if (redoStack.length > UNDO_LIMIT) redoStack.shift();
+  }
+  return entry;
+}
+
+export function popRedo(): UndoEntry | undefined {
+  const entry = redoStack.pop();
+  if (entry) {
+    undoStack.push(entry);
+    if (undoStack.length > UNDO_LIMIT) undoStack.shift();
+  }
+  return entry;
+}
+
+// ─── Tab list state ───────────────────────────────────────────────────────
+// state.ts doesn't own the tab array (App.tsx does). Provide module-level
+// helpers that App wires up by registering a mutator; handlers call
+// moveTab/newTab and the registered callbacks do the actual setState.
+
+export type TabListMutator = {
+  moveTab: (from: number, to: number) => void;
+  newTab: (path?: string) => void;
+};
+
+let tabListMutator: TabListMutator | null = null;
+
+export function registerTabListMutator(m: TabListMutator | null): void {
+  tabListMutator = m;
+}
+
+export function moveTab(from: number, to: number): void {
+  tabListMutator?.moveTab(from, to);
+}
+
+export function newTab(path?: string): void {
+  tabListMutator?.newTab(path);
+}
+
 export function useTabState(initialPath: string): UseTabResult {
   const [path, setPath] = useState<string>(initialPath);
   const [entries, setEntries] = useState<FileEntry[]>([]);

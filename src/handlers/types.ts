@@ -23,6 +23,12 @@ export interface HandlerCtx {
   setActiveTab: (i: number) => void;
   setBlame: (b: { path: string; lines: BlameLine[] } | null) => void;
   refresh: () => void;
+  // Optional — wired up by App.tsx in a later pass. Handlers use `ctx.undo?.()` etc.
+  pushUndo?: (entry: { label: string; inverse: () => Promise<void> | void }) => void;
+  undo?: () => void;
+  redo?: () => void;
+  moveTab?: (from: number, to: number) => void;
+  newTab?: (path?: string) => void;
 }
 
 export type Handler = (label: string, ctx: HandlerCtx) => Promise<boolean> | boolean;

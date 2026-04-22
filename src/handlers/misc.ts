@@ -155,8 +155,10 @@ export const miscHandler: Handler = async (label, ctx) => {
 
     // ─── Undo / Redo ──────────────────────────────────────────────────────
     case "Undo":
+      ctx.undo?.();
+      return true;
     case "Redo":
-      console.log(`[misc] not implemented: ${label}`);
+      ctx.redo?.();
       return true;
 
     // ─── Terminal misc ────────────────────────────────────────────────────
