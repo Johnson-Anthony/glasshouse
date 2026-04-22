@@ -24,6 +24,7 @@ pub fn run() {
             commands::read_text,
             commands::write_text,
             commands::git_status,
+            commands::git_blame,
             commands::open_with_default,
             commands::reveal_in_explorer,
             commands::spawn_terminal,

@@ -13,6 +13,10 @@ pub struct FileEntry {
     pub hidden: bool,
     pub ext: String,
     pub is_symlink: bool,
+    /// Per-row git status relative to the repo containing the listing dir.
+    /// One of: "M" (modified), "A" (added/new), "D" (deleted), "U" (conflicted),
+    /// "?" (untracked), "!" (ignored). `None` for clean-tracked or outside-repo.
+    pub git: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -94,7 +98,21 @@ pub fn list_dir(path: String, show_hidden: bool) -> Result<Vec<FileEntry>, Strin
             hidden,
             ext,
             is_symlink,
+            git: None,
         });
+    }
+    // Compute per-row git status by opening the repo containing this dir, if
+    // any, and building an absolute-path -> status-char map. Cheap on
+    // normally-sized repos (single-digit ms for <1k files). If anything
+    // fails (no repo, corrupt, permissions), fall through with all `git`
+    // fields left None — we just don't show the column.
+    if let Some(git_map) = scan_repo_statuses(&p) {
+        for fe in out.iter_mut() {
+            let key = canonicalize_soft(&fe.path);
+            if let Some(flag) = git_map.get(&key) {
+                fe.git = Some(flag.clone());
+            }
+        }
     }
     out.sort_by(|a, b| match (a.kind == "folder", b.kind == "folder") {
         (true, false) => std::cmp::Ordering::Less,
@@ -102,6 +120,64 @@ pub fn list_dir(path: String, show_hidden: bool) -> Result<Vec<FileEntry>, Strin
         _ => a.name.to_ascii_lowercase().cmp(&b.name.to_ascii_lowercase()),
     });
     Ok(out)
+}
+
+/// Walk `repo.statuses()` once and return a map of absolute-canonicalized
+/// paths to a single-char status code. Returns None when we couldn't open
+/// a repo at all (treat as "outside-repo; don't annotate").
+fn scan_repo_statuses(dir: &Path) -> Option<HashMap<PathBuf, String>> {
+    use git2::{Repository, Status, StatusOptions};
+    let repo = Repository::discover(dir).ok()?;
+    let workdir = repo.workdir()?.to_path_buf();
+    let mut opts = StatusOptions::new();
+    opts.include_untracked(true)
+        .include_ignored(false)
+        .recurse_untracked_dirs(false);
+    let statuses = repo.statuses(Some(&mut opts)).ok()?;
+    let mut out: HashMap<PathBuf, String> = HashMap::new();
+    for s in statuses.iter() {
+        let rel = match s.path() {
+            Some(p) => p,
+            None => continue,
+        };
+        let flags = s.status();
+        // Single-char code per task spec. Priority ordering: conflict > add >
+        // delete > modify > untracked > ignored. Conflicted entries set
+        // Status::CONFLICTED on modern libgit2.
+        let code = if flags.contains(Status::CONFLICTED) {
+            "U"
+        } else if flags.contains(Status::INDEX_NEW) || flags.contains(Status::WT_NEW) {
+            // WT_NEW is the "untracked" state; keep untracked separate if
+            // nothing is staged.
+            if flags.contains(Status::INDEX_NEW) {
+                "A"
+            } else {
+                "?"
+            }
+        } else if flags.contains(Status::WT_DELETED) || flags.contains(Status::INDEX_DELETED) {
+            "D"
+        } else if flags.contains(Status::WT_MODIFIED)
+            || flags.contains(Status::INDEX_MODIFIED)
+            || flags.contains(Status::WT_RENAMED)
+            || flags.contains(Status::INDEX_RENAMED)
+            || flags.contains(Status::WT_TYPECHANGE)
+            || flags.contains(Status::INDEX_TYPECHANGE)
+        {
+            "M"
+        } else if flags.contains(Status::IGNORED) {
+            "!"
+        } else {
+            continue;
+        };
+        // `rel` can include a trailing slash for untracked directories. Trim
+        // it before joining so the resulting PathBuf lines up with the
+        // canonicalized FileEntry paths we look up against later.
+        let rel_trim = rel.trim_end_matches(|c| c == '/' || c == '\\');
+        let abs = workdir.join(rel_trim);
+        let key = dunce::canonicalize(&abs).unwrap_or(abs);
+        out.insert(key, code.to_string());
+    }
+    Some(out)
 }
 
 #[cfg(windows)]
@@ -623,4 +699,82 @@ pub fn write_tags(app: AppHandle, tags: HashMap<String, Vec<String>>) -> Result<
     let path = config_file(&app, "tags.json")?;
     let body = serde_json::to_string(&tags).map_err(|e| e.to_string())?;
     std::fs::write(&path, body).map_err(|e| e.to_string())
+}
+
+// ---------- git blame ----------
+
+#[derive(Debug, Serialize)]
+pub struct BlameLine {
+    pub line_no: u32,
+    pub sha: String,
+    pub author: String,
+    pub content: String,
+    pub timestamp_ms: i64,
+}
+
+const BLAME_MAX_CAP: u32 = 2000;
+
+#[tauri::command]
+pub fn git_blame(path: String, max_lines: u32) -> Result<Vec<BlameLine>, String> {
+    use git2::{BlameOptions, Repository};
+    let abs = canonicalize_soft(&path);
+    let repo = Repository::discover(&abs).map_err(|e| format!("not a git repo: {}", e))?;
+    let workdir = repo
+        .workdir()
+        .ok_or_else(|| "bare repo has no workdir".to_string())?
+        .to_path_buf();
+    let rel = abs
+        .strip_prefix(&workdir)
+        .map_err(|_| format!("{} is not inside repo {}", abs.display(), workdir.display()))?
+        .to_path_buf();
+
+    let mut opts = BlameOptions::new();
+    opts.track_copies_same_file(true);
+    let blame = repo
+        .blame_file(&rel, Some(&mut opts))
+        .map_err(|e| format!("blame_file: {}", e))?;
+
+    // Pull the file text to attach content per line. Keep this bounded.
+    let raw = std::fs::read(&abs).map_err(|e| format!("read {}: {}", abs.display(), e))?;
+    // Simple binary check: any NUL in the first 8K means binary.
+    let probe_end = raw.len().min(8192);
+    if raw[..probe_end].contains(&0u8) {
+        return Err("file appears to be binary".to_string());
+    }
+    let text = String::from_utf8_lossy(&raw);
+    let lines: Vec<&str> = text.split('\n').collect();
+
+    let cap = max_lines.min(BLAME_MAX_CAP).max(1) as usize;
+    let mut out: Vec<BlameLine> = Vec::new();
+
+    for hunk in blame.iter() {
+        let start = hunk.final_start_line() as usize; // 1-based
+        let count = hunk.lines_in_hunk();
+        let sha_full = hunk.final_commit_id().to_string();
+        let sha = sha_full.chars().take(8).collect::<String>();
+        let sig = hunk.final_signature();
+        let author = sig
+            .name()
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| "?".to_string());
+        let timestamp_ms = sig.when().seconds() * 1000;
+        for i in 0..count {
+            let line_no = (start + i) as u32;
+            let content = lines
+                .get((start - 1) + i)
+                .map(|s| s.to_string())
+                .unwrap_or_default();
+            out.push(BlameLine {
+                line_no,
+                sha: sha.clone(),
+                author: author.clone(),
+                content,
+                timestamp_ms,
+            });
+            if out.len() >= cap {
+                return Ok(out);
+            }
+        }
+    }
+    Ok(out)
 }
