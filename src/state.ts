@@ -14,8 +14,6 @@ function normalizePath(p: string): string {
   return p.replace(/[\\/]+$/, "").toLowerCase();
 }
 
-export const lastCommandRef = { value: null as string | null };
-
 export type SortKey = "name" | "size" | "modified" | "tag" | "git" | "type";
 export type SortDir = "asc" | "desc";
 

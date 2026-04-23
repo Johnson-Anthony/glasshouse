@@ -9,15 +9,8 @@ import { archiveHandler } from "./archive";
 import { toolsHandler } from "./tools";
 import { navHandler } from "./nav";
 import { miscHandler } from "./misc";
-import { lastCommandRef } from "../state";
-
-const lastCommandInterceptor: Handler = (label) => {
-  if (label !== "Run Last Command") lastCommandRef.value = label;
-  return false;
-};
 
 export const HANDLERS: Handler[] = [
-  lastCommandInterceptor,
   selectionHandler,
   viewHandler,
   gitHandler,

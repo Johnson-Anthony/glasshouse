@@ -1,4 +1,4 @@
-// Mock filesystem data + menu definitions for rice:// file manager
+// Mock filesystem data + menu definitions for glasshouse file manager
 
 export const APP_VERSION = "0.0.1";
 export const TAURI_VERSION = "2";
@@ -202,8 +202,6 @@ export const MENUS: MenusData = {
         { kind: "item", label: "Clear History" },
       ] },
     { kind: "sep" },
-    { kind: "item", ic: "", label: "Save Session",       kb: "Ctrl+Alt+S" },
-    { kind: "item", ic: "", label: "Import Session…" },
     { kind: "item", ic: "", label: "Export Layout (.ricerc)" },
     { kind: "sep" },
     { kind: "item", ic: "", label: "Close Tab",          kb: "Ctrl+W" },
@@ -235,7 +233,6 @@ export const MENUS: MenusData = {
     { kind: "item", ic: "", label: "Shred (srm)",         danger: true },
     { kind: "sep" },
     { kind: "item", ic: "", label: "Preferences…",        kb: "Ctrl+," },
-    { kind: "item", ic: "", label: "Edit .ricerc" },
   ],
   Select: [
     { kind: "item", ic: "", label: "Select All",          kb: "Ctrl+A" },
@@ -256,15 +253,12 @@ export const MENUS: MenusData = {
   View: [
     { kind: "sub",  ic: "", label: "Layout",
       children: [
-        { kind: "item", label: "Tree + Pane + Inspector", kb: "F3", check: true },
-        { kind: "item", label: "Miller Columns (ranger)", kb: "F4" },
-        { kind: "item", label: "Dual Pane (top/bottom)",  kb: "F5" },
-        { kind: "item", label: "Tmux Quad (4-pane)",      kb: "F6" },
+        { kind: "item", label: "Tree + Pane + Inspector", kb: "F3" },
         { kind: "item", label: "Single Pane"             ,kb: "F7" },
       ] },
     { kind: "sub",  ic: "", label: "Display Mode",
       children: [
-        { kind: "item", label: "Details (rows)",          kb: "Ctrl+1", check: true },
+        { kind: "item", label: "Details (rows)",          kb: "Ctrl+1" },
         { kind: "item", label: "Compact List",            kb: "Ctrl+2" },
         { kind: "item", label: "Icons",                   kb: "Ctrl+3" },
         { kind: "item", label: "Tiles",                   kb: "Ctrl+4" },
@@ -292,7 +286,6 @@ export const MENUS: MenusData = {
     { kind: "sep" },
     { kind: "item", ic: "", label: "Sidebar",             kb: "Ctrl+B", check: true },
     { kind: "item", ic: "", label: "Inspector",           kb: "Ctrl+J", check: true },
-    { kind: "item", ic: "", label: "Open Terminal Here",  kb: "Ctrl+`" },
     { kind: "item", ic: "", label: "Status Bar",          check: true },
     { kind: "item", ic: "", label: "Tweaks",              kb: "Ctrl+," },
     { kind: "sep" },
@@ -302,9 +295,6 @@ export const MENUS: MenusData = {
     { kind: "item", ic: "", label: "Full Screen",         kb: "F11" },
   ],
   Go: [
-    { kind: "item", ic: "", label: "Back",                kb: "Alt+←" },
-    { kind: "item", ic: "", label: "Forward",             kb: "Alt+→" },
-    { kind: "item", ic: "", label: "Up one level",        kb: "Alt+↑" },
     { kind: "item", ic: "", label: "Refresh",             kb: "F5" },
     { kind: "sep" },
     { kind: "item", ic: "", label: "Home",                kb: "Ctrl+Home" },
@@ -317,6 +307,7 @@ export const MENUS: MenusData = {
     { kind: "item", ic: "", label: "Go to Path…",         kb: "Ctrl+L" },
     { kind: "item", ic: "", label: "Go to WSL Distro…" },
     { kind: "item", ic: "", label: "Connect to Server…",  kb: "Ctrl+Shift+G" },
+    { kind: "item", ic: "", label: "Manage Remotes…" },
     { kind: "dynamic", source: "ssh-hosts" },
     { kind: "sep" },
     { kind: "item", ic: "", label: "Trash" },
@@ -355,7 +346,6 @@ export const MENUS: MenusData = {
     { kind: "item", ic: "", label: "Checksum (SHA256)" },
     { kind: "item", ic: "", label: "Verify Signature…" },
     { kind: "item", ic: "", label: "Compare Files (diff)" },
-    { kind: "item", ic: "", label: "Hex Viewer" },
     { kind: "sep" },
     { kind: "item", ic: "", label: "Screenshot → Auto-sort" },
     { kind: "item", ic: "", label: "Clipboard Stack",     kb: "Ctrl+Shift+V" },
@@ -400,28 +390,10 @@ export const MENUS: MenusData = {
     { kind: "item", ic: "", label: "Split Horizontal",    kb: "Ctrl+Shift+H" },
     { kind: "item", ic: "", label: "Split Vertical",      kb: "Ctrl+Shift+V" },
     { kind: "item", ic: "", label: "Zoom Pane",           kb: "Ctrl+Shift+Z" },
-    { kind: "sep" },
-    { kind: "item", ic: "", label: "Run Last Command" },
-    { kind: "item", ic: "", label: "Send Path to Shell" },
-    { kind: "item", ic: "", label: "cd Here" },
-  ],
-  Window: [
-    { kind: "item", ic: "", label: "Next Tab",            kb: "Ctrl+Tab" },
-    { kind: "item", ic: "", label: "Prev Tab",            kb: "Ctrl+Shift+Tab" },
-    { kind: "item", ic: "", label: "Move Tab →" },
-    { kind: "item", ic: "", label: "Move Tab ←" },
-    { kind: "sep" },
-    { kind: "item", ic: "", label: "Split Right" },
-    { kind: "item", ic: "", label: "Split Down" },
-    { kind: "sep" },
-    { kind: "item", ic: "", label: "Always on Top" },
-    { kind: "item", ic: "", label: "Pin to Workspace" },
-    { kind: "item", ic: "", label: "Minimize",            kb: "Ctrl+M" },
-    { kind: "item", ic: "", label: "Close Window" },
   ],
   Help: [
     { kind: "item", ic: "", label: "Command Palette",     kb: "Ctrl+P" },
-    { kind: "item", ic: "", label: "Keybinding Cheatsheet",kb: "Ctrl+?" },
+    { kind: "item", ic: "", label: "Keybindings Cheatsheet",kb: "Ctrl+?" },
     { kind: "item", ic: "", label: "Documentation" },
     { kind: "item", ic: "", label: "Release Notes" },
     { kind: "sep" },
@@ -460,13 +432,10 @@ export const CONTEXT_FILE: MenuItemDef[] = [
       { kind: "item", label: "Default App" },
       { kind: "item", label: "VS Code" },
       { kind: "item", label: "Terminal" },
-      { kind: "item", label: "Hex Viewer" },
       { kind: "item", label: "Text Editor (.txt)" },
       { kind: "item", label: "Custom Command…" },
     ] },
-  { kind: "item", ic: "", label: "Open in Terminal",  kb: "Ctrl+`" },
-  { kind: "item", ic: "", label: "Open in VS Code",   kb: "Ctrl+Shift+E" },
-  { kind: "item", ic: "", label: "Reveal in Explorer" },
+  { kind: "item", ic: "", label: "Add Bookmark" },
   { kind: "sep" },
   { kind: "item", ic: "", label: "Cut",               kb: "Ctrl+X" },
   { kind: "item", ic: "", label: "Copy",              kb: "Ctrl+C" },
@@ -484,7 +453,6 @@ export const CONTEXT_FILE: MenuItemDef[] = [
       { kind: "item", label: "Clear All Tags" },
     ] },
   { kind: "sep" },
-  { kind: "item", ic: "", label: "Compress to ZIP…" },
   { kind: "sub",  ic: "", label: "Compress →",
     children: [
       { kind: "item", label: "ZIP (bundled)" },
@@ -493,7 +461,6 @@ export const CONTEXT_FILE: MenuItemDef[] = [
       { kind: "item", label: "7-Zip" },
     ] },
   { kind: "item", ic: "", label: "Checksum SHA256" },
-  { kind: "item", ic: "", label: "Hex Viewer" },
   { kind: "item", ic: "", label: "Diff with Clipboard" },
   { kind: "sep" },
   { kind: "item", ic: "", label: "Git: Stage" },
@@ -510,7 +477,6 @@ export const CONTEXT_SIDEBAR: MenuItemDef[] = [
   { kind: "item", ic: "", label: "Open in New Tab" },
   { kind: "sep" },
   { kind: "item", ic: "", label: "Copy Path" },
-  { kind: "item", ic: "", label: "Reveal in Explorer" },
 ];
 
 // Menu shown for sidebar rows that are pinned. Adds Unpin on top of the
@@ -521,9 +487,54 @@ export const CONTEXT_SIDEBAR_PINNED: MenuItemDef[] = [
   { kind: "item", ic: "", label: "Open in New Tab" },
   { kind: "sep" },
   { kind: "item", ic: "", label: "Copy Path" },
-  { kind: "item", ic: "", label: "Reveal in Explorer" },
   { kind: "sep" },
   { kind: "item", ic: "", label: "Unpin" },
+];
+
+// Big folder menu shown when right-clicking a tree folder or pinned folder
+// (with extra Unpin appended). Mirrors CONTEXT_FILE where operations make
+// sense for a directory, while dropping file-only actions.
+export const CONTEXT_SIDEBAR_FOLDER: MenuItemDef[] = [
+  { kind: "item", ic: "", label: "Open",                kb: "Enter" },
+  { kind: "item", ic: "", label: "Open in New Tab" },
+  { kind: "item", ic: "", label: "Open in New Window" },
+  { kind: "sep" },
+  { kind: "item", ic: "", label: "Copy Path" },
+  { kind: "item", ic: "", label: "Copy as WSL Path" },
+  { kind: "item", ic: "", label: "Copy as Command" },
+  { kind: "sep" },
+  { kind: "item", ic: "", label: "Rename",              kb: "F2" },
+  { kind: "item", ic: "", label: "Move to…",            kb: "F6" },
+  { kind: "sub",  ic: "", label: "Tag →",
+    children: [
+      { kind: "item", label: "Add Tag…" },
+      { kind: "item", label: "Remove Tag…" },
+      { kind: "item", label: "Clear All Tags" },
+    ] },
+  { kind: "sep" },
+  { kind: "item", ic: "", label: "Pin" },
+  { kind: "sep" },
+  { kind: "item", ic: "", label: "Properties",          kb: "Alt+Enter" },
+  { kind: "item", ic: "", label: "Move to Trash",       kb: "Del", danger: true },
+];
+
+// Drive-specific sidebar menu for drive letters in the DEVICES section.
+export const CONTEXT_SIDEBAR_DRIVE: MenuItemDef[] = [
+  { kind: "item", ic: "", label: "Open" },
+  { kind: "item", ic: "", label: "Open in New Tab" },
+  { kind: "sep" },
+  { kind: "item", ic: "", label: "Copy Path" },
+  { kind: "sep" },
+  { kind: "item", ic: "", label: "Properties",          kb: "Alt+Enter" },
+];
+
+// Sidebar menu for saved-remote rows under the REMOTE section.
+export const CONTEXT_SIDEBAR_REMOTE: MenuItemDef[] = [
+  { kind: "item", ic: "", label: "Connect" },
+  { kind: "item", ic: "", label: "Edit…" },
+  { kind: "item", ic: "", label: "Remove",              danger: true },
+  { kind: "sep" },
+  { kind: "item", ic: "", label: "Manage Remotes…" },
 ];
 
 export const CONTEXT_TAB: MenuItemDef[] = [
@@ -556,8 +567,6 @@ export const CONTEXT_EMPTY: MenuItemDef[] = [
       { kind: "item", label: "Paste as Copy (verify SHA256)" },
     ] },
   { kind: "sep" },
-  { kind: "item", ic: "", label: "Open in Terminal",  kb: "Ctrl+`" },
-  { kind: "item", ic: "", label: "Open in VS Code" },
   { kind: "item", ic: "", label: "Bookmark Folder",   kb: "Ctrl+D" },
   { kind: "sep" },
   { kind: "sub",  ic: "", label: "Sort By",

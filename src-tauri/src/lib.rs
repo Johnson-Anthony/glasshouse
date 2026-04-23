@@ -1,4 +1,5 @@
 mod commands;
+mod pty;
 mod watcher;
 
 pub fn run() {
@@ -9,11 +10,13 @@ pub fn run() {
         .plugin(tauri_plugin_os::init())
         .plugin(tauri_plugin_shell::init())
         .manage(watcher::WatcherState::default())
+        .manage(pty::PtyRegistry::default())
         .invoke_handler(tauri::generate_handler![
             commands::ping,
             commands::home_dir,
             commands::list_dir,
             commands::drives,
+            commands::list_wsl_distros,
             commands::system_info,
             commands::make_dir,
             commands::rename_entry,
@@ -76,6 +79,10 @@ pub fn run() {
             commands::git_dirty_count,
             watcher::watch_dir,
             watcher::unwatch_dir,
+            pty::pty_spawn,
+            pty::pty_write,
+            pty::pty_resize,
+            pty::pty_kill,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

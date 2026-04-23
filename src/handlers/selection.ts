@@ -1,3 +1,4 @@
+import { dialogs } from "../components";
 import type { Handler } from "./types";
 
 function globToRegex(glob: string): RegExp {
@@ -10,7 +11,7 @@ function globToRegex(glob: string): RegExp {
   return new RegExp("^" + out + "$");
 }
 
-export const selectionHandler: Handler = (label, ctx) => {
+export const selectionHandler: Handler = async (label, ctx) => {
   const handle = ctx.activeHandle;
   if (!handle) return false;
   const { entries, selected } = handle.state;
@@ -35,7 +36,12 @@ export const selectionHandler: Handler = (label, ctx) => {
       return true;
     }
     case "Select by Pattern…": {
-      const pattern = window.prompt("glob pattern:");
+      const pattern = await dialogs.showPrompt({
+        title: "select by glob",
+        message: "match files whose name matches this glob (use * and ?):",
+        placeholder: "*.ts",
+        validate: (v) => v.trim() ? null : "pattern required",
+      });
       if (pattern == null) return true;
       const re = globToRegex(pattern);
       const next: number[] = [];
@@ -43,10 +49,23 @@ export const selectionHandler: Handler = (label, ctx) => {
         if (re.test(entries[i].name)) next.push(i);
       }
       setSelected(next);
+      dialogs.showToast({
+        message: `selected ${next.length} item(s) matching "${pattern}"`,
+        variant: next.length > 0 ? "success" : "info",
+      });
       return true;
     }
     case "Select by Regex…": {
-      const pattern = window.prompt("regex:");
+      const pattern = await dialogs.showPrompt({
+        title: "select by regex",
+        message: "match files whose name matches this JavaScript regex:",
+        placeholder: "^test_.*\\.ts$",
+        validate: (v) => {
+          if (!v.trim()) return "regex required";
+          try { new RegExp(v); return null; }
+          catch (e) { return e instanceof Error ? `invalid: ${e.message}` : "invalid regex"; }
+        },
+      });
       if (pattern == null) return true;
       let re: RegExp;
       try {
@@ -59,17 +78,39 @@ export const selectionHandler: Handler = (label, ctx) => {
         if (re.test(entries[i].name)) next.push(i);
       }
       setSelected(next);
+      dialogs.showToast({
+        message: `selected ${next.length} item(s)`,
+        variant: next.length > 0 ? "success" : "info",
+      });
       return true;
     }
-    case "Select by Extension →": {
-      const ext = window.prompt("extension (no dot):");
+    case "Select by Extension →":
+    case "Select by Extension": {
+      // Gather the set of extensions actually present in the current view so
+      // we can surface them as hint text — avoids the user typing a
+      // non-existent extension and wondering why nothing happened.
+      const extSet = new Set<string>();
+      for (const e of entries) if (e.ext) extSet.add(e.ext.toLowerCase());
+      const hint = extSet.size > 0
+        ? `present: ${[...extSet].sort().slice(0, 10).join(", ")}${extSet.size > 10 ? ", …" : ""}`
+        : "no extensions in current folder";
+      const ext = await dialogs.showPrompt({
+        title: "select by extension",
+        message: hint,
+        placeholder: "ts",
+        validate: (v) => v.trim() ? null : "extension required",
+      });
       if (ext == null) return true;
-      const target = ext.toLowerCase();
+      const target = ext.replace(/^\./, "").toLowerCase();
       const next: number[] = [];
       for (let i = 0; i < entries.length; i++) {
         if (entries[i].ext.toLowerCase() === target) next.push(i);
       }
       setSelected(next);
+      dialogs.showToast({
+        message: `selected ${next.length} .${target} file(s)`,
+        variant: next.length > 0 ? "success" : "info",
+      });
       return true;
     }
     case "Select Modified (Git)": {

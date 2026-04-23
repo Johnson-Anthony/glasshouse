@@ -1,22 +1,19 @@
 import type { Handler, HandlerCtx } from "./types";
+import { dialogs } from "../components";
 import {
   makeDir,
   writeText,
-  readText,
   openUrl,
   createSymlink,
   createHardLink,
   createShortcut,
   shred,
-  homeDir,
   renameEntry,
   readTags,
   writeTags,
   copyEntry,
   hashSha256,
 } from "../api";
-import { lastCommandRef } from "../state";
-
 // Join a directory with a filename using whichever separator the cwd appears
 // to use. Matches parentPath() in state.ts — backslash wins only if the path
 // already contains one.
@@ -32,16 +29,6 @@ function basename(p: string): string {
   return idx < 0 ? p : p.slice(idx + 1);
 }
 
-async function sessionDir(): Promise<string> {
-  const home = await homeDir();
-  const base = home ?? ".";
-  return joinPath(base, ".glasshouse");
-}
-
-async function sessionPath(): Promise<string> {
-  return joinPath(await sessionDir(), "session.json");
-}
-
 async function createFileAt(ctx: HandlerCtx, name: string, body: string): Promise<void> {
   const path = joinPath(ctx.cwd, name);
   await writeText(path, body);
@@ -49,13 +36,24 @@ async function createFileAt(ctx: HandlerCtx, name: string, body: string): Promis
 }
 
 async function promptAndCreate(ctx: HandlerCtx, defaultName: string, body = ""): Promise<void> {
-  const name = window.prompt("filename:", defaultName);
+  const name = await dialogs.showPrompt({
+    title: "new file",
+    message: "file name:",
+    initialValue: defaultName,
+    placeholder: defaultName,
+    validate: (v) => v.trim() ? null : "name required",
+  });
   if (name == null || name.trim() === "") return;
   await createFileAt(ctx, name.trim(), body);
 }
 
 async function createPythonModule(ctx: HandlerCtx): Promise<void> {
-  const name = window.prompt("module name:");
+  const name = await dialogs.showPrompt({
+    title: "new python module",
+    message: "module name (creates a folder with __init__.py):",
+    placeholder: "my_module",
+    validate: (v) => v.trim() ? null : "name required",
+  });
   if (name == null || name.trim() === "") return;
   const mod = name.trim();
   const dir = joinPath(ctx.cwd, mod);
@@ -64,27 +62,15 @@ async function createPythonModule(ctx: HandlerCtx): Promise<void> {
   ctx.refresh();
 }
 
-async function writeSession(ctx: HandlerCtx, path: string): Promise<void> {
-  const payload = {
-    version: 1,
-    activeTab: ctx.activeTab,
-    tabs: ctx.tabs,
-  };
-  const dir = path.slice(0, Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\")));
-  if (dir) await makeDir(dir);
-  await writeText(path, JSON.stringify(payload, null, 2));
-}
-
 export const miscHandler: Handler = async (label, ctx) => {
   switch (label) {
     // ─── Help / About ──────────────────────────────────────────────────────
     case "About":
     case "About Glasshouse":
-    case "About rice://":
       if (ctx.openAbout) {
         ctx.openAbout();
       } else {
-        window.alert("Glasshouse — Tauri file manager");
+        await dialogs.showAlert({ title: "about", message: "Glasshouse — Tauri file manager" });
       }
       return true;
 
@@ -97,7 +83,7 @@ export const miscHandler: Handler = async (label, ctx) => {
       return true;
 
     case "Check for Updates":
-      window.alert("Current version: 0.0.1. Opening releases page…");
+      await dialogs.showAlert({ title: "check for updates", message: "Current version: 0.0.1. Opening releases page…", variant: "info" });
       await openUrl("https://github.com/anthony/glasshouse/releases");
       return true;
 
@@ -105,53 +91,6 @@ export const miscHandler: Handler = async (label, ctx) => {
     case "Report Bug…":
       await openUrl("https://github.com/anthony/glasshouse/issues/new");
       return true;
-
-    case "Keybindings":
-    case "Keybindings…":
-    case "Cheatsheet":
-    case "Shortcuts":
-    case "Keybinding Cheatsheet":
-      ctx.openPalette?.();
-      return true;
-
-    // ─── Session ───────────────────────────────────────────────────────────
-    case "Save Session": {
-      const path = await sessionPath();
-      await writeSession(ctx, path);
-      window.alert(`saved session: ${path}`);
-      return true;
-    }
-
-    case "Import Session":
-    case "Import Session…": {
-      const path = await sessionPath();
-      const raw = await readText(path, 1024 * 1024);
-      if (!raw) {
-        window.alert(`no session found at ${path}`);
-        return true;
-      }
-      try {
-        const parsed = JSON.parse(raw) as { tabs?: Array<{ path?: string }> };
-        const paths = (parsed.tabs ?? []).map(t => t?.path ?? "").filter(Boolean);
-        window.alert(
-          paths.length
-            ? `session tabs:\n${paths.join("\n")}`
-            : "session has no tabs",
-        );
-      } catch (e) {
-        window.alert(`failed to parse session: ${e instanceof Error ? e.message : String(e)}`);
-      }
-      return true;
-    }
-
-    case "Export Session": {
-      const def = await sessionPath();
-      const target = window.prompt("export session to:", def);
-      if (target == null || target.trim() === "") return true;
-      await writeSession(ctx, target.trim());
-      window.alert(`exported session: ${target.trim()}`);
-      return true;
-    }
 
     case "Export Layout (.ricerc)": {
       const target = joinPath(ctx.cwd, ".ricerc");
@@ -163,10 +102,6 @@ export const miscHandler: Handler = async (label, ctx) => {
     }
 
     // ─── Settings ──────────────────────────────────────────────────────────
-    case "Edit .ricerc":
-      ctx.openTweaks();
-      return true;
-
     case "Preferences":
     case "Preferences…":
       ctx.openTweaks();
@@ -180,22 +115,38 @@ export const miscHandler: Handler = async (label, ctx) => {
         console.log("[misc] shred: nothing selected");
         return true;
       }
-      if (!window.confirm(`shred ${target}? this is irreversible.`)) return true;
+      const confirmed = await dialogs.showConfirm({
+        title: "shred file",
+        message: `Shred ${target}?\n\nThis is irreversible — the file will be overwritten with random bytes and deleted.`,
+        danger: true,
+      });
+      if (!confirmed) return true;
       await shred(target, 3);
-      window.alert(`shredded ${target}`);
+      dialogs.showToast({ message: `shredded ${target}`, variant: "success" });
       ctx.refresh();
       return true;
     }
 
     case "Create Symlink":
     case "Create Symlink…": {
-      const target = window.prompt("symlink target:");
+      const target = await dialogs.showPrompt({
+        title: "create symlink",
+        message: "target file or folder:",
+        placeholder: "C:\\path\\to\\target",
+        validate: (v) => v.trim() ? null : "target required",
+      });
       if (target == null || target.trim() === "") return true;
       const defLink = joinPath(ctx.cwd, basename(target.trim()));
-      const linkPath = window.prompt("link path:", defLink);
+      const linkPath = await dialogs.showPrompt({
+        title: "create symlink",
+        message: "link path:",
+        initialValue: defLink,
+        placeholder: defLink,
+        validate: (v) => v.trim() ? null : "link path required",
+      });
       if (linkPath == null || linkPath.trim() === "") return true;
       await createSymlink(target.trim(), linkPath.trim());
-      window.alert(`symlink: ${linkPath.trim()} -> ${target.trim()}`);
+      dialogs.showToast({ message: `symlink → ${target.trim()}`, variant: "success" });
       ctx.refresh();
       return true;
     }
@@ -205,7 +156,7 @@ export const miscHandler: Handler = async (label, ctx) => {
     case "Paste as Link (symlink)": {
       const paths = ctx.clipboardPaths?.() ?? [];
       if (paths.length === 0) {
-        window.alert("clipboard is empty");
+        dialogs.showToast({ message: "clipboard is empty", variant: "info" });
         return true;
       }
       let ok = 0;
@@ -217,7 +168,7 @@ export const miscHandler: Handler = async (label, ctx) => {
           console.error("[misc] symlink failed", p, e);
         }
       }
-      window.alert(`created ${ok}/${paths.length} symlink(s)`);
+      dialogs.showToast({ message: `created ${ok}/${paths.length} symlink(s)`, variant: "success" });
       ctx.refresh();
       return true;
     }
@@ -225,7 +176,7 @@ export const miscHandler: Handler = async (label, ctx) => {
     case "Paste as Hard Link": {
       const paths = ctx.clipboardPaths?.() ?? [];
       if (paths.length === 0) {
-        window.alert("clipboard is empty");
+        dialogs.showToast({ message: "clipboard is empty", variant: "info" });
         return true;
       }
       let ok = 0;
@@ -237,7 +188,7 @@ export const miscHandler: Handler = async (label, ctx) => {
           console.error("[misc] hard link failed", p, e);
         }
       }
-      window.alert(`created ${ok}/${paths.length} hard link(s)`);
+      dialogs.showToast({ message: `created ${ok}/${paths.length} hard link(s)`, variant: "success" });
       ctx.refresh();
       return true;
     }
@@ -245,7 +196,7 @@ export const miscHandler: Handler = async (label, ctx) => {
     case "Paste as Shortcut": {
       const paths = ctx.clipboardPaths?.() ?? [];
       if (paths.length === 0) {
-        window.alert("clipboard is empty");
+        dialogs.showToast({ message: "clipboard is empty", variant: "info" });
         return true;
       }
       let ok = 0;
@@ -257,7 +208,7 @@ export const miscHandler: Handler = async (label, ctx) => {
           console.error("[misc] shortcut failed", p, e);
         }
       }
-      window.alert(`created ${ok}/${paths.length} shortcut(s)`);
+      dialogs.showToast({ message: `created ${ok}/${paths.length} shortcut(s)`, variant: "success" });
       ctx.refresh();
       return true;
     }
@@ -265,21 +216,21 @@ export const miscHandler: Handler = async (label, ctx) => {
     case "Clear All Tags": {
       const firstPath = ctx.firstPath;
       if (!firstPath) {
-        window.alert("no selection");
+        dialogs.showToast({ message: "no selection", variant: "info" });
         return true;
       }
       const tags = await readTags();
       delete tags[firstPath];
       await writeTags(tags);
       ctx.refresh();
-      window.alert("ok");
+      dialogs.showToast({ message: "cleared all tags", variant: "success" });
       return true;
     }
 
     case "Paste as Copy (verify SHA256)": {
       const paths = ctx.clipboardPaths?.() ?? [];
       if (paths.length === 0) {
-        window.alert("clipboard is empty");
+        dialogs.showToast({ message: "clipboard is empty", variant: "info" });
         return true;
       }
       let ok = 0;
@@ -299,7 +250,7 @@ export const miscHandler: Handler = async (label, ctx) => {
           console.error("[misc] copy failed", src, e);
         }
       }
-      window.alert(`copied ${ok}/${paths.length}, ${verified} verified via SHA256`);
+      dialogs.showToast({ message: `copied ${ok}/${paths.length}, ${verified} verified via SHA256`, variant: "success" });
       ctx.refresh();
       return true;
     }
@@ -307,19 +258,23 @@ export const miscHandler: Handler = async (label, ctx) => {
     case "Paste Text into Filename": {
       const target = ctx.firstPath;
       if (!target) {
-        window.alert("no selection to rename");
+        dialogs.showToast({ message: "no selection to rename", variant: "info" });
         return true;
       }
       let text = "";
       try {
         text = await navigator.clipboard.readText();
       } catch (e) {
-        window.alert(`clipboard read failed: ${e instanceof Error ? e.message : String(e)}`);
+        await dialogs.showAlert({
+          title: "clipboard read failed",
+          message: e instanceof Error ? e.message : String(e),
+          variant: "error",
+        });
         return true;
       }
       const name = text.trim();
       if (!name) {
-        window.alert("clipboard text is empty");
+        dialogs.showToast({ message: "clipboard text is empty", variant: "info" });
         return true;
       }
       const dir = target.slice(0, Math.max(target.lastIndexOf("/"), target.lastIndexOf("\\")));
@@ -357,17 +312,6 @@ export const miscHandler: Handler = async (label, ctx) => {
     case "Redo":
       ctx.redo?.();
       return true;
-
-    // ─── Terminal misc ────────────────────────────────────────────────────
-    case "Run Last Command": {
-      const last = lastCommandRef.value;
-      if (!last) {
-        window.alert("no last command");
-        return true;
-      }
-      ctx.dispatch(last);
-      return true;
-    }
 
     // ─── Refresh / Reload ─────────────────────────────────────────────────
     case "Refresh":

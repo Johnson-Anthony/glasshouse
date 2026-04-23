@@ -19,12 +19,12 @@ export interface HandlerCtx {
   openTweaks: () => void;
   openAbout?: () => void;
   toggleSidebar: () => void;
+  toggleStatusBar?: () => void;
   pinPath: (p: string) => void;
   tabs: unknown[];
   activeTab: number;
   setActiveTab: (i: number) => void;
   setBlame: (b: { path: string; lines: BlameLine[] } | null) => void;
-  setHexView?: (v: { path: string; hex: string } | null) => void;
   setDiffView?: (v: { a: string; b: string; diff: string } | null) => void;
   setGitOutput?: (v: GitOutputState | null) => void;
   clipboardPaths?: () => string[];

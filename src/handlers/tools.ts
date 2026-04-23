@@ -1,8 +1,8 @@
 import type { Handler } from "./types";
+import { dialogs } from "../components";
 import {
   hashSha256,
   findInFiles,
-  readHexDump,
   diffFiles,
   setPermissions,
   verifySignature,
@@ -62,7 +62,7 @@ export const toolsHandler: Handler = async (label, ctx) => {
     case "Text Editor (.txt)": {
       const p = ctx.firstPath;
       if (!p) {
-        window.alert(`${label}: no selection`);
+        dialogs.showToast({ message: `${label}: no selection`, variant: "info" });
         return true;
       }
       try {
@@ -70,7 +70,7 @@ export const toolsHandler: Handler = async (label, ctx) => {
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
         console.log(`[tools] openWithDefault failed for ${p}:`, e);
-        window.alert(`${label} failed: ${msg}`);
+        void dialogs.showAlert({ title: `${label} failed`, message: msg, variant: "error" });
       }
       return true;
     }
@@ -86,17 +86,23 @@ export const toolsHandler: Handler = async (label, ctx) => {
     case "Custom Command…": {
       const p = ctx.firstPath;
       if (!p) {
-        console.log("[tools] Custom Command: no selection");
+        dialogs.showToast({ message: "Custom Command: no selection", variant: "info" });
         return true;
       }
-      const cmd = window.prompt("Command:");
+      const cmd = await dialogs.showPrompt({
+        title: "custom command",
+        message: `run a command with "${p}" appended:`,
+        placeholder: "echo",
+        validate: (v) => v.trim() ? null : "command required",
+      });
       if (cmd == null || cmd.trim() === "") return true;
       try {
         const output = await runScript(cmd.trim(), [p]);
-        window.alert(output || "(no output)");
+        void dialogs.showAlert({ title: cmd, message: output || "(no output)" });
       } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
         console.log(`[tools] Custom Command failed (cmd=${cmd}):`, e);
-        window.alert(`command failed: ${e}`);
+        void dialogs.showAlert({ title: "command failed", variant: "error", message: msg });
       }
       return true;
     }
@@ -131,7 +137,7 @@ export const toolsHandler: Handler = async (label, ctx) => {
       }
       try {
         const hex = await hashSha256(p);
-        window.alert(`SHA256\n${p}\n${hex}`);
+        void dialogs.showAlert({ title: "SHA256", message: `${p}\n\n${hex}` });
       } catch (e) {
         console.log(`[tools] sha256 failed for ${p}:`, e);
       }
@@ -151,24 +157,9 @@ export const toolsHandler: Handler = async (label, ctx) => {
       return true;
     }
 
-    case "Hex Viewer": {
-      const p = ctx.firstPath;
-      if (!p) {
-        console.log("[tools] Hex Viewer: no selection");
-        return true;
-      }
-      try {
-        const hex = await readHexDump(p, 0, 4096);
-        ctx.setHexView?.({ path: p, hex });
-      } catch (e) {
-        console.log(`[tools] hex dump failed for ${p}:`, e);
-      }
-      return true;
-    }
-
     case "Compare Files (diff)": {
       if (ctx.selectedPaths.length !== 2) {
-        window.alert("Compare Files: select exactly two files.");
+        void dialogs.showAlert({ title: "compare files", message: "Select exactly two files to compare.", variant: "info" });
         return true;
       }
       const [a, b] = ctx.selectedPaths;
@@ -177,7 +168,7 @@ export const toolsHandler: Handler = async (label, ctx) => {
         ctx.setDiffView?.({ a, b, diff });
       } catch (e) {
         console.log(`[tools] diff failed:`, e);
-        window.alert(`diff failed: ${e}`);
+        void dialogs.showAlert({ title: "diff failed", message: String(e), variant: "error" });
       }
       return true;
     }
@@ -185,15 +176,21 @@ export const toolsHandler: Handler = async (label, ctx) => {
     case "Diff with Clipboard": {
       const b = ctx.firstPath;
       const cb = ctx.clipboardPaths?.() ?? [];
-      if (!b) { window.alert("Diff with Clipboard: select a file first."); return true; }
-      if (cb.length === 0) { window.alert("Diff with Clipboard: clipboard is empty (Copy/Cut a file first)."); return true; }
+      if (!b) {
+        void dialogs.showAlert({ title: "diff with clipboard", message: "Select a file first.", variant: "info" });
+        return true;
+      }
+      if (cb.length === 0) {
+        void dialogs.showAlert({ title: "diff with clipboard", message: "Clipboard is empty (Copy/Cut a file first).", variant: "info" });
+        return true;
+      }
       const a = cb[0];
       try {
         const diff = await diffFiles(a, b);
         ctx.setDiffView?.({ a, b, diff });
       } catch (e) {
         console.log("[tools] diff with clipboard failed:", e);
-        window.alert(`diff failed: ${e}`);
+        void dialogs.showAlert({ title: "diff failed", message: String(e), variant: "error" });
       }
       return true;
     }
@@ -207,50 +204,67 @@ export const toolsHandler: Handler = async (label, ctx) => {
       }
       try {
         const result = await verifySignature(p);
-        window.alert(`Signature: ${result}\n${p}`);
+        void dialogs.showAlert({ title: "signature", message: `${result}\n\n${p}` });
       } catch (e) {
         console.log(`[tools] verifySignature failed for ${p}:`, e);
-        window.alert(`verify failed: ${e}`);
+        void dialogs.showAlert({ title: "verify failed", message: String(e), variant: "error" });
       }
       return true;
     }
 
     case "Run Script on Selection…":
     case "Run Script on Selection": {
-      const script = window.prompt("Script path:");
-      if (script == null || script.trim() === "") return true;
       const targets = ctx.selectedPaths.length
         ? ctx.selectedPaths
         : ctx.firstPath
           ? [ctx.firstPath]
           : [];
+      if (targets.length === 0) {
+        dialogs.showToast({ message: "Run Script: no selection", variant: "info" });
+        return true;
+      }
+      const script = await dialogs.showPrompt({
+        title: "run script on selection",
+        message: `script to run (${targets.length} target${targets.length === 1 ? "" : "s"} will be appended as arguments):`,
+        placeholder: "C:\\tools\\myscript.ps1",
+        validate: (v) => v.trim() ? null : "script required",
+      });
+      if (script == null || script.trim() === "") return true;
       try {
         const output = await runScript(script, targets);
-        window.alert(output || "(no output)");
+        void dialogs.showAlert({ title: "script output", message: output || "(no output)" });
       } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
         console.log(`[tools] runScript failed (script=${script}):`, e);
-        window.alert(`script failed: ${e}`);
+        void dialogs.showAlert({ title: "script failed", variant: "error", message: msg });
       }
       return true;
     }
 
     case "Find & Replace in Files": {
-      const needle = window.prompt("search pattern:");
+      const needle = await dialogs.showPrompt({
+        title: "find & replace in files",
+        message: "search pattern:",
+        validate: (v) => v.trim() ? null : "pattern required",
+      });
       if (needle == null || needle === "") return true;
-      const replacement = window.prompt("replace with:");
+      const replacement = await dialogs.showPrompt({
+        title: "find & replace in files",
+        message: "replace with (can be empty):",
+      });
       if (replacement == null) return true;
       try {
         const matches = await findInFiles(ctx.cwd, needle, true, 500);
         if (matches.length === 0) {
-          window.alert(`no matches for "${needle}"`);
+          void dialogs.showAlert({ title: "no matches", message: `no matches for "${needle}"`, variant: "info" });
           return true;
         }
         const uniquePaths = Array.from(new Set(matches.map((m) => m.path)));
-        if (
-          !window.confirm(
-            `${matches.length} match(es) across ${uniquePaths.length} file(s). Replace?`,
-          )
-        ) {
+        const ok = await dialogs.showConfirm({
+          title: "replace?",
+          message: `${matches.length} match(es) across ${uniquePaths.length} file(s). Replace?`,
+        });
+        if (!ok) {
           return true;
         }
         let filesWritten = 0;
@@ -265,7 +279,7 @@ export const toolsHandler: Handler = async (label, ctx) => {
             console.log(`[tools] Find & Replace: failed for ${p}:`, e);
           }
         }
-        window.alert(`replaced in ${filesWritten} files`);
+        dialogs.showToast({ message: `replaced in ${filesWritten} files`, variant: "success" });
         ctx.refresh();
       } catch (e) {
         console.log("[tools] findInFiles failed:", e);
@@ -273,7 +287,8 @@ export const toolsHandler: Handler = async (label, ctx) => {
       return true;
     }
 
-    case "Screenshot → Auto-sort": {
+    case "Screenshot → Auto-sort":
+    case "Screenshot Stack": {
       const entries = ctx.activeHandle?.state.entries ?? [];
       const screenshotRe1 = /^Screenshot[_-]?\d{4}/i;
       const screenshotRe2 = /screenshot.*\.(png|jpg|jpeg|webp)$/i;
@@ -281,7 +296,11 @@ export const toolsHandler: Handler = async (label, ctx) => {
         (e) => screenshotRe1.test(e.name) || screenshotRe2.test(e.name),
       );
       if (matches.length === 0) {
-        window.alert("no screenshot files found");
+        void dialogs.showAlert({
+          title: "screenshot stack",
+          message: "no screenshot files found in this folder",
+          variant: "error",
+        });
         return true;
       }
       const subfolders = new Set<string>();
@@ -305,14 +324,21 @@ export const toolsHandler: Handler = async (label, ctx) => {
           console.log(`[tools] Screenshot Auto-sort: failed for ${entry.path}:`, e);
         }
       }
-      window.alert(`moved ${moved} screenshots into Y-MM subfolders`);
+      void dialogs.showAlert({
+        title: "screenshot stack",
+        message: `moved ${moved} screenshot${moved === 1 ? "" : "s"} into Y-MM subfolders`,
+        variant: "info",
+      });
       ctx.refresh();
       return true;
     }
 
     case "Find in Files": {
-      const needle = window.prompt("Find in files:");
-      if (needle == null) return true;
+      const needle = await dialogs.showPrompt({
+        title: "find in files",
+        message: "search pattern:",
+      });
+      if (needle == null || needle === "") return true;
       try {
         const matches = await findInFiles(ctx.cwd, needle, true, 500);
         console.log(`[tools] find-in-files "${needle}": ${matches.length} match(es)`);
@@ -327,16 +353,24 @@ export const toolsHandler: Handler = async (label, ctx) => {
 
     case "Find File by Name (fuzzy)":
     case "Find File by Name": {
-      const pattern = window.prompt("Find file by name:");
+      const pattern = await dialogs.showPrompt({
+        title: "find file by name",
+        message: `search within ${ctx.cwd || "(no cwd)"} — fuzzy match:`,
+        placeholder: "name or partial",
+        validate: (v) => v.trim() ? null : "pattern required",
+      });
       if (pattern == null || pattern.trim() === "") return true;
       try {
         const matches = await findFileByName(ctx.cwd, pattern, 500);
         if (matches.length === 0) {
-          window.alert(`No matches for "${pattern}"`);
+          void dialogs.showAlert({ title: "no matches", message: `No matches for "${pattern}"`, variant: "info" });
         } else {
           const top = matches.slice(0, 20).join("\n");
           const extra = matches.length > 20 ? `\n… (${matches.length - 20} more)` : "";
-          window.alert(`Matches for "${pattern}" (${matches.length}):\n${top}${extra}`);
+          void dialogs.showAlert({
+            title: `${matches.length} match${matches.length === 1 ? "" : "es"}`,
+            message: `${top}${extra}`,
+          });
         }
       } catch (e) {
         console.log(`[tools] findFileByName failed (pattern=${pattern}):`, e);
@@ -346,7 +380,13 @@ export const toolsHandler: Handler = async (label, ctx) => {
 
     case "Go to Path…":
     case "Go to Path": {
-      const target = window.prompt("Go to path:", ctx.cwd);
+      const target = await dialogs.showPrompt({
+        title: "go to path",
+        message: "path to navigate to:",
+        initialValue: ctx.cwd,
+        placeholder: "C:\\… or /…",
+        validate: (v) => v.trim() ? null : "path required",
+      });
       if (target == null || target.trim() === "") return true;
       const go = ctx.activeHandle?.actions.goTo;
       if (go) {
@@ -357,17 +397,6 @@ export const toolsHandler: Handler = async (label, ctx) => {
       return true;
     }
 
-    case "Send Path to Shell": {
-      const p = ctx.firstPath;
-      if (!p) {
-        console.log("[tools] Send Path to Shell: no selection");
-        return true;
-      }
-      await copyToClipboard(p);
-      console.log(`[tools] path copied to clipboard for shell paste: ${p}`);
-      return true;
-    }
-
     case "Clipboard Stack": {
       const current = ctx.clipboardPaths?.() ?? [];
       if (current.length > 0) {
@@ -375,12 +404,16 @@ export const toolsHandler: Handler = async (label, ctx) => {
         if (clipboardStack.length > 10) clipboardStack.shift();
       }
       if (clipboardStack.length === 0) {
-        window.alert("Clipboard stack is empty.");
+        dialogs.showToast({ message: "Clipboard stack is empty", variant: "info" });
       } else {
         const lines = clipboardStack
           .map((entry, i) => `${i + 1}. [${entry.length}] ${entry.join(", ")}`)
           .join("\n");
-        window.alert(`Clipboard Stack (${clipboardStack.length}):\n${lines}`);
+        void dialogs.showAlert({
+          title: `Clipboard Stack (${clipboardStack.length})`,
+          message: lines,
+          variant: "info",
+        });
       }
       return true;
     }
@@ -388,29 +421,46 @@ export const toolsHandler: Handler = async (label, ctx) => {
     case "File Queue": {
       const cb = ctx.clipboardPaths?.() ?? [];
       if (cb.length === 0) {
-        window.alert("queue empty");
+        void dialogs.showAlert({
+          title: "file queue",
+          message: "queue is empty — Copy or Cut file(s) first",
+          variant: "info",
+        });
       } else {
-        window.alert(`File Queue (${cb.length}):\n${cb.join("\n")}`);
+        void dialogs.showAlert({
+          title: `file queue (${cb.length})`,
+          message: cb.join("\n"),
+          variant: "info",
+        });
       }
       return true;
     }
 
     case "Batch Permissions…":
     case "Batch Permissions": {
-      const modeStr = window.prompt("chmod mode (octal, e.g. 755):");
-      if (modeStr == null || modeStr.trim() === "") return true;
-      const mode = parseInt(modeStr.trim(), 8);
-      if (!Number.isFinite(mode)) {
-        window.alert(`invalid octal mode: ${modeStr}`);
-        return true;
-      }
       const paths = ctx.selectedPaths.length
         ? ctx.selectedPaths
         : ctx.firstPath
           ? [ctx.firstPath]
           : [];
       if (paths.length === 0) {
-        console.log("[tools] Batch Permissions: no selection");
+        dialogs.showToast({ message: "Batch Permissions: no selection", variant: "info" });
+        return true;
+      }
+      const modeStr = await dialogs.showPrompt({
+        title: "batch chmod",
+        message: `octal mode to apply to ${paths.length} item(s):`,
+        placeholder: "755",
+        validate: (v) => {
+          if (!v.trim()) return "mode required";
+          const n = parseInt(v.trim(), 8);
+          return Number.isFinite(n) ? null : "invalid octal (e.g. 644, 755)";
+        },
+      });
+      if (modeStr == null || modeStr.trim() === "") return true;
+      const mode = parseInt(modeStr.trim(), 8);
+      if (!Number.isFinite(mode)) {
+        void dialogs.showAlert({ title: "invalid", variant: "error", message: `invalid octal mode: ${modeStr}` });
         return true;
       }
       let ok = 0;
@@ -424,7 +474,10 @@ export const toolsHandler: Handler = async (label, ctx) => {
           console.log(`[tools] chmod ${p} failed:`, e);
         }
       }
-      console.log(`[tools] chmod ${modeStr}: ${ok} ok, ${failed} failed`);
+      dialogs.showToast({
+        message: `chmod ${modeStr}: ${ok} ok${failed > 0 ? `, ${failed} failed` : ""}`,
+        variant: failed === 0 ? "success" : "warning",
+      });
       ctx.refresh();
       return true;
     }
@@ -436,24 +489,41 @@ export const toolsHandler: Handler = async (label, ctx) => {
         console.log("[tools] Change Owner: no selection");
         return true;
       }
-      const owner = window.prompt("Owner (uid:gid):");
+      const owner = await dialogs.showPrompt({
+        title: "change owner",
+        message: "owner (uid:gid):",
+        placeholder: "1000:1000",
+        validate: (v) => v.trim() ? null : "owner required",
+      });
       if (owner == null || owner.trim() === "") return true;
       try {
         await changeOwner(p, owner.trim());
-        window.alert(`chown ${owner} ${p}: ok`);
+        dialogs.showToast({ message: `chown ${owner.trim()} ${p}: ok`, variant: "success" });
         ctx.refresh();
       } catch (e) {
         console.log(`[tools] changeOwner failed for ${p}:`, e);
-        window.alert(`chown failed: ${e}`);
+        void dialogs.showAlert({ title: "chown failed", message: String(e), variant: "error" });
       }
       return true;
     }
 
     case "Connect to Server…":
     case "Connect to Server": {
-      const host = window.prompt("Server (user@host:port):");
+      const host = await dialogs.showPrompt({
+        title: "connect to server",
+        message: "server (user@host:port):",
+        placeholder: "alice@server.example:22",
+        validate: (v) => v.trim() ? null : "host required",
+      });
       if (host == null || host.trim() === "") return true;
-      const label2 = window.prompt("Label:", host.trim()) ?? host.trim();
+      const label2 = await dialogs.showPrompt({
+        title: "connect to server",
+        message: "label:",
+        initialValue: host.trim(),
+        placeholder: host.trim(),
+      });
+      if (label2 == null) return true;
+      const finalLabel = label2.trim() || host.trim();
       const key = "glasshouse.remote.servers";
       let list: { label: string; host: string }[] = [];
       try {
@@ -465,13 +535,16 @@ export const toolsHandler: Handler = async (label, ctx) => {
       } catch (e) {
         console.log("[tools] Connect to Server: failed to read existing list:", e);
       }
-      list.push({ label: label2, host: host.trim() });
+      list.push({ label: finalLabel, host: host.trim() });
       try {
         localStorage.setItem(key, JSON.stringify(list));
       } catch (e) {
         console.log("[tools] Connect to Server: failed to persist:", e);
       }
-      window.alert(`Saved server: ${label2} (${host.trim()})`);
+      dialogs.showToast({
+        message: `saved server: ${finalLabel} (${host.trim()})`,
+        variant: "success",
+      });
       ctx.refresh();
       return true;
     }

@@ -1,4 +1,4 @@
-// rice:// file manager — components
+// glasshouse file manager — components
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import {
   MENUS,
@@ -10,7 +10,7 @@ import {
   type MenuItemDef,
   type DynamicPayload,
 } from "./data";
-import { drives as apiDrives, fileStatExtended, gitBranchList, gitFileInfo, hashCrc32, hashMd5, hashSha256, homeDir as apiHomeDir, listDir, listShellProfiles, netRate, pathFsType, readImageB64, readPins, readRecent, readTags, readText, setPermissions, systemInfo as apiSystemInfo, winClose, winMinimize, winToggleMaximize, writeTags, writeText, type BlameLine, type Drive, type FileEntry, type FileStatExt, type GitFileInfo, type GitInfo, type NetRate, type ShellProfile, type SystemInfo } from "./api";
+import { drives as apiDrives, fileStatExtended, gitBranchList, gitFileInfo, hashCrc32, hashMd5, hashSha256, homeDir as apiHomeDir, listDir, listShellProfiles, listWslDistros, netRate, pathFsType, pickDirectory, readImageB64, readPins, readRecent, readTags, readText, setPermissions, systemInfo as apiSystemInfo, winClose, winMinimize, winToggleMaximize, writeTags, writeText, type BlameLine, type Drive, type FileEntry, type FileStatExt, type GitFileInfo, type GitInfo, type NetRate, type ShellProfile, type SystemInfo, type WslDistro } from "./api";
 import { getVersion } from "@tauri-apps/api/app";
 import { fuzzyFilter } from "./fuzzy";
 
@@ -179,7 +179,6 @@ export function Titlebar({ tabs, activeTab, onSelectTab, onCloseTab, onNewTab, o
         ))}
         <div className="tab-actions">
           <button className="tab-btn" title="New tab" onClick={onNewTab}>+</button>
-          <button className="tab-btn" title="Tab menu">⌄</button>
         </div>
       </div>
     </div>
@@ -194,9 +193,59 @@ interface MenuItemProps {
   onPayload?: (payload: DynamicPayload) => void;
   onSubHover?: (sub: MenuItemDef | null) => void;
   subOpen?: boolean;
+  parentLabel?: string;
 }
 
-function MenuItem({ item, onAction, onPayload, onSubHover, subOpen }: MenuItemProps) {
+/** Toggle-state fed into the menubar so resolveChecked can reflect live UI
+ *  state (tweaks + sidebar/status-bar visibility) rather than stale static
+ *  `check: true` hints. `undefined` means "use the static hint on the item". */
+export interface MenuToggleState {
+  tweaks?: TweakState;
+  sidebarVisible?: boolean;
+  statusBarVisible?: boolean;
+}
+
+const MenuToggleContext = React.createContext<MenuToggleState>({});
+
+/** Resolve whether this menu item should render a ✓ mark. Checks live toggle
+ *  state first (tweaks/sidebar/status-bar), then falls back to the submenu
+ *  selection stored in localStorage for Display Mode / Layout, then the
+ *  static `check: true` flag on the data.ts entry. */
+function resolveChecked(item: MenuItemDef, toggles: MenuToggleState, parentLabel?: string): boolean {
+  if (item.kind !== "item") return false;
+  if (parentLabel === "Display Mode") {
+    const stored = localStorage.getItem("glasshouse.displayMode") ?? "Details (rows)";
+    return item.label === stored;
+  }
+  if (parentLabel === "Layout") {
+    const stored = localStorage.getItem("glasshouse.layout") ?? "Tree + Pane + Inspector";
+    return item.label === stored;
+  }
+  const tw = toggles.tweaks;
+  switch (item.label) {
+    case "Show Hidden Files":
+    case "Show Hidden":
+      return !!tw?.hidden;
+    case "Show File Extensions":
+      return !!tw?.showExtensions;
+    case "Show Git Gutters":
+      return !!tw?.showGitGutters;
+    case "Show Ignored (.gitignore)":
+      return !!tw?.showIgnored;
+    case "Folders First":
+      return !!tw?.foldersFirst;
+    case "Show Checksums":
+      return !!tw?.showChecksums;
+    case "Sidebar":
+      return toggles.sidebarVisible !== undefined ? toggles.sidebarVisible : !!item.check;
+    case "Status Bar":
+      return toggles.statusBarVisible !== undefined ? toggles.statusBarVisible : !!item.check;
+  }
+  return !!item.check;
+}
+
+function MenuItem({ item, onAction, onPayload, onSubHover, subOpen, parentLabel }: MenuItemProps) {
+  const toggles = React.useContext(MenuToggleContext);
   if (item.kind === "sep") return <div className="sep" />;
   if (item.kind === "grouplabel") return <div className="group-label">{item.label}</div>;
   if (item.kind === "dynamic") {
@@ -205,7 +254,7 @@ function MenuItem({ item, onAction, onPayload, onSubHover, subOpen }: MenuItemPr
   }
   const isSub = item.kind === "sub";
   const danger = item.kind === "item" && item.danger;
-  const check = item.kind === "item" && item.check;
+  const check = resolveChecked(item, toggles, parentLabel);
   const ic = item.kind === "item" || item.kind === "sub" ? item.ic : undefined;
   const kb = item.kind === "item" ? item.kb : undefined;
   const payload = item.kind === "item" ? item.payload : undefined;
@@ -250,7 +299,7 @@ function SubDropdown({
   return (
     <div className="dropdown" style={{left: "calc(100% + 2px)", top: "-4px", minWidth: 240}}>
       {children.map((c, i) => (
-        <MenuItem key={i} item={c} onAction={onAction} onPayload={onPayload} />
+        <MenuItem key={i} item={c} onAction={onAction} onPayload={onPayload} parentLabel={item.label} />
       ))}
     </div>
   );
@@ -260,6 +309,7 @@ export interface MenubarProps {
   onOpenPalette: () => void;
   onCommand: (label: string) => void;
   onPayload?: (payload: DynamicPayload) => void;
+  toggles?: MenuToggleState;
 }
 
 function MenubarDropdown({
@@ -292,11 +342,12 @@ function MenubarDropdown({
   );
 }
 
-export function Menubar({ onOpenPalette, onCommand, onPayload }: MenubarProps) {
+export function Menubar({ onOpenPalette, onCommand, onPayload, toggles }: MenubarProps) {
   const [open, setOpen] = useState<string | null>(null);
   const [subHover, setSubHover] = useState<MenuItemDef | null>(null);
   const [version, setVersion] = useState<string>("");
   const ref = useRef<HTMLDivElement>(null);
+  const ctxValue = toggles ?? {};
 
   useEffect(() => {
     const close = (e: MouseEvent) => {
@@ -321,33 +372,35 @@ export function Menubar({ onOpenPalette, onCommand, onPayload }: MenubarProps) {
 
   const keys = Object.keys(MENUS);
   return (
-    <div className="menubar" ref={ref}>
-      {keys.map(k => (
-        <div
-          key={k}
-          className={"menubar-item" + (open === k ? " open" : "")}
-          onClick={() => setOpen(open === k ? null : k)}
-          onMouseEnter={() => open && setOpen(k)}
-        >
-          <span><span className="u">{k[0]}</span>{k.slice(1)}</span>
-          {open === k && (
-            <MenubarDropdown
-              items={MENUS[k]}
-              subHover={subHover}
-              setSubHover={setSubHover}
-              onAction={(label) => { setOpen(null); onCommand(label); }}
-              onPayload={(p) => { setOpen(null); onPayload?.(p); }}
-            />
-          )}
+    <MenuToggleContext.Provider value={ctxValue}>
+      <div className="menubar" ref={ref}>
+        {keys.map(k => (
+          <div
+            key={k}
+            className={"menubar-item" + (open === k ? " open" : "")}
+            onClick={() => setOpen(open === k ? null : k)}
+            onMouseEnter={() => open && setOpen(k)}
+          >
+            <span><span className="u">{k[0]}</span>{k.slice(1)}</span>
+            {open === k && (
+              <MenubarDropdown
+                items={MENUS[k]}
+                subHover={subHover}
+                setSubHover={setSubHover}
+                onAction={(label) => { setOpen(null); onCommand(label); }}
+                onPayload={(p) => { setOpen(null); onPayload?.(p); }}
+              />
+            )}
+          </div>
+        ))}
+        <div className="menubar-right">
+          <span onClick={onOpenPalette} style={{cursor:"pointer"}}>
+            <span className="kbd">Ctrl</span>&nbsp;<span className="kbd">P</span>&nbsp;palette
+          </span>
+          {version && <span>· glasshouse v{version}</span>}
         </div>
-      ))}
-      <div className="menubar-right">
-        <span onClick={onOpenPalette} style={{cursor:"pointer"}}>
-          <span className="kbd">Ctrl</span>&nbsp;<span className="kbd">P</span>&nbsp;palette
-        </span>
-        {version && <span>· rice://v{version}</span>}
       </div>
-    </div>
+    </MenuToggleContext.Provider>
   );
 }
 
@@ -421,7 +474,6 @@ export function Toolbar({ path, gitInfo, canBack, canForward, onBack, onForward,
         <button className="nav-btn" title="Refresh (F5)" onClick={onRefresh}>↻</button>
       </div>
       <div className="breadcrumb">
-        <span className="scheme">rice://</span>
         {parts.map((p, i) => (
           <React.Fragment key={i}>
             <span
@@ -546,10 +598,12 @@ export interface SavedRemote {
   path: string;
 }
 
+export type SidebarRowKind = "pinned" | "tree-folder" | "tree-file" | "drive" | "remote" | "wsl";
+
 export interface SidebarProps {
   activePath: string;
   onGoTo: (path: string) => void;
-  onRowContext?: (e: React.MouseEvent, path: string) => void;
+  onRowContext?: (e: React.MouseEvent, path: string, kind: SidebarRowKind) => void;
   pins: string[];
   onAddPin: () => void;
   tags: Record<string, string[]>;
@@ -558,30 +612,195 @@ export interface SidebarProps {
   savedRemotes: SavedRemote[];
   onOpenConnectDialog: () => void;
   onRemoteClick: (r: SavedRemote) => void;
+  sidebarRootRef?: React.Ref<HTMLElement>;
+  onActivate?: () => void;
+  /** Requests the host to show the themed FolderPickerDialog. The current
+   *  tree root is forwarded as `initialPath` and the picked path is handed
+   *  back so Sidebar can swap its own rootPath state. Keeps the native Tauri
+   *  dialog off-screen. */
+  onPickTreeRoot?: (initialPath: string | undefined, onPicked: (p: string) => void) => void;
 }
 
-export function Sidebar({ activePath, onGoTo, onRowContext, pins, onAddPin, tags, onTagFilter, activeTagFilter, savedRemotes, onOpenConnectDialog, onRemoteClick }: SidebarProps) {
+interface TreePrefs {
+  showHidden: boolean;
+  showFiles: boolean;
+  followActive: boolean;
+}
+
+const TREE_PREFS_KEY = "glasshouse.tree.prefs";
+const TREE_PREFS_DEFAULT: TreePrefs = { showHidden: false, showFiles: false, followActive: false };
+
+function loadTreePrefs(): TreePrefs {
+  try {
+    const raw = localStorage.getItem(TREE_PREFS_KEY);
+    if (!raw) return TREE_PREFS_DEFAULT;
+    const parsed = JSON.parse(raw) as Partial<TreePrefs>;
+    return { ...TREE_PREFS_DEFAULT, ...parsed };
+  } catch { return TREE_PREFS_DEFAULT; }
+}
+
+type SbGroupKey = "PINNED" | "TREE" | "TAGS" | "DEVICES" | "REMOTE";
+const SB_GROUP_DEFAULTS: SbGroupKey[] = ["PINNED", "TREE", "TAGS", "DEVICES", "REMOTE"];
+const SB_COLLAPSED_KEY = "glasshouse.sb.collapsed";
+const SB_ORDER_KEY = "glasshouse.sb.order";
+
+function loadSbCollapsed(): Record<string, boolean> {
+  try {
+    const raw = localStorage.getItem(SB_COLLAPSED_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as unknown;
+    return (parsed && typeof parsed === "object") ? (parsed as Record<string, boolean>) : {};
+  } catch { return {}; }
+}
+
+function loadSbOrder(): SbGroupKey[] {
+  try {
+    const raw = localStorage.getItem(SB_ORDER_KEY);
+    if (!raw) return SB_GROUP_DEFAULTS;
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return SB_GROUP_DEFAULTS;
+    const seen = new Set<SbGroupKey>();
+    const out: SbGroupKey[] = [];
+    for (const entry of parsed) {
+      if (typeof entry !== "string") continue;
+      const key = entry as SbGroupKey;
+      if (!SB_GROUP_DEFAULTS.includes(key)) continue;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(key);
+    }
+    // Append any groups missing from storage so the user always sees every
+    // section; protects against older saved orders missing a newer group.
+    for (const key of SB_GROUP_DEFAULTS) if (!seen.has(key)) out.push(key);
+    return out;
+  } catch { return SB_GROUP_DEFAULTS; }
+}
+
+export function Sidebar({ activePath, onGoTo, onRowContext, pins, onAddPin, tags, onTagFilter, activeTagFilter, savedRemotes, onOpenConnectDialog, onRemoteClick, sidebarRootRef, onActivate, onPickTreeRoot }: SidebarProps) {
+  const sidebarRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    if (!sidebarRootRef) return;
+    if (typeof sidebarRootRef === "function") sidebarRootRef(sidebarRef.current);
+    else (sidebarRootRef as React.MutableRefObject<HTMLElement | null>).current = sidebarRef.current;
+  });
+  // Keyboard-navigation cursor: which visible row is selected. Mouse hover and
+  // this cursor coexist — mouse never overwrites `selectedIdx`, and keyboard
+  // changes don't touch hover state. -1 means "no key-selected row".
+  const [selectedIdx, setSelectedIdx] = useState<number>(-1);
   const [home, setHome] = useState<string | null>(null);
   const [driveList, setDriveList] = useState<Drive[]>([]);
+  const [wslDistros, setWslDistros] = useState<WslDistro[]>([]);
 
   // Tree: visible flattened list + map of children by path
   const [rootPath, setRootPath] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [children, setChildren] = useState<Record<string, FileEntry[]>>({});
+  const [treePrefs, setTreePrefs] = useState<TreePrefs>(() => loadTreePrefs());
+  const [treeMenuOpen, setTreeMenuOpen] = useState(false);
+  const treeTitleRef = useRef<HTMLDivElement>(null);
+
+  // Sidebar group collapse + reorder state. Keys are SbGroupKey ("PINNED", …)
+  // so the render loop can iterate `sbOrder` and look up the matching render
+  // function. Both pieces persist to localStorage on change.
+  const [sbCollapsed, setSbCollapsed] = useState<Record<string, boolean>>(() => loadSbCollapsed());
+  const [sbOrder, setSbOrder] = useState<SbGroupKey[]>(() => loadSbOrder());
+  const [sbDragging, setSbDragging] = useState<SbGroupKey | null>(null);
+  const [sbDropIdx, setSbDropIdx] = useState<number | null>(null);
+
+  useEffect(() => {
+    try { localStorage.setItem(SB_COLLAPSED_KEY, JSON.stringify(sbCollapsed)); } catch { /* quota */ }
+  }, [sbCollapsed]);
+  useEffect(() => {
+    try { localStorage.setItem(SB_ORDER_KEY, JSON.stringify(sbOrder)); } catch { /* quota */ }
+  }, [sbOrder]);
+
+  const toggleGroupCollapse = (key: SbGroupKey) => {
+    setSbCollapsed(prev => ({ ...prev, [key]: !prev[key] }));
+  };
+
+  const moveGroup = (key: SbGroupKey, delta: number) => {
+    setSbOrder(prev => {
+      const idx = prev.indexOf(key);
+      if (idx < 0) return prev;
+      const next = idx + delta;
+      if (next < 0 || next >= prev.length) return prev;
+      const copy = prev.slice();
+      copy.splice(idx, 1);
+      copy.splice(next, 0, key);
+      return copy;
+    });
+  };
+
+  useEffect(() => {
+    try { localStorage.setItem(TREE_PREFS_KEY, JSON.stringify(treePrefs)); } catch { /* quota */ }
+  }, [treePrefs]);
+
+  const filterKids = (kids: FileEntry[]): FileEntry[] => {
+    return kids.filter(k => {
+      if (!treePrefs.showHidden && k.hidden) return false;
+      if (!treePrefs.showFiles && k.kind !== "folder") return false;
+      return true;
+    });
+  };
 
   useEffect(() => {
     void (async () => {
       const h = await apiHomeDir();
       setHome(h);
       setDriveList(await apiDrives());
+      try { setWslDistros(await listWslDistros()); } catch { /* not on Windows */ }
       if (h) {
         setRootPath(h);
-        const kids = await listDir(h, false);
-        setChildren(prev => ({ ...prev, [h]: kids.filter(k => k.kind === "folder") }));
-        setExpanded(prev => ({ ...prev, [h]: true }));
+        try {
+          const kids = await listDir(h, treePrefs.showHidden);
+          setChildren(prev => ({ ...prev, [h]: filterKids(kids) }));
+          setExpanded(prev => ({ ...prev, [h]: true }));
+        } catch { /* unreadable */ }
       }
     })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Re-fetch / re-filter every already-loaded path when prefs change so the
+  // tree reflects Show Hidden / Show Files immediately.
+  useEffect(() => {
+    const paths = Object.keys(children);
+    if (paths.length === 0) return;
+    void (async () => {
+      const updates: Record<string, FileEntry[]> = {};
+      for (const p of paths) {
+        try {
+          const kids = await listDir(p, treePrefs.showHidden);
+          updates[p] = filterKids(kids);
+        } catch { /* unreadable */ }
+      }
+      setChildren(prev => ({ ...prev, ...updates }));
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [treePrefs.showHidden, treePrefs.showFiles]);
+
+  // Follow active tab: ensure every ancestor of activePath is expanded.
+  useEffect(() => {
+    if (!treePrefs.followActive || !rootPath || !activePath) return;
+    if (!activePath.startsWith(rootPath)) return;
+    void (async () => {
+      const sep = rootPath.includes("\\") ? "\\" : "/";
+      const rel = activePath.slice(rootPath.length).replace(/^[\\/]+/, "");
+      const parts = rel.split(/[\\/]/).filter(Boolean);
+      let cur = rootPath;
+      for (let i = 0; i < parts.length - 1; i++) {
+        cur = cur.endsWith(sep) ? cur + parts[i] : cur + sep + parts[i];
+        if (!children[cur]) {
+          try {
+            const kids = await listDir(cur, treePrefs.showHidden);
+            setChildren(prev => ({ ...prev, [cur]: filterKids(kids) }));
+          } catch { break; }
+        }
+        setExpanded(prev => ({ ...prev, [cur]: true }));
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [treePrefs.followActive, activePath, rootPath]);
 
   const toggleNode = async (path: string) => {
     const isOpen = expanded[path];
@@ -590,51 +809,380 @@ export function Sidebar({ activePath, onGoTo, onRowContext, pins, onAddPin, tags
       return;
     }
     if (!children[path]) {
-      const kids = await listDir(path, false);
-      setChildren(prev => ({ ...prev, [path]: kids.filter(k => k.kind === "folder") }));
+      try {
+        const kids = await listDir(path, treePrefs.showHidden);
+        setChildren(prev => ({ ...prev, [path]: filterKids(kids) }));
+      } catch { return; }
     }
     setExpanded(prev => ({ ...prev, [path]: true }));
   };
 
+  const collapseAll = async () => {
+    if (!rootPath) return;
+    // Rebuild the expanded map from scratch with only the root marked open so
+    // no stale descendant entry can keep its own subtree visible. If the root
+    // hasn't been listed yet (e.g. Collapse all is hit while still loading)
+    // pull its children first so the tree doesn't flash empty.
+    if (!children[rootPath]) {
+      try {
+        const kids = await listDir(rootPath, treePrefs.showHidden);
+        setChildren(prev => ({ ...prev, [rootPath]: filterKids(kids) }));
+      } catch { /* unreadable — tree will show just the root row */ }
+    }
+    setExpanded({ [rootPath]: true });
+  };
+
+  const refreshTree = async () => {
+    const paths = Object.keys(children);
+    const updates: Record<string, FileEntry[]> = {};
+    for (const p of paths) {
+      try {
+        const kids = await listDir(p, treePrefs.showHidden);
+        updates[p] = filterKids(kids);
+      } catch { /* unreadable */ }
+    }
+    setChildren(updates);
+  };
+
+  const applyNewRoot = async (picked: string) => {
+    setRootPath(picked);
+    setExpanded({ [picked]: true });
+    try {
+      const kids = await listDir(picked, treePrefs.showHidden);
+      setChildren({ [picked]: filterKids(kids) });
+    } catch {
+      setChildren({ [picked]: [] });
+    }
+  };
+
+  const changeRoot = async () => {
+    // Prefer the themed in-app folder picker when the host wires one up; it
+    // matches the rest of the palette chrome. Without a handler we fall back
+    // to the native Tauri dialog so the control still works in standalone
+    // test harnesses.
+    if (onPickTreeRoot) {
+      onPickTreeRoot(rootPath ?? undefined, (picked) => { void applyNewRoot(picked); });
+      return;
+    }
+    const picked = await pickDirectory(rootPath ?? undefined);
+    if (!picked) return;
+    void applyNewRoot(picked);
+  };
+
+  // Close the tree menu when clicking outside.
+  useEffect(() => {
+    if (!treeMenuOpen) return;
+    const onDown = (e: MouseEvent) => {
+      if (!treeTitleRef.current) return;
+      if (!treeTitleRef.current.contains(e.target as Node)) setTreeMenuOpen(false);
+    };
+    window.addEventListener("mousedown", onDown);
+    return () => window.removeEventListener("mousedown", onDown);
+  }, [treeMenuOpen]);
+
   const treeRows = useMemo(() => {
-    const out: { path: string; name: string; depth: number; open: boolean }[] = [];
+    const out: { path: string; name: string; depth: number; open: boolean; kind: "folder" | "file" }[] = [];
     if (!rootPath) return out;
-    const walk = (p: string, depth: number) => {
+    const walk = (p: string, depth: number, kind: "folder" | "file") => {
       const name = depth === 0 ? pathBasename(p) || p : pathBasename(p);
       const open = !!expanded[p];
-      out.push({ path: p, name, depth, open });
-      if (open) {
+      out.push({ path: p, name, depth, open, kind });
+      if (open && kind === "folder") {
         const kids = children[p] ?? [];
-        for (const k of kids) walk(k.path, depth + 1);
+        for (const k of kids) walk(k.path, depth + 1, k.kind === "folder" ? "folder" : "file");
       }
     };
-    walk(rootPath, 0);
+    walk(rootPath, 0, "folder");
     return out;
   }, [rootPath, expanded, children]);
 
   const tagCounts = useMemo(() => {
-    const keys = Object.keys(tags);
-    if (keys.length === 0) {
-      return SEED_TAGS.map(s => ({ label: s.label, color: s.color, count: 0 }));
+    const counts: Record<string, number> = {};
+    for (const labels of Object.values(tags)) {
+      if (!Array.isArray(labels)) continue;
+      for (const label of labels) {
+        if (!label) continue;
+        counts[label] = (counts[label] ?? 0) + 1;
+      }
     }
-    return keys.sort().map(k => ({
-      label: k,
-      color: TAG_COLOR_MAP[k] ?? "var(--fg-2)",
-      count: (tags[k] ?? []).length,
-    }));
+    const seedLabels = new Set(SEED_TAGS.map(s => s.label));
+    const rows: { label: string; color: string; count: number }[] = [];
+    for (const s of SEED_TAGS) {
+      rows.push({ label: s.label, color: s.color, count: counts[s.label] ?? 0 });
+    }
+    const userLabels = Object.keys(counts).filter(k => !seedLabels.has(k)).sort();
+    for (const k of userLabels) {
+      rows.push({ label: k, color: TAG_COLOR_MAP[k] ?? "var(--fg-2)", count: counts[k] });
+    }
+    return rows;
   }, [tags]);
 
-  return (
-    <aside className="sidebar">
-      <div className="sb-group">
-        <div className="sb-title">
-          <span>PINNED</span>
-          <span
-            style={{color:"var(--fg-3)", cursor:"pointer"}}
-            title="Pin current folder"
-            onClick={onAddPin}
-          >+</span>
-        </div>
+  // Flat list of keyboard-navigable rows in render order. Respects the
+  // user's group order and skips collapsed groups so keyboard nav stays in
+  // sync with what is actually on-screen. Tree rows keep their path+depth
+  // so ← / → can collapse/expand / hop parent.
+  type SbNavRow =
+    | { kind: "pin"; path: string }
+    | { kind: "tree"; path: string; depth: number; open: boolean; isFolder: boolean; hasChildren: boolean }
+    | { kind: "tag"; label: string }
+    | { kind: "drive"; path: string }
+    | { kind: "wsl"; path: string }
+    | { kind: "remote"; idx: number };
+  const navRows: SbNavRow[] = useMemo(() => {
+    const out: SbNavRow[] = [];
+    for (const key of sbOrder) {
+      if (sbCollapsed[key]) continue;
+      switch (key) {
+        case "PINNED":
+          for (const p of pins) out.push({ kind: "pin", path: p });
+          break;
+        case "TREE":
+          for (const n of treeRows) {
+            const has = (children[n.path]?.length ?? 0) > 0 || !(n.path in children);
+            out.push({ kind: "tree", path: n.path, depth: n.depth, open: n.open, isFolder: n.kind === "folder", hasChildren: has });
+          }
+          break;
+        case "TAGS":
+          for (const t of tagCounts) out.push({ kind: "tag", label: t.label });
+          break;
+        case "DEVICES":
+          for (const d of driveList) out.push({ kind: "drive", path: d.letter });
+          for (const w of wslDistros) out.push({ kind: "wsl", path: w.path });
+          break;
+        case "REMOTE":
+          for (let i = 0; i < savedRemotes.length; i++) out.push({ kind: "remote", idx: i });
+          break;
+      }
+    }
+    return out;
+  }, [sbOrder, sbCollapsed, pins, treeRows, children, tagCounts, driveList, wslDistros, savedRemotes]);
+
+  // Scroll the keyboard-selected row into view after each change.
+  useEffect(() => {
+    if (selectedIdx < 0) return;
+    const root = sidebarRef.current;
+    if (!root) return;
+    const el = root.querySelector<HTMLElement>(`[data-sb-nav-idx="${selectedIdx}"]`);
+    el?.scrollIntoView({ block: "nearest" });
+  }, [selectedIdx]);
+
+  const activateRow = (row: SbNavRow) => {
+    if (row.kind === "pin" || row.kind === "drive" || row.kind === "wsl") onGoTo(row.path);
+    else if (row.kind === "tree") onGoTo(row.path);
+    else if (row.kind === "tag") onTagFilter?.(row.label);
+    else if (row.kind === "remote") onRemoteClick(savedRemotes[row.idx]);
+  };
+
+  const onSidebarKeyDown = (e: React.KeyboardEvent) => {
+    // Ignore events that bubbled up from inside the tree-options popup, the
+    // section title (which owns Enter-to-toggle for collapsible groups from
+    // a sibling task), or any focused form input inside the sidebar.
+    const target = e.target as HTMLElement | null;
+    if (target) {
+      if (target.closest(".sb-title")) return;
+      const tag = target.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA") return;
+      if (target.isContentEditable) return;
+    }
+    if (navRows.length === 0) return;
+    const key = e.key;
+    if (key !== "ArrowUp" && key !== "ArrowDown" && key !== "ArrowLeft" && key !== "ArrowRight" && key !== "Enter" && key !== "Home" && key !== "End") {
+      return;
+    }
+    e.preventDefault();
+    e.stopPropagation();
+    // React's synthetic stopPropagation doesn't block App.tsx's window-level
+    // native keydown listener. Without this, Enter here would also fire Open
+    // on the file pane.
+    e.nativeEvent.stopImmediatePropagation();
+    const curIdx = selectedIdx < 0 ? 0 : Math.max(0, Math.min(selectedIdx, navRows.length - 1));
+    if (key === "ArrowDown") {
+      setSelectedIdx(Math.min(navRows.length - 1, curIdx + 1));
+      return;
+    }
+    if (key === "ArrowUp") {
+      setSelectedIdx(Math.max(0, curIdx - 1));
+      return;
+    }
+    if (key === "Home") { setSelectedIdx(0); return; }
+    if (key === "End") { setSelectedIdx(navRows.length - 1); return; }
+    const row = navRows[curIdx];
+    if (!row) return;
+    if (key === "Enter") {
+      activateRow(row);
+      return;
+    }
+    if (row.kind !== "tree") return;
+    if (key === "ArrowRight") {
+      if (row.isFolder && !row.open && row.hasChildren) {
+        void toggleNode(row.path);
+      } else if (row.open) {
+        // Hop to first child (depth+1) below this row.
+        for (let i = curIdx + 1; i < navRows.length; i++) {
+          const r = navRows[i];
+          if (r.kind !== "tree") break;
+          if (r.depth <= row.depth) break;
+          if (r.depth === row.depth + 1) { setSelectedIdx(i); return; }
+        }
+      }
+      return;
+    }
+    if (key === "ArrowLeft") {
+      if (row.isFolder && row.open) {
+        void toggleNode(row.path);
+      } else if (row.depth > 0) {
+        // Hop to parent: nearest preceding tree row with depth - 1.
+        for (let i = curIdx - 1; i >= 0; i--) {
+          const r = navRows[i];
+          if (r.kind !== "tree") break;
+          if (r.depth === row.depth - 1) { setSelectedIdx(i); return; }
+        }
+      }
+      return;
+    }
+  };
+
+  // Per-group nav-row starting indices. Collapsed groups contribute zero
+  // rows, so the offsets depend on both `sbOrder` and `sbCollapsed`. The
+  // render loop consults `navStart[key]` to stamp `data-sb-nav-idx` values
+  // that line up with `navRows` for keyboard nav.
+  const navStart = useMemo(() => {
+    const sizeOf = (key: SbGroupKey): number => {
+      if (sbCollapsed[key]) return 0;
+      switch (key) {
+        case "PINNED":  return pins.length;
+        case "TREE":    return treeRows.length;
+        case "TAGS":    return tagCounts.length;
+        case "DEVICES": return driveList.length + wslDistros.length;
+        case "REMOTE":  return savedRemotes.length;
+      }
+    };
+    const out: Record<SbGroupKey, number> = { PINNED: 0, TREE: 0, TAGS: 0, DEVICES: 0, REMOTE: 0 };
+    let cursor = 0;
+    for (const key of sbOrder) {
+      out[key] = cursor;
+      cursor += sizeOf(key);
+    }
+    return out;
+  }, [sbOrder, sbCollapsed, pins, treeRows, tagCounts, driveList, wslDistros, savedRemotes]);
+
+  // Pointer-based drag: pressing an `.sb-title` starts tracking; while
+  // dragging we compute the drop index from the mouse's y-position relative
+  // to each title bar's rect. Release commits the reorder.
+  const onTitlePointerDown = (key: SbGroupKey) => (e: React.PointerEvent) => {
+    // Only left button, and ignore clicks on buttons (+/⋯) inside the title.
+    if (e.button !== 0) return;
+    const tgt = e.target as HTMLElement;
+    if (tgt.closest("[data-sb-title-button]")) return;
+    const startY = e.clientY;
+    const startX = e.clientX;
+    let dragging = false;
+
+    const computeDropIdx = (clientY: number): number => {
+      const titles = sidebarRef.current?.querySelectorAll<HTMLElement>("[data-sb-group-title]");
+      if (!titles || titles.length === 0) return 0;
+      for (let i = 0; i < titles.length; i++) {
+        const rect = titles[i].getBoundingClientRect();
+        if (clientY < rect.top + rect.height / 2) return i;
+      }
+      return titles.length;
+    };
+
+    const onMove = (me: PointerEvent) => {
+      if (!dragging) {
+        if (Math.abs(me.clientY - startY) < 4 && Math.abs(me.clientX - startX) < 4) return;
+        dragging = true;
+        setSbDragging(key);
+      }
+      setSbDropIdx(computeDropIdx(me.clientY));
+    };
+    const onUp = (me: PointerEvent) => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      if (dragging) {
+        const dropIdx = computeDropIdx(me.clientY);
+        setSbOrder(prev => {
+          const idx = prev.indexOf(key);
+          if (idx < 0) return prev;
+          // Dropping onto own slot is a no-op; splice at the adjusted index
+          // so "drop above self" and "drop below self" behave consistently.
+          const target = dropIdx > idx ? dropIdx - 1 : dropIdx;
+          if (target === idx) return prev;
+          const copy = prev.slice();
+          copy.splice(idx, 1);
+          copy.splice(target, 0, key);
+          return copy;
+        });
+      }
+      setSbDragging(null);
+      setSbDropIdx(null);
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+  };
+
+  const onTitleKeyDown = (key: SbGroupKey) => (e: React.KeyboardEvent) => {
+    // Enter toggles collapse; Alt+Up/Down moves the group.
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      toggleGroupCollapse(key);
+      return;
+    }
+    if (e.altKey && e.key === "ArrowUp") {
+      e.preventDefault();
+      e.stopPropagation();
+      moveGroup(key, -1);
+      return;
+    }
+    if (e.altKey && e.key === "ArrowDown") {
+      e.preventDefault();
+      e.stopPropagation();
+      moveGroup(key, 1);
+      return;
+    }
+  };
+
+  const renderChevron = (key: SbGroupKey) => (
+    <span style={{ display: "inline-block", width: 10, textAlign: "center", color: "var(--fg-3)" }}>
+      {sbCollapsed[key] ? "▸" : "▾"}
+    </span>
+  );
+
+  const renderTitle = (key: SbGroupKey, label: string, trailing?: React.ReactNode, titleRef?: React.RefObject<HTMLDivElement>) => (
+    <div
+      className="sb-title"
+      data-sb-group-title={key}
+      ref={titleRef}
+      tabIndex={0}
+      role="button"
+      aria-expanded={!sbCollapsed[key]}
+      style={{ position: "relative", cursor: "pointer", userSelect: "none" }}
+      onClick={() => toggleGroupCollapse(key)}
+      onPointerDown={onTitlePointerDown(key)}
+      onKeyDown={onTitleKeyDown(key)}
+    >
+      <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+        {renderChevron(key)}
+        <span>{label}</span>
+      </span>
+      {trailing}
+    </div>
+  );
+
+  const renderPinned = () => (
+    <div
+      key="PINNED"
+      className={"sb-group" + (sbDragging === "PINNED" ? " sb-group-dragging" : "")}
+    >
+      {renderTitle("PINNED", "PINNED", (
+        <span
+          data-sb-title-button
+          style={{color:"var(--fg-3)", cursor:"pointer"}}
+          title="Pin current folder"
+          onClick={(e) => { e.stopPropagation(); onAddPin(); }}
+        >+</span>
+      ))}
+      {!sbCollapsed["PINNED"] && (<>
         {pins.length === 0 && (
           <div className="sb-item" style={{color:"var(--fg-3)", cursor:"default"}}>
             <span className="ic">·</span>
@@ -642,59 +1190,129 @@ export function Sidebar({ activePath, onGoTo, onRowContext, pins, onAddPin, tags
             <span className="badge"></span>
           </div>
         )}
-        {pins.map((p, i) => (
-          <div key={i}
-               className={"sb-item" + (p === activePath ? " active" : "")}
-               onClick={() => onGoTo(p)}
-               onContextMenu={(e) => {
-                 if (!onRowContext) return;
-                 e.preventDefault();
-                 e.stopPropagation();
-                 onRowContext(e, p);
-               }}
-               title={p}
-               style={{cursor:"pointer"}}>
-            <span className="ic">{home && p === home ? "󰋜" : ""}</span>
-            <span style={{overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap"}}>{pathBasename(p) || p}</span>
-            <span className="badge"></span>
-          </div>
-        ))}
-      </div>
-
-      <div className="sb-group">
-        <div className="sb-title"><span>TREE</span><span style={{color:"var(--fg-3)"}}>⋯</span></div>
-        {treeRows.map((n) => {
-          const hasChildren = (children[n.path]?.length ?? 0) > 0 || !(n.path in children);
+        {pins.map((p, i) => {
+          const navIdx = navStart.PINNED + i;
+          const isKb = selectedIdx === navIdx;
           return (
-            <div key={n.path}
-                 className={"tree-row" + (n.path === activePath ? " active" : "")}
-                 style={{paddingLeft: 12 + n.depth * 10, cursor:"pointer"}}
-                 onClick={() => onGoTo(n.path)}
+            <div key={i}
+                 data-sidebar-drop-path={p}
+                 data-sb-nav-idx={navIdx}
+                 className={"sb-item" + (p === activePath ? " active" : "") + (isKb ? " sb-item-focused" : "")}
+                 onClick={() => onGoTo(p)}
                  onContextMenu={(e) => {
                    if (!onRowContext) return;
                    e.preventDefault();
                    e.stopPropagation();
-                   onRowContext(e, n.path);
+                   onRowContext(e, p, "pinned");
                  }}
-                 title={n.path}>
-              <span
-                className="chev"
-                onClick={(e) => { e.stopPropagation(); void toggleNode(n.path); }}
-                style={{cursor:"pointer"}}
-              >{hasChildren ? (n.open ? "" : "") : ""}</span>
-              <span className="ic">{n.open ? "" : ""}</span>
-              <span style={{overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap"}}>{n.name}</span>
-              <span className="git"></span>
+                 title={p}
+                 style={{cursor:"pointer"}}>
+              <span className="ic">{home && p === home ? "󰋜" : ""}</span>
+              <span style={{overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap"}}>{pathBasename(p) || p}</span>
+              <span className="badge"></span>
             </div>
           );
         })}
-      </div>
+      </>)}
+    </div>
+  );
 
-      <div className="sb-group">
-        <div className="sb-title">TAGS</div>
-        {tagCounts.map((t, i) => (
+  const renderTree = () => (
+    <div
+      key="TREE"
+      className={"sb-group" + (sbDragging === "TREE" ? " sb-group-dragging" : "")}
+    >
+      {renderTitle("TREE", "TREE", (
+        <>
+          <span
+            data-sb-title-button
+            style={{ color: "var(--fg-3)", cursor: "pointer", userSelect: "none" }}
+            title="Tree options"
+            onClick={(e) => { e.stopPropagation(); setTreeMenuOpen(v => !v); }}
+          >⋯</span>
+          {treeMenuOpen && (
+            <div
+              data-sb-title-button
+              onClick={(e) => e.stopPropagation()}
+              style={{
+                position: "absolute", top: "100%", right: 4, zIndex: 60,
+                minWidth: 200, background: "var(--bg-1, #1a1b26)",
+                border: "1px solid var(--fg-3)", borderRadius: 3,
+                boxShadow: "0 4px 14px rgba(0,0,0,0.45)",
+                padding: "4px 0", fontFamily: "var(--font-mono)",
+                color: "var(--fg-1)", fontSize: 12,
+              }}
+            >
+              {([
+                { k: "showHidden" as const, label: "Show hidden" },
+                { k: "showFiles" as const,  label: "Show files" },
+                { k: "followActive" as const, label: "Follow active tab" },
+              ]).map(row => (
+                <div
+                  key={row.k}
+                  onClick={() => setTreePrefs(p => ({ ...p, [row.k]: !p[row.k] }))}
+                  style={{ padding: "4px 10px", cursor: "pointer", display: "flex", alignItems: "center", gap: 8 }}
+                >
+                  <span style={{ width: 12, textAlign: "center" }}>{treePrefs[row.k] ? "✓" : ""}</span>
+                  <span>{row.label}</span>
+                </div>
+              ))}
+              <div style={{ borderTop: "1px solid var(--fg-3)", margin: "4px 0" }} />
+              <div onClick={() => { void collapseAll(); setTreeMenuOpen(false); }}
+                   style={{ padding: "4px 10px", cursor: "pointer", paddingLeft: 30 }}>Collapse all</div>
+              <div onClick={() => { void refreshTree(); setTreeMenuOpen(false); }}
+                   style={{ padding: "4px 10px", cursor: "pointer", paddingLeft: 30 }}>Refresh</div>
+              <div onClick={() => { void changeRoot(); setTreeMenuOpen(false); }}
+                   style={{ padding: "4px 10px", cursor: "pointer", paddingLeft: 30 }}>Change root…</div>
+            </div>
+          )}
+        </>
+      ), treeTitleRef)}
+      {!sbCollapsed["TREE"] && treeRows.map((n, ti) => {
+        const hasChildren = (children[n.path]?.length ?? 0) > 0 || !(n.path in children);
+        const navIdx = navStart.TREE + ti;
+        const isKb = selectedIdx === navIdx;
+        return (
+          <div key={n.path}
+               data-sidebar-drop-path={n.kind === "folder" ? n.path : undefined}
+               data-sb-nav-idx={navIdx}
+               className={"tree-row" + (n.path === activePath ? " active" : "") + (isKb ? " sb-item-focused" : "")}
+               style={{paddingLeft: 12 + n.depth * 10, cursor:"pointer"}}
+               onClick={() => onGoTo(n.path)}
+               onContextMenu={(e) => {
+                 if (!onRowContext) return;
+                 e.preventDefault();
+                 e.stopPropagation();
+                 onRowContext(e, n.path, n.kind === "folder" ? "tree-folder" : "tree-file");
+               }}
+               title={n.path}>
+            <span
+              className="chev"
+              onClick={(e) => { e.stopPropagation(); void toggleNode(n.path); }}
+              style={{cursor:"pointer"}}
+            >{hasChildren ? (n.open ? "" : "") : ""}</span>
+            <span className="ic">{n.open ? "" : ""}</span>
+            <span style={{overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap"}}>{n.name}</span>
+            <span className="git"></span>
+          </div>
+        );
+      })}
+    </div>
+  );
+
+  const renderTags = () => (
+    <div
+      key="TAGS"
+      className={"sb-group" + (sbDragging === "TAGS" ? " sb-group-dragging" : "")}
+    >
+      {renderTitle("TAGS", "TAGS")}
+      {!sbCollapsed["TAGS"] && tagCounts.map((t, i) => {
+        const navIdx = navStart.TAGS + i;
+        const isKb = selectedIdx === navIdx;
+        return (
           <div key={i}
-               className={"sb-item" + (activeTagFilter === t.label ? " active" : "")}
+               data-sb-nav-idx={navIdx}
+               className={"sb-item" + (activeTagFilter === t.label ? " active" : "") + (isKb ? " sb-item-focused" : "")}
                title={`filter by tag: ${t.label}`}
                style={{cursor:"pointer"}}
                onClick={() => onTagFilter && onTagFilter(t.label)}>
@@ -702,11 +1320,18 @@ export function Sidebar({ activePath, onGoTo, onRowContext, pins, onAddPin, tags
             <span>{t.label}</span>
             <span className="badge">{t.count}</span>
           </div>
-        ))}
-      </div>
+        );
+      })}
+    </div>
+  );
 
-      <div className="sb-group">
-        <div className="sb-title">DEVICES</div>
+  const renderDevices = () => (
+    <div
+      key="DEVICES"
+      className={"sb-group" + (sbDragging === "DEVICES" ? " sb-group-dragging" : "")}
+    >
+      {renderTitle("DEVICES", "DEVICES")}
+      {!sbCollapsed["DEVICES"] && (<>
         {driveList.length === 0 && (
           <div className="sb-item" style={{color:"var(--fg-3)", cursor:"default", gridTemplateColumns:"16px 1fr"}}>
             <span className="ic">·</span>
@@ -717,15 +1342,18 @@ export function Sidebar({ activePath, onGoTo, onRowContext, pins, onAddPin, tags
           const used = d.total > d.free ? d.total - d.free : 0;
           const letter = d.letter.replace(/\\$/, "");
           const label = d.label && d.label.length > 0 ? d.label : letter;
+          const navIdx = navStart.DEVICES + i;
+          const isKb = selectedIdx === navIdx;
           return (
             <div key={"d" + i}
-                 className={"sb-item" + (d.letter === activePath ? " active" : "")}
+                 data-sb-nav-idx={navIdx}
+                 className={"sb-item" + (d.letter === activePath ? " active" : "") + (isKb ? " sb-item-focused" : "")}
                  onClick={() => onGoTo(d.letter)}
                  onContextMenu={(e) => {
                    if (!onRowContext) return;
                    e.preventDefault();
                    e.stopPropagation();
-                   onRowContext(e, d.letter);
+                   onRowContext(e, d.letter, "drive");
                  }}
                  style={{cursor:"pointer", gridTemplateColumns:"16px 1fr"}}
                  title={d.letter}>
@@ -737,17 +1365,48 @@ export function Sidebar({ activePath, onGoTo, onRowContext, pins, onAddPin, tags
             </div>
           );
         })}
-      </div>
+        {wslDistros.map((w, i) => {
+          const navIdx = navStart.DEVICES + driveList.length + i;
+          const isKb = selectedIdx === navIdx;
+          return (
+            <div key={"w" + i}
+                 data-sb-nav-idx={navIdx}
+                 className={"sb-item" + (w.path === activePath ? " active" : "") + (isKb ? " sb-item-focused" : "")}
+                 onClick={() => onGoTo(w.path)}
+                 onContextMenu={(e) => {
+                   if (!onRowContext) return;
+                   e.preventDefault();
+                   e.stopPropagation();
+                   onRowContext(e, w.path, "wsl");
+                 }}
+                 style={{cursor:"pointer", gridTemplateColumns:"16px 1fr"}}
+                 title={w.path}>
+              <span className="ic"></span>
+              <div>
+                <div>{w.name}</div>
+                <div style={{color:"var(--fg-3)", fontSize:10}}>wsl · {w.path}</div>
+              </div>
+            </div>
+          );
+        })}
+      </>)}
+    </div>
+  );
 
-      <div className="sb-group">
-        <div className="sb-title">
-          <span>REMOTE</span>
-          <span
-            style={{color:"var(--fg-3)", cursor:"pointer"}}
-            title="Add remote server"
-            onClick={onOpenConnectDialog}
-          >+</span>
-        </div>
+  const renderRemote = () => (
+    <div
+      key="REMOTE"
+      className={"sb-group" + (sbDragging === "REMOTE" ? " sb-group-dragging" : "")}
+    >
+      {renderTitle("REMOTE", "REMOTE", (
+        <span
+          data-sb-title-button
+          style={{color:"var(--fg-3)", cursor:"pointer"}}
+          title="Add remote server"
+          onClick={(e) => { e.stopPropagation(); onOpenConnectDialog(); }}
+        >+</span>
+      ))}
+      {!sbCollapsed["REMOTE"] && (<>
         {savedRemotes.length === 0 && (
           <div className="sb-item" style={{color:"var(--fg-3)", cursor:"default"}}>
             <span className="ic">·</span>
@@ -755,20 +1414,57 @@ export function Sidebar({ activePath, onGoTo, onRowContext, pins, onAddPin, tags
             <span className="badge"></span>
           </div>
         )}
-        {savedRemotes.map((r, i) => (
-          <div key={"r" + i}
-               className="sb-item"
-               style={{gridTemplateColumns: "16px 1fr", cursor:"pointer"}}
-               title={`ssh ${r.host}${r.path ? " — " + r.path : ""}`}
-               onClick={() => onRemoteClick(r)}>
-            <span className="ic"></span>
-            <div>
-              <div>{r.label}</div>
-              <div style={{color:"var(--fg-3)", fontSize:10}}>{r.host}{r.path ? " · " + r.path : ""}</div>
+        {savedRemotes.map((r, i) => {
+          const navIdx = navStart.REMOTE + i;
+          const isKb = selectedIdx === navIdx;
+          return (
+            <div key={"r" + i}
+                 data-sb-nav-idx={navIdx}
+                 className={"sb-item" + (isKb ? " sb-item-focused" : "")}
+                 style={{gridTemplateColumns: "16px 1fr", cursor:"pointer"}}
+                 title={`ssh ${r.host}${r.path ? " — " + r.path : ""}`}
+                 onClick={() => onRemoteClick(r)}
+                 onContextMenu={(e) => {
+                   if (!onRowContext) return;
+                   e.preventDefault();
+                   onRowContext(e, r.host, "remote");
+                 }}>
+              <span className="ic"></span>
+              <div>
+                <div>{r.label}</div>
+                <div style={{color:"var(--fg-3)", fontSize:10}}>{r.host}{r.path ? " · " + r.path : ""}</div>
+              </div>
             </div>
-          </div>
-        ))}
-      </div>
+          );
+        })}
+      </>)}
+    </div>
+  );
+
+  const groupRenderers: Record<SbGroupKey, () => React.ReactNode> = {
+    PINNED: renderPinned,
+    TREE: renderTree,
+    TAGS: renderTags,
+    DEVICES: renderDevices,
+    REMOTE: renderRemote,
+  };
+
+  return (
+    <aside
+      ref={sidebarRef}
+      className="sidebar"
+      tabIndex={-1}
+      onMouseDown={() => { if (onActivate) onActivate(); }}
+      onFocus={() => { if (onActivate) onActivate(); }}
+      onKeyDown={onSidebarKeyDown}
+    >
+      {sbOrder.map((key, idx) => (
+        <React.Fragment key={key}>
+          {sbDragging && sbDropIdx === idx && <div className="sb-drop-indicator" />}
+          {groupRenderers[key]()}
+        </React.Fragment>
+      ))}
+      {sbDragging && sbDropIdx === sbOrder.length && <div className="sb-drop-indicator" />}
     </aside>
   );
 }
@@ -834,7 +1530,14 @@ export interface FilePaneProps {
   searchQuery?: string;
   tagFilter?: string | null;
   tagStore?: Record<string, string[]>;
-  onRowDrop?: (targetOrigIndex: number, sourceOrigIndices: number[]) => void;
+  onRowDrop?: (targetOrigIndex: number, sourceOrigIndices: number[], copy: boolean) => void;
+  /** External drop: drag from this pane to elsewhere (sidebar tree, another pane).
+   *  App handles the drop site via a global window "glasshouse-extern-drop" event. */
+  onExternalDrag?: (sourceOrigIndices: number[], clientX: number, clientY: number, copy: boolean) => void;
+  paneRootRef?: React.Ref<HTMLElement>;
+  onActivate?: () => void;
+  /** Paths currently in "cut" mode in the app clipboard — rendered dimmed. */
+  cutPaths?: string[];
 }
 
 const PAGE_STEP = 10;
@@ -870,9 +1573,23 @@ export function FilePane({
   tagFilter,
   tagStore,
   onRowDrop,
+  onExternalDrag,
+  paneRootRef,
+  onActivate,
+  cutPaths,
 }: FilePaneProps) {
   const paneRef = useRef<HTMLElement>(null);
+  // Wire external ref (App keeps a handle to focus programmatically for Tab nav).
+  useEffect(() => {
+    if (!paneRootRef) return;
+    if (typeof paneRootRef === "function") paneRootRef(paneRef.current);
+    else (paneRootRef as React.MutableRefObject<HTMLElement | null>).current = paneRef.current;
+  });
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
+  // Marquee (box-select) state. Rectangle is in pane-relative coords.
+  const [marquee, setMarquee] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
+  // Ghost preview during an external drag — small floating label with count.
+  const [ghost, setGhost] = useState<{ x: number; y: number; count: number; copy: boolean } | null>(null);
 
   // Filtered + sorted, preserving origIndex so selection still refers to the
   // underlying `files` array (which is what App's clipboard/selection logic
@@ -1087,23 +1804,117 @@ export function FilePane({
 
   const sortArrow = (col: SortColumn) => (sortKey === col ? (sortDir === "asc" ? "↑" : "↓") : "");
 
+  // Cancel marquee on Esc while one is active.
+  useEffect(() => {
+    if (!marquee) return;
+    const onEsc = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setMarquee(null);
+    };
+    window.addEventListener("keydown", onEsc);
+    return () => window.removeEventListener("keydown", onEsc);
+  }, [marquee]);
+
+  const onPaneMouseDown = (e: React.MouseEvent) => {
+    // Take focus on click so arrow keys work without an explicit tab.
+    if (paneRef.current && document.activeElement !== paneRef.current) {
+      paneRef.current.focus();
+    }
+    if (onActivate) onActivate();
+    if (e.button !== 0) return;
+    const target = e.target as HTMLElement;
+    // Don't start a marquee if the mousedown hit a row, pane-head, or sort header.
+    if (target.closest("[data-orig]") || target.closest(".pane-head")) return;
+    const root = paneRef.current;
+    if (!root) return;
+    // Prevent default so text selection doesn't interfere with marquee drag.
+    e.preventDefault();
+    const rootRect = root.getBoundingClientRect();
+    const startX = e.clientX - rootRect.left;
+    const startY = e.clientY - rootRect.top;
+    const baseSelection = selected.slice();
+    const shift = e.shiftKey;
+    const ctrl = e.ctrlKey || e.metaKey;
+    // Clear selection on plain drag so the marquee sets it from scratch.
+    if (!shift && !ctrl) setSelected([]);
+
+    const updateSelection = (curMarquee: { x: number; y: number; w: number; h: number }) => {
+      const rows = root.querySelectorAll<HTMLElement>("[data-orig]");
+      const hit: number[] = [];
+      const mx1 = curMarquee.x;
+      const my1 = curMarquee.y;
+      const mx2 = curMarquee.x + curMarquee.w;
+      const my2 = curMarquee.y + curMarquee.h;
+      rows.forEach((row) => {
+        const r = row.getBoundingClientRect();
+        const rx1 = r.left - rootRect.left;
+        const ry1 = r.top - rootRect.top;
+        const rx2 = rx1 + r.width;
+        const ry2 = ry1 + r.height;
+        const overlap = rx1 < mx2 && rx2 > mx1 && ry1 < my2 && ry2 > my1;
+        if (overlap) {
+          const n = parseInt(row.getAttribute("data-orig") || "-1", 10);
+          if (n >= 0) hit.push(n);
+        }
+      });
+      if (shift) {
+        // Additive
+        const s = new Set(baseSelection);
+        for (const n of hit) s.add(n);
+        setSelected(Array.from(s));
+      } else if (ctrl) {
+        // XOR toggle
+        const s = new Set(baseSelection);
+        for (const n of hit) {
+          if (s.has(n)) s.delete(n);
+          else s.add(n);
+        }
+        setSelected(Array.from(s));
+      } else {
+        setSelected(hit);
+      }
+    };
+
+    const onMove = (ev: MouseEvent) => {
+      const curX = ev.clientX - rootRect.left;
+      const curY = ev.clientY - rootRect.top;
+      const rect = {
+        x: Math.min(startX, curX),
+        y: Math.min(startY, curY),
+        w: Math.abs(curX - startX),
+        h: Math.abs(curY - startY),
+      };
+      setMarquee(rect);
+      updateSelection(rect);
+      // Auto-scroll the .rows container when dragging near its edges.
+      const rowsEl = root.querySelector<HTMLElement>(".rows");
+      if (rowsEl) {
+        const rr = rowsEl.getBoundingClientRect();
+        const EDGE = 24;
+        if (ev.clientY > rr.bottom - EDGE) rowsEl.scrollTop += 16;
+        else if (ev.clientY < rr.top + EDGE) rowsEl.scrollTop -= 16;
+      }
+    };
+    const onMarqueeUp = () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onMarqueeUp);
+      setMarquee(null);
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onMarqueeUp);
+  };
+
   return (
     <section
       ref={paneRef}
       className={"pane" + (paneFocused ? " pane-focused" : "")}
       tabIndex={0}
-      onFocus={() => setPaneFocused(true)}
+      onFocus={() => { setPaneFocused(true); if (onActivate) onActivate(); }}
       onBlur={(e) => {
         // Only drop focus if the new focus target is outside the pane.
         if (!paneRef.current?.contains(e.relatedTarget as Node)) setPaneFocused(false);
       }}
       onKeyDown={onKeyDown}
-      onMouseDown={() => {
-        // Take focus on click so arrow keys work without an explicit tab.
-        if (paneRef.current && document.activeElement !== paneRef.current) {
-          paneRef.current.focus();
-        }
-      }}
+      onMouseDown={onPaneMouseDown}
       onContextMenu={(e) => { e.preventDefault(); onContext(e, selected.length ? "file" : "empty"); }}
     >
       <div className="pane-head">
@@ -1120,10 +1931,15 @@ export function FilePane({
           const isSel = selected.includes(i);
           const isFocus = paneFocused && focusIndex === i;
           const isDragOver = dragOverIndex === i && f.kind === "folder";
+          // FileRow is a display-only type without a filesystem path, but the
+          // host (App.tsx) always passes LiveFileRow which carries entry.path.
+          // Peek defensively so we don't over-constrain the public prop type.
+          const fPath = (f as { entry?: { path?: string } }).entry?.path;
+          const isCut = cutPaths && fPath ? cutPaths.includes(fPath) : false;
           return (
             <div key={i}
                  data-orig={i}
-                 className={"row" + (isSel ? " selected" : "") + (isFocus ? " focused" : "") + (isDragOver ? " drop-target" : "")}
+                 className={"row" + (isSel ? " selected" : "") + (isFocus ? " focused" : "") + (isDragOver ? " drop-target" : "") + (isCut ? " clip-cut" : "")}
                  style={{opacity: f.dimmed ? 0.55 : 1}}
                  onPointerDown={(e) => {
                    if (e.button !== 0) return;
@@ -1138,6 +1954,12 @@ export function FilePane({
                      const dy = ev.clientY - startY;
                      if (!dragging && Math.hypot(dx, dy) < DRAG_THRESHOLD_PX) return;
                      dragging = true;
+                     setGhost({
+                       x: ev.clientX,
+                       y: ev.clientY,
+                       count: sources.length,
+                       copy: ev.shiftKey,
+                     });
                      // Locate the row under the cursor and decide whether it's a valid drop target.
                      const hit = document.elementFromPoint(ev.clientX, ev.clientY);
                      const row = hit?.closest("[data-orig]") as HTMLElement | null;
@@ -1147,26 +1969,35 @@ export function FilePane({
                      const validTarget = hoverFile && hoverFile.kind === "folder" && !sources.includes(origIdx);
                      setDragOverIndex(validTarget ? origIdx : null);
                    };
-                   const onUp = (ev: PointerEvent) => {
+                   const onPointerUp = (ev: PointerEvent) => {
                      window.removeEventListener("pointermove", onMove);
-                     window.removeEventListener("pointerup", onUp);
-                     window.removeEventListener("pointercancel", onUp);
+                     window.removeEventListener("pointerup", onPointerUp);
+                     window.removeEventListener("pointercancel", onPointerUp);
                      setDragOverIndex(null);
+                     setGhost(null);
                      if (!dragging) return;
+                     const copy = ev.shiftKey;
                      const hit = document.elementFromPoint(ev.clientX, ev.clientY);
                      const row = hit?.closest("[data-orig]") as HTMLElement | null;
                      const origAttr = row?.getAttribute("data-orig");
-                     if (!origAttr) return;
-                     const targetIdx = parseInt(origAttr, 10);
-                     const targetFile = files[targetIdx];
-                     if (!targetFile || targetFile.kind !== "folder") return;
-                     const filtered = sources.filter(s => s !== targetIdx);
-                     if (filtered.length === 0) return;
-                     onRowDrop && onRowDrop(targetIdx, filtered);
+                     if (origAttr) {
+                       const targetIdx = parseInt(origAttr, 10);
+                       const targetFile = files[targetIdx];
+                       if (targetFile && targetFile.kind === "folder") {
+                         const filtered = sources.filter(s => s !== targetIdx);
+                         if (filtered.length > 0) {
+                           onRowDrop && onRowDrop(targetIdx, filtered, copy);
+                           return;
+                         }
+                       }
+                     }
+                     // Not over a folder row — delegate to external drop handler
+                     // (e.g. sidebar tree-row). App resolves the drop target.
+                     onExternalDrag && onExternalDrag(sources, ev.clientX, ev.clientY, copy);
                    };
                    window.addEventListener("pointermove", onMove);
-                   window.addEventListener("pointerup", onUp);
-                   window.addEventListener("pointercancel", onUp);
+                   window.addEventListener("pointerup", onPointerUp);
+                   window.addEventListener("pointercancel", onPointerUp);
                    // Let click/dblclick still work when no drag happened.
                    void moved;
                  }}
@@ -1204,6 +2035,45 @@ export function FilePane({
           );
         })}
       </div>
+      {marquee && (
+        <div
+          className="marquee"
+          style={{
+            position: "absolute",
+            pointerEvents: "none",
+            left: marquee.x,
+            top: marquee.y,
+            width: marquee.w,
+            height: marquee.h,
+            border: "1px solid var(--accent)",
+            background: "color-mix(in oklch, var(--accent) 12%, transparent)",
+            zIndex: 10,
+          }}
+        />
+      )}
+      {ghost && (
+        <div
+          className="drag-ghost"
+          style={{
+            position: "fixed",
+            left: ghost.x + 10,
+            top: ghost.y + 10,
+            pointerEvents: "none",
+            background: "var(--bg-1)",
+            color: "var(--accent)",
+            border: "1px solid var(--accent)",
+            padding: "3px 8px",
+            borderRadius: 3,
+            fontSize: 11,
+            fontFamily: "var(--font-mono)",
+            zIndex: 2000,
+            whiteSpace: "nowrap",
+          }}
+        >
+          {ghost.copy ? "copy " : "move "}
+          {ghost.count} item{ghost.count === 1 ? "" : "s"}
+        </div>
+      )}
     </section>
   );
 }
@@ -1308,26 +2178,90 @@ function PermissionsGrid({ path }: { path?: string }) {
   );
 }
 
+// Heuristic: text-like if kind is text/code OR extension matches a plain-text
+// family. Used so the preview can attempt to render small config files that
+// the backend classifier missed (e.g. .env, .toml, unknown extensions).
+const TEXT_EXT_FALLBACK = new Set([
+  "txt","md","markdown","rst","log","json","yaml","yml","toml","ini","cfg",
+  "conf","env","xml","svg","csv","tsv","html","htm","css","scss","less",
+  "ts","tsx","js","jsx","mjs","cjs","py","rs","go","c","h","hpp","cpp","cc",
+  "java","kt","swift","rb","php","sh","bash","zsh","fish","ps1","bat","cmd",
+  "sql","graphql","gql","lua","r","jl","ex","exs","dart","scala","clj","hs",
+  "ml","vim","gitignore","gitattributes","editorconfig","dockerfile",
+]);
+
+function looksBinary(s: string): boolean {
+  if (!s) return false;
+  // Rough heuristic: any NUL byte, or > 2% non-printable characters, is
+  // almost certainly binary.
+  if (s.indexOf("\0") >= 0) return true;
+  let nonPrint = 0;
+  const sample = s.slice(0, 2048);
+  for (let i = 0; i < sample.length; i++) {
+    const c = sample.charCodeAt(i);
+    // Allow TAB, LF, CR and printable range.
+    if (c === 9 || c === 10 || c === 13) continue;
+    if (c < 32 || c === 127) nonPrint++;
+  }
+  return nonPrint / Math.max(1, sample.length) > 0.02;
+}
+
+// Persist the text preview's scroll offset per-path so switching back to a
+// file the user already skimmed restores their last position. Module-level
+// state survives Inspector unmount; cleared only when the app reloads.
+const previewScrollOffsets = new Map<string, number>();
+
 export function Inspector({ file, onQuickAction }: InspectorProps) {
   const [preview, setPreview] = useState<string>("");
+  const [previewLoading, setPreviewLoading] = useState<boolean>(false);
+  const [previewBinary, setPreviewBinary] = useState<boolean>(false);
+  const [previewErr, setPreviewErr] = useState<string>("");
   const [imgSrc, setImgSrc] = useState<string>("");
   const [imgErr, setImgErr] = useState<string>("");
+  const [imgLoading, setImgLoading] = useState<boolean>(false);
+  const [imgDims, setImgDims] = useState<{ w: number; h: number } | null>(null);
   const [sha256, setSha256] = useState<string | null>(null);
   const [md5, setMd5] = useState<string | null>(null);
   const [crc32, setCrc32] = useState<string | null>(null);
   const [hashing, setHashing] = useState<boolean>(false);
   const [statExt, setStatExt] = useState<FileStatExt | null>(null);
   const [gitFile, setGitFile] = useState<GitFileInfo | null>(null);
-  const isTextLike = !!file && (file.kind === "text" || file.kind === "code");
+  const previewScrollRef = useRef<HTMLDivElement>(null);
+  const isKindTextLike = !!file && (file.kind === "text" || file.kind === "code");
+  const extLower = file?.ext?.toLowerCase() ?? "";
+  const isExtTextLike = !!file && file.kind !== "folder" && file.kind !== "img" && TEXT_EXT_FALLBACK.has(extLower);
+  const isTextLike = isKindTextLike || isExtTextLike;
   const isImg = !!file && file.kind === "img";
+  const imgSizeWarn = !!file && isImg && file.entry.size > 10 * 1024 * 1024;
 
   useEffect(() => {
     setPreview("");
-    if (!file || !isTextLike) return;
+    setPreviewBinary(false);
+    setPreviewErr("");
+    if (!file || !isTextLike) {
+      setPreviewLoading(false);
+      return;
+    }
     let cancelled = false;
+    setPreviewLoading(true);
     void (async () => {
-      const t = await readText(file.entry.path, 4096);
-      if (!cancelled) setPreview(t);
+      try {
+        const t = await readText(file.entry.path, 4096);
+        if (cancelled) return;
+        if (looksBinary(t)) {
+          setPreviewBinary(true);
+          setPreview("");
+        } else {
+          setPreview(t);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          const msg = err instanceof Error ? err.message : String(err);
+          setPreviewErr(msg);
+        }
+      } finally {
+        if (!cancelled) setPreviewLoading(false);
+      }
     })();
     return () => { cancelled = true; };
   }, [file?.entry.path, isTextLike]);
@@ -1335,8 +2269,19 @@ export function Inspector({ file, onQuickAction }: InspectorProps) {
   useEffect(() => {
     setImgSrc("");
     setImgErr("");
-    if (!file || !isImg) return;
+    setImgDims(null);
+    if (!file || !isImg) {
+      setImgLoading(false);
+      return;
+    }
+    // Respect the 10 MB guard — don't autoload huge images. The preview pane
+    // surfaces a click-to-load button instead.
+    if (imgSizeWarn) {
+      setImgLoading(false);
+      return;
+    }
     let cancelled = false;
+    setImgLoading(true);
     void (async () => {
       try {
         const dataUrl = await readImageB64(file.entry.path, 8 * 1024 * 1024);
@@ -1346,10 +2291,49 @@ export function Inspector({ file, onQuickAction }: InspectorProps) {
           const msg = err instanceof Error ? err.message : String(err);
           setImgErr(msg);
         }
+      } finally {
+        if (!cancelled) setImgLoading(false);
       }
     })();
     return () => { cancelled = true; };
-  }, [file?.entry.path, isImg]);
+  }, [file?.entry.path, isImg, imgSizeWarn]);
+
+  const loadLargeImage = () => {
+    if (!file || !isImg) return;
+    let cancelled = false;
+    setImgLoading(true);
+    setImgErr("");
+    void (async () => {
+      try {
+        const dataUrl = await readImageB64(file.entry.path, 64 * 1024 * 1024);
+        if (!cancelled) setImgSrc(dataUrl);
+      } catch (err) {
+        if (!cancelled) {
+          const msg = err instanceof Error ? err.message : String(err);
+          setImgErr(msg);
+        }
+      } finally {
+        if (!cancelled) setImgLoading(false);
+      }
+    })();
+    void cancelled;
+  };
+
+  // Persist + restore scroll position of the text preview across file changes.
+  useEffect(() => {
+    if (!file) return;
+    const el = previewScrollRef.current;
+    if (!el) return;
+    const saved = previewScrollOffsets.get(file.entry.path) ?? 0;
+    el.scrollTop = saved;
+  }, [file?.entry.path, preview]);
+
+  const onPreviewScroll = () => {
+    if (!file) return;
+    const el = previewScrollRef.current;
+    if (!el) return;
+    previewScrollOffsets.set(file.entry.path, el.scrollTop);
+  };
 
   // Reset cached hash whenever the inspected path changes — stale digests for
   // a different file would be worse than showing "—".
@@ -1360,15 +2344,20 @@ export function Inspector({ file, onQuickAction }: InspectorProps) {
     setHashing(false);
   }, [file?.entry.path]);
 
+  // Debounce both backend fetches so rapid arrow/click navigation doesn't
+  // queue up one IPC + subprocess per row. 150ms is imperceptible when you
+  // land on a file but discards intermediate selections during a flurry.
   useEffect(() => {
     setStatExt(null);
     if (!file) return;
     let cancelled = false;
-    void (async () => {
-      const s = await fileStatExtended(file.entry.path);
-      if (!cancelled) setStatExt(s);
-    })();
-    return () => { cancelled = true; };
+    const id = window.setTimeout(() => {
+      void (async () => {
+        const s = await fileStatExtended(file.entry.path);
+        if (!cancelled) setStatExt(s);
+      })();
+    }, 150);
+    return () => { cancelled = true; window.clearTimeout(id); };
   }, [file?.entry.path]);
 
   useEffect(() => {
@@ -1376,11 +2365,13 @@ export function Inspector({ file, onQuickAction }: InspectorProps) {
     if (!file) return;
     const parent = file.entry.path.replace(/[\\/][^\\/]*$/, "") || file.entry.path;
     let cancelled = false;
-    void (async () => {
-      const g = await gitFileInfo(parent, file.entry.path);
-      if (!cancelled) setGitFile(g);
-    })();
-    return () => { cancelled = true; };
+    const id = window.setTimeout(() => {
+      void (async () => {
+        const g = await gitFileInfo(parent, file.entry.path);
+        if (!cancelled) setGitFile(g);
+      })();
+    }, 150);
+    return () => { cancelled = true; window.clearTimeout(id); };
   }, [file?.entry.path]);
 
   const computeHash = () => {
@@ -1400,7 +2391,7 @@ export function Inspector({ file, onQuickAction }: InspectorProps) {
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         console.error("hash compute:", msg);
-        try { alert(`hash failed: ${msg}`); } catch { /* no window */ }
+        void dialogs.showAlert({ title: "hash failed", variant: "error", message: msg });
       } finally {
         setHashing(false);
       }
@@ -1443,21 +2434,55 @@ export function Inspector({ file, onQuickAction }: InspectorProps) {
     <aside className="inspector">
       <div className="insp-hero">
         <div className="insp-preview">
-          {isImg && imgSrc ? (
+          {isImg && imgSizeWarn && !imgSrc && !imgLoading && !imgErr ? (
+            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6, fontSize: 10 }}>
+              <div className="ghost" style={{ fontSize: 10 }}>large image ({f.size})</div>
+              <button
+                onClick={loadLargeImage}
+                style={{
+                  background: "transparent", border: "1px solid var(--accent)", color: "var(--accent)",
+                  padding: "3px 10px", cursor: "pointer", borderRadius: 3, fontSize: 10,
+                  fontFamily: "inherit",
+                }}
+              >render anyway</button>
+            </div>
+          ) : isImg && imgLoading ? (
+            <div className="ghost">loading image…</div>
+          ) : isImg && imgSrc ? (
             <img
               src={imgSrc}
               alt={displayName}
+              onLoad={(e) => {
+                const img = e.currentTarget;
+                setImgDims({ w: img.naturalWidth, h: img.naturalHeight });
+              }}
+              onError={() => setImgErr("failed to decode image data")}
               style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain", display: "block" }}
             />
           ) : isImg && imgErr ? (
             <div className="ghost" style={{ fontSize: 10 }}>image: {imgErr}</div>
-          ) : isImg ? (
-            <div className="ghost">loading…</div>
-          ) : isTextLike && preview ? (
-            <div style={{fontSize: 10, color:"var(--fg-2)", textAlign:"left", padding:10, alignSelf:"stretch", whiteSpace:"pre", overflow:"hidden"}}>
-              {previewLines.map((ln, i) => (<div key={i}>{ln || " "}</div>))}
-              {preview.length >= 4096 && <div style={{color:"var(--fg-3)", marginTop:6}}>…truncated</div>}
+          ) : previewLoading ? (
+            <div className="ghost">reading…</div>
+          ) : previewErr ? (
+            <div className="ghost" style={{ fontSize: 10, color: "var(--red, #f7768e)" }}>
+              can't preview: {previewErr}
             </div>
+          ) : previewBinary ? (
+            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4, fontSize: 10 }}>
+              <div className="big-ic" style={{ fontSize: 36 }}>{kindIcon(f.kind).ic}</div>
+              <div className="ghost" style={{ fontSize: 10 }}>binary — no preview</div>
+            </div>
+          ) : isTextLike && preview ? (
+            <div
+              ref={previewScrollRef}
+              onScroll={onPreviewScroll}
+              style={{fontSize: 10, color:"var(--fg-2)", textAlign:"left", padding:10, alignSelf:"stretch", whiteSpace:"pre", overflow:"auto", maxHeight:"100%", width:"100%", fontFamily:"var(--font-mono)"}}
+            >
+              {previewLines.map((ln, i) => (<div key={i}>{ln || " "}</div>))}
+              {preview.length >= 4096 && <div style={{color:"var(--fg-3)", marginTop:6}}>…truncated (showing 4KB)</div>}
+            </div>
+          ) : isTextLike && !preview && !previewLoading ? (
+            <div className="ghost" style={{ fontSize: 10 }}>empty file</div>
           ) : (
             <div className="big-ic">{kindIcon(f.kind).ic}</div>
           )}
@@ -1467,6 +2492,7 @@ export function Inspector({ file, onQuickAction }: InspectorProps) {
         <div>
           {f.tag && <span className="chip"><span className="dot" style={{background: tagColor(f.tag)}}></span>{f.tag}</span>}
           <span className="chip">{f.kind}</span>
+          {imgDims && <span className="chip" style={{color:"var(--fg-2)"}}>{imgDims.w}×{imgDims.h}</span>}
           {f.git && <span className="chip" style={{color: f.git === "M" ? "var(--yellow)" : f.git === "A" ? "var(--green)" : f.git === "D" || f.git === "U" ? "var(--red)" : "var(--fg-2)"}}>
             git: {f.git}
           </span>}
@@ -1626,32 +2652,36 @@ export function StatusBar({ selectedCount, totalCount, totalSize, path, gitInfo,
   const fsStr = fs || "—";
   const netStr = net ? `↓${formatBytesRate(net.down_bps)} ↑${formatBytesRate(net.up_bps)}` : "—";
 
+  const numStyle = (ch: number): React.CSSProperties => ({
+    display: "inline-block",
+    minWidth: `${ch}ch`,
+    textAlign: "right",
+  });
+
   return (
     <div className="statusbar">
       <div className="sb-seg mode">READY</div>
-      <div className="sb-seg"><span className="lbl">▸</span><span className="val">rice://{path}</span></div>
+      <div className="sb-seg"><span className="lbl">▸</span><span className="val">{path}</span></div>
       <div className="sb-seg accent"><span className="lbl">⎇</span><span className="val">{branch}</span>{aheadStr && <span style={{color:"var(--fg-3)"}}>{aheadStr}</span>}</div>
-      <div className="sb-seg"><span className="lbl">sel</span><span className="val">{selectedCount}</span><span style={{color:"var(--fg-3)"}}>/ {totalCount}</span></div>
-      <div className="sb-seg"><span className="lbl">Σ</span><span className="val">{totalSize}</span></div>
+      <div className="sb-seg"><span className="lbl">sel</span><span className="val" style={numStyle(4)}>{selectedCount}</span><span style={{color:"var(--fg-3)"}}>/ <span style={numStyle(4)}>{totalCount}</span></span></div>
+      <div className="sb-seg"><span className="lbl">Σ</span><span className="val" style={numStyle(8)}>{totalSize}</span></div>
       <div className="spacer"></div>
-      <div className="sb-seg"><span className="lbl">fs</span><span className="val">{fsStr}</span></div>
-      <div className="sb-seg warn"><span className="lbl">mem</span><span className="val">{memPct}</span></div>
-      <div className="sb-seg ok"><span className="lbl">cpu</span><span className="val">{cpu}</span></div>
-      <div className="sb-seg"><span className="lbl">mem</span><span className="val">{memUsed}</span></div>
+      <div className="sb-seg"><span className="lbl">fs</span><span className="val" style={numStyle(5)}>{fsStr}</span></div>
+      <div className="sb-seg warn"><span className="lbl">mem</span><span className="val" style={numStyle(4)}>{memPct}</span></div>
+      <div className="sb-seg ok"><span className="lbl">cpu</span><span className="val" style={numStyle(4)}>{cpu}</span></div>
+      <div className="sb-seg"><span className="lbl">mem</span><span className="val" style={numStyle(4)}>{memUsed}</span></div>
       <div className="sb-seg"><span className="lbl">i/o</span><span className="val">▁▂▃▅▂▁</span></div>
-      <div className="sb-seg"><span className="lbl">net</span><span className="val">{netStr}</span></div>
+      <div className="sb-seg"><span className="lbl">net</span><span className="val" style={numStyle(13)}>{netStr}</span></div>
       <div className="sb-seg" style={{cursor:"pointer"}} onClick={onToggleTerm}><span className="val" style={{color:"var(--accent)"}}>⌨ term</span></div>
-      <div className="sb-seg"><span className="lbl">up</span><span className="val">{uptime}</span></div>
-      <div className="sb-seg"><span className="val">{clock}</span></div>
+      <div className="sb-seg"><span className="lbl">up</span><span className="val" style={numStyle(8)}>{uptime}</span></div>
+      <div className="sb-seg"><span className="val" style={numStyle(8)}>{clock}</span></div>
     </div>
   );
 }
 
-// ============= Terminal drawer (removed) =============
-// The previous TerminalDrawer was a static mock with hardcoded output. Rather
-// than ship fake UI, Ctrl+` / the status bar "term" segment now spawn the
-// real system terminal via spawnTerminal(cwd). A future embedded PTY can be
-// added with portable-pty but is out of scope here.
+// The real embedded terminal drawer now lives in src/Terminal.tsx and is
+// mounted by App.tsx. It talks to the Rust PTY layer via pty_spawn / pty_write
+// / pty_resize / pty_kill and the `pty-data` event.
 
 // ============= Command palette =============
 export interface PaletteProps {
@@ -1743,7 +2773,16 @@ export function ContextMenu({ items, x, y, onClose, onCommand, onPayload }: Cont
     return () => document.removeEventListener("mousedown", h);
   }, [onClose]);
   return (
-    <div className="ctx-menu" style={{left: x, top: y}} onClick={(e) => e.stopPropagation()}>
+    <div
+      className="ctx-menu"
+      style={{left: x, top: y}}
+      onClick={(e) => e.stopPropagation()}
+      // Stop mousedown so the document-level close listener below doesn't
+      // fire → state update → re-render before the click reaches MenuItem.
+      // Without this, every ctx-menu item appears to do nothing: the menu
+      // closes on mousedown and the click lands on nothing.
+      onMouseDown={(e) => e.stopPropagation()}
+    >
       {expanded.map((it, i) => (
         <MenuItem key={i} item={it}
           subOpen={subHover !== null && "label" in subHover && "label" in it && subHover.label === (it as { label: string }).label}
@@ -1769,6 +2808,7 @@ export interface TweakState {
   showGitGutters: boolean;
   showIgnored: boolean;
   foldersFirst: boolean;
+  showChecksums?: boolean;
 }
 
 export interface TweaksProps {
@@ -3180,6 +4220,234 @@ export function ConnectServerDialog({ onClose, onSave }: ConnectServerDialogProp
   );
 }
 
+// ============= ManageRemotesDialog =============
+export interface ManageRemotesDialogProps {
+  remotes: SavedRemote[];
+  onClose: () => void;
+  onRemove: (idx: number) => void;
+  onEdit?: (idx: number, next: SavedRemote) => void;
+  onAdd: () => void;
+}
+
+export function ManageRemotesDialog({ remotes, onClose, onRemove, onEdit, onAdd }: ManageRemotesDialogProps) {
+  const [editingIdx, setEditingIdx] = useState<number | null>(null);
+  const [draft, setDraft] = useState<SavedRemote>({ label: "", host: "", path: "" });
+
+  useEffect(() => {
+    const h = (e: KeyboardEvent) => {
+      if (e.key === "Escape") { e.preventDefault(); onClose(); }
+    };
+    window.addEventListener("keydown", h);
+    return () => window.removeEventListener("keydown", h);
+  }, [onClose]);
+
+  const beginEdit = (i: number) => {
+    const r = remotes[i];
+    if (!r) return;
+    setDraft({ label: r.label, host: r.host, path: r.path });
+    setEditingIdx(i);
+  };
+
+  const commitEdit = () => {
+    if (editingIdx == null) return;
+    const label = draft.label.trim();
+    const host = draft.host.trim();
+    const path = draft.path.trim();
+    if (!label || !host) return;
+    onEdit?.(editingIdx, { label, host, path });
+    setEditingIdx(null);
+  };
+
+  const cancelEdit = () => {
+    setEditingIdx(null);
+  };
+
+  const requestRemove = async (i: number) => {
+    const r = remotes[i];
+    if (!r) return;
+    const ok = await dialogs.showConfirm({
+      title: "remove remote",
+      message: `Remove "${r.label}"?`,
+      danger: true,
+      okLabel: "remove",
+    });
+    if (!ok) return;
+    if (editingIdx === i) setEditingIdx(null);
+    onRemove(i);
+  };
+
+  const inputStyle: React.CSSProperties = {
+    background: "var(--bg-0, #0f0f14)", color: "var(--fg-1)",
+    border: "1px solid var(--fg-3)", borderRadius: 2,
+    padding: "3px 6px", fontFamily: "var(--font-mono)", fontSize: 12,
+    outline: "none", minWidth: 0, width: "100%",
+  };
+
+  return (
+    <div onClick={onClose} style={{
+      position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)",
+      zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center",
+    }}>
+      <div onClick={(e) => e.stopPropagation()} style={{
+        width: "68ch", maxWidth: "95vw", maxHeight: "80vh",
+        background: "var(--bg-1, #1a1b26)", border: "1px solid var(--fg-3)",
+        borderRadius: 4, display: "flex", flexDirection: "column",
+        fontFamily: "var(--font-mono)", color: "var(--fg-1)",
+      }}>
+        <div style={{
+          display: "flex", alignItems: "center", justifyContent: "space-between",
+          padding: "8px 12px", borderBottom: "1px solid var(--fg-3)",
+          background: "var(--bg-2, #16161e)",
+        }}>
+          <span style={{ color: "var(--accent)" }}>⌁ manage remotes</span>
+          <button onClick={onClose} style={{
+            background: "transparent", border: "1px solid var(--fg-3)", color: "var(--fg-1)",
+            padding: "2px 8px", cursor: "pointer", borderRadius: 2,
+          }}>×</button>
+        </div>
+        <div style={{ padding: "6px 12px", borderBottom: "1px solid var(--fg-3)", fontSize: 11, color: "var(--fg-3)" }}>
+          {remotes.length} remote{remotes.length === 1 ? "" : "s"}
+        </div>
+        <div style={{ overflow: "auto", flex: 1, padding: "6px 6px", display: "flex", flexDirection: "column", gap: 2 }}>
+          {remotes.length === 0 && (
+            <div style={{ color: "var(--fg-3)", padding: "12px", fontStyle: "italic", textAlign: "center" }}>
+              no saved remotes — add one via the + button
+            </div>
+          )}
+          {remotes.map((r, i) => {
+            const isEditing = editingIdx === i;
+            if (isEditing) {
+              const canSave = draft.label.trim().length > 0 && draft.host.trim().length > 0;
+              return (
+                <div key={"edit-" + i} style={{
+                  display: "grid", gridTemplateColumns: "14ch 1fr 1fr auto auto",
+                  alignItems: "center", gap: 6,
+                  padding: "4px 8px", borderRadius: 2,
+                  background: "var(--bg-0, #0f0f14)",
+                  border: "1px solid var(--accent)",
+                }}>
+                  <input
+                    value={draft.label}
+                    onChange={(e) => setDraft(d => ({ ...d, label: e.target.value }))}
+                    placeholder="label"
+                    style={inputStyle}
+                    autoFocus
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && canSave) { e.preventDefault(); commitEdit(); }
+                      else if (e.key === "Escape") { e.preventDefault(); cancelEdit(); }
+                    }}
+                  />
+                  <input
+                    value={draft.host}
+                    onChange={(e) => setDraft(d => ({ ...d, host: e.target.value }))}
+                    placeholder="user@host"
+                    style={inputStyle}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && canSave) { e.preventDefault(); commitEdit(); }
+                      else if (e.key === "Escape") { e.preventDefault(); cancelEdit(); }
+                    }}
+                  />
+                  <input
+                    value={draft.path}
+                    onChange={(e) => setDraft(d => ({ ...d, path: e.target.value }))}
+                    placeholder="/path (optional)"
+                    style={inputStyle}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && canSave) { e.preventDefault(); commitEdit(); }
+                      else if (e.key === "Escape") { e.preventDefault(); cancelEdit(); }
+                    }}
+                  />
+                  <button
+                    onClick={commitEdit}
+                    disabled={!canSave}
+                    title="save"
+                    style={{
+                      background: canSave ? "var(--accent)" : "transparent",
+                      border: "1px solid " + (canSave ? "var(--accent)" : "var(--fg-3)"),
+                      color: canSave ? "var(--bg-0)" : "var(--fg-3)",
+                      padding: "1px 8px", cursor: canSave ? "pointer" : "not-allowed",
+                      borderRadius: 2, fontFamily: "inherit", fontSize: 11,
+                    }}
+                  >save</button>
+                  <button
+                    onClick={cancelEdit}
+                    title="cancel"
+                    style={{
+                      background: "transparent", border: "1px solid var(--fg-3)", color: "var(--fg-1)",
+                      padding: "1px 8px", cursor: "pointer",
+                      borderRadius: 2, fontFamily: "inherit", fontSize: 11,
+                    }}
+                  >×</button>
+                </div>
+              );
+            }
+            return (
+              <div key={`${i}-${r.label}`} style={{
+                display: "flex", alignItems: "center", gap: 6,
+                padding: "4px 8px", borderRadius: 2,
+                background: "var(--bg-0, #0f0f14)",
+                border: "1px solid transparent",
+              }}>
+                <span style={{
+                  color: "var(--fg-3)", fontSize: 11, minWidth: "2ch", textAlign: "right",
+                }}>{i + 1}</span>
+                <div style={{ flex: 1, minWidth: 0, overflow: "hidden" }}>
+                  <div style={{
+                    color: "var(--fg-1)", fontSize: 12,
+                    overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                  }}>{r.label}</div>
+                  <div style={{
+                    color: "var(--fg-3)", fontSize: 10,
+                    overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                  }}>{r.host}{r.path ? " · " + r.path : ""}</div>
+                </div>
+                {onEdit && (
+                  <button
+                    onClick={() => beginEdit(i)}
+                    title="edit"
+                    style={{
+                      background: "transparent", border: "1px solid var(--fg-3)", color: "var(--fg-1)",
+                      padding: "1px 8px", cursor: "pointer",
+                      borderRadius: 2, fontFamily: "inherit", fontSize: 11,
+                    }}
+                  >edit</button>
+                )}
+                <button
+                  onClick={() => { void requestRemove(i); }}
+                  title="remove remote"
+                  style={{
+                    background: "transparent", border: "1px solid var(--fg-3)", color: "var(--red, #f7768e)",
+                    padding: "1px 8px", cursor: "pointer",
+                    borderRadius: 2, fontFamily: "inherit", fontSize: 11,
+                  }}
+                >×</button>
+              </div>
+            );
+          })}
+        </div>
+        <div style={{
+          padding: "8px 12px", borderTop: "1px solid var(--fg-3)",
+          display: "flex", justifyContent: "space-between", gap: 6,
+          background: "var(--bg-2, #16161e)",
+        }}>
+          <button
+            onClick={onAdd}
+            title="add remote"
+            style={{
+              background: "transparent", border: "1px solid var(--accent)", color: "var(--accent)",
+              padding: "4px 12px", cursor: "pointer", borderRadius: 2, fontFamily: "inherit",
+            }}
+          >+ add remote</button>
+          <button onClick={onClose} style={{
+            background: "transparent", border: "1px solid var(--fg-3)", color: "var(--fg-1)",
+            padding: "4px 12px", cursor: "pointer", borderRadius: 2, fontFamily: "inherit",
+          }}>close</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ============= TagPickerDialog =============
 export interface TagPickerDialogProps {
   path: string;
@@ -3212,8 +4480,9 @@ export function TagPickerDialog({ path, onClose, onSaved }: TagPickerDialogProps
 
   const allTags = useMemo(() => {
     const set = new Set<string>();
+    for (const s of SEED_TAGS) set.add(s.label);
     for (const tags of Object.values(store)) for (const t of tags) set.add(t);
-    return Array.from(set).sort();
+    return Array.from(set);
   }, [store]);
 
   const current = store[path] ?? [];
@@ -3257,9 +4526,12 @@ export function TagPickerDialog({ path, onClose, onSaved }: TagPickerDialogProps
   };
 
   const shownTags = useMemo(() => {
-    const set = new Set(allTags);
-    for (const t of current) set.add(t);
-    return Array.from(set).sort();
+    const seedLabels = SEED_TAGS.map(s => s.label);
+    const seedSet = new Set(seedLabels);
+    const rest = new Set<string>();
+    for (const t of allTags) if (!seedSet.has(t)) rest.add(t);
+    for (const t of current) if (!seedSet.has(t)) rest.add(t);
+    return [...seedLabels, ...Array.from(rest).sort()];
   }, [allTags, current]);
 
   return (
@@ -3292,12 +4564,16 @@ export function TagPickerDialog({ path, onClose, onSaved }: TagPickerDialogProps
           {loaded && shownTags.length === 0 && (
             <div style={{ color: "var(--fg-3)" }}>no tags yet — add one below</div>
           )}
-          {shownTags.map(t => (
-            <label key={t} style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", padding: "2px 0" }}>
-              <input type="checkbox" checked={hasTag(t)} onChange={() => toggleTag(t)} />
-              <span style={{ color: hasTag(t) ? "var(--fg-1)" : "var(--fg-2, var(--fg-1))" }}>{t}</span>
-            </label>
-          ))}
+          {shownTags.map(t => {
+            const color = TAG_COLOR_MAP[t] ?? "var(--fg-2)";
+            return (
+              <label key={t} style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", padding: "2px 0" }}>
+                <input type="checkbox" checked={hasTag(t)} onChange={() => toggleTag(t)} />
+                <span style={{ display: "inline-block", width: 8, height: 8, borderRadius: 2, background: color }} />
+                <span style={{ color: hasTag(t) ? "var(--fg-1)" : "var(--fg-2, var(--fg-1))" }}>{t}</span>
+              </label>
+            );
+          })}
         </div>
         <div style={{ padding: "8px 12px", borderTop: "1px solid var(--fg-3)", display: "flex", gap: 6 }}>
           <input
@@ -3368,7 +4644,7 @@ export function AboutDialog({ open, onClose }: AboutDialogProps) {
 
   const builtOn = new Date().toISOString().slice(0, 10);
   const rows: Array<[string, string]> = [
-    ["app", "Glasshouse / rice://"],
+    ["app", "Glasshouse"],
     ["version", APP_VERSION],
     ["tauri", TAURI_VERSION],
     ["built on", builtOn],
@@ -3420,6 +4696,869 @@ export function AboutDialog({ open, onClose }: AboutDialogProps) {
             background: "transparent", border: "1px solid var(--fg-3)", color: "var(--fg-1)",
             padding: "4px 12px", cursor: "pointer", borderRadius: 2, fontFamily: "inherit",
           }}>close</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ============= KeybindingsDialog =============
+// Read-only reference for every keybind the app exposes. Grouped by category,
+// scrollable, Esc / click-outside closes. Sourced from MENUS + hardcoded
+// global shortcuts the App.tsx keydown listener owns (F2 rename, Alt+Arrow
+// history, Ctrl+Tab etc.) that live outside the declarative menu tree.
+export interface KeybindingsDialogProps {
+  open: boolean;
+  onClose: () => void;
+}
+
+interface KbEntry {
+  label: string;
+  keys: string;
+  group: string;
+}
+
+function collectMenuBinds(): KbEntry[] {
+  const out: KbEntry[] = [];
+  const walk = (items: MenuItemDef[], group: string): void => {
+    for (const it of items) {
+      if (it.kind === "item" && it.kb) {
+        out.push({ label: it.label, keys: it.kb, group });
+      } else if (it.kind === "sub") {
+        walk(it.children, group);
+      }
+    }
+  };
+  for (const [group, items] of Object.entries(MENUS)) {
+    walk(items, group);
+  }
+  return out;
+}
+
+const GLOBAL_BINDS: KbEntry[] = [
+  { label: "Focus search",          keys: "/",            group: "Navigate" },
+  { label: "Toggle terminal",       keys: "Ctrl+`",       group: "View" },
+  { label: "Open parent",           keys: "Backspace",    group: "Navigate" },
+  { label: "Open selected",         keys: "Enter",        group: "File" },
+  { label: "Delete permanently",    keys: "Shift+Del",    group: "Edit" },
+  { label: "Close modal / palette", keys: "Esc",          group: "View" },
+  { label: "Next Tab",              keys: "Ctrl+Tab",     group: "Navigate" },
+  { label: "Previous Tab",          keys: "Ctrl+Shift+Tab", group: "Navigate" },
+];
+
+export function KeybindingsDialog({ open, onClose }: KeybindingsDialogProps) {
+  useEffect(() => {
+    if (!open) return;
+    const h = (e: KeyboardEvent) => {
+      if (e.key === "Escape") { e.preventDefault(); onClose(); }
+    };
+    window.addEventListener("keydown", h);
+    return () => window.removeEventListener("keydown", h);
+  }, [open, onClose]);
+
+  const binds = useMemo(() => {
+    const all = [...collectMenuBinds(), ...GLOBAL_BINDS];
+    const byGroup = new Map<string, KbEntry[]>();
+    for (const b of all) {
+      const arr = byGroup.get(b.group) ?? [];
+      arr.push(b);
+      byGroup.set(b.group, arr);
+    }
+    for (const arr of byGroup.values()) {
+      arr.sort((a, b) => a.label.localeCompare(b.label));
+    }
+    return Array.from(byGroup.entries());
+  }, []);
+
+  if (!open) return null;
+
+  return (
+    <div onClick={onClose} style={{
+      position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)",
+      zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center",
+    }}>
+      <div onClick={(e) => e.stopPropagation()} style={{
+        width: "72ch", maxWidth: "95vw", maxHeight: "85vh",
+        background: "var(--bg-1, #1a1b26)", border: "1px solid var(--fg-3)",
+        borderRadius: 4, display: "flex", flexDirection: "column",
+        fontFamily: "var(--font-mono)", color: "var(--fg-1)",
+      }}>
+        <div style={{
+          display: "flex", alignItems: "center", justifyContent: "space-between",
+          padding: "8px 12px", borderBottom: "1px solid var(--fg-3)",
+          background: "var(--bg-2, #16161e)",
+        }}>
+          <span style={{ color: "var(--accent)" }}>⌨ keybindings</span>
+          <span style={{ color: "var(--fg-3)", fontSize: 12 }}>esc / click to close</span>
+          <button onClick={onClose} style={{
+            background: "transparent", border: "1px solid var(--fg-3)", color: "var(--fg-1)",
+            padding: "2px 8px", cursor: "pointer", borderRadius: 2,
+          }} aria-label="close">×</button>
+        </div>
+        <div style={{ overflow: "auto", flex: 1, padding: "4px 0", fontSize: 13 }}>
+          {binds.map(([group, entries]) => (
+            <div key={group} style={{ marginBottom: 10 }}>
+              <div style={{
+                padding: "6px 16px 4px", color: "var(--fg-3)", fontSize: 11,
+                textTransform: "uppercase", letterSpacing: "0.06em",
+              }}>{group}</div>
+              <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                <tbody>
+                  {entries.map((b, i) => (
+                    <tr key={i}>
+                      <td style={{
+                        padding: "2px 16px", color: "var(--fg-1)",
+                        whiteSpace: "nowrap", width: "50%",
+                      }}>{b.label}</td>
+                      <td style={{
+                        padding: "2px 16px", color: "var(--accent, var(--cyan))",
+                        whiteSpace: "nowrap", textAlign: "right",
+                      }}>{b.keys}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ============= DialogHost (themed prompt / alert / confirm + toast) =============
+// Replaces window.prompt / window.alert / window.confirm at key callsites.
+// DialogHost is mounted once in App.tsx; callers use the singleton imperative
+// API exposed via `dialogs`.
+
+export type DialogVariant = "info" | "success" | "warning" | "error";
+
+interface PromptOptions {
+  title?: string;
+  message?: string;
+  placeholder?: string;
+  initialValue?: string;
+  okLabel?: string;
+  cancelLabel?: string;
+  validate?: (value: string) => string | null;
+}
+
+interface AlertOptions {
+  title?: string;
+  message: string;
+  variant?: DialogVariant;
+  okLabel?: string;
+}
+
+interface ConfirmOptions {
+  title?: string;
+  message: string;
+  danger?: boolean;
+  okLabel?: string;
+  cancelLabel?: string;
+}
+
+interface ToastOptions {
+  message: string;
+  variant?: DialogVariant;
+  timeout?: number;
+}
+
+interface DialogApi {
+  showPrompt: (opts: PromptOptions) => Promise<string | null>;
+  showAlert: (opts: AlertOptions) => Promise<void>;
+  showConfirm: (opts: ConfirmOptions) => Promise<boolean>;
+  showToast: (opts: ToastOptions) => void;
+}
+
+// Singleton ref. DialogHost registers itself on mount; the `dialogs` helper
+// returns a no-op / default if called before mount.
+let dialogApiRef: DialogApi | null = null;
+
+export const dialogs: DialogApi = {
+  showPrompt: (opts) => {
+    if (!dialogApiRef) return Promise.resolve<string | null>(null);
+    return dialogApiRef.showPrompt(opts);
+  },
+  showAlert: (opts) => {
+    if (!dialogApiRef) return Promise.resolve();
+    return dialogApiRef.showAlert(opts);
+  },
+  showConfirm: (opts) => {
+    if (!dialogApiRef) return Promise.resolve(false);
+    return dialogApiRef.showConfirm(opts);
+  },
+  showToast: (opts) => {
+    if (!dialogApiRef) return;
+    dialogApiRef.showToast(opts);
+  },
+};
+
+type DialogState =
+  | { kind: "prompt"; opts: PromptOptions; resolve: (v: string | null) => void }
+  | { kind: "alert"; opts: AlertOptions; resolve: () => void }
+  | { kind: "confirm"; opts: ConfirmOptions; resolve: (v: boolean) => void }
+  | null;
+
+interface ToastState {
+  id: number;
+  message: string;
+  variant: DialogVariant;
+}
+
+function variantColor(v: DialogVariant | undefined): string {
+  switch (v) {
+    case "success": return "var(--green, #9ece6a)";
+    case "warning": return "var(--yellow, #e0af68)";
+    case "error": return "var(--red, #f7768e)";
+    default: return "var(--accent)";
+  }
+}
+
+export function DialogHost() {
+  const [state, setState] = useState<DialogState>(null);
+  const [promptValue, setPromptValue] = useState("");
+  const [promptError, setPromptError] = useState<string | null>(null);
+  const [toasts, setToasts] = useState<ToastState[]>([]);
+  const toastIdRef = useRef(0);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    const api: DialogApi = {
+      showPrompt: (opts) =>
+        new Promise<string | null>((resolve) => {
+          setPromptValue(opts.initialValue ?? "");
+          setPromptError(null);
+          setState({ kind: "prompt", opts, resolve });
+        }),
+      showAlert: (opts) =>
+        new Promise<void>((resolve) => {
+          setState({ kind: "alert", opts, resolve });
+        }),
+      showConfirm: (opts) =>
+        new Promise<boolean>((resolve) => {
+          setState({ kind: "confirm", opts, resolve });
+        }),
+      showToast: (opts) => {
+        const id = ++toastIdRef.current;
+        const t: ToastState = {
+          id,
+          message: opts.message,
+          variant: opts.variant ?? "info",
+        };
+        setToasts((prev) => [...prev, t]);
+        const ms = opts.timeout ?? 2600;
+        window.setTimeout(() => {
+          setToasts((prev) => prev.filter((x) => x.id !== id));
+        }, ms);
+      },
+    };
+    dialogApiRef = api;
+    return () => {
+      if (dialogApiRef === api) dialogApiRef = null;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (state?.kind === "prompt") {
+      const id = window.setTimeout(() => {
+        inputRef.current?.focus();
+        inputRef.current?.select();
+      }, 0);
+      return () => window.clearTimeout(id);
+    }
+  }, [state?.kind]);
+
+  const close = () => {
+    if (!state) return;
+    if (state.kind === "prompt") state.resolve(null);
+    else if (state.kind === "alert") state.resolve();
+    else state.resolve(false);
+    setState(null);
+  };
+
+  const submitPrompt = () => {
+    if (state?.kind !== "prompt") return;
+    const v = promptValue;
+    if (state.opts.validate) {
+      const err = state.opts.validate(v);
+      if (err) {
+        setPromptError(err);
+        return;
+      }
+    }
+    state.resolve(v);
+    setState(null);
+  };
+
+  const confirmOk = () => {
+    if (state?.kind !== "confirm") return;
+    state.resolve(true);
+    setState(null);
+  };
+
+  const alertOk = () => {
+    if (state?.kind !== "alert") return;
+    state.resolve();
+    setState(null);
+  };
+
+  useEffect(() => {
+    if (!state) return;
+    const h = (e: KeyboardEvent) => {
+      if (e.key === "Escape") { e.preventDefault(); close(); return; }
+      if (e.key === "Enter") {
+        if (e.shiftKey) return;
+        e.preventDefault();
+        if (state.kind === "prompt") submitPrompt();
+        else if (state.kind === "confirm") confirmOk();
+        else alertOk();
+      }
+    };
+    window.addEventListener("keydown", h);
+    return () => window.removeEventListener("keydown", h);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state, promptValue]);
+
+  const overlay: React.CSSProperties = {
+    position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)",
+    zIndex: 300, display: "flex", alignItems: "flex-start", justifyContent: "center",
+    paddingTop: "15vh",
+  };
+  const panel: React.CSSProperties = {
+    width: "56ch", maxWidth: "95vw",
+    background: "var(--bg-2, #16161e)",
+    border: "1px solid var(--accent)",
+    borderRadius: 6,
+    fontFamily: "var(--font-mono)",
+    color: "var(--fg-1)",
+    boxShadow: "0 20px 60px rgba(0,0,0,0.6)",
+    overflow: "hidden",
+  };
+  const header: React.CSSProperties = {
+    display: "flex", alignItems: "center", justifyContent: "space-between",
+    padding: "8px 12px", borderBottom: "1px solid var(--border, var(--fg-3))",
+    background: "var(--bg-1, #1a1b26)",
+  };
+  const body: React.CSSProperties = {
+    padding: "14px 16px",
+    fontSize: 13,
+  };
+  const footer: React.CSSProperties = {
+    padding: "8px 12px", borderTop: "1px solid var(--border, var(--fg-3))",
+    display: "flex", justifyContent: "flex-end", gap: 6,
+    background: "var(--bg-1, #1a1b26)",
+  };
+  const btn = (primary = false, danger = false): React.CSSProperties => ({
+    background: primary
+      ? (danger ? "var(--red, #f7768e)" : "var(--accent)")
+      : "transparent",
+    border: `1px solid ${primary ? (danger ? "var(--red, #f7768e)" : "var(--accent)") : "var(--fg-3)"}`,
+    color: primary ? "var(--bg-0, #0f0f14)" : "var(--fg-1)",
+    padding: "4px 14px",
+    cursor: "pointer",
+    borderRadius: 3,
+    fontFamily: "inherit",
+    fontSize: 12,
+  });
+  const closeBtn: React.CSSProperties = {
+    background: "transparent", border: "1px solid var(--fg-3)", color: "var(--fg-1)",
+    padding: "2px 8px", cursor: "pointer", borderRadius: 2,
+  };
+
+  return (
+    <>
+      {state?.kind === "prompt" && (
+        <div onClick={close} style={overlay}>
+          <div onClick={(e) => e.stopPropagation()} style={panel}>
+            <div style={header}>
+              <span style={{ color: "var(--accent)" }}>{state.opts.title ?? "input"}</span>
+              <button onClick={close} style={closeBtn}>×</button>
+            </div>
+            <div style={body}>
+              {state.opts.message && (
+                <div style={{ marginBottom: 8, color: "var(--fg-2, var(--fg-1))" }}>{state.opts.message}</div>
+              )}
+              <input
+                ref={inputRef}
+                value={promptValue}
+                onChange={(e) => { setPromptValue(e.target.value); if (promptError) setPromptError(null); }}
+                placeholder={state.opts.placeholder}
+                style={{
+                  width: "100%",
+                  background: "var(--bg-0, #0f0f14)", color: "var(--fg-0, var(--fg-1))",
+                  border: `1px solid ${promptError ? "var(--red, #f7768e)" : "var(--fg-3)"}`,
+                  borderRadius: 3, padding: "6px 9px",
+                  fontFamily: "var(--font-mono)", fontSize: 13,
+                  outline: "none", boxSizing: "border-box",
+                }}
+              />
+              {promptError && (
+                <div style={{ marginTop: 6, color: "var(--red, #f7768e)", fontSize: 11 }}>{promptError}</div>
+              )}
+            </div>
+            <div style={footer}>
+              <button onClick={close} style={btn(false)}>{state.opts.cancelLabel ?? "cancel"}</button>
+              <button onClick={submitPrompt} style={btn(true)}>{state.opts.okLabel ?? "ok"}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {state?.kind === "alert" && (
+        <div onClick={alertOk} style={overlay}>
+          <div onClick={(e) => e.stopPropagation()} style={{ ...panel, borderColor: variantColor(state.opts.variant) }}>
+            <div style={header}>
+              <span style={{ color: variantColor(state.opts.variant) }}>
+                {state.opts.title ?? (state.opts.variant === "error" ? "error" : state.opts.variant === "warning" ? "warning" : "info")}
+              </span>
+              <button onClick={alertOk} style={closeBtn}>×</button>
+            </div>
+            <div style={{ ...body, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
+              {state.opts.message}
+            </div>
+            <div style={footer}>
+              <button onClick={alertOk} style={btn(true)}>{state.opts.okLabel ?? "ok"}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {state?.kind === "confirm" && (
+        <div onClick={close} style={overlay}>
+          <div onClick={(e) => e.stopPropagation()} style={{ ...panel, borderColor: state.opts.danger ? "var(--red, #f7768e)" : "var(--accent)" }}>
+            <div style={header}>
+              <span style={{ color: state.opts.danger ? "var(--red, #f7768e)" : "var(--accent)" }}>
+                {state.opts.title ?? "confirm"}
+              </span>
+              <button onClick={close} style={closeBtn}>×</button>
+            </div>
+            <div style={{ ...body, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
+              {state.opts.message}
+            </div>
+            <div style={footer}>
+              <button onClick={close} style={btn(false)}>{state.opts.cancelLabel ?? "cancel"}</button>
+              <button onClick={confirmOk} style={btn(true, !!state.opts.danger)}>
+                {state.opts.okLabel ?? (state.opts.danger ? "delete" : "ok")}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {toasts.length > 0 && (
+        <div style={{
+          position: "fixed",
+          right: 16, bottom: 44,
+          zIndex: 350,
+          display: "flex", flexDirection: "column", gap: 6,
+          pointerEvents: "none",
+        }}>
+          {toasts.map(t => (
+            <div key={t.id} style={{
+              background: "var(--bg-2, #16161e)",
+              border: `1px solid ${variantColor(t.variant)}`,
+              borderRadius: 4,
+              padding: "6px 12px",
+              color: "var(--fg-1)",
+              fontFamily: "var(--font-mono)",
+              fontSize: 12,
+              maxWidth: "60ch",
+              boxShadow: "0 8px 24px rgba(0,0,0,0.4)",
+            }}>
+              <span style={{ color: variantColor(t.variant), marginRight: 6 }}>●</span>
+              {t.message}
+            </div>
+          ))}
+        </div>
+      )}
+    </>
+  );
+}
+
+// ============= FolderPickerDialog =============
+// In-app folder picker modal. Replaces the Tauri native open-directory dialog
+// for the "Move to…" flow (task #12). Left column = drives; right column =
+// directory tree of the current path; header = breadcrumb + "Up" button.
+
+export interface FolderPickerDialogProps {
+  initialPath?: string;
+  title?: string;
+  onClose: () => void;
+  onPick: (path: string) => void;
+}
+
+function fpSepOf(p: string): string {
+  return p.includes("\\") ? "\\" : "/";
+}
+
+function fpDirname(p: string): string {
+  const trimmed = p.replace(/[\\/]+$/, "");
+  const idx = Math.max(trimmed.lastIndexOf("\\"), trimmed.lastIndexOf("/"));
+  if (idx < 0) return trimmed;
+  if (/^[A-Za-z]:$/.test(trimmed.slice(0, idx))) return trimmed.slice(0, idx + 1);
+  return trimmed.slice(0, idx);
+}
+
+export function FolderPickerDialog({ initialPath, title, onClose, onPick }: FolderPickerDialogProps) {
+  const [cwd, setCwd] = useState<string>(initialPath ?? "");
+  const [entries, setEntries] = useState<FileEntry[]>([]);
+  const [driveList, setDriveList] = useState<Drive[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    void (async () => {
+      setDriveList(await apiDrives());
+      if (!initialPath) {
+        const h = await apiHomeDir();
+        if (h) setCwd(h);
+      }
+    })();
+  }, [initialPath]);
+
+  useEffect(() => {
+    if (!cwd) return;
+    let cancelled = false;
+    setBusy(true);
+    setErr(null);
+    void (async () => {
+      try {
+        const list = await listDir(cwd, false);
+        if (cancelled) return;
+        setEntries(list.filter(e => e.kind === "folder"));
+      } catch (e) {
+        if (!cancelled) setErr(e instanceof Error ? e.message : String(e));
+      } finally {
+        if (!cancelled) setBusy(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [cwd]);
+
+  useEffect(() => {
+    const h = (e: KeyboardEvent) => {
+      if (e.key === "Escape") { e.preventDefault(); onClose(); }
+      if (e.key === "Enter" && cwd) { e.preventDefault(); onPick(cwd); }
+    };
+    window.addEventListener("keydown", h);
+    return () => window.removeEventListener("keydown", h);
+  }, [onClose, onPick, cwd]);
+
+  const up = () => {
+    if (!cwd) return;
+    const parent = fpDirname(cwd);
+    if (parent && parent !== cwd) setCwd(parent);
+  };
+
+  const crumbs = useMemo(() => {
+    if (!cwd) return [];
+    const sep = fpSepOf(cwd);
+    const parts = cwd.split(/[\\/]+/).filter(Boolean);
+    const out: Array<{ label: string; path: string }> = [];
+    if (/^[A-Za-z]:$/.test(parts[0] ?? "")) {
+      out.push({ label: parts[0], path: parts[0] + sep });
+      let acc = parts[0] + sep;
+      for (let i = 1; i < parts.length; i++) {
+        acc = acc.replace(/[\\/]+$/, "") + sep + parts[i];
+        out.push({ label: parts[i], path: acc });
+      }
+    } else {
+      let acc = "";
+      for (const p of parts) {
+        acc = acc ? acc + sep + p : sep + p;
+        out.push({ label: p, path: acc });
+      }
+    }
+    return out;
+  }, [cwd]);
+
+  return (
+    <div onClick={onClose} style={{
+      position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)",
+      zIndex: 280, display: "flex", alignItems: "center", justifyContent: "center",
+    }}>
+      <div onClick={(e) => e.stopPropagation()} style={{
+        width: "80ch", maxWidth: "95vw", height: "60vh", maxHeight: "80vh",
+        background: "var(--bg-2, #16161e)", border: "1px solid var(--accent)",
+        borderRadius: 6, display: "flex", flexDirection: "column",
+        fontFamily: "var(--font-mono)", color: "var(--fg-1)",
+        boxShadow: "0 20px 60px rgba(0,0,0,0.6)",
+      }}>
+        <div style={{
+          display: "flex", alignItems: "center", justifyContent: "space-between",
+          padding: "8px 12px", borderBottom: "1px solid var(--border, var(--fg-3))",
+          background: "var(--bg-1, #1a1b26)",
+        }}>
+          <span style={{ color: "var(--accent)" }}>▸ {title ?? "pick folder"}</span>
+          <button onClick={onClose} style={{
+            background: "transparent", border: "1px solid var(--fg-3)", color: "var(--fg-1)",
+            padding: "2px 8px", cursor: "pointer", borderRadius: 2,
+          }}>×</button>
+        </div>
+
+        <div style={{
+          padding: "6px 12px", borderBottom: "1px solid var(--border, var(--fg-3))",
+          display: "flex", alignItems: "center", gap: 6, fontSize: 11, minHeight: 26,
+        }}>
+          <button
+            onClick={up}
+            disabled={!cwd}
+            style={{
+              background: "transparent", border: "1px solid var(--fg-3)",
+              color: cwd ? "var(--fg-1)" : "var(--fg-3)",
+              padding: "2px 8px", cursor: cwd ? "pointer" : "not-allowed",
+              borderRadius: 2, fontFamily: "inherit",
+            }}
+          >↑ up</button>
+          <div style={{
+            flex: 1, overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis",
+            color: "var(--fg-2, var(--fg-1))",
+          }}>
+            {crumbs.length === 0 ? <span style={{ color: "var(--fg-3)" }}>(select a drive)</span> : crumbs.map((c, i) => (
+              <span key={i}>
+                <span
+                  onClick={() => setCwd(c.path)}
+                  style={{ cursor: "pointer", color: i === crumbs.length - 1 ? "var(--fg-0, var(--fg-1))" : "var(--fg-2, var(--fg-1))" }}
+                >{c.label}</span>
+                {i < crumbs.length - 1 && <span style={{ color: "var(--fg-3)", margin: "0 3px" }}>›</span>}
+              </span>
+            ))}
+          </div>
+        </div>
+
+        <div style={{ flex: 1, display: "flex", minHeight: 0 }}>
+          <div style={{
+            width: "18ch", borderRight: "1px solid var(--border, var(--fg-3))",
+            overflow: "auto", padding: "4px 0", fontSize: 12,
+          }}>
+            <div style={{ padding: "4px 10px", color: "var(--fg-3)", fontSize: 10, letterSpacing: "0.12em", textTransform: "uppercase" }}>drives</div>
+            {driveList.length === 0 && <div style={{ padding: "4px 10px", color: "var(--fg-3)", fontSize: 11 }}>(none)</div>}
+            {driveList.map((d) => {
+              const root = d.letter + ":\\";
+              const active = cwd.startsWith(d.letter + ":");
+              return (
+                <div
+                  key={d.letter}
+                  onClick={() => setCwd(root)}
+                  style={{
+                    padding: "3px 10px",
+                    cursor: "pointer",
+                    background: active ? "var(--bg-sel, var(--bg-3))" : "transparent",
+                    color: active ? "var(--fg-0, var(--fg-1))" : "var(--fg-1)",
+                  }}
+                  onMouseEnter={(e) => { if (!active) (e.currentTarget.style.background = "var(--bg-1, #1a1b26)"); }}
+                  onMouseLeave={(e) => { if (!active) (e.currentTarget.style.background = "transparent"); }}
+                >
+                  <span style={{ color: "var(--accent)", marginRight: 4 }}>▪</span>
+                  {d.letter}: {d.label && <span style={{ color: "var(--fg-3)", fontSize: 10 }}>({d.label})</span>}
+                </div>
+              );
+            })}
+          </div>
+          <div style={{ flex: 1, overflow: "auto", padding: "4px 0", fontSize: 12 }}>
+            {busy && <div style={{ padding: "4px 12px", color: "var(--fg-3)" }}>loading…</div>}
+            {err && <div style={{ padding: "4px 12px", color: "var(--red, #f7768e)" }}>{err}</div>}
+            {!busy && !err && entries.length === 0 && (
+              <div style={{ padding: "4px 12px", color: "var(--fg-3)" }}>(no subfolders)</div>
+            )}
+            {entries.map((e) => (
+              <div
+                key={e.path}
+                onDoubleClick={() => setCwd(e.path)}
+                onClick={() => setCwd(e.path)}
+                style={{
+                  padding: "3px 12px",
+                  cursor: "pointer",
+                  color: "var(--fg-1)",
+                }}
+                onMouseEnter={(ev) => (ev.currentTarget.style.background = "var(--bg-1, #1a1b26)")}
+                onMouseLeave={(ev) => (ev.currentTarget.style.background = "transparent")}
+                title={e.path}
+              >
+                <span style={{ color: "var(--blue, var(--accent))", marginRight: 6 }}>▸</span>
+                {e.name}
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div style={{
+          padding: "8px 12px", borderTop: "1px solid var(--border, var(--fg-3))",
+          display: "flex", justifyContent: "space-between", alignItems: "center", gap: 6,
+          background: "var(--bg-1, #1a1b26)",
+        }}>
+          <div style={{ color: "var(--fg-3)", fontSize: 11, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            {cwd || "(no path)"}
+          </div>
+          <div style={{ display: "flex", gap: 6 }}>
+            <button onClick={onClose} style={{
+              background: "transparent", border: "1px solid var(--fg-3)", color: "var(--fg-1)",
+              padding: "4px 14px", cursor: "pointer", borderRadius: 3, fontFamily: "inherit", fontSize: 12,
+            }}>cancel</button>
+            <button
+              onClick={() => cwd && onPick(cwd)}
+              disabled={!cwd}
+              style={{
+                background: "var(--accent)", border: "1px solid var(--accent)", color: "var(--bg-0, #0f0f14)",
+                padding: "4px 14px", cursor: cwd ? "pointer" : "not-allowed",
+                borderRadius: 3, fontFamily: "inherit", fontSize: 12, opacity: cwd ? 1 : 0.5,
+              }}
+            >move here</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ============= BookmarkManagerDialog =============
+export interface BookmarkManagerDialogProps {
+  pins: string[];
+  onClose: () => void;
+  onSave: (pins: string[]) => void;
+  onGoTo?: (path: string) => void;
+}
+
+export function BookmarkManagerDialog({ pins, onClose, onSave, onGoTo }: BookmarkManagerDialogProps) {
+  const [working, setWorking] = useState<string[]>(() => [...pins]);
+
+  useEffect(() => {
+    const h = (e: KeyboardEvent) => {
+      if (e.key === "Escape") { e.preventDefault(); onClose(); }
+    };
+    window.addEventListener("keydown", h);
+    return () => window.removeEventListener("keydown", h);
+  }, [onClose]);
+
+  const move = (idx: number, delta: number) => {
+    setWorking(prev => {
+      const j = idx + delta;
+      if (j < 0 || j >= prev.length) return prev;
+      const next = prev.slice();
+      const t = next[idx];
+      next[idx] = next[j];
+      next[j] = t;
+      return next;
+    });
+  };
+
+  const remove = (idx: number) => {
+    setWorking(prev => prev.filter((_, i) => i !== idx));
+  };
+
+  const save = () => {
+    onSave(working);
+  };
+
+  const dirty = working.length !== pins.length || working.some((p, i) => p !== pins[i]);
+
+  return (
+    <div onClick={onClose} style={{
+      position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)",
+      zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center",
+    }}>
+      <div onClick={(e) => e.stopPropagation()} style={{
+        width: "64ch", maxWidth: "95vw", maxHeight: "80vh",
+        background: "var(--bg-1, #1a1b26)", border: "1px solid var(--fg-3)",
+        borderRadius: 4, display: "flex", flexDirection: "column",
+        fontFamily: "var(--font-mono)", color: "var(--fg-1)",
+      }}>
+        <div style={{
+          display: "flex", alignItems: "center", justifyContent: "space-between",
+          padding: "8px 12px", borderBottom: "1px solid var(--fg-3)",
+          background: "var(--bg-2, #16161e)",
+        }}>
+          <span style={{ color: "var(--accent)" }}># manage bookmarks</span>
+          <button onClick={onClose} style={{
+            background: "transparent", border: "1px solid var(--fg-3)", color: "var(--fg-1)",
+            padding: "2px 8px", cursor: "pointer", borderRadius: 2,
+          }}>×</button>
+        </div>
+        <div style={{ padding: "6px 12px", borderBottom: "1px solid var(--fg-3)", fontSize: 11, color: "var(--fg-3)" }}>
+          {working.length} pin{working.length === 1 ? "" : "s"}
+        </div>
+        <div style={{ overflow: "auto", flex: 1, padding: "6px 6px", display: "flex", flexDirection: "column", gap: 2 }}>
+          {working.length === 0 && (
+            <div style={{ color: "var(--fg-3)", padding: "12px", fontStyle: "italic", textAlign: "center" }}>
+              no bookmarks — pin a folder from the sidebar + button
+            </div>
+          )}
+          {working.map((p, i) => (
+            <div key={`${i}-${p}`} style={{
+              display: "flex", alignItems: "center", gap: 6,
+              padding: "4px 8px", borderRadius: 2,
+              background: "var(--bg-0, #0f0f14)",
+              border: "1px solid transparent",
+            }}>
+              <span style={{
+                color: "var(--fg-3)", fontSize: 11, minWidth: "2ch", textAlign: "right",
+              }}>{i + 1}</span>
+              <span
+                style={{
+                  flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                  color: "var(--fg-1)", fontSize: 12,
+                  cursor: onGoTo ? "pointer" : "default",
+                }}
+                title={onGoTo ? `go to ${p}` : p}
+                onClick={() => {
+                  if (!onGoTo) return;
+                  onSave(working);
+                  onGoTo(p);
+                }}
+              >{p}</span>
+              <button
+                onClick={() => move(i, -1)}
+                disabled={i === 0}
+                title="move up"
+                style={{
+                  background: "transparent", border: "1px solid var(--fg-3)", color: "var(--fg-1)",
+                  padding: "1px 6px", cursor: i === 0 ? "not-allowed" : "pointer",
+                  borderRadius: 2, fontFamily: "inherit", fontSize: 11, opacity: i === 0 ? 0.4 : 1,
+                }}
+              >↑</button>
+              <button
+                onClick={() => move(i, 1)}
+                disabled={i === working.length - 1}
+                title="move down"
+                style={{
+                  background: "transparent", border: "1px solid var(--fg-3)", color: "var(--fg-1)",
+                  padding: "1px 6px", cursor: i === working.length - 1 ? "not-allowed" : "pointer",
+                  borderRadius: 2, fontFamily: "inherit", fontSize: 11, opacity: i === working.length - 1 ? 0.4 : 1,
+                }}
+              >↓</button>
+              <button
+                onClick={() => remove(i)}
+                title="remove bookmark"
+                style={{
+                  background: "transparent", border: "1px solid var(--fg-3)", color: "var(--red, #f7768e)",
+                  padding: "1px 8px", cursor: "pointer",
+                  borderRadius: 2, fontFamily: "inherit", fontSize: 11,
+                }}
+              >×</button>
+            </div>
+          ))}
+        </div>
+        <div style={{
+          padding: "8px 12px", borderTop: "1px solid var(--fg-3)",
+          display: "flex", justifyContent: "flex-end", gap: 6,
+          background: "var(--bg-2, #16161e)",
+        }}>
+          <button onClick={onClose} style={{
+            background: "transparent", border: "1px solid var(--fg-3)", color: "var(--fg-1)",
+            padding: "4px 12px", cursor: "pointer", borderRadius: 2, fontFamily: "inherit",
+          }}>cancel</button>
+          <button
+            onClick={save}
+            disabled={!dirty}
+            style={{
+              background: dirty ? "var(--accent)" : "transparent",
+              border: "1px solid var(--accent)",
+              color: dirty ? "var(--bg-0)" : "var(--fg-3)",
+              padding: "4px 12px", cursor: dirty ? "pointer" : "not-allowed",
+              borderRadius: 2, fontFamily: "inherit", opacity: dirty ? 1 : 0.7,
+            }}
+          >save</button>
         </div>
       </div>
     </div>

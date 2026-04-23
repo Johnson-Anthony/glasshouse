@@ -5,6 +5,7 @@ import {
   archiveExtract,
   archiveCanHandle,
 } from "../api";
+import { dialogs } from "../components";
 
 function joinPath(dir: string, name: string): string {
   if (!dir) return name;
@@ -43,7 +44,7 @@ async function doCreate(
 ): Promise<void> {
   const paths = selectedOrFirst(ctx);
   if (paths.length === 0) {
-    window.alert("no selection");
+    dialogs.showToast({ message: "no selection", variant: "info" });
     return;
   }
   const firstName = basename(paths[0]);
@@ -53,20 +54,26 @@ async function doCreate(
     ctx.refresh();
   } catch (e) {
     console.log(`[archive] create failed:`, e);
-    window.alert(`archive failed: ${String(e)}`);
+    void dialogs.showAlert({ title: "archive failed", message: String(e), variant: "error" });
   }
 }
 
 async function doExtract(ctx: HandlerCtx, promptFolder: boolean): Promise<void> {
   const archive = ctx.firstPath;
   if (!archive) {
-    window.alert("no archive selected");
+    dialogs.showToast({ message: "no archive selected", variant: "info" });
     return;
   }
   let destDir = ctx.cwd;
   if (promptFolder) {
     const defName = stripArchiveExt(basename(archive));
-    const name = window.prompt("Extract to folder name:", defName);
+    const name = await dialogs.showPrompt({
+      title: "extract to folder",
+      message: "folder name:",
+      initialValue: defName,
+      placeholder: defName,
+      validate: (v) => (v.trim() ? null : "name required"),
+    });
     if (!name) return;
     destDir = joinPath(ctx.cwd, name);
   }
@@ -75,7 +82,7 @@ async function doExtract(ctx: HandlerCtx, promptFolder: boolean): Promise<void> 
     ctx.refresh();
   } catch (e) {
     console.log(`[archive] extract failed:`, e);
-    window.alert(`extract failed: ${String(e)}`);
+    void dialogs.showAlert({ title: "extract failed", message: String(e), variant: "error" });
   }
 }
 
@@ -114,7 +121,11 @@ export const archiveHandler: Handler = async (label, ctx) => {
     case "7-Zip": {
       const ok = await archiveCanHandle("7z");
       if (!ok) {
-        window.alert("7z.exe not found on PATH — install 7-Zip");
+        void dialogs.showAlert({
+          title: "7-Zip not found",
+          message: "7z.exe not found on PATH — install 7-Zip",
+          variant: "error",
+        });
         return true;
       }
       await doCreate(ctx, "7z", ".7z");
@@ -123,7 +134,7 @@ export const archiveHandler: Handler = async (label, ctx) => {
     case "ZIP (each individually)": {
       const paths = selectedOrFirst(ctx);
       if (paths.length === 0) {
-        window.alert("no selection");
+        dialogs.showToast({ message: "no selection", variant: "info" });
         return true;
       }
       let ok = 0;
@@ -136,7 +147,10 @@ export const archiveHandler: Handler = async (label, ctx) => {
         }
       }
       ctx.refresh();
-      window.alert(`compressed ${ok}/${paths.length} file(s)`);
+      dialogs.showToast({
+        message: `compressed ${ok}/${paths.length} file(s)`,
+        variant: "success",
+      });
       return true;
     }
     default:

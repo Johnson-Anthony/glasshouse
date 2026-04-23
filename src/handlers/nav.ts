@@ -1,14 +1,14 @@
 import type { Handler } from "./types";
+import { dialogs } from "../components";
 import {
   spawnTerminal,
   spawnVscode,
   spawnNewWindow,
-  setAlwaysOnTop,
   readPins,
-  writePins,
+  readRecent,
   homeDir,
-  openUrl,
   clearRecent,
+  listWslDistros,
 } from "../api";
 
 function joinPath(dir: string, name: string): string {
@@ -18,14 +18,64 @@ function joinPath(dir: string, name: string): string {
   return trimmed + sep + name;
 }
 
-export const navHandler: Handler = (label, ctx) => {
+export const navHandler: Handler = async (label, ctx) => {
   switch (label) {
-    // Submenu parents — consume as no-ops
+    // Palette-invoked submenu parents. Menubar presents them as hovers; from
+    // the palette there is no hover target so we drop a prompt asking the
+    // user to pick a target. "Open Recent →" and "Jump to Bookmark →" list
+    // real paths; "Go →" and "Bookmarks →" fall back to a toast hint.
     case "Open Recent →":
-    case "Open Recent":
+    case "Open Recent": {
+      const paths = await readRecent();
+      if (paths.length === 0) {
+        dialogs.showToast({ message: "no recent paths", variant: "info" });
+        return true;
+      }
+      const picked = await dialogs.showPrompt({
+        title: "open recent",
+        message: paths.slice(0, 8).map((p, i) => `${i + 1}. ${p}`).join("\n"),
+        placeholder: "1",
+        validate: (v) => {
+          const n = parseInt(v.trim(), 10);
+          return (Number.isFinite(n) && n >= 1 && n <= paths.length)
+            ? null
+            : `enter 1..${Math.min(paths.length, 8)}`;
+        },
+      });
+      if (picked != null) {
+        const n = parseInt(picked.trim(), 10) - 1;
+        const p = paths[n];
+        if (p) ctx.activeHandle?.actions.goTo(p);
+      }
+      return true;
+    }
+    case "Jump to Bookmark →": {
+      const pins = await readPins();
+      if (pins.length === 0) {
+        dialogs.showToast({ message: "no bookmarks", variant: "info" });
+        return true;
+      }
+      const picked = await dialogs.showPrompt({
+        title: "jump to bookmark",
+        message: pins.slice(0, 10).map((p, i) => `${i + 1}. ${p}`).join("\n"),
+        placeholder: "1",
+        validate: (v) => {
+          const n = parseInt(v.trim(), 10);
+          return (Number.isFinite(n) && n >= 1 && n <= pins.length)
+            ? null
+            : `enter 1..${Math.min(pins.length, 10)}`;
+        },
+      });
+      if (picked != null) {
+        const n = parseInt(picked.trim(), 10) - 1;
+        const p = pins[n];
+        if (p) ctx.activeHandle?.actions.goTo(p);
+      }
+      return true;
+    }
     case "Go →":
     case "Bookmarks →":
-    case "Jump to Bookmark →":
+      dialogs.showToast({ message: `"${label}" — open from the menubar to browse submenu`, variant: "info" });
       return true;
 
     case "Clear History":
@@ -55,15 +105,6 @@ export const navHandler: Handler = (label, ctx) => {
       return true;
     }
 
-    case "Move Tab Left":
-    case "Move Tab ←":
-      ctx.moveTab?.(ctx.activeTab, Math.max(0, ctx.activeTab - 1));
-      return true;
-    case "Move Tab Right":
-    case "Move Tab →":
-      ctx.moveTab?.(ctx.activeTab, Math.min(ctx.tabs.length - 1, ctx.activeTab + 1));
-      return true;
-
     case "New Window":
     case "Open in New Window":
       void spawnNewWindow();
@@ -77,9 +118,18 @@ export const navHandler: Handler = (label, ctx) => {
       ctx.newTab?.(ctx.cwd, { private: true });
       return true;
 
-    case "Open…": {
-      const path = window.prompt("path to open:");
-      if (path) ctx.activeHandle?.actions.goTo(path);
+    case "Open…":
+    case "Open Path…":
+    case "Open Path": {
+      const path = await dialogs.showPrompt({
+        title: "open",
+        message: "enter path or URL:",
+        placeholder: "C:\\… or /… or https://…",
+        validate: (v) => v.trim() ? null : "path required",
+      });
+      if (path != null && path.trim() !== "") {
+        ctx.activeHandle?.actions.goTo(path.trim());
+      }
       return true;
     }
 
@@ -94,33 +144,21 @@ export const navHandler: Handler = (label, ctx) => {
       return true;
     }
 
-    case "Always on Top": {
-      const key = "glasshouse.alwaysOnTop";
-      const current = localStorage.getItem(key) === "1";
-      const next = !current;
-      localStorage.setItem(key, next ? "1" : "0");
-      void setAlwaysOnTop(next);
-      return true;
-    }
-
     case "Go to WSL Distro":
     case "Go to WSL Distro…": {
-      const distro = window.prompt("distro name:");
-      if (distro) {
-        ctx.activeHandle?.actions.goTo(`/mnt/wsl/${distro}`);
-      }
-      return true;
-    }
-
-    case "cd Here": {
-      const target = ctx.cwd;
-      if (target) {
-        try {
-          void navigator.clipboard.writeText(`cd "${target}"`);
-        } catch {
-          console.log("[nav] cd Here: clipboard unavailable");
-        }
-      }
+      let distros: Awaited<ReturnType<typeof listWslDistros>> = [];
+      try { distros = await listWslDistros(); } catch { distros = []; }
+      const message = distros.length === 0
+        ? "no distros detected — type a distro name:"
+        : `available: ${distros.map(d => d.name).join(", ")}`;
+      const distro = await dialogs.showPrompt({
+        title: "go to WSL distro",
+        message,
+        placeholder: distros[0]?.name ?? "Ubuntu",
+        validate: (v) => v.trim() ? null : "distro name required",
+      });
+      if (distro == null || distro.trim() === "") return true;
+      ctx.activeHandle?.actions.goTo(`/mnt/wsl/${distro.trim()}`);
       return true;
     }
 
@@ -133,28 +171,16 @@ export const navHandler: Handler = (label, ctx) => {
       ctx.pinPath(ctx.firstPath ?? ctx.cwd);
       return true;
 
-    case "Manage Bookmarks":
-    case "Manage Bookmarks…":
-      void (async () => {
-        const pins = await readPins();
-        if (pins.length === 0) {
-          window.alert("pins: 0");
-          return;
-        }
-        const listed = pins.map((p, i) => `${i + 1}. ${p}`).join("\n");
-        const answer = window.prompt(`${listed}\n\nremove # (blank=cancel):`);
-        if (!answer) return;
-        const idx = Number.parseInt(answer, 10);
-        if (!Number.isFinite(idx) || idx < 1 || idx > pins.length) return;
-        const filtered = pins.filter((_, i) => i !== idx - 1);
-        await writePins(filtered);
-        ctx.refresh();
-      })();
-      return true;
-
     case "Jump to Bookmark…": {
-      const path = window.prompt("bookmark path:");
-      if (path) ctx.activeHandle?.actions.goTo(path);
+      const path = await dialogs.showPrompt({
+        title: "jump to bookmark",
+        message: "bookmark path:",
+        placeholder: "C:\\… or /…",
+        validate: (v) => v.trim() ? null : "path required",
+      });
+      if (path != null && path.trim() !== "") {
+        ctx.activeHandle?.actions.goTo(path.trim());
+      }
       return true;
     }
 
@@ -195,15 +221,14 @@ export const navHandler: Handler = (label, ctx) => {
       })();
       return true;
 
-    case "Trash": {
-      const isWindows =
-        typeof navigator !== "undefined" &&
-        /win/i.test(navigator.platform || navigator.userAgent || "");
-      if (isWindows) {
-        void openUrl("shell:RecycleBinFolder");
-      } else {
-        window.alert("Trash shortcut is Windows-only");
-      }
+    case "Trash":
+    case "Go to Trash":
+    case "Go to Trash…": {
+      // In-app only — spawning Windows Explorer here (shell:RecycleBinFolder)
+      // yanks the user out of Glasshouse and was a repeat complaint. A real
+      // in-app trash view needs FOLDERID_RecycleBinFolder + IShellFolder COM
+      // enumeration; stub it with a toast until that ships.
+      dialogs.showToast({ message: "trash view coming in v2", variant: "info" });
       return true;
     }
 

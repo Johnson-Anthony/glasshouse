@@ -265,15 +265,72 @@ pub fn drives() -> Vec<Drive> {
     out
 }
 
+#[derive(Debug, Serialize)]
+pub struct WslDistro {
+    pub name: String,
+    pub path: String,
+}
+
+#[tauri::command]
+pub fn list_wsl_distros() -> Vec<WslDistro> {
+    let mut out = Vec::new();
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        let mut cmd = std::process::Command::new("wsl.exe");
+        cmd.args(["--list", "--quiet"]);
+        cmd.creation_flags(CREATE_NO_WINDOW);
+        let output = match cmd.output() {
+            Ok(o) if o.status.success() => o,
+            _ => return out,
+        };
+        // `wsl.exe --list --quiet` emits UTF-16 LE (no BOM). Decode as u16
+        // pairs, stripping NULs that appear as padding between chars.
+        let bytes = output.stdout;
+        let mut u16s: Vec<u16> = Vec::with_capacity(bytes.len() / 2);
+        let mut i = 0;
+        while i + 1 < bytes.len() {
+            u16s.push(u16::from_le_bytes([bytes[i], bytes[i + 1]]));
+            i += 2;
+        }
+        // Trim optional BOM (0xFEFF).
+        let start = if u16s.first() == Some(&0xFEFF) { 1 } else { 0 };
+        let decoded = String::from_utf16_lossy(&u16s[start..]);
+        // Each non-empty, non-null line is a distro name; trim whitespace +
+        // interior NULs (some wsl builds emit trailing NULs).
+        for line in decoded.lines() {
+            let name = line.trim_matches(|c: char| c == '\0' || c.is_whitespace());
+            if name.is_empty() {
+                continue;
+            }
+            let path = format!("\\\\wsl$\\{}\\", name);
+            out.push(WslDistro {
+                name: name.to_string(),
+                path,
+            });
+        }
+    }
+    out
+}
+
+static SYSINFO: std::sync::OnceLock<std::sync::Mutex<sysinfo::System>> =
+    std::sync::OnceLock::new();
+
 #[tauri::command]
 pub fn system_info() -> SystemInfo {
     use sysinfo::System;
-    let mut sys = System::new_all();
-    sys.refresh_cpu_usage();
-    sys.refresh_memory();
-    let cpu_pct = sys.global_cpu_usage();
-    let mem_total = sys.total_memory();
-    let mem_used = sys.used_memory();
+    // Keep a process-lifetime System instance; System::new_all() is very
+    // expensive on Windows (enumerates every process + disk + network), and
+    // the StatusBar polls this every 2s. Refresh only CPU + memory per call.
+    let cell = SYSINFO.get_or_init(|| std::sync::Mutex::new(System::new()));
+    let (cpu_pct, mem_total, mem_used) = match cell.lock() {
+        Ok(mut sys) => {
+            sys.refresh_cpu_usage();
+            sys.refresh_memory();
+            (sys.global_cpu_usage(), sys.total_memory(), sys.used_memory())
+        }
+        Err(_) => (0.0, 0, 0),
+    };
     let mem_pct = if mem_total > 0 {
         (mem_used as f32 / mem_total as f32) * 100.0
     } else {
@@ -490,8 +547,10 @@ pub fn git_status(path: String) -> Option<GitInfo> {
 pub fn open_with_default(path: String) -> Result<(), String> {
     #[cfg(windows)]
     {
+        use std::os::windows::process::CommandExt;
         std::process::Command::new("cmd")
             .args(["/C", "start", "", &path])
+            .creation_flags(CREATE_NO_WINDOW)
             .spawn()
             .map(|_| ())
             .map_err(|e| e.to_string())
@@ -1803,6 +1862,7 @@ pub fn run_script(script: String, targets: Vec<String>) -> Result<String, String
     let mut cmd;
     #[cfg(windows)]
     {
+        use std::os::windows::process::CommandExt;
         if lower.ends_with(".ps1") {
             cmd = Command::new("powershell.exe");
             cmd.args(["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", &script]);
@@ -1812,6 +1872,7 @@ pub fn run_script(script: String, targets: Vec<String>) -> Result<String, String
         } else {
             cmd = Command::new(&script);
         }
+        cmd.creation_flags(CREATE_NO_WINDOW);
     }
     #[cfg(not(windows))]
     {
@@ -1837,8 +1898,10 @@ pub fn run_script(script: String, targets: Vec<String>) -> Result<String, String
 pub fn open_url(url: String) -> Result<(), String> {
     #[cfg(windows)]
     {
+        use std::os::windows::process::CommandExt;
         std::process::Command::new("cmd")
             .args(["/C", "start", "", &url])
+            .creation_flags(CREATE_NO_WINDOW)
             .spawn()
             .map(|_| ())
             .map_err(|e| format!("open_url: {}", e))
@@ -2407,10 +2470,17 @@ pub struct GitFileInfo {
 pub fn git_file_info(cwd: String, path: String) -> Result<GitFileInfo, String> {
     let mut out = GitFileInfo::default();
 
+    // Cheap repo check first — two subprocess spawns per selection is too
+    // expensive when the file isn't in a git repo at all.
+    if git2::Repository::discover(&cwd).is_err() {
+        return Ok(out);
+    }
+
     // log -1 --format=%cr%n%an%n%h -- <path>
-    if let Ok(o) = std::process::Command::new("git")
-        .arg("-C")
-        .arg(&cwd)
+    // Must go through build_git_command so CREATE_NO_WINDOW is applied — this
+    // runs on every file-selection change; without the flag every click
+    // flashes a cmd.exe console on Windows.
+    if let Ok(o) = build_git_command(&cwd)
         .args(["log", "-1", "--format=%cr%n%an%n%h", "--"])
         .arg(&path)
         .output()
@@ -2425,9 +2495,7 @@ pub fn git_file_info(cwd: String, path: String) -> Result<GitFileInfo, String> {
     }
 
     // diff --numstat HEAD -- <path>
-    if let Ok(o) = std::process::Command::new("git")
-        .arg("-C")
-        .arg(&cwd)
+    if let Ok(o) = build_git_command(&cwd)
         .args(["diff", "--numstat", "HEAD", "--"])
         .arg(&path)
         .output()

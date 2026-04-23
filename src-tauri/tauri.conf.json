@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "rice file manager",
+  "productName": "glasshouse",
   "version": "0.0.1",
   "identifier": "sh.glasshouse.viles",
   "build": {
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "rice:// file manager",
+        "title": "glasshouse",
         "width": 1400,
         "height": 900,
         "minWidth": 960,

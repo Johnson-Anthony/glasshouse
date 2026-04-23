@@ -57,6 +57,11 @@ export interface Drive {
   fs: string;
 }
 
+export interface WslDistro {
+  name: string;
+  path: string;
+}
+
 export interface SystemInfo {
   cpu_pct: number;
   mem_pct: number;
@@ -132,6 +137,10 @@ export function listDir(path: string, showHidden: boolean): Promise<FileEntry[]>
 
 export function drives(): Promise<Drive[]> {
   return safe(() => invoke<Drive[]>("drives"), []);
+}
+
+export function listWslDistros(): Promise<WslDistro[]> {
+  return safe(() => invoke<WslDistro[]>("list_wsl_distros"), []);
 }
 
 export function systemInfo(): Promise<SystemInfo | null> {
@@ -435,6 +444,35 @@ export function spawnTerminalProfile(
     () => invoke<void>("spawn_terminal_profile", { profile, cwd }),
     undefined,
   );
+}
+
+/** Spawn a PTY in `cwd` running the given shell profile. Returns session id. */
+export function ptySpawn(
+  profile: ShellProfile,
+  cwd: string,
+  cols?: number,
+  rows?: number,
+): Promise<string> {
+  if (!TAURI_AVAILABLE) return Promise.reject(new Error("tauri unavailable"));
+  return invoke<string>("pty_spawn", { profile, cwd, cols, rows });
+}
+
+export function ptyWrite(sessionId: string, data: string): Promise<void> {
+  return safe(
+    () => invoke<void>("pty_write", { sessionId, data }),
+    undefined,
+  );
+}
+
+export function ptyResize(sessionId: string, cols: number, rows: number): Promise<void> {
+  return safe(
+    () => invoke<void>("pty_resize", { sessionId, cols, rows }),
+    undefined,
+  );
+}
+
+export function ptyKill(sessionId: string): Promise<void> {
+  return safe(() => invoke<void>("pty_kill", { sessionId }), undefined);
 }
 
 export function readRecent(): Promise<string[]> {
