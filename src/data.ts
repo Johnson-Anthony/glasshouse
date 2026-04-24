@@ -348,7 +348,9 @@ export const MENUS: MenusData = {
     { kind: "item", ic: "", label: "Compare Files (diff)" },
     { kind: "sep" },
     { kind: "item", ic: "", label: "Screenshot → Auto-sort" },
-    { kind: "item", ic: "", label: "Clipboard Stack",     kb: "Ctrl+Shift+V" },
+    // Ctrl+Shift+V is globally reserved for Paste Special; Clipboard Stack
+    // needs a different kb before it can re-claim one.
+    { kind: "item", ic: "", label: "Clipboard Stack" },
     { kind: "item", ic: "", label: "File Queue" },
     { kind: "item", ic: "", label: "Run Script on Selection…" },
   ],
@@ -380,16 +382,10 @@ export const MENUS: MenusData = {
   ],
   Terminal: [
     { kind: "item", ic: "", label: "Toggle Drawer",       kb: "Ctrl+`" },
-    { kind: "item", ic: "", label: "Open in New Window",  kb: "Ctrl+Shift+`" },
-    { kind: "item", ic: "", label: "New Tab",             kb: "Ctrl+Shift+T" },
     { kind: "sub",  ic: "", label: "Profile",
       children: [
         { kind: "dynamic", source: "terminal-profiles" },
       ] },
-    { kind: "sep" },
-    { kind: "item", ic: "", label: "Split Horizontal",    kb: "Ctrl+Shift+H" },
-    { kind: "item", ic: "", label: "Split Vertical",      kb: "Ctrl+Shift+V" },
-    { kind: "item", ic: "", label: "Zoom Pane",           kb: "Ctrl+Shift+Z" },
   ],
   Help: [
     { kind: "item", ic: "", label: "Command Palette",     kb: "Ctrl+P" },
@@ -405,7 +401,10 @@ export const MENUS: MenusData = {
 
 export const PALETTE: PaletteItem[] = [
   { g: "NAVIGATE", ic: "", label: "Go to Path…",          kb: ["Ctrl", "L"] },
-  { g: "NAVIGATE", ic: "", label: "Find File by Name (fuzzy)", kb: ["Ctrl", "P"] },
+  // Ctrl+P globally opens the command palette itself, so listing it here as
+  // the shortcut for the fuzzy finder was misleading. The fuzzy finder is
+  // reached by invoking this palette entry; no dedicated kb yet.
+  { g: "NAVIGATE", ic: "", label: "Find File by Name (fuzzy)" },
   { g: "NAVIGATE", ic: "", label: "Find in Files",        kb: ["Ctrl", "Shift", "F"] },
   { g: "NAVIGATE", ic: "", label: "Jump to Bookmark →" },
   { g: "NAVIGATE", ic: "", label: "Open Recent →" },
@@ -444,7 +443,9 @@ export const CONTEXT_FILE: MenuItemDef[] = [
   { kind: "item", ic: "", label: "Duplicate",         kb: "Ctrl+U" },
   { kind: "sep" },
   { kind: "item", ic: "", label: "Rename",            kb: "F2" },
-  { kind: "item", ic: "", label: "Move to…",          kb: "F6" },
+  // F6 was previously "Move to…" but is now pane cycling; Move to… is
+  // still available via context menu, palette, or drag.
+  { kind: "item", ic: "", label: "Move to…" },
   { kind: "item", ic: "", label: "Create Symlink…" },
   { kind: "sub",  ic: "", label: "Tag →",
     children: [
@@ -498,13 +499,18 @@ export const CONTEXT_SIDEBAR_FOLDER: MenuItemDef[] = [
   { kind: "item", ic: "", label: "Open",                kb: "Enter" },
   { kind: "item", ic: "", label: "Open in New Tab" },
   { kind: "item", ic: "", label: "Open in New Window" },
+  { kind: "sub",  ic: "", label: "Open in Terminal",
+    children: [
+      { kind: "dynamic", source: "terminal-profiles" },
+    ] },
   { kind: "sep" },
   { kind: "item", ic: "", label: "Copy Path" },
   { kind: "item", ic: "", label: "Copy as WSL Path" },
   { kind: "item", ic: "", label: "Copy as Command" },
   { kind: "sep" },
   { kind: "item", ic: "", label: "Rename",              kb: "F2" },
-  { kind: "item", ic: "", label: "Move to…",            kb: "F6" },
+  // F6 is pane-cycle; Move to… has no global kb.
+  { kind: "item", ic: "", label: "Move to…" },
   { kind: "sub",  ic: "", label: "Tag →",
     children: [
       { kind: "item", label: "Add Tag…" },
@@ -565,6 +571,10 @@ export const CONTEXT_EMPTY: MenuItemDef[] = [
       { kind: "item", label: "Paste as Hard Link" },
       { kind: "item", label: "Paste as Shortcut" },
       { kind: "item", label: "Paste as Copy (verify SHA256)" },
+    ] },
+  { kind: "sub",  ic: "", label: "Open in Terminal",
+    children: [
+      { kind: "dynamic", source: "terminal-profiles" },
     ] },
   { kind: "sep" },
   { kind: "item", ic: "", label: "Bookmark Folder",   kb: "Ctrl+D" },

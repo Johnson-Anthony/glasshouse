@@ -89,9 +89,18 @@ pub fn list_dir(path: String, show_hidden: bool) -> Result<Vec<FileEntry>, Strin
             .and_then(|m| m.duration_since(std::time::UNIX_EPOCH).ok())
             .map(|d| d.as_millis() as i64)
             .unwrap_or(0);
+        // `canonicalize_soft` on the parent can return a `\\?\UNC\...`
+        // verbatim form which propagates into entry.path(). Strip it so the
+        // frontend (breadcrumbs, tabs, right-click) only ever sees the
+        // plain `\\wsl$\...` / `C:\...` form.
+        let raw_path = entry.path().to_string_lossy().to_string();
+        #[cfg(windows)]
+        let path = strip_verbatim(&raw_path);
+        #[cfg(not(windows))]
+        let path = raw_path;
         out.push(FileEntry {
             name,
-            path: entry.path().to_string_lossy().to_string(),
+            path,
             kind: kind_from_ext(&ext, is_dir).to_string(),
             size,
             modified_ms,
@@ -586,75 +595,84 @@ pub fn reveal_in_explorer(path: String) -> Result<(), String> {
 
 #[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x08000000;
+#[cfg(windows)]
+const CREATE_NEW_CONSOLE: u32 = 0x00000010;
 
-/// Open a terminal window at `path`. Prefers Windows Terminal, then pwsh, then powershell.
+/// Open a terminal window at `path`.
+///
+/// Strategy (resolved once, cached): prefer a Windows-Terminal-compatible
+/// CLI when one is registered as the default or found on `PATH`; otherwise
+/// spawn the shell directly with `CREATE_NEW_CONSOLE` so Windows hands off
+/// to whatever terminal is configured (including conhost as the floor).
+///
+/// Override via `GLASSHOUSE_TERMINAL`:
+///   - `GLASSHOUSE_TERMINAL=C:\path\to\term.exe:wt` — force wt-style CLI
+///   - `GLASSHOUSE_TERMINAL=direct`                 — force `CREATE_NEW_CONSOLE`
 #[tauri::command]
 pub fn spawn_terminal(path: String) -> Result<(), String> {
     #[cfg(windows)]
     {
+        use crate::terminal_probe::{resolve_terminal_strategy, TerminalStrategy};
         use std::os::windows::process::CommandExt;
         use std::process::{Command, Stdio};
 
-        // 1) Windows Terminal — spawns its own visible window, no creation_flags.
-        if which::which("wt.exe").is_ok() || which::which("wt").is_ok() {
-            let child = Command::new("wt.exe")
-                .args(["-d", &path])
-                .stdin(Stdio::null())
-                .stdout(Stdio::null())
-                .stderr(Stdio::null())
-                .spawn();
-            match child {
-                Ok(c) => {
-                    drop(c);
-                    return Ok(());
+        // Shadow `path` with a verbatim-stripped copy so downstream matchers
+        // see the same form the user sees (`\\wsl$\...` rather than
+        // `\\?\UNC\wsl$\...`).
+        let path = strip_verbatim(&path);
+        let is_unc = path.starts_with(r"\\");
+
+        match resolve_terminal_strategy() {
+            TerminalStrategy::WtCompatible(bin) => {
+                // When wt is already running a new `wt.exe` invocation is a
+                // CLI client to the existing server; only `--startingDirectory`
+                // on new-tab controls the tab's dir (the client cwd is NOT
+                // inherited). `-w 0` targets the current window or spawns one.
+                let mut wt = Command::new(&bin);
+                wt.arg("-w").arg("0").arg("new-tab");
+                if !path.is_empty() {
+                    wt.arg("--startingDirectory").arg(&path);
                 }
-                Err(e) => {
-                    // fall through to pwsh/powershell
-                    eprintln!("wt.exe spawn failed: {}, falling back", e);
+                wt.stdin(Stdio::null())
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::null())
+                    .spawn()
+                    .map(|c| drop(c))
+                    .map_err(|e| format!("wt spawn failed ({}): {}", bin.display(), e))
+            }
+            TerminalStrategy::DelegatedConsole => {
+                // No wt-compatible terminal — spawn pwsh/powershell directly
+                // with CREATE_NEW_CONSOLE so Windows' DelegationTerminal
+                // (or conhost) hosts the window. pwsh handles UNC via
+                // Set-Location -LiteralPath; cmd/powershell can't chdir to UNC
+                // as a Win32 cwd.
+                let exec = if which::which("pwsh.exe").is_ok()
+                    || which::which("pwsh").is_ok()
+                {
+                    "pwsh.exe"
+                } else {
+                    "powershell.exe"
+                };
+                let mut cmd = Command::new(exec);
+                if is_unc && !path.is_empty() {
+                    let script =
+                        format!("Set-Location -LiteralPath '{}'", path.replace('\'', "''"));
+                    cmd.arg("-NoExit").arg("-Command").arg(script);
+                } else {
+                    cmd.arg("-NoExit");
                 }
+                if !path.is_empty() && !is_unc {
+                    cmd.current_dir(&path);
+                }
+                cmd.creation_flags(CREATE_NEW_CONSOLE)
+                    .stdin(Stdio::null())
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::null())
+                    .spawn()
+                    .map(|c| drop(c))
+                    .map_err(|e| format!("delegated console spawn failed: {}", e))
             }
         }
-
-        // 2) pwsh.exe (PowerShell 7+) — needs a visible console since it has no
-        //    window chrome of its own. Use `cmd /C start` to give it a console.
-        if which::which("pwsh.exe").is_ok() || which::which("pwsh").is_ok() {
-            let child = Command::new("cmd")
-                .args(["/C", "start", "", "pwsh.exe", "-NoExit", "-WorkingDirectory", &path])
-                .creation_flags(CREATE_NO_WINDOW)
-                .stdin(Stdio::null())
-                .stdout(Stdio::null())
-                .stderr(Stdio::null())
-                .spawn();
-            match child {
-                Ok(c) => {
-                    drop(c);
-                    return Ok(());
-                }
-                Err(e) => {
-                    eprintln!("pwsh.exe spawn failed: {}, falling back", e);
-                }
-            }
-        }
-
-        // 3) powershell.exe — always present on Windows.
-        let child = Command::new("cmd")
-            .args([
-                "/C",
-                "start",
-                "",
-                "powershell.exe",
-                "-NoExit",
-                "-WorkingDirectory",
-                &path,
-            ])
-            .creation_flags(CREATE_NO_WINDOW)
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn()
-            .map_err(|e| format!("powershell.exe spawn failed: {}", e))?;
-        drop(child);
-        Ok(())
     }
     #[cfg(not(windows))]
     {
@@ -1004,19 +1022,123 @@ pub struct FindMatch {
 
 const FIND_MAX_FILE_BYTES: u64 = 1 << 20; // 1 MiB per task spec
 const FIND_HARD_CAP: u32 = 10_000;
+const FIND_MAX_DEPTH: usize = 25;
+// Hard termination guarantees so a rare-match query on C:\ cannot run forever.
+const FIND_MAX_FILES_EXAMINED: u64 = 200_000;
+const FIND_MAX_DURATION_SECS: u64 = 60;
+const FIND_MAX_THREADS: usize = 4;
+// Per-file match ceiling so one giant log or minified bundle can't eat the
+// entire result budget or drag walk time through millions of matches.
+const FIND_MAX_MATCHES_PER_FILE: usize = 100;
+// Matched-line length cap (bytes). Minified JS, packed data, and DB dumps
+// can emit multi-megabyte "lines" which then get cloned and serialized
+// across IPC. Truncate with an ellipsis well before that.
+const FIND_MAX_LINE_BYTES: usize = 500;
+
+// Extensions we refuse to open at all — known-binary formats where a
+// content search is meaningless. Conservative on purpose: anything that
+// MIGHT contain searchable text (`.bak`, `.dat`, `.map`, `.ai`, `.bin`,
+// `.a`) is left in. Saves the open+read+null-detect cost on a tree walk.
+// Stored lowercase, without the leading dot.
+const FIND_SKIP_EXTENSIONS: &[&str] = &[
+    // executables, libraries, debug symbols
+    "exe", "dll", "so", "dylib", "lib", "rlib", "o", "obj", "pdb", "exp",
+    "class", "jar", "pyc", "pyo", "pyd", "node", "wasm",
+    // installers / packages / archives
+    "msi", "msix", "appx", "cab", "deb", "rpm", "dmg", "pkg", "apk", "ipa",
+    "zip", "7z", "rar", "tar", "gz", "tgz", "bz2", "xz", "zst", "lz", "lzma",
+    "iso", "img", "vhd", "vhdx", "vmdk", "qcow2",
+    // images / audio / video
+    "jpg", "jpeg", "png", "gif", "bmp", "ico", "webp", "heic", "heif", "tiff", "tif",
+    "psd", "raw", "cr2", "nef", "arw",
+    "mp3", "wav", "flac", "ogg", "m4a", "aac", "wma", "opus",
+    "mp4", "m4v", "mov", "avi", "mkv", "webm", "wmv", "flv", "mpg", "mpeg",
+    // documents with their own binary envelopes
+    "pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "odt", "ods", "odp",
+    // fonts
+    "ttf", "otf", "woff", "woff2", "eot",
+    // database files (binary formats)
+    "db", "sqlite", "sqlite3", "mdb", "accdb",
+];
+
+// Windows file attribute bits we refuse to touch during a find walk.
+// Opening a RECALL_ON_OPEN / RECALL_ON_DATA_ACCESS placeholder forces a
+// cloud download (OneDrive "Files On-Demand"), which is what causes disk
+// usage to spike when walking C:\. REPARSE_POINT covers symlinks/junctions.
+#[cfg(windows)]
+const WIN_SKIP_ATTRS: u32 = 0x0040_0000 | 0x0004_0000 | 0x0000_1000 | 0x0000_0400;
+
+static FIND_GENERATION: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+#[tauri::command]
+pub fn cancel_find_in_files() {
+    FIND_GENERATION.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+}
 
 #[tauri::command]
 pub fn find_in_files(
+    app: tauri::AppHandle,
     root: String,
     query: String,
     case_insensitive: bool,
     max_results: u32,
+    ticket: Option<u64>,
 ) -> Result<Vec<FindMatch>, String> {
     use grep_regex::RegexMatcherBuilder;
     use grep_searcher::{BinaryDetection, Searcher, SearcherBuilder, Sink, SinkMatch};
     use ignore::WalkBuilder;
-    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
     use std::sync::{Arc, Mutex};
+    use std::time::Instant;
+    use tauri::Emitter;
+    #[cfg(windows)]
+    use std::os::windows::fs::MetadataExt;
+
+    // Ticket is echoed in every event payload so the frontend can drop
+    // late events from a superseded search. Non-UI callers pass None
+    // and just ignore the events.
+    let ticket = ticket.unwrap_or(0);
+
+    // Clip a matched line at the byte cap, centering the window around
+    // the needle's position so the match is always visible in the
+    // returned snippet. This matters for client-side narrowing: if we
+    // blindly truncated the prefix, a match beyond byte 500 would be
+    // dropped by the frontend's substring filter on narrowing.
+    fn clip_line(s: &str, needle: &str, case_insensitive: bool) -> String {
+        if s.len() <= FIND_MAX_LINE_BYTES {
+            return s.to_string();
+        }
+        let match_pos = if case_insensitive {
+            // Bounded by the 1 MiB per-file cap upstream so this
+            // allocation is capped even on worst-case lines.
+            s.to_ascii_lowercase()
+                .find(&needle.to_ascii_lowercase())
+        } else {
+            s.find(needle)
+        };
+        let half = FIND_MAX_LINE_BYTES / 2;
+        let (mut start, mut end) = match match_pos {
+            Some(p) => {
+                let s_start = p.saturating_sub(half);
+                let s_end = (p + needle.len() + half).min(s.len());
+                (s_start, s_end)
+            }
+            None => (0, FIND_MAX_LINE_BYTES.min(s.len())),
+        };
+        while start > 0 && !s.is_char_boundary(start) {
+            start -= 1;
+        }
+        while end < s.len() && !s.is_char_boundary(end) {
+            end += 1;
+        }
+        let prefix = if start > 0 { "…" } else { "" };
+        let suffix = if end < s.len() { "…" } else { "" };
+        let mut out = String::with_capacity(prefix.len() + (end - start) + suffix.len());
+        out.push_str(prefix);
+        out.push_str(&s[start..end]);
+        out.push_str(suffix);
+        out
+    }
 
     if query.is_empty() {
         return Ok(Vec::new());
@@ -1027,6 +1149,11 @@ pub fn find_in_files(
         max_results.min(FIND_HARD_CAP)
     } as usize;
 
+    // Each call bumps the generation and captures its own gen. Any later
+    // call (or an explicit cancel) will bump past this value and cause the
+    // running walk to abort on its next check.
+    let my_gen = FIND_GENERATION.fetch_add(1, Ordering::SeqCst) + 1;
+
     let pattern = regex::escape(&query);
     let matcher = RegexMatcherBuilder::new()
         .case_insensitive(case_insensitive)
@@ -1035,16 +1162,134 @@ pub fn find_in_files(
 
     let results: Arc<Mutex<Vec<FindMatch>>> = Arc::new(Mutex::new(Vec::new()));
     let done = Arc::new(AtomicBool::new(false));
+    let files_examined = Arc::new(AtomicU64::new(0));
+    let start = Instant::now();
 
-    let walker = WalkBuilder::new(&root).standard_filters(true).build_parallel();
+    // Detect whether the root is a Windows drive root (e.g. `C:\`, `D:\`).
+    // When it is, skip well-known noisy/restricted directories at the top
+    // level. When the user is searching *inside* one of those directories
+    // we leave the filter off so they can actually look in there.
+    let root_path = PathBuf::from(&root);
+    let is_drive_root = {
+        let s = root.trim_end_matches(|c| c == '\\' || c == '/');
+        // e.g. "C:" or "D:" after trimming trailing slashes/backslashes.
+        s.len() == 2
+            && s.as_bytes()[1] == b':'
+            && s.as_bytes()[0].is_ascii_alphabetic()
+    };
+    let root_for_filter = root_path.clone();
+
+    // On drive-root walks, keep disk I/O to a single in-flight file so
+    // cancellation is predictable and a stuck syscall can't compound
+    // with a follow-up search. Other roots still get modest parallelism.
+    let walker_threads = if is_drive_root { 1 } else { FIND_MAX_THREADS };
+    // Drive-root walks get tight budgets so a rare-match query on C:\
+    // terminates in seconds, not minutes. Other roots use the wider
+    // budgets since the user has scoped to something specific.
+    let files_cap_limit: u64 = if is_drive_root { 50_000 } else { FIND_MAX_FILES_EXAMINED };
+    let time_cap_secs: u64 = if is_drive_root { 20 } else { FIND_MAX_DURATION_SECS };
+
+    let mut builder = WalkBuilder::new(&root);
+    builder
+        .standard_filters(true)
+        .max_depth(Some(FIND_MAX_DEPTH))
+        .follow_links(false)
+        .threads(walker_threads);
+    if is_drive_root {
+        builder.filter_entry(move |entry| {
+            let p = entry.path();
+            // Path relative to the drive root, lower-cased, up to 5
+            // components — enough for patterns like
+            // Users\<name>\AppData\Local\Temp.
+            let rel = match p.strip_prefix(&root_for_filter) {
+                Ok(r) => r,
+                Err(_) => return true,
+            };
+            let parts: Vec<String> = rel
+                .components()
+                .take(5)
+                .map(|c| c.as_os_str().to_string_lossy().to_ascii_lowercase())
+                .collect();
+            let get = |i: usize| parts.get(i).map(|s| s.as_str()).unwrap_or("");
+            let p0 = get(0);
+            let p1 = get(1);
+            let p2 = get(2);
+            let p3 = get(3);
+            let p4 = get(4);
+
+            // Top-level: recycle, restore points, old installs, pending
+            // installer staging, OS perf logs.
+            if matches!(
+                p0,
+                "$recycle.bin"
+                    | "system volume information"
+                    | "windows.old"
+                    | "config.msi"
+                    | "perflogs"
+                    | "$windows.~bt"
+                    | "$windows.~ws"
+            ) {
+                return false;
+            }
+            // Windows subtrees that are huge binary package stores — NOT
+            // assembly/servicing, which can legitimately contain text the
+            // user wants to search.
+            if p0 == "windows"
+                && matches!(p1, "winsxs" | "installer" | "softwaredistribution")
+            {
+                return false;
+            }
+            // Program Files\WindowsApps (ACL-locked, owned by TrustedInstaller).
+            if matches!(p0, "program files" | "program files (x86)") && p1 == "windowsapps" {
+                return false;
+            }
+            // Users\<name>\AppData\Local\... — only the high-volume
+            // caches and sandboxed app data. AppData\Local\Microsoft
+            // and AppData\Roaming/LocalLow are *kept* because they
+            // hold many user-meaningful config files.
+            if p0 == "users"
+                && p2 == "appdata"
+                && p3 == "local"
+                && matches!(
+                    p4,
+                    "temp" | "packages" | "nvidia" | "d3dscache" | "crashdumps"
+                )
+            {
+                return false;
+            }
+            // ProgramData\Microsoft\Windows Defender — huge; nothing
+            // else under ProgramData is broadly skipped.
+            if p0 == "programdata"
+                && p1 == "microsoft"
+                && p2 == "windows defender"
+            {
+                return false;
+            }
+            true
+        });
+    }
+    let walker = builder.build_parallel();
 
     walker.run(|| {
         let results = Arc::clone(&results);
         let done = Arc::clone(&done);
+        let files_examined = Arc::clone(&files_examined);
         let matcher = matcher.clone();
+        let app = app.clone();
+        let query = query.clone();
         Box::new(move |entry| {
             use ignore::WalkState;
             if done.load(Ordering::Relaxed) {
+                return WalkState::Quit;
+            }
+            if FIND_GENERATION.load(Ordering::Relaxed) != my_gen {
+                return WalkState::Quit;
+            }
+            // Wall-clock budget: hard stop so a rare-match query across
+            // a huge tree can't run forever (drive-root gets a tighter
+            // budget than scoped walks).
+            if start.elapsed().as_secs() >= time_cap_secs {
+                done.store(true, Ordering::Relaxed);
                 return WalkState::Quit;
             }
             let entry = match entry {
@@ -1056,11 +1301,37 @@ pub fn find_in_files(
             if !is_file {
                 return WalkState::Continue;
             }
-            // Skip files > 1 MiB.
+            // Extension skip: refuse to open well-known binary / archive /
+            // media formats. Avoids the stat + open + read + null-detect
+            // cost on files that will never yield a text match anyway.
+            if let Some(ext) = entry.path().extension().and_then(|e| e.to_str()) {
+                let ext_lower = ext.to_ascii_lowercase();
+                if FIND_SKIP_EXTENSIONS.contains(&ext_lower.as_str()) {
+                    return WalkState::Continue;
+                }
+            }
             if let Ok(meta) = entry.metadata() {
+                // Size gate.
                 if meta.len() > FIND_MAX_FILE_BYTES {
                     return WalkState::Continue;
                 }
+                // Windows: refuse to touch OneDrive placeholders, reparse
+                // points, or offline archived files. Opening one forces a
+                // cloud hydrate which is exactly the disk-usage spike we
+                // were seeing when walking C:\.
+                #[cfg(windows)]
+                {
+                    if meta.file_attributes() & WIN_SKIP_ATTRS != 0 {
+                        return WalkState::Continue;
+                    }
+                }
+            }
+            // Files-examined cap: guaranteed termination even when the
+            // query never matches and the results cap never fires.
+            let n = files_examined.fetch_add(1, Ordering::Relaxed) + 1;
+            if n >= files_cap_limit {
+                done.store(true, Ordering::Relaxed);
+                return WalkState::Quit;
             }
             let path = entry.path().to_path_buf();
 
@@ -1069,6 +1340,12 @@ pub fn find_in_files(
                 out: &'a Arc<Mutex<Vec<FindMatch>>>,
                 cap: usize,
                 done: &'a Arc<AtomicBool>,
+                my_gen: u64,
+                file_hits: usize,
+                app: &'a tauri::AppHandle,
+                ticket: u64,
+                needle: &'a str,
+                case_insensitive: bool,
             }
             impl<'a> Sink for CollectSink<'a> {
                 type Error = std::io::Error;
@@ -1077,11 +1354,39 @@ pub fn find_in_files(
                     _searcher: &Searcher,
                     mat: &SinkMatch<'_>,
                 ) -> Result<bool, Self::Error> {
+                    // Abort mid-file if this walk was superseded or
+                    // explicitly cancelled — prevents large matchy files
+                    // from running the searcher to completion after the
+                    // user has already moved on.
+                    if FIND_GENERATION.load(Ordering::Relaxed) != self.my_gen
+                        || self.done.load(Ordering::Relaxed)
+                    {
+                        return Ok(false);
+                    }
+                    // Per-file cap so one match-heavy file (e.g. a log)
+                    // doesn't swallow the global result budget or drag
+                    // the walk through millions of identical hits.
+                    if self.file_hits >= FIND_MAX_MATCHES_PER_FILE {
+                        return Ok(false);
+                    }
                     let line_no = mat.line_number().unwrap_or(0) as u32;
                     let bytes = mat.bytes();
-                    let line = String::from_utf8_lossy(bytes)
-                        .trim_end_matches(|c| c == '\n' || c == '\r')
-                        .to_string();
+                    let line_str = String::from_utf8_lossy(bytes);
+                    let trimmed = line_str.trim_end_matches(|c| c == '\n' || c == '\r');
+                    let line = clip_line(trimmed, self.needle, self.case_insensitive);
+                    let fm = FindMatch {
+                        path: self.path.clone(),
+                        line_no,
+                        line,
+                    };
+                    // Stream the match to any listening UI immediately,
+                    // so results render progressively instead of waiting
+                    // for the whole walk to finish. Tagged with the
+                    // ticket so stale events are filterable.
+                    let _ = self.app.emit(
+                        "find-in-files:match",
+                        serde_json::json!({ "ticket": self.ticket, "match": &fm }),
+                    );
                     let mut guard = match self.out.lock() {
                         Ok(g) => g,
                         Err(p) => p.into_inner(),
@@ -1090,11 +1395,8 @@ pub fn find_in_files(
                         self.done.store(true, Ordering::Relaxed);
                         return Ok(false);
                     }
-                    guard.push(FindMatch {
-                        path: self.path.clone(),
-                        line_no,
-                        line,
-                    });
+                    guard.push(fm);
+                    self.file_hits += 1;
                     if guard.len() >= self.cap {
                         self.done.store(true, Ordering::Relaxed);
                         return Ok(false);
@@ -1112,16 +1414,53 @@ pub fn find_in_files(
                 out: &results,
                 cap,
                 done: &done,
+                my_gen,
+                file_hits: 0,
+                app: &app,
+                ticket,
+                needle: &query,
+                case_insensitive,
             };
             let _ = searcher.search_path(&matcher, &path, sink);
 
-            if done.load(Ordering::Relaxed) {
+            if done.load(Ordering::Relaxed)
+                || FIND_GENERATION.load(Ordering::Relaxed) != my_gen
+            {
                 WalkState::Quit
             } else {
                 WalkState::Continue
             }
         })
     });
+
+    // Figure out why we stopped so the UI can render an informative
+    // status ("done", "capped at N", "cancelled", or budget-exceeded).
+    let superseded = FIND_GENERATION.load(Ordering::Relaxed) != my_gen;
+    let hit_done = done.load(Ordering::Relaxed);
+    let elapsed = start.elapsed().as_secs();
+    let seen = files_examined.load(Ordering::Relaxed);
+    let reason = if superseded {
+        "cancelled"
+    } else if elapsed >= time_cap_secs {
+        "time_budget"
+    } else if seen >= files_cap_limit {
+        "file_budget"
+    } else if hit_done {
+        "capped"
+    } else {
+        "complete"
+    };
+    let _ = app.emit(
+        "find-in-files:done",
+        serde_json::json!({ "ticket": ticket, "reason": reason }),
+    );
+
+    // If we were superseded, return an empty result — the frontend
+    // request generation guard will drop this anyway, but being explicit
+    // avoids leaking partial results to any other caller.
+    if superseded {
+        return Ok(Vec::new());
+    }
 
     let mut out = match Arc::try_unwrap(results) {
         Ok(m) => m.into_inner().unwrap_or_default(),
@@ -2104,11 +2443,26 @@ pub fn list_shell_profiles() -> Vec<ShellProfile> {
                 }
                 have_pwsh_label = true;
             }
+            // Relabel bash.exe as "Git Bash" when it resolves under the
+            // Git-for-Windows install tree. This is the usual source of a
+            // `bash.exe` on Windows (WSL bash is reached via wsl.exe), so
+            // calling it out keeps it visually distinct from the WSL entries.
+            let resolved_str = resolved.to_string_lossy().to_string();
+            let display_label: String = if *label == "bash" {
+                let lower = resolved_str.to_ascii_lowercase();
+                if lower.contains("\\git\\") || lower.contains("/git/") {
+                    "Git Bash".to_string()
+                } else {
+                    (*label).to_string()
+                }
+            } else {
+                (*label).to_string()
+            };
             out.push(ShellProfile {
                 id: (*id).to_string(),
-                label: (*label).to_string(),
+                label: display_label,
                 kind: "shell".to_string(),
-                exec: resolved.to_string_lossy().to_string(),
+                exec: resolved_str,
                 args: Vec::new(),
             });
         }
@@ -2139,87 +2493,207 @@ pub fn list_shell_profiles() -> Vec<ShellProfile> {
     out
 }
 
-/// Launch a terminal profile in `cwd`. Prefers Windows Terminal (`wt.exe`);
-/// falls back to `cmd /C start`. Never flashes a console window.
+/// Undo `dunce::canonicalize`'s verbatim prefix so our downstream UNC
+/// matchers (`\\wsl$\...`, `\\wsl.localhost\...`) and WSL-posix translator
+/// see the same form the user sees.
+#[cfg(windows)]
+fn strip_verbatim(path: &str) -> String {
+    if let Some(tail) = path.strip_prefix(r"\\?\UNC\") {
+        format!(r"\\{}", tail)
+    } else if let Some(tail) = path.strip_prefix(r"\\?\") {
+        tail.to_string()
+    } else {
+        path.to_string()
+    }
+}
+
+/// Translate a Windows path to a posix path inside WSL.
+/// UNC `\\wsl$\<distro>\home\x` -> `/home/x`; drive-letter `C:\foo` ->
+/// `/mnt/c/foo`; already-posix paths are returned unchanged.
+#[cfg(windows)]
+fn win_to_wsl_posix(path: &str) -> Option<String> {
+    let path = strip_verbatim(path);
+    let path = path.as_str();
+    if path.is_empty() {
+        return None;
+    }
+    if path.starts_with('/') {
+        return Some(path.to_string());
+    }
+    let lowered = path.to_ascii_lowercase();
+    for prefix in [r"\\wsl$\", r"\\wsl.localhost\"] {
+        if let Some(_tail) = lowered.strip_prefix(prefix) {
+            let original_tail = &path[prefix.len()..];
+            let after_distro = match original_tail.find('\\') {
+                Some(i) => &original_tail[i..],
+                None => return Some("/".to_string()),
+            };
+            let out = after_distro.replace('\\', "/");
+            return Some(if out.is_empty() { "/".to_string() } else { out });
+        }
+    }
+    let bytes = path.as_bytes();
+    if bytes.len() >= 2 && bytes[1] == b':' {
+        let letter = (bytes[0] as char).to_ascii_lowercase();
+        let rest = if bytes.len() > 2 {
+            path[2..].trim_start_matches(['\\', '/']).replace('\\', "/")
+        } else {
+            String::new()
+        };
+        let posix = if rest.is_empty() {
+            format!("/mnt/{}", letter)
+        } else {
+            format!("/mnt/{}/{}", letter, rest)
+        };
+        return Some(posix);
+    }
+    None
+}
+
+/// Launch a terminal profile in `cwd`.
+///
+/// Resolves a cached `TerminalStrategy` (see `terminal_probe`):
+///   - `WtCompatible(bin)`  → `<bin> -w 0 new-tab --startingDirectory <cwd> <exec> <args>`
+///   - `DelegatedConsole`   → spawn the shell directly with `CREATE_NEW_CONSOLE`;
+///                            Windows hands off to the registered default terminal.
+///
+/// Override with `GLASSHOUSE_TERMINAL` (see `spawn_terminal` docs).
 #[tauri::command]
 pub fn spawn_terminal_profile(profile: ShellProfile, cwd: String) -> Result<(), String> {
     #[cfg(windows)]
     {
+        use crate::terminal_probe::{resolve_terminal_strategy, TerminalStrategy};
         use std::os::windows::process::CommandExt;
         use std::process::{Command, Stdio};
 
-        let have_wt = which::which("wt.exe").is_ok() || which::which("wt").is_ok();
+        // Shadow `cwd` with a verbatim-stripped copy so UNC matchers below
+        // and `win_to_wsl_posix` see `\\wsl$\...` rather than
+        // `\\?\UNC\wsl$\...` (dunce::canonicalize produces the latter).
+        let cwd = strip_verbatim(&cwd);
 
-        if have_wt {
-            let mut cmd = Command::new("wt.exe");
-            cmd.args(["-d", &cwd]);
-            match profile.kind.as_str() {
-                "wsl" => {
-                    cmd.arg("wsl.exe");
-                    for a in &profile.args {
-                        cmd.arg(a);
+        // WSL can't start under a `\\wsl$\...` UNC on the Windows side; pass
+        // `--cd <posix>` instead so the shell chdir's after entry.
+        let wsl_posix: Option<String> = if profile.kind == "wsl" {
+            win_to_wsl_posix(&cwd)
+        } else {
+            None
+        };
+        // UNC WSL paths can't be set as a Windows current_dir (CreateProcess
+        // rejects them). Only normal drive-letter paths are passed via cwd.
+        let is_wsl_unc = profile.kind == "wsl"
+            && (cwd.starts_with(r"\\wsl$\") || cwd.starts_with(r"\\wsl.localhost\"));
+        // Any UNC path (not just WSL) — used to guard chdir.
+        let is_unc = cwd.starts_with(r"\\");
+
+        match resolve_terminal_strategy() {
+            TerminalStrategy::WtCompatible(bin) => {
+                let mut cmd = Command::new(&bin);
+                // `wt.exe -w 0 new-tab --startingDirectory <cwd> <commandline>`.
+                // When wt is already running, new invocations are CLI clients
+                // to the existing server — client cwd is NOT inherited by the
+                // new tab; only `--startingDirectory` on new-tab controls it.
+                // For WSL UNC we skip `--startingDirectory` (wt can't chdir
+                // into `\\wsl.localhost\...`) and rely on `wsl.exe --cd`.
+                cmd.arg("-w").arg("0").arg("new-tab");
+                if !cwd.is_empty() && !is_wsl_unc {
+                    cmd.arg("--startingDirectory").arg(&cwd);
+                }
+                match profile.kind.as_str() {
+                    "wsl" => {
+                        cmd.arg("wsl.exe");
+                        for a in &profile.args {
+                            cmd.arg(a);
+                        }
+                        if let Some(p) = &wsl_posix {
+                            cmd.arg("--cd");
+                            cmd.arg(p);
+                        }
+                    }
+                    "ssh" => {
+                        cmd.arg("ssh");
+                        for a in &profile.args {
+                            cmd.arg(a);
+                        }
+                    }
+                    _ => {
+                        cmd.arg(&profile.exec);
+                        for a in &profile.args {
+                            cmd.arg(a);
+                        }
                     }
                 }
-                "ssh" => {
-                    cmd.arg("ssh");
-                    for a in &profile.args {
-                        cmd.arg(a);
-                    }
-                }
-                _ => {
-                    cmd.arg(&profile.exec);
-                    for a in &profile.args {
-                        cmd.arg(a);
-                    }
-                }
+                cmd.stdin(Stdio::null())
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::null())
+                    .spawn()
+                    .map(|c| drop(c))
+                    .map_err(|e| format!("wt spawn failed ({}): {}", bin.display(), e))
             }
-            let res = cmd
-                .stdin(Stdio::null())
-                .stdout(Stdio::null())
-                .stderr(Stdio::null())
-                .spawn();
-            match res {
-                Ok(c) => {
-                    drop(c);
-                    return Ok(());
+            TerminalStrategy::DelegatedConsole => {
+                // Spawn the shell itself with CREATE_NEW_CONSOLE. Windows
+                // will attach the new console to the registered default
+                // terminal (DelegationTerminal CLSID) — or conhost if none.
+                //
+                // UNC handling mirrors the old fallback: pwsh/powershell can
+                // chdir to UNC via `Set-Location -LiteralPath` after launch;
+                // Win32 CreateProcess rejects UNC as a cwd. WSL uses --cd.
+                let exec_lower = profile.exec.to_ascii_lowercase();
+                let is_pwsh = profile.kind == "shell"
+                    && (exec_lower.ends_with("pwsh.exe")
+                        || exec_lower == "pwsh"
+                        || exec_lower.ends_with("powershell.exe")
+                        || exec_lower == "powershell");
+
+                let mut cmd = match profile.kind.as_str() {
+                    "wsl" => {
+                        let mut c = Command::new("wsl.exe");
+                        for a in &profile.args {
+                            c.arg(a);
+                        }
+                        if let Some(p) = &wsl_posix {
+                            c.arg("--cd");
+                            c.arg(p);
+                        }
+                        c
+                    }
+                    "ssh" => {
+                        let mut c = Command::new("ssh");
+                        for a in &profile.args {
+                            c.arg(a);
+                        }
+                        c
+                    }
+                    _ => {
+                        let mut c = Command::new(&profile.exec);
+                        if is_pwsh && is_unc && !cwd.is_empty() {
+                            let script = format!(
+                                "Set-Location -LiteralPath '{}'",
+                                cwd.replace('\'', "''")
+                            );
+                            c.arg("-NoExit").arg("-Command").arg(script);
+                        }
+                        for a in &profile.args {
+                            c.arg(a);
+                        }
+                        c
+                    }
+                };
+                // Honor cwd only for non-UNC, non-WSL-UNC paths. UNC cwds
+                // are handled above (pwsh Set-Location, WSL --cd). Git Bash
+                // on WSL UNC is left in its default dir — we can't translate
+                // the path into Git Bash's posix form directly.
+                if !cwd.is_empty() && !is_wsl_unc && !is_unc {
+                    cmd.current_dir(&cwd);
                 }
-                Err(e) => {
-                    eprintln!("wt.exe spawn failed: {}, falling back", e);
-                }
+                cmd.creation_flags(CREATE_NEW_CONSOLE)
+                    .stdin(Stdio::null())
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::null())
+                    .spawn()
+                    .map(|c| drop(c))
+                    .map_err(|e| format!("spawn_terminal_profile (delegated): {}", e))
             }
         }
-
-        // Fallback: cmd /C start "" <exec> <args>
-        let mut cmd = Command::new("cmd");
-        cmd.arg("/C").arg("start").arg("");
-        match profile.kind.as_str() {
-            "wsl" => {
-                cmd.arg("wsl.exe");
-                for a in &profile.args {
-                    cmd.arg(a);
-                }
-            }
-            "ssh" => {
-                cmd.arg("ssh");
-                for a in &profile.args {
-                    cmd.arg(a);
-                }
-            }
-            _ => {
-                cmd.arg(&profile.exec);
-                for a in &profile.args {
-                    cmd.arg(a);
-                }
-            }
-        }
-        cmd.creation_flags(CREATE_NO_WINDOW)
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null());
-        let _ = cwd; // cwd used above for wt; fallback ignores per spec.
-        cmd.spawn()
-            .map(|c| drop(c))
-            .map_err(|e| format!("spawn_terminal_profile fallback: {}", e))
     }
     #[cfg(not(windows))]
     {

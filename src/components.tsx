@@ -10,7 +10,7 @@ import {
   type MenuItemDef,
   type DynamicPayload,
 } from "./data";
-import { drives as apiDrives, fileStatExtended, gitBranchList, gitFileInfo, hashCrc32, hashMd5, hashSha256, homeDir as apiHomeDir, listDir, listShellProfiles, listWslDistros, netRate, pathFsType, pickDirectory, readImageB64, readPins, readRecent, readTags, readText, setPermissions, systemInfo as apiSystemInfo, winClose, winMinimize, winToggleMaximize, writeTags, writeText, type BlameLine, type Drive, type FileEntry, type FileStatExt, type GitFileInfo, type GitInfo, type NetRate, type ShellProfile, type SystemInfo, type WslDistro } from "./api";
+import { drives as apiDrives, fileStatExtended, gitBranchList, gitFileInfo, hashCrc32, hashMd5, hashSha256, homeDir as apiHomeDir, listDir, listShellProfiles, listWslDistros, netRate, pathFsType, pickDirectory, readImageB64, readPins, readRecent, readTags, readText, setPermissions, systemInfo as apiSystemInfo, winClose, winMinimize, winToggleMaximize, writeTags, type BlameLine, type Drive, type FileEntry, type FileStatExt, type GitFileInfo, type GitInfo, type NetRate, type SystemInfo, type WslDistro } from "./api";
 import { getVersion } from "@tauri-apps/api/app";
 import { fuzzyFilter } from "./fuzzy";
 
@@ -133,6 +133,127 @@ function useExpandedItems(items: MenuItemDef[], trigger: unknown): MenuItemDef[]
   }, [trigger, items]);
 
   return expanded;
+}
+
+// ─── shared modal keyboard behaviour ───────────────────────────────────────
+// Wires up Esc (close), Tab/Shift+Tab focus trap, and initial focus for any
+// modal/dialog. Enter is opt-in via `onSubmit` — only used when there's a
+// single obvious primary action; skip when inputs handle their own Enter.
+const FOCUSABLE_SEL = [
+  "a[href]",
+  "button:not([disabled])",
+  "input:not([disabled]):not([type='hidden'])",
+  "select:not([disabled])",
+  "textarea:not([disabled])",
+  "[tabindex]:not([tabindex='-1'])",
+].join(",");
+
+function getFocusable(root: HTMLElement | null): HTMLElement[] {
+  if (!root) return [];
+  return Array.from(root.querySelectorAll<HTMLElement>(FOCUSABLE_SEL))
+    .filter(el => !el.hasAttribute("disabled") && el.tabIndex !== -1);
+}
+
+export interface UseModalKeyboardOptions {
+  containerRef: React.RefObject<HTMLElement>;
+  onClose: () => void;
+  onSubmit?: () => void;
+  initialFocusRef?: React.RefObject<HTMLElement>;
+  enabled?: boolean;
+}
+
+export function useModalKeyboard({
+  containerRef,
+  onClose,
+  onSubmit,
+  initialFocusRef,
+  enabled = true,
+}: UseModalKeyboardOptions): void {
+  // Stash latest callbacks so the keydown handler doesn't need to re-bind.
+  const onCloseRef = useRef(onClose);
+  const onSubmitRef = useRef(onSubmit);
+  useEffect(() => { onCloseRef.current = onClose; }, [onClose]);
+  useEffect(() => { onSubmitRef.current = onSubmit; }, [onSubmit]);
+
+  // Initial focus on mount: provided ref wins; otherwise first focusable
+  // element inside the container.
+  useEffect(() => {
+    if (!enabled) return;
+    const id = window.setTimeout(() => {
+      const preferred = initialFocusRef?.current;
+      if (preferred) { preferred.focus(); return; }
+      const first = getFocusable(containerRef.current)[0];
+      first?.focus();
+    }, 0);
+    return () => window.clearTimeout(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [enabled]);
+
+  useEffect(() => {
+    if (!enabled) return;
+    const handler = (e: KeyboardEvent) => {
+      // Skip if a child handler already consumed this key (e.g. a per-input
+      // onKeyDown that already handled Enter or Escape).
+      if (e.defaultPrevented) return;
+      if (e.key === "Escape") {
+        // Capture-phase + stopImmediatePropagation prevents the global
+        // pane-cycling / shortcut handlers in App.tsx from also reacting
+        // to Esc — the modal owns this key while it's open.
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        onCloseRef.current();
+        return;
+      }
+      if (e.key === "Enter" && onSubmitRef.current && !e.shiftKey) {
+        // Don't hijack Enter when the user is actioning a button / link
+        // or typing in a multi-line textarea / contentEditable (they
+        // already handle their own Enter).
+        const t = e.target as HTMLElement | null;
+        const tag = t?.tagName;
+        if (tag === "TEXTAREA") return;
+        if (tag === "BUTTON" || tag === "A") return;
+        if (t?.isContentEditable) return;
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        onSubmitRef.current();
+        return;
+      }
+      if (e.key === "Tab") {
+        const root = containerRef.current;
+        if (!root) return;
+        // Tab belongs to the modal while it's open — stop other global
+        // handlers (e.g. App.tsx's pane cycle) from seeing it.
+        e.stopImmediatePropagation();
+        const focusables = getFocusable(root);
+        if (focusables.length === 0) {
+          e.preventDefault();
+          return;
+        }
+        const first = focusables[0];
+        const last = focusables[focusables.length - 1];
+        const active = document.activeElement as HTMLElement | null;
+        const inside = !!active && root.contains(active);
+        if (!inside) {
+          e.preventDefault();
+          (e.shiftKey ? last : first).focus();
+          return;
+        }
+        if (e.shiftKey && active === first) {
+          e.preventDefault();
+          last.focus();
+        } else if (!e.shiftKey && active === last) {
+          e.preventDefault();
+          first.focus();
+        }
+        // otherwise let default Tab advance focus within the modal
+      }
+    };
+    // Capture phase so we run BEFORE bubble-phase global listeners
+    // registered in App.tsx (pane cycling, chord leader, shortcuts).
+    window.addEventListener("keydown", handler, true);
+    return () => window.removeEventListener("keydown", handler, true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [enabled]);
 }
 
 // ============= Titlebar =============
@@ -350,12 +471,23 @@ export function Menubar({ onOpenPalette, onCommand, onPayload, toggles }: Menuba
   const ctxValue = toggles ?? {};
 
   useEffect(() => {
-    const close = (e: MouseEvent) => {
-      if (!ref.current?.contains(e.target as Node)) { setOpen(null); setSubHover(null); }
+    if (!open) return;
+    // Capture phase ensures the close fires before any child handler can
+    // stopPropagation / swallow the event (tauri drag regions, nested
+    // mousedown handlers in panes, etc.). Listen on `pointerdown` for
+    // broadest coverage across mouse, pen, and touch inputs.
+    const close = (e: Event) => {
+      const target = e.target as Node | null;
+      if (!target) { setOpen(null); setSubHover(null); return; }
+      if (!ref.current?.contains(target)) { setOpen(null); setSubHover(null); }
     };
-    document.addEventListener("mousedown", close);
-    return () => document.removeEventListener("mousedown", close);
-  }, []);
+    document.addEventListener("pointerdown", close, true);
+    document.addEventListener("mousedown", close, true);
+    return () => {
+      document.removeEventListener("pointerdown", close, true);
+      document.removeEventListener("mousedown", close, true);
+    };
+  }, [open]);
 
   useEffect(() => {
     let cancelled = false;
@@ -433,8 +565,63 @@ interface Crumb {
   path: string;
 }
 
+/** Turn a raw filesystem path into a short, human-friendly label for tabs
+ *  and titles. WSL UNC paths collapse the `\\wsl.localhost\<distro>` prefix
+ *  down to just the distro name (with posix separators for the tail).
+ *  Everything else is returned unchanged. */
+export function prettyPath(path: string): string {
+  if (!path) return "";
+  const unc = path.match(/^\\\\(?:wsl\.localhost|wsl\$)\\([^\\]+)(\\.*)?$/i);
+  if (unc) {
+    const distro = unc[1];
+    const rest = (unc[2] ?? "").replace(/\\/g, "/").replace(/\/+$/, "");
+    return rest ? `${distro}:${rest}` : distro;
+  }
+  return path;
+}
+
 function splitBreadcrumb(path: string): Crumb[] {
   if (!path) return [];
+  // WSL UNC: \\wsl.localhost\<distro>\... or \\wsl$\<distro>\...
+  // First crumb is the distro (label "Ubuntu", path "\\wsl.localhost\Ubuntu").
+  // Each subsequent segment accumulates with `\\` so Windows can open it.
+  const unc = path.match(/^\\\\(wsl\.localhost|wsl\$)\\([^\\]+)(\\.*)?$/i);
+  if (unc) {
+    const host = unc[1];
+    const distro = unc[2];
+    const rest = (unc[3] ?? "").replace(/^\\+/, "");
+    const out: Crumb[] = [];
+    const base = `\\\\${host}\\${distro}`;
+    out.push({ label: distro, path: base });
+    if (rest) {
+      const parts = rest.split("\\").filter(Boolean);
+      let acc = base;
+      for (const p of parts) {
+        acc = acc + "\\" + p;
+        out.push({ label: p, path: acc });
+      }
+    }
+    return out;
+  }
+  // Generic UNC: \\server\share\...
+  const genUnc = path.match(/^\\\\([^\\]+)\\([^\\]+)(\\.*)?$/);
+  if (genUnc) {
+    const server = genUnc[1];
+    const share = genUnc[2];
+    const rest = (genUnc[3] ?? "").replace(/^\\+/, "");
+    const out: Crumb[] = [];
+    const base = `\\\\${server}\\${share}`;
+    out.push({ label: `${server}\\${share}`, path: base });
+    if (rest) {
+      const parts = rest.split("\\").filter(Boolean);
+      let acc = base;
+      for (const p of parts) {
+        acc = acc + "\\" + p;
+        out.push({ label: p, path: acc });
+      }
+    }
+    return out;
+  }
   const isWin = /^[A-Za-z]:/.test(path) || path.includes("\\");
   const sep = isWin ? "\\" : "/";
   if (isWin) {
@@ -553,14 +740,6 @@ export function Toolbar({ path, gitInfo, canBack, canForward, onBack, onForward,
 }
 
 // ============= Sidebar =============
-interface TreeNodeState {
-  path: string;
-  name: string;
-  depth: number;
-  open: boolean;
-  hasChildren: boolean;
-  // children are stored in a sibling map keyed by path
-}
 
 function pathBasename(p: string): string {
   const trimmed = p.replace(/[\\/]+$/, "");
@@ -1359,7 +1538,7 @@ export function Sidebar({ activePath, onGoTo, onRowContext, pins, onAddPin, tags
                  title={d.letter}>
               <span className="ic"></span>
               <div>
-                <div>{letter} {label}</div>
+                <div>{label === letter ? letter : letter + " " + label}</div>
                 <div style={{color:"var(--fg-3)", fontSize:10}}>{formatSidebarBytes(used)} / {formatSidebarBytes(d.total)}{d.fs ? " · " + d.fs : ""}</div>
               </div>
             </div>
@@ -2693,19 +2872,31 @@ export function Palette({ onClose, onCommand }: PaletteProps) {
   const [q, setQ] = useState("");
   const [idx, setIdx] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const selRef = useRef<HTMLDivElement>(null);
   const items = useMemo(() => {
     if (!q) return PALETTE;
     return fuzzyFilter(q, PALETTE, p => p.label).map(r => r.item);
   }, [q]);
 
-  useEffect(() => { inputRef.current?.focus(); }, []);
   useEffect(() => { setIdx(0); }, [q]);
+  // Keep the active row on screen as arrow keys / filter moves selection.
+  useEffect(() => {
+    selRef.current?.scrollIntoView({ block: "nearest" });
+  }, [idx]);
+
+  // Esc close + Tab focus trap so the input can't leak focus to the
+  // explorer underneath. Initial focus lands on the input.
+  useModalKeyboard({ containerRef, onClose, initialFocusRef: inputRef });
 
   const run = (label: string) => { onCommand(label); onClose(); };
   const onKey = (e: React.KeyboardEvent) => {
-    if (e.key === "Escape") onClose();
     if (e.key === "ArrowDown") { e.preventDefault(); setIdx((idx + 1) % items.length); }
     if (e.key === "ArrowUp") { e.preventDefault(); setIdx((idx - 1 + items.length) % items.length); }
+    if (e.key === "Home") { e.preventDefault(); setIdx(0); }
+    if (e.key === "End") { e.preventDefault(); setIdx(Math.max(0, items.length - 1)); }
+    if (e.key === "PageDown") { e.preventDefault(); setIdx(Math.min(items.length - 1, idx + 10)); }
+    if (e.key === "PageUp") { e.preventDefault(); setIdx(Math.max(0, idx - 10)); }
     if (e.key === "Enter") {
       e.preventDefault();
       const sel = items[idx];
@@ -2719,7 +2910,7 @@ export function Palette({ onClose, onCommand }: PaletteProps) {
 
   return (
     <div className="palette-overlay" onClick={onClose}>
-      <div className="palette" onClick={(e) => e.stopPropagation()} onKeyDown={onKey}>
+      <div ref={containerRef} className="palette" onClick={(e) => e.stopPropagation()} onKeyDown={onKey}>
         <div className="palette-head">
           <span className="prefix">❯</span>
           <input ref={inputRef} value={q} onChange={(e) => setQ(e.target.value)} placeholder="type a command, path, or :mode" />
@@ -2730,7 +2921,7 @@ export function Palette({ onClose, onCommand }: PaletteProps) {
             <div key={g}>
               <div className="pal-group">{g}</div>
               {arr.map((p) => (
-                <div key={p._i} className={"pal-row" + (p._i === idx ? " active" : "")} onMouseEnter={() => setIdx(p._i)} onClick={() => run(p.label)}>
+                <div key={p._i} ref={p._i === idx ? selRef : undefined} className={"pal-row" + (p._i === idx ? " active" : "")} onMouseEnter={() => setIdx(p._i)} onClick={() => run(p.label)}>
                   <span className="ic">{p.ic}</span>
                   <span>{p.label}</span>
                   <span className="kb">{(p.kb || []).map((k, i) => <span key={i}>{k}</span>)}</span>
@@ -2818,6 +3009,9 @@ export interface TweaksProps {
 }
 
 export function Tweaks({ state, setState, onClose }: TweaksProps) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  useModalKeyboard({ containerRef, onClose });
+
   const themes = [
     "tokyo-night", "catppuccin-mocha", "gruvbox-dark", "rose-pine",
     "everforest", "solarized-dark", "green-crt", "synthwave",
@@ -2833,7 +3027,7 @@ export function Tweaks({ state, setState, onClose }: TweaksProps) {
   const fontLabels = ["JetBrainsMono Nerd Font", "JetBrains Mono", "Iosevka", "IBM Plex Mono", "Fira Code", "Berkeley Mono"];
 
   return (
-    <div className="tweaks">
+    <div className="tweaks" ref={containerRef}>
       <div className="tweaks-head">
         <span>◉</span>
         <span>tweaks · ~/.ricerc</span>
@@ -3000,16 +3194,14 @@ export function BulkRenameDialog({ items, onClose, renameOne, onDone }: BulkRena
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const firstInputRef = useRef<HTMLInputElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => { firstInputRef.current?.focus(); }, []);
-
-  useEffect(() => {
-    const h = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && !running) { e.preventDefault(); onClose(); }
-    };
-    window.addEventListener("keydown", h);
-    return () => window.removeEventListener("keydown", h);
-  }, [onClose, running]);
+  useModalKeyboard({
+    containerRef,
+    onClose,
+    initialFocusRef: firstInputRef,
+    enabled: !running,
+  });
 
   const preview = useMemo(() => {
     const { re, literal } = parseFind(find);
@@ -3115,6 +3307,7 @@ export function BulkRenameDialog({ items, onClose, renameOne, onDone }: BulkRena
       }}
     >
       <div
+        ref={containerRef}
         onClick={(e) => e.stopPropagation()}
         style={{
           width: "90ch", maxWidth: "95vw", maxHeight: "90vh",
@@ -3396,14 +3589,9 @@ export function PasteSpecialDialog({
       state: "pending" as const,
     })),
   );
+  const containerRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    const h = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && !running) { e.preventDefault(); onClose(); }
-    };
-    window.addEventListener("keydown", h);
-    return () => window.removeEventListener("keydown", h);
-  }, [onClose, running]);
+  useModalKeyboard({ containerRef, onClose, enabled: !running });
 
   const preview = items.slice(0, 5).map(it => baseOf(it.path));
   const extra = items.length > 5 ? items.length - 5 : 0;
@@ -3509,6 +3697,7 @@ export function PasteSpecialDialog({
       }}
     >
       <div
+        ref={containerRef}
         onClick={(e) => e.stopPropagation()}
         style={{
           width: "80ch", maxWidth: "95vw", maxHeight: "90vh",
@@ -3657,16 +3846,8 @@ export interface BlameDialogProps {
 }
 
 export function BlameDialog({ blame, onClose }: BlameDialogProps) {
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        e.preventDefault();
-        onClose();
-      }
-    };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, [onClose]);
+  const containerRef = useRef<HTMLDivElement>(null);
+  useModalKeyboard({ containerRef, onClose });
 
   const shortName = (() => {
     const t = blame.path.replace(/[\\/]+$/, "");
@@ -3693,6 +3874,7 @@ export function BlameDialog({ blame, onClose }: BlameDialogProps) {
       }}
     >
       <div
+        ref={containerRef}
         onClick={(e) => e.stopPropagation()}
         style={{
           width: "120ch", maxWidth: "95vw", maxHeight: "90vh",
@@ -3779,16 +3961,8 @@ export interface GitOutputDialogProps {
 }
 
 export function GitOutputDialog({ state, onClose }: GitOutputDialogProps) {
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        e.preventDefault();
-        onClose();
-      }
-    };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, [onClose]);
+  const containerRef = useRef<HTMLDivElement>(null);
+  useModalKeyboard({ containerRef, onClose });
 
   const statusColor = state.ok ? "var(--green, #9ece6a)" : "var(--red, #f7768e)";
   const statusLabel = state.ok ? "ok" : `exit ${state.exit ?? "?"}`;
@@ -3802,6 +3976,7 @@ export function GitOutputDialog({ state, onClose }: GitOutputDialogProps) {
       }}
     >
       <div
+        ref={containerRef}
         onClick={(e) => e.stopPropagation()}
         style={{
           width: "100ch", maxWidth: "95vw", maxHeight: "85vh",
@@ -3858,13 +4033,8 @@ export interface HexDialogProps {
 }
 
 export function HexDialog({ path, hex, onClose }: HexDialogProps) {
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape") { e.preventDefault(); onClose(); }
-    };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, [onClose]);
+  const containerRef = useRef<HTMLDivElement>(null);
+  useModalKeyboard({ containerRef, onClose });
 
   const shortName = (() => {
     const t = path.replace(/[\\/]+$/, "");
@@ -3877,7 +4047,7 @@ export function HexDialog({ path, hex, onClose }: HexDialogProps) {
       position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)",
       zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center",
     }}>
-      <div onClick={(e) => e.stopPropagation()} style={{
+      <div ref={containerRef} onClick={(e) => e.stopPropagation()} style={{
         width: "90ch", maxWidth: "95vw", maxHeight: "90vh",
         background: "var(--bg-1, #1a1b26)", border: "1px solid var(--fg-3)",
         borderRadius: 4, display: "flex", flexDirection: "column",
@@ -3913,13 +4083,8 @@ export interface DiffDialogProps {
 }
 
 export function DiffDialog({ a, b, diff, onClose }: DiffDialogProps) {
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape") { e.preventDefault(); onClose(); }
-    };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, [onClose]);
+  const containerRef = useRef<HTMLDivElement>(null);
+  useModalKeyboard({ containerRef, onClose });
 
   const base = (p: string): string => {
     const t = p.replace(/[\\/]+$/, "");
@@ -3942,7 +4107,7 @@ export function DiffDialog({ a, b, diff, onClose }: DiffDialogProps) {
       position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)",
       zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center",
     }}>
-      <div onClick={(e) => e.stopPropagation()} style={{
+      <div ref={containerRef} onClick={(e) => e.stopPropagation()} style={{
         width: "120ch", maxWidth: "95vw", maxHeight: "90vh",
         background: "var(--bg-1, #1a1b26)", border: "1px solid var(--fg-3)",
         borderRadius: 4, display: "flex", flexDirection: "column",
@@ -3994,6 +4159,7 @@ export function PropertiesDialog({ entry, onClose }: PropertiesDialogProps) {
   const [sha, setSha] = useState<string | null>(null);
   const [hashing, setHashing] = useState(false);
   const [hashErr, setHashErr] = useState<string | null>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     setSha(null);
@@ -4001,14 +4167,7 @@ export function PropertiesDialog({ entry, onClose }: PropertiesDialogProps) {
     setHashErr(null);
   }, [entry?.path]);
 
-  useEffect(() => {
-    if (!entry) return;
-    const h = (e: KeyboardEvent) => {
-      if (e.key === "Escape") { e.preventDefault(); onClose(); }
-    };
-    window.addEventListener("keydown", h);
-    return () => window.removeEventListener("keydown", h);
-  }, [entry, onClose]);
+  useModalKeyboard({ containerRef, onClose, enabled: !!entry });
 
   if (!entry) return null;
 
@@ -4064,7 +4223,7 @@ export function PropertiesDialog({ entry, onClose }: PropertiesDialogProps) {
       position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)",
       zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center",
     }}>
-      <div onClick={(e) => e.stopPropagation()} style={{
+      <div ref={containerRef} onClick={(e) => e.stopPropagation()} style={{
         width: "64ch", maxWidth: "95vw", maxHeight: "85vh",
         background: "var(--bg-1, #1a1b26)", border: "1px solid var(--fg-3)",
         borderRadius: 4, display: "flex", flexDirection: "column",
@@ -4122,22 +4281,20 @@ export function ConnectServerDialog({ onClose, onSave }: ConnectServerDialogProp
   const [host, setHost] = useState("");
   const [path, setPath] = useState("");
   const labelRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => { labelRef.current?.focus(); }, []);
-
-  useEffect(() => {
-    const h = (e: KeyboardEvent) => {
-      if (e.key === "Escape") { e.preventDefault(); onClose(); }
-    };
-    window.addEventListener("keydown", h);
-    return () => window.removeEventListener("keydown", h);
-  }, [onClose]);
+  const containerRef = useRef<HTMLDivElement>(null);
 
   const canSave = label.trim().length > 0 && host.trim().length > 0;
   const submit = () => {
     if (!canSave) return;
     onSave({ label: label.trim(), host: host.trim(), path: path.trim() });
   };
+
+  useModalKeyboard({
+    containerRef,
+    onClose,
+    onSubmit: submit,
+    initialFocusRef: labelRef,
+  });
 
   const inputStyle: React.CSSProperties = {
     background: "var(--bg-0, #0f0f14)", color: "var(--fg-1)",
@@ -4151,7 +4308,7 @@ export function ConnectServerDialog({ onClose, onSave }: ConnectServerDialogProp
       position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)",
       zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center",
     }}>
-      <div onClick={(e) => e.stopPropagation()} style={{
+      <div ref={containerRef} onClick={(e) => e.stopPropagation()} style={{
         width: "52ch", maxWidth: "95vw",
         background: "var(--bg-1, #1a1b26)", border: "1px solid var(--fg-3)",
         borderRadius: 4, display: "flex", flexDirection: "column",
@@ -4232,14 +4389,9 @@ export interface ManageRemotesDialogProps {
 export function ManageRemotesDialog({ remotes, onClose, onRemove, onEdit, onAdd }: ManageRemotesDialogProps) {
   const [editingIdx, setEditingIdx] = useState<number | null>(null);
   const [draft, setDraft] = useState<SavedRemote>({ label: "", host: "", path: "" });
+  const containerRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    const h = (e: KeyboardEvent) => {
-      if (e.key === "Escape") { e.preventDefault(); onClose(); }
-    };
-    window.addEventListener("keydown", h);
-    return () => window.removeEventListener("keydown", h);
-  }, [onClose]);
+  useModalKeyboard({ containerRef, onClose });
 
   const beginEdit = (i: number) => {
     const r = remotes[i];
@@ -4288,7 +4440,7 @@ export function ManageRemotesDialog({ remotes, onClose, onRemove, onEdit, onAdd 
       position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)",
       zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center",
     }}>
-      <div onClick={(e) => e.stopPropagation()} style={{
+      <div ref={containerRef} onClick={(e) => e.stopPropagation()} style={{
         width: "68ch", maxWidth: "95vw", maxHeight: "80vh",
         background: "var(--bg-1, #1a1b26)", border: "1px solid var(--fg-3)",
         borderRadius: 4, display: "flex", flexDirection: "column",
@@ -4461,6 +4613,7 @@ export function TagPickerDialog({ path, onClose, onSaved }: TagPickerDialogProps
   const [loaded, setLoaded] = useState(false);
   const [saving, setSaving] = useState(false);
   const newTagRef = useRef<HTMLInputElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     void (async () => {
@@ -4470,13 +4623,7 @@ export function TagPickerDialog({ path, onClose, onSaved }: TagPickerDialogProps
     })();
   }, []);
 
-  useEffect(() => {
-    const h = (e: KeyboardEvent) => {
-      if (e.key === "Escape") { e.preventDefault(); onClose(); }
-    };
-    window.addEventListener("keydown", h);
-    return () => window.removeEventListener("keydown", h);
-  }, [onClose]);
+  useModalKeyboard({ containerRef, onClose, initialFocusRef: newTagRef });
 
   const allTags = useMemo(() => {
     const set = new Set<string>();
@@ -4539,7 +4686,7 @@ export function TagPickerDialog({ path, onClose, onSaved }: TagPickerDialogProps
       position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)",
       zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center",
     }}>
-      <div onClick={(e) => e.stopPropagation()} style={{
+      <div ref={containerRef} onClick={(e) => e.stopPropagation()} style={{
         width: "48ch", maxWidth: "95vw", maxHeight: "80vh",
         background: "var(--bg-1, #1a1b26)", border: "1px solid var(--fg-3)",
         borderRadius: 4, display: "flex", flexDirection: "column",
@@ -4631,14 +4778,8 @@ export interface AboutDialogProps {
 }
 
 export function AboutDialog({ open, onClose }: AboutDialogProps) {
-  useEffect(() => {
-    if (!open) return;
-    const h = (e: KeyboardEvent) => {
-      if (e.key === "Escape") { e.preventDefault(); onClose(); }
-    };
-    window.addEventListener("keydown", h);
-    return () => window.removeEventListener("keydown", h);
-  }, [open, onClose]);
+  const containerRef = useRef<HTMLDivElement>(null);
+  useModalKeyboard({ containerRef, onClose, onSubmit: onClose, enabled: open });
 
   if (!open) return null;
 
@@ -4655,7 +4796,7 @@ export function AboutDialog({ open, onClose }: AboutDialogProps) {
       position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)",
       zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center",
     }}>
-      <div onClick={(e) => e.stopPropagation()} style={{
+      <div ref={containerRef} onClick={(e) => e.stopPropagation()} style={{
         width: "48ch", maxWidth: "95vw",
         background: "var(--bg-1, #1a1b26)", border: "1px solid var(--fg-3)",
         borderRadius: 4, display: "flex", flexDirection: "column",
@@ -4747,14 +4888,8 @@ const GLOBAL_BINDS: KbEntry[] = [
 ];
 
 export function KeybindingsDialog({ open, onClose }: KeybindingsDialogProps) {
-  useEffect(() => {
-    if (!open) return;
-    const h = (e: KeyboardEvent) => {
-      if (e.key === "Escape") { e.preventDefault(); onClose(); }
-    };
-    window.addEventListener("keydown", h);
-    return () => window.removeEventListener("keydown", h);
-  }, [open, onClose]);
+  const containerRef = useRef<HTMLDivElement>(null);
+  useModalKeyboard({ containerRef, onClose, enabled: open });
 
   const binds = useMemo(() => {
     const all = [...collectMenuBinds(), ...GLOBAL_BINDS];
@@ -4777,7 +4912,7 @@ export function KeybindingsDialog({ open, onClose }: KeybindingsDialogProps) {
       position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)",
       zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center",
     }}>
-      <div onClick={(e) => e.stopPropagation()} style={{
+      <div ref={containerRef} onClick={(e) => e.stopPropagation()} style={{
         width: "72ch", maxWidth: "95vw", maxHeight: "85vh",
         background: "var(--bg-1, #1a1b26)", border: "1px solid var(--fg-3)",
         borderRadius: 4, display: "flex", flexDirection: "column",
@@ -4922,6 +5057,7 @@ export function DialogHost() {
   const [toasts, setToasts] = useState<ToastState[]>([]);
   const toastIdRef = useRef(0);
   const inputRef = useRef<HTMLInputElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const api: DialogApi = {
@@ -4962,7 +5098,6 @@ export function DialogHost() {
   useEffect(() => {
     if (state?.kind === "prompt") {
       const id = window.setTimeout(() => {
-        inputRef.current?.focus();
         inputRef.current?.select();
       }, 0);
       return () => window.clearTimeout(id);
@@ -5003,22 +5138,20 @@ export function DialogHost() {
     setState(null);
   };
 
-  useEffect(() => {
+  const submitCurrent = () => {
     if (!state) return;
-    const h = (e: KeyboardEvent) => {
-      if (e.key === "Escape") { e.preventDefault(); close(); return; }
-      if (e.key === "Enter") {
-        if (e.shiftKey) return;
-        e.preventDefault();
-        if (state.kind === "prompt") submitPrompt();
-        else if (state.kind === "confirm") confirmOk();
-        else alertOk();
-      }
-    };
-    window.addEventListener("keydown", h);
-    return () => window.removeEventListener("keydown", h);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state, promptValue]);
+    if (state.kind === "prompt") submitPrompt();
+    else if (state.kind === "confirm") confirmOk();
+    else alertOk();
+  };
+
+  useModalKeyboard({
+    containerRef,
+    onClose: close,
+    onSubmit: submitCurrent,
+    initialFocusRef: state?.kind === "prompt" ? inputRef : undefined,
+    enabled: !!state,
+  });
 
   const overlay: React.CSSProperties = {
     position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)",
@@ -5070,7 +5203,7 @@ export function DialogHost() {
     <>
       {state?.kind === "prompt" && (
         <div onClick={close} style={overlay}>
-          <div onClick={(e) => e.stopPropagation()} style={panel}>
+          <div ref={containerRef} onClick={(e) => e.stopPropagation()} style={panel}>
             <div style={header}>
               <span style={{ color: "var(--accent)" }}>{state.opts.title ?? "input"}</span>
               <button onClick={close} style={closeBtn}>×</button>
@@ -5107,7 +5240,7 @@ export function DialogHost() {
 
       {state?.kind === "alert" && (
         <div onClick={alertOk} style={overlay}>
-          <div onClick={(e) => e.stopPropagation()} style={{ ...panel, borderColor: variantColor(state.opts.variant) }}>
+          <div ref={containerRef} onClick={(e) => e.stopPropagation()} style={{ ...panel, borderColor: variantColor(state.opts.variant) }}>
             <div style={header}>
               <span style={{ color: variantColor(state.opts.variant) }}>
                 {state.opts.title ?? (state.opts.variant === "error" ? "error" : state.opts.variant === "warning" ? "warning" : "info")}
@@ -5126,7 +5259,7 @@ export function DialogHost() {
 
       {state?.kind === "confirm" && (
         <div onClick={close} style={overlay}>
-          <div onClick={(e) => e.stopPropagation()} style={{ ...panel, borderColor: state.opts.danger ? "var(--red, #f7768e)" : "var(--accent)" }}>
+          <div ref={containerRef} onClick={(e) => e.stopPropagation()} style={{ ...panel, borderColor: state.opts.danger ? "var(--red, #f7768e)" : "var(--accent)" }}>
             <div style={header}>
               <span style={{ color: state.opts.danger ? "var(--red, #f7768e)" : "var(--accent)" }}>
                 {state.opts.title ?? "confirm"}
@@ -5206,6 +5339,7 @@ export function FolderPickerDialog({ initialPath, title, onClose, onPick }: Fold
   const [driveList, setDriveList] = useState<Drive[]>([]);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     void (async () => {
@@ -5236,14 +5370,11 @@ export function FolderPickerDialog({ initialPath, title, onClose, onPick }: Fold
     return () => { cancelled = true; };
   }, [cwd]);
 
-  useEffect(() => {
-    const h = (e: KeyboardEvent) => {
-      if (e.key === "Escape") { e.preventDefault(); onClose(); }
-      if (e.key === "Enter" && cwd) { e.preventDefault(); onPick(cwd); }
-    };
-    window.addEventListener("keydown", h);
-    return () => window.removeEventListener("keydown", h);
-  }, [onClose, onPick, cwd]);
+  useModalKeyboard({
+    containerRef,
+    onClose,
+    onSubmit: () => { if (cwd) onPick(cwd); },
+  });
 
   const up = () => {
     if (!cwd) return;
@@ -5278,7 +5409,7 @@ export function FolderPickerDialog({ initialPath, title, onClose, onPick }: Fold
       position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)",
       zIndex: 280, display: "flex", alignItems: "center", justifyContent: "center",
     }}>
-      <div onClick={(e) => e.stopPropagation()} style={{
+      <div ref={containerRef} onClick={(e) => e.stopPropagation()} style={{
         width: "80ch", maxWidth: "95vw", height: "60vh", maxHeight: "80vh",
         background: "var(--bg-2, #16161e)", border: "1px solid var(--accent)",
         borderRadius: 6, display: "flex", flexDirection: "column",
@@ -5422,14 +5553,9 @@ export interface BookmarkManagerDialogProps {
 
 export function BookmarkManagerDialog({ pins, onClose, onSave, onGoTo }: BookmarkManagerDialogProps) {
   const [working, setWorking] = useState<string[]>(() => [...pins]);
+  const containerRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    const h = (e: KeyboardEvent) => {
-      if (e.key === "Escape") { e.preventDefault(); onClose(); }
-    };
-    window.addEventListener("keydown", h);
-    return () => window.removeEventListener("keydown", h);
-  }, [onClose]);
+  useModalKeyboard({ containerRef, onClose });
 
   const move = (idx: number, delta: number) => {
     setWorking(prev => {
@@ -5458,7 +5584,7 @@ export function BookmarkManagerDialog({ pins, onClose, onSave, onGoTo }: Bookmar
       position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)",
       zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center",
     }}>
-      <div onClick={(e) => e.stopPropagation()} style={{
+      <div ref={containerRef} onClick={(e) => e.stopPropagation()} style={{
         width: "64ch", maxWidth: "95vw", maxHeight: "80vh",
         background: "var(--bg-1, #1a1b26)", border: "1px solid var(--fg-3)",
         borderRadius: 4, display: "flex", flexDirection: "column",

@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 
 export async function winClose(): Promise<void> {
@@ -135,6 +136,16 @@ export function listDir(path: string, showHidden: boolean): Promise<FileEntry[]>
   );
 }
 
+export async function pathIsDir(path: string): Promise<boolean> {
+  if (!TAURI_AVAILABLE) return false;
+  try {
+    await invoke<FileEntry[]>("list_dir", { path, showHidden: true });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function drives(): Promise<Drive[]> {
   return safe(() => invoke<Drive[]>("drives"), []);
 }
@@ -235,6 +246,7 @@ export function findInFiles(
   query: string,
   caseInsensitive: boolean,
   maxResults: number,
+  ticket?: number,
 ): Promise<FindMatch[]> {
   return safe(
     () =>
@@ -243,8 +255,37 @@ export function findInFiles(
         query,
         caseInsensitive,
         maxResults,
+        ticket: ticket ?? 0,
       }),
     [],
+  );
+}
+
+export function cancelFindInFiles(): Promise<void> {
+  return safe(() => invoke<void>("cancel_find_in_files"), undefined);
+}
+
+// Streaming event plumbing. The backend emits a `find-in-files:match`
+// event per match as it is found and a `find-in-files:done` event when
+// the walk terminates. Both carry a numeric `ticket` so the UI can
+// ignore events from a superseded search.
+export function onFindMatch(
+  cb: (ticket: number, match: FindMatch) => void,
+): Promise<UnlistenFn> {
+  if (!TAURI_AVAILABLE) return Promise.resolve(() => {});
+  return listen<{ ticket: number; match: FindMatch }>(
+    "find-in-files:match",
+    (e) => cb(e.payload.ticket, e.payload.match),
+  );
+}
+
+export function onFindDone(
+  cb: (ticket: number, reason: string) => void,
+): Promise<UnlistenFn> {
+  if (!TAURI_AVAILABLE) return Promise.resolve(() => {});
+  return listen<{ ticket: number; reason: string }>(
+    "find-in-files:done",
+    (e) => cb(e.payload.ticket, e.payload.reason),
   );
 }
 

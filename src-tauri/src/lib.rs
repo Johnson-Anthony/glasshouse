@@ -1,5 +1,7 @@
 mod commands;
 mod pty;
+#[cfg(windows)]
+mod terminal_probe;
 mod watcher;
 
 pub fn run() {
@@ -36,6 +38,7 @@ pub fn run() {
             commands::git_branch_list,
             commands::git_ahead_behind,
             commands::find_in_files,
+            commands::cancel_find_in_files,
             commands::compress,
             commands::archive_create,
             commands::archive_extract,

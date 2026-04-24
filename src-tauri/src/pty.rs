@@ -69,11 +69,65 @@ pub fn pty_spawn(
         .openpty(size)
         .map_err(|e| format!("openpty: {}", e))?;
 
+    // Translate a Windows path to the posix form a WSL distro expects.
+    // `\\wsl$\Ubuntu\home\x` -> `/home/x`; `C:\foo` -> `/mnt/c/foo`; anything
+    // already starting with `/` is passed through. Returns None for empty.
+    fn win_to_wsl_posix(path: &str) -> Option<String> {
+        if path.is_empty() {
+            return None;
+        }
+        if path.starts_with('/') {
+            return Some(path.to_string());
+        }
+        let lowered = path.to_ascii_lowercase();
+        // Match `\\wsl$\<distro>\rest` or `\\wsl.localhost\<distro>\rest`.
+        for prefix in [r"\\wsl$\", r"\\wsl.localhost\"] {
+            if let Some(tail) = lowered.strip_prefix(prefix) {
+                // Strip the distro segment. We index the original-case string
+                // at the same byte offset — `lowered` is ASCII for these
+                // prefixes so offsets match.
+                let original_tail = &path[prefix.len()..];
+                let rest = match tail.find('\\') {
+                    Some(i) => &original_tail[i..],
+                    None => return Some("/".to_string()),
+                };
+                let out = rest.replace('\\', "/");
+                return Some(if out.is_empty() { "/".to_string() } else { out });
+            }
+        }
+        // Drive-letter form.
+        let bytes = path.as_bytes();
+        if bytes.len() >= 2 && bytes[1] == b':' {
+            let letter = (bytes[0] as char).to_ascii_lowercase();
+            let rest = if bytes.len() > 2 {
+                path[2..].trim_start_matches(['\\', '/']).replace('\\', "/")
+            } else {
+                String::new()
+            };
+            let posix = if rest.is_empty() {
+                format!("/mnt/{}", letter)
+            } else {
+                format!("/mnt/{}/{}", letter, rest)
+            };
+            return Some(posix);
+        }
+        None
+    }
+
     let mut cmd = match profile.kind.as_str() {
         "wsl" => {
             let mut c = CommandBuilder::new("wsl.exe");
             for a in &profile.args {
                 c.arg(a);
+            }
+            // For WSL, pass the target directory via `--cd <posix>`. That
+            // way the shell chdir's *inside* the distro regardless of what
+            // form the Windows-side cwd is in. Skip setting CommandBuilder::cwd
+            // for WSL — a `\\wsl.localhost\...` UNC would fail to resolve on
+            // the Windows side, and we don't need it.
+            if let Some(posix) = win_to_wsl_posix(&cwd) {
+                c.arg("--cd");
+                c.arg(posix);
             }
             c
         }
@@ -92,7 +146,9 @@ pub fn pty_spawn(
             c
         }
     };
-    if !cwd.is_empty() {
+    // Set the process cwd for everything *except* WSL — WSL handled its
+    // own chdir above via --cd.
+    if !cwd.is_empty() && profile.kind != "wsl" {
         cmd.cwd(&cwd);
     }
 

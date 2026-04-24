@@ -7,7 +7,6 @@ import {
   setPermissions,
   verifySignature,
   runScript,
-  findFileByName,
   changeOwner,
   openWithDefaultStrict,
   makeDir,
@@ -347,33 +346,6 @@ export const toolsHandler: Handler = async (label, ctx) => {
         }
       } catch (e) {
         console.log("[tools] findInFiles failed:", e);
-      }
-      return true;
-    }
-
-    case "Find File by Name (fuzzy)":
-    case "Find File by Name": {
-      const pattern = await dialogs.showPrompt({
-        title: "find file by name",
-        message: `search within ${ctx.cwd || "(no cwd)"} — fuzzy match:`,
-        placeholder: "name or partial",
-        validate: (v) => v.trim() ? null : "pattern required",
-      });
-      if (pattern == null || pattern.trim() === "") return true;
-      try {
-        const matches = await findFileByName(ctx.cwd, pattern, 500);
-        if (matches.length === 0) {
-          void dialogs.showAlert({ title: "no matches", message: `No matches for "${pattern}"`, variant: "info" });
-        } else {
-          const top = matches.slice(0, 20).join("\n");
-          const extra = matches.length > 20 ? `\n… (${matches.length - 20} more)` : "";
-          void dialogs.showAlert({
-            title: `${matches.length} match${matches.length === 1 ? "" : "es"}`,
-            message: `${top}${extra}`,
-          });
-        }
-      } catch (e) {
-        console.log(`[tools] findFileByName failed (pattern=${pattern}):`, e);
       }
       return true;
     }
