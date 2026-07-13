@@ -115,17 +115,26 @@ export const toolsHandler: Handler = async (label, ctx) => {
           ? [ctx.firstPath]
           : [];
       if (paths.length === 0) {
-        console.log("[tools] Hash SHA256: no selection");
+        dialogs.showToast({ message: "Hash SHA256: no selection", variant: "info" });
         return true;
       }
+      const lines: string[] = [];
+      let failed = 0;
       for (const p of paths) {
         try {
           const hex = await hashSha256(p);
-          console.log(`[tools] sha256 ${p}: ${hex}`);
+          lines.push(`${p}\n${hex}`);
         } catch (e) {
-          console.log(`[tools] sha256 failed for ${p}:`, e);
+          failed++;
+          const msg = e instanceof Error ? e.message : String(e);
+          lines.push(`${p}\n(failed: ${msg})`);
         }
       }
+      void dialogs.showAlert({
+        title: `SHA256 (${paths.length} file${paths.length === 1 ? "" : "s"})`,
+        message: lines.join("\n\n"),
+        variant: failed > 0 ? "warning" : undefined,
+      });
       return true;
     }
 
@@ -334,23 +343,8 @@ export const toolsHandler: Handler = async (label, ctx) => {
       return true;
     }
 
-    case "Find in Files": {
-      const needle = await dialogs.showPrompt({
-        title: "find in files",
-        message: "search pattern:",
-      });
-      if (needle == null || needle === "") return true;
-      try {
-        const matches = await findInFiles(ctx.cwd, needle, true, 500);
-        console.log(`[tools] find-in-files "${needle}": ${matches.length} match(es)`);
-        for (const m of matches.slice(0, 20)) {
-          console.log(`  ${m.path}:${m.line_no}: ${m.line}`);
-        }
-      } catch (e) {
-        console.log("[tools] findInFiles failed:", e);
-      }
-      return true;
-    }
+    // "Find in Files" is handled by App.tsx's main switch (FindInFilesModal)
+    // before the registry runs — no case here.
 
     case "Find File by Name (fuzzy)":
     case "Find File by Name": {
@@ -508,47 +502,8 @@ export const toolsHandler: Handler = async (label, ctx) => {
       return true;
     }
 
-    case "Connect to Server…":
-    case "Connect to Server": {
-      const host = await dialogs.showPrompt({
-        title: "connect to server",
-        message: "server (user@host:port):",
-        placeholder: "alice@server.example:22",
-        validate: (v) => v.trim() ? null : "host required",
-      });
-      if (host == null || host.trim() === "") return true;
-      const label2 = await dialogs.showPrompt({
-        title: "connect to server",
-        message: "label:",
-        initialValue: host.trim(),
-        placeholder: host.trim(),
-      });
-      if (label2 == null) return true;
-      const finalLabel = label2.trim() || host.trim();
-      const key = "glasshouse.remote.servers";
-      let list: { label: string; host: string }[] = [];
-      try {
-        const raw = localStorage.getItem(key);
-        if (raw) {
-          const parsed = JSON.parse(raw);
-          if (Array.isArray(parsed)) list = parsed;
-        }
-      } catch (e) {
-        console.log("[tools] Connect to Server: failed to read existing list:", e);
-      }
-      list.push({ label: finalLabel, host: host.trim() });
-      try {
-        localStorage.setItem(key, JSON.stringify(list));
-      } catch (e) {
-        console.log("[tools] Connect to Server: failed to persist:", e);
-      }
-      dialogs.showToast({
-        message: `saved server: ${finalLabel} (${host.trim()})`,
-        variant: "success",
-      });
-      ctx.refresh();
-      return true;
-    }
+    // "Connect to Server…" is handled by App.tsx's main switch
+    // (ConnectServerDialog → remotes.json) — no case here.
 
     default:
       return false;

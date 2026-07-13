@@ -645,6 +645,9 @@ export function App() {
       if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === "f") {
         e.preventDefault(); setShowFindModal(v => !v); return;
       }
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === "g") {
+        e.preventDefault(); dispatch("Connect to Server…"); return;
+      }
       if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === "v") {
         if (inText) return;
         e.preventDefault(); dispatch("Paste Special…"); return;
@@ -1092,6 +1095,9 @@ export function App() {
       case "Manage Remotes":
       case "Manage Remotes…":
         setManageRemotesOpen(true); return;
+      case "Connect to Server":
+      case "Connect to Server…":
+        setConnectOpen(true); return;
       case "New Tab":
         openNewTab(); return;
       case "Close Tab":

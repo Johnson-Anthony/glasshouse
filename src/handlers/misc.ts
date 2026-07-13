@@ -4,6 +4,7 @@ import { IS_WINDOWS } from "../platform";
 import {
   makeDir,
   writeText,
+  readText,
   openUrl,
   createSymlink,
   createHardLink,
@@ -46,6 +47,102 @@ async function promptAndCreate(ctx: HandlerCtx, defaultName: string, body = ""):
   });
   if (name == null || name.trim() === "") return;
   await createFileAt(ctx, name.trim(), body);
+}
+
+// Built-in templates for File → New → From Template…. Bodies are minimal,
+// sane starting points — not scaffolding frameworks.
+const TEMPLATES: { name: string; file: string; body: string }[] = [
+  {
+    name: "README",
+    file: "README.md",
+    body: "# project\n\n> one-line description\n\n## Usage\n\n```bash\n# how to run it\n```\n",
+  },
+  {
+    name: "gitignore (node)",
+    file: ".gitignore",
+    body: "node_modules/\ndist/\n*.log\n.env\n.DS_Store\n",
+  },
+  {
+    name: "gitignore (rust)",
+    file: ".gitignore",
+    body: "target/\n*.log\n.env\n",
+  },
+  {
+    name: "LICENSE (MIT)",
+    file: "LICENSE",
+    body: `MIT License
+
+Copyright (c) ${new Date().getFullYear()} <copyright holder>
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+`,
+  },
+  {
+    name: "HTML page",
+    file: "index.html",
+    body: `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>page</title>
+</head>
+<body>
+
+</body>
+</html>
+`,
+  },
+  {
+    name: "Makefile",
+    file: "Makefile",
+    body: ".PHONY: build test clean\n\nbuild:\n\t@echo build\n\ntest:\n\t@echo test\n\nclean:\n\t@echo clean\n",
+  },
+  {
+    name: "editorconfig",
+    file: ".editorconfig",
+    body: "root = true\n\n[*]\ncharset = utf-8\nend_of_line = lf\ninsert_final_newline = true\nindent_style = space\nindent_size = 2\ntrim_trailing_whitespace = true\n",
+  },
+  {
+    name: "docker-compose",
+    file: "docker-compose.yml",
+    body: "services:\n  app:\n    image: alpine:latest\n    command: [\"echo\", \"hello\"]\n",
+  },
+];
+
+async function createFromTemplate(ctx: HandlerCtx): Promise<void> {
+  const listing = TEMPLATES.map((t, i) => `${i + 1}. ${t.name} (${t.file})`).join("\n");
+  const picked = await dialogs.showPrompt({
+    title: "new from template",
+    message: listing,
+    placeholder: "1",
+    validate: (v) => {
+      const n = parseInt(v.trim(), 10);
+      return (Number.isFinite(n) && n >= 1 && n <= TEMPLATES.length)
+        ? null
+        : `enter 1..${TEMPLATES.length}`;
+    },
+  });
+  if (picked == null) return;
+  const tpl = TEMPLATES[parseInt(picked.trim(), 10) - 1];
+  if (!tpl) return;
+  await promptAndCreate(ctx, tpl.file, tpl.body);
 }
 
 async function createPythonModule(ctx: HandlerCtx): Promise<void> {
@@ -94,11 +191,70 @@ export const miscHandler: Handler = async (label, ctx) => {
       return true;
 
     case "Export Layout (.ricerc)": {
+      // Snapshot every persisted UI preference (tweaks, display mode, layout,
+      // zoom, sidebar/tree prefs — all live under these two prefixes).
+      const settings: Record<string, string> = {};
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (!k) continue;
+        if (k.startsWith("glasshouse.") || k.startsWith("rice.")) {
+          const v = localStorage.getItem(k);
+          if (v != null) settings[k] = v;
+        }
+      }
       const target = joinPath(ctx.cwd, ".ricerc");
-      const body = JSON.stringify({ version: 1, cwd: ctx.cwd }, null, 2);
+      const body = JSON.stringify({ version: 2, settings }, null, 2);
       await writeText(target, body);
-      console.log(`[misc] exported layout: ${target}`);
+      dialogs.showToast({
+        message: `exported ${Object.keys(settings).length} setting(s) → ${target}`,
+        variant: "success",
+      });
       ctx.refresh();
+      return true;
+    }
+
+    case "Import Layout (.ricerc)": {
+      const sel = ctx.firstPath;
+      const source = sel && basename(sel).toLowerCase() === ".ricerc"
+        ? sel
+        : joinPath(ctx.cwd, ".ricerc");
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(await readText(source, 1_000_000));
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        await dialogs.showAlert({
+          title: "import layout",
+          message: `could not read ${source}\n\n${msg}`,
+          variant: "error",
+        });
+        return true;
+      }
+      const settings = (parsed as { settings?: unknown } | null)?.settings;
+      const entries = settings && typeof settings === "object"
+        ? Object.entries(settings as Record<string, unknown>).filter(
+            ([k, v]) =>
+              (k.startsWith("glasshouse.") || k.startsWith("rice.")) &&
+              typeof v === "string",
+          )
+        : [];
+      if (entries.length === 0) {
+        await dialogs.showAlert({
+          title: "import layout",
+          message: `${source} has no importable settings (expected a v2 .ricerc export)`,
+          variant: "error",
+        });
+        return true;
+      }
+      const ok = await dialogs.showConfirm({
+        title: "import layout",
+        message: `Apply ${entries.length} setting(s) from ${source}?\n\nThe app reloads to pick them up.`,
+      });
+      if (!ok) return true;
+      for (const [k, v] of entries) {
+        try { localStorage.setItem(k, v as string); } catch { /* quota */ }
+      }
+      location.reload();
       return true;
     }
 
@@ -303,7 +459,8 @@ export const miscHandler: Handler = async (label, ctx) => {
       return true;
 
     case "From Template…":
-      await promptAndCreate(ctx, "untitled", "");
+    case "From Template":
+      await createFromTemplate(ctx);
       return true;
 
     // ─── Undo / Redo ──────────────────────────────────────────────────────

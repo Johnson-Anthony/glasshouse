@@ -225,11 +225,23 @@ export const navHandler: Handler = async (label, ctx) => {
     case "Trash":
     case "Go to Trash":
     case "Go to Trash…": {
-      // In-app only — spawning Windows Explorer here (shell:RecycleBinFolder)
+      // Windows: in-app only — spawning Explorer here (shell:RecycleBinFolder)
       // yanks the user out of Glasshouse and was a repeat complaint. A real
-      // in-app trash view needs FOLDERID_RecycleBinFolder + IShellFolder COM
-      // enumeration; stub it with a toast until that ships.
-      dialogs.showToast({ message: "trash view coming in v2", variant: "info" });
+      // in-app Recycle Bin view needs FOLDERID_RecycleBinFolder + IShellFolder
+      // COM enumeration; stub it with a toast until that ships.
+      // Linux: the XDG trash is a plain directory — browse it in-app.
+      if (IS_WINDOWS) {
+        dialogs.showToast({ message: "trash view coming in v2", variant: "info" });
+        return true;
+      }
+      void (async () => {
+        const home = await homeDir();
+        if (!home) {
+          await dialogs.showAlert({ title: "Navigation", message: "home directory unavailable" });
+          return;
+        }
+        ctx.activeHandle?.actions.goTo(joinPath(home, ".local/share/Trash/files"));
+      })();
       return true;
     }
 

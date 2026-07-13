@@ -205,6 +205,7 @@ export const MENUS: MenusData = {
       ] },
     { kind: "sep" },
     { kind: "item", ic: "", label: "Export Layout (.ricerc)" },
+    { kind: "item", ic: "", label: "Import Layout (.ricerc)" },
     { kind: "sep" },
     { kind: "item", ic: "", label: "Close Tab",          kb: "Ctrl+W" },
     { kind: "item", ic: "", label: "Close Other Tabs" },
