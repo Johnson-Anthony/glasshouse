@@ -1,0 +1,215 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>glasshouse — a riced-out file manager</title>
+<meta name="description" content="glasshouse: a riced-out file manager for Windows and Linux. Tabs, multi-tab embedded terminal, git-aware sidebar, themed everything. Tauri 2 + React.">
+<style>
+  :root {
+    --bg-0: #16161e;
+    --bg-1: #1a1b26;
+    --bg-2: #1f2233;
+    --bg-3: #292e42;
+    --fg-0: #c0caf5;
+    --fg-1: #a9b1d6;
+    --fg-3: #565f89;
+    --accent: #bb9af7;
+    --green: #9ece6a;
+    --blue: #7aa2f7;
+    --cyan: #7dcfff;
+    --red: #f7768e;
+    --border: #2a2f45;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    background: var(--bg-1);
+    color: var(--fg-1);
+    font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    line-height: 1.6;
+    font-size: 15px;
+  }
+  a { color: var(--blue); text-decoration: none; }
+  a:hover { color: var(--cyan); }
+  .wrap { max-width: 960px; margin: 0 auto; padding: 0 24px; }
+
+  header {
+    padding: 72px 0 40px;
+    text-align: center;
+    background:
+      radial-gradient(ellipse 60% 50% at 50% -10%, rgba(187, 154, 247, 0.15), transparent),
+      var(--bg-0);
+    border-bottom: 1px solid var(--border);
+  }
+  h1 {
+    font-size: 44px;
+    color: var(--fg-0);
+    letter-spacing: -0.02em;
+  }
+  h1 .paren { color: var(--accent); }
+  .tagline { margin-top: 10px; font-size: 17px; color: var(--fg-1); }
+  .tagline em { color: var(--accent); font-style: normal; }
+  .links { margin-top: 28px; display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+  .btn {
+    display: inline-block;
+    padding: 9px 20px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--bg-2);
+    color: var(--fg-0);
+  }
+  .btn:hover { border-color: var(--accent); color: var(--fg-0); }
+  .btn.primary { background: var(--accent); color: var(--bg-0); border-color: var(--accent); }
+  .btn.primary:hover { filter: brightness(1.1); color: var(--bg-0); }
+
+  .shot { margin: -1px auto 0; padding: 40px 24px 8px; max-width: 1100px; }
+  .shot img {
+    width: 100%;
+    height: auto;
+    display: block;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    box-shadow: 0 30px 80px rgba(0, 0, 0, 0.55);
+  }
+  .shot .caption { text-align: center; color: var(--fg-3); font-size: 12.5px; margin-top: 10px; }
+
+  section { padding: 56px 0 8px; }
+  h2 {
+    color: var(--fg-0);
+    font-size: 22px;
+    margin-bottom: 24px;
+  }
+  h2::before { content: "» "; color: var(--accent); }
+
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(270px, 1fr));
+    gap: 14px;
+  }
+  .card {
+    background: var(--bg-2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 18px;
+  }
+  .card h3 { color: var(--fg-0); font-size: 15px; margin-bottom: 6px; }
+  .card h3 .ic { color: var(--green); margin-right: 6px; }
+  .card p { font-size: 13.5px; color: var(--fg-1); }
+
+  pre {
+    background: var(--bg-0);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px 20px;
+    overflow-x: auto;
+    font-size: 13.5px;
+    line-height: 1.7;
+  }
+  pre .c { color: var(--fg-3); }
+  pre .p { color: var(--green); }
+  .note { color: var(--fg-3); font-size: 13px; margin-top: 12px; }
+
+  footer {
+    margin-top: 64px;
+    padding: 28px 0 40px;
+    border-top: 1px solid var(--border);
+    text-align: center;
+    color: var(--fg-3);
+    font-size: 13px;
+  }
+  footer a { color: var(--fg-1); }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="wrap">
+    <h1><span class="paren">rice://</span>glasshouse</h1>
+    <p class="tagline">a riced-out file manager for <em>Windows</em> and <em>Linux</em> —<br>tabs, embedded terminal, git-aware everything</p>
+    <div class="links">
+      <a class="btn primary" href="https://github.com/Johnson-Anthony/glasshouse">View on GitHub</a>
+      <a class="btn" href="#build">Build it</a>
+    </div>
+  </div>
+</header>
+
+<div class="shot">
+  <img src="screenshot.png" alt="glasshouse running on Linux — sidebar with tree, tags and devices; file pane with git column; themed menubar">
+  <p class="caption">running on Linux (Hyprland) — same binary layout as the Windows build</p>
+</div>
+
+<div class="wrap">
+  <section id="features">
+    <h2>features</h2>
+    <div class="grid">
+      <div class="card">
+        <h3><span class="ic">▪</span>multi-tab browsing</h3>
+        <p>Tabs with independent history, plus private tabs that stay out of your recents.</p>
+      </div>
+      <div class="card">
+        <h3><span class="ic">▪</span>embedded terminal</h3>
+        <p>An xterm.js drawer with multiple concurrent shells — bash/zsh/fish, WSL distros, and saved ssh remotes — each pinned to where you're browsing.</p>
+      </div>
+      <div class="card">
+        <h3><span class="ic">▪</span>git-aware</h3>
+        <p>Repos detected via libgit2: branch and dirty state in the breadcrumb, per-file status column, stage/commit/blame from the menu.</p>
+      </div>
+      <div class="card">
+        <h3><span class="ic">▪</span>archives inline</h3>
+        <p>Create and extract .zip, .tar.gz, .tar.zst and .7z without leaving the pane.</p>
+      </div>
+      <div class="card">
+        <h3><span class="ic">▪</span>tags &amp; bookmarks</h3>
+        <p>Color tags with sidebar filters, pinned folders, and a recents list that follows you.</p>
+      </div>
+      <div class="card">
+        <h3><span class="ic">▪</span>themed everything</h3>
+        <p>Dialogs, context menus, prompts and toasts all drawn by the app — no native chrome breaking the rice. Multiple themes, exportable as a <code>.ricerc</code>.</p>
+      </div>
+      <div class="card">
+        <h3><span class="ic">▪</span>keyboard-first</h3>
+        <p>Command palette (Ctrl+P), fuzzy find-in-files, vim-adjacent pane navigation, and every menu shortcut actually bound.</p>
+      </div>
+      <div class="card">
+        <h3><span class="ic">▪</span>small &amp; native</h3>
+        <p>Tauri 2 — a single ~16 MB binary wrapping a Rust backend; no Electron, no bundled Chromium.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="build">
+    <h2>build it</h2>
+    <pre><span class="c"># prerequisites: Rust, Node 20+, pnpm</span>
+<span class="c"># linux: webkit2gtk-4.1 (arch) / libwebkit2gtk-4.1-dev libgtk-3-dev (debian)</span>
+<span class="c"># windows: WebView2 + VS Build Tools (tauri prerequisites)</span>
+
+<span class="p">$</span> git clone https://github.com/Johnson-Anthony/glasshouse
+<span class="p">$</span> cd glasshouse
+<span class="p">$</span> pnpm install
+<span class="p">$</span> pnpm tauri:dev    <span class="c"># dev mode</span>
+<span class="p">$</span> pnpm tauri:build  <span class="c"># release bundle</span></pre>
+    <p class="note">Pre-built releases are planned once the first tagged version lands.</p>
+  </section>
+
+  <section id="stack">
+    <h2>stack</h2>
+    <div class="grid">
+      <div class="card">
+        <h3><span class="ic">◆</span>frontend</h3>
+        <p>React 18 + TypeScript + Vite, xterm.js for the terminal, zero component libraries — the chrome is all hand-rolled CSS.</p>
+      </div>
+      <div class="card">
+        <h3><span class="ic">◆</span>backend</h3>
+        <p>Rust + Tauri 2: git2, notify (fs watching), portable-pty, sysinfo, zip/tar handling — ~65 IPC commands.</p>
+      </div>
+    </div>
+  </section>
+</div>
+
+<footer>
+  <p>MIT licensed · <a href="https://github.com/Johnson-Anthony/glasshouse">github.com/Johnson-Anthony/glasshouse</a></p>
+</footer>
+
+</body>
+</html>

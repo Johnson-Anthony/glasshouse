@@ -850,7 +850,7 @@ pub fn spawn_vscode(path: String) -> Result<(), String> {
 
 #[tauri::command]
 pub fn win_to_wsl(path: String) -> String {
-    // C:\Users\ajohn -> /mnt/c/Users/ajohn
+    // C:\Users\me -> /mnt/c/Users/me
     let p = path.replace('\\', "/");
     if let Some((drive_letter, rest)) = p.split_once(':') {
         if drive_letter.len() == 1 {
@@ -862,7 +862,7 @@ pub fn win_to_wsl(path: String) -> String {
 
 #[tauri::command]
 pub fn wsl_to_win(path: String) -> String {
-    // /mnt/c/Users/ajohn -> C:\Users\ajohn
+    // /mnt/c/Users/me -> C:\Users\me
     if let Some(rest) = path.strip_prefix("/mnt/") {
         if let Some((letter, tail)) = rest.split_once('/') {
             if letter.len() == 1 {

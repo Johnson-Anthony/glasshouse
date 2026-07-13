@@ -1,5 +1,5 @@
 $env:Path = 'C:\nodejs;' + $env:USERPROFILE + '\.cargo\bin;' + $env:Path
-Set-Location 'C:\Users\ajohn\glasshouse'
+Set-Location "$env:USERPROFILE\glasshouse"
 pnpm exec tsc -b
 if ($LASTEXITCODE -ne 0) { Write-Host "=== tsc FAILED: $LASTEXITCODE ==="; exit $LASTEXITCODE }
 Write-Host "=== tsc ok, starting tauri build ==="

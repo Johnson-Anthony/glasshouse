@@ -1,6 +1,10 @@
 # glasshouse
 
-> A riced-out file manager for Windows — tabbed browsing, embedded terminal, git-aware sidebar, themed dialogs.
+[![ci](https://github.com/Johnson-Anthony/glasshouse/actions/workflows/ci.yml/badge.svg)](https://github.com/Johnson-Anthony/glasshouse/actions/workflows/ci.yml)
+
+> A riced-out file manager for Windows and Linux — tabbed browsing, multi-tab embedded terminal, git-aware sidebar, themed dialogs.
+
+**[Project page](https://johnson-anthony.github.io/glasshouse/)**
 
 ![glasshouse](docs/screenshot.png)
 
@@ -11,7 +15,7 @@ Glasshouse is a desktop file manager built with Tauri 2 (Rust backend) and React
 ## Features
 
 - **Multi-tab browsing** with private/incognito tabs
-- **Embedded terminal drawer** (xterm.js) — open a shell pinned to the current directory without leaving the app
+- **Embedded terminal drawer** (xterm.js) — multiple concurrent shell tabs pinned to the current directory, with a profile picker (shells, WSL distros, saved ssh remotes)
 - **Git-aware sidebar** — repos are detected via `libgit2`; status decorations on tracked paths
 - **Inline archive handling** — extract `.zip`, `.tar.gz`, `.tar.zst`, `.7z` without external tools
 - **File tagging** and bookmarks
@@ -28,7 +32,10 @@ Glasshouse is a desktop file manager built with Tauri 2 (Rust backend) and React
 
 ## Run it
 
-Requires Rust toolchain, Node 20+, and pnpm. On Windows additionally requires the [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/) (WebView2, Visual Studio Build Tools).
+Requires Rust toolchain, Node 20+, and pnpm. Platform extras:
+
+- **Windows:** the [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/) (WebView2, Visual Studio Build Tools).
+- **Linux:** WebKitGTK and friends — `webkit2gtk-4.1` (Arch) or `libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev patchelf` (Debian/Ubuntu).
 
 ```bash
 pnpm install
