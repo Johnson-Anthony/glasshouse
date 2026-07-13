@@ -120,21 +120,56 @@ pub fn pty_spawn(
     thread::spawn(move || {
         let mut reader = reader;
         let mut buf = [0u8; 4096];
+        // Carry-over for a multibyte UTF-8 sequence split across reads —
+        // lossy-converting each 4096-byte chunk in isolation stamped
+        // replacement chars into otherwise-valid output at the boundary.
+        let mut pending: Vec<u8> = Vec::new();
+        let emit = |data: String| {
+            if data.is_empty() {
+                return;
+            }
+            let _ = reader_app.emit(
+                "pty-data",
+                PtyDataEvent {
+                    session_id: reader_id.clone(),
+                    data,
+                },
+            );
+        };
         loop {
             match reader.read(&mut buf) {
                 Ok(0) => break,
                 Ok(n) => {
-                    let chunk = String::from_utf8_lossy(&buf[..n]).into_owned();
-                    let _ = reader_app.emit(
-                        "pty-data",
-                        PtyDataEvent {
-                            session_id: reader_id.clone(),
-                            data: chunk,
-                        },
-                    );
+                    pending.extend_from_slice(&buf[..n]);
+                    let chunk = match std::str::from_utf8(&pending) {
+                        Ok(s) => {
+                            let s = s.to_owned();
+                            pending.clear();
+                            s
+                        }
+                        Err(e) if e.error_len().is_none() => {
+                            // Ends mid-codepoint: emit the valid prefix, keep
+                            // the incomplete tail (≤3 bytes) for the next read.
+                            let valid = e.valid_up_to();
+                            let s = String::from_utf8_lossy(&pending[..valid]).into_owned();
+                            pending.drain(..valid);
+                            s
+                        }
+                        Err(_) => {
+                            // Genuinely invalid bytes: lossy the lot.
+                            let s = String::from_utf8_lossy(&pending).into_owned();
+                            pending.clear();
+                            s
+                        }
+                    };
+                    emit(chunk);
                 }
                 Err(_) => break,
             }
+        }
+        // Stream ended with an incomplete sequence still buffered.
+        if !pending.is_empty() {
+            emit(String::from_utf8_lossy(&pending).into_owned());
         }
     });
 
@@ -168,11 +203,18 @@ pub fn pty_write(
     session_id: String,
     data: String,
 ) -> Result<(), String> {
-    let sessions = registry.sessions.lock().unwrap();
-    let session = sessions
-        .get(&session_id)
-        .ok_or_else(|| format!("no pty session: {}", session_id))?;
-    let mut w = session.writer.lock().unwrap();
+    // Clone the writer handle out and release the registry lock before the
+    // (potentially blocking) pipe write — holding it meant one session whose
+    // child stopped draining stdin stalled every pty op, including the
+    // pty_kill that would have freed it.
+    let writer = {
+        let sessions = registry.sessions.lock().unwrap();
+        let session = sessions
+            .get(&session_id)
+            .ok_or_else(|| format!("no pty session: {}", session_id))?;
+        session.writer.clone()
+    };
+    let mut w = writer.lock().unwrap();
     w.write_all(data.as_bytes())
         .map_err(|e| format!("pty_write: {}", e))?;
     w.flush().map_err(|e| format!("pty_write flush: {}", e))

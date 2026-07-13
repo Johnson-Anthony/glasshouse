@@ -29,12 +29,13 @@ pub fn watch_dir(
 ) -> Result<(), String> {
     let pb = PathBuf::from(&path);
 
-    {
-        let mut watched = state.watched.lock().map_err(|e| e.to_string())?;
-        if watched.contains(&pb) {
-            return Ok(());
-        }
-        watched.insert(pb.clone());
+    // Hold the watched-set lock for the whole registration so the path is
+    // only recorded after deb.watch() succeeds — inserting up front meant a
+    // failed watch left the path marked as watched forever, and every later
+    // watch_dir returned Ok without ever retrying.
+    let mut watched = state.watched.lock().map_err(|e| e.to_string())?;
+    if watched.contains(&pb) {
+        return Ok(());
     }
 
     let mut guard = state.debouncer.lock().map_err(|e| e.to_string())?;
@@ -78,6 +79,7 @@ pub fn watch_dir(
         deb.watch(&pb, RecursiveMode::NonRecursive)
             .map_err(|e| e.to_string())?;
     }
+    watched.insert(pb);
 
     Ok(())
 }

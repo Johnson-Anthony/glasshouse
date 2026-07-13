@@ -164,8 +164,8 @@ fn scan_repo_statuses(dir: &Path) -> Option<HashMap<PathBuf, String>> {
             || flags.contains(Status::INDEX_TYPECHANGE)
         {
             "M"
-        } else if flags.contains(Status::IGNORED) {
-            "!"
+            // No IGNORED arm: include_ignored(false) above means ignored
+            // entries are never enumerated here.
         } else {
             continue;
         };
@@ -409,12 +409,14 @@ fn copy_dir_recursive(src: &Path, dst: &Path) -> std::io::Result<()> {
 
 #[tauri::command]
 pub fn move_entry(from: String, to: String) -> Result<(), String> {
-    // Try rename first (fast path for same volume). Fall back to copy+delete.
+    // Try rename first (fast path for same volume). Fall back to copy+delete;
+    // the delete must be recursive or a cross-volume directory move leaves
+    // the source behind (remove_dir fails on non-empty) after a full copy.
     if std::fs::rename(&from, &to).is_ok() {
         return Ok(());
     }
     copy_entry(from.clone(), to)?;
-    delete_entry(from, false)
+    delete_entry(from, true)
 }
 
 #[tauri::command]
@@ -444,7 +446,9 @@ pub fn move_to_trash(path: String) -> Result<(), String> {
 pub fn read_text(path: String, max_bytes: usize) -> Result<String, String> {
     use std::io::Read;
     let f = std::fs::File::open(&path).map_err(|e| e.to_string())?;
-    let cap = if max_bytes == 0 { 1_000_000 } else { max_bytes };
+    // Hard server-side ceiling regardless of what the frontend asks for —
+    // an oversized cap would buffer the whole file in memory.
+    let cap = if max_bytes == 0 { 1_000_000 } else { max_bytes }.min(64 * 1024 * 1024);
     let mut buf = Vec::with_capacity(cap.min(1 << 20));
     f.take(cap as u64)
         .read_to_end(&mut buf)
@@ -566,6 +570,15 @@ pub fn git_status(path: String) -> Option<GitInfo> {
 
 // ---------- open / reveal ----------
 
+/// Reap a spawned helper in the background. `drop(Child)` never waits, so on
+/// Unix every exited helper (xdg-open, terminals, editors) would linger as a
+/// zombie for the app's lifetime; a parked wait thread reaps it on exit.
+fn reap(mut child: std::process::Child) {
+    std::thread::spawn(move || {
+        let _ = child.wait();
+    });
+}
+
 #[tauri::command]
 pub fn open_with_default(path: String) -> Result<(), String> {
     #[cfg(windows)]
@@ -575,7 +588,7 @@ pub fn open_with_default(path: String) -> Result<(), String> {
             .args(["/C", "start", "", &path])
             .creation_flags(CREATE_NO_WINDOW)
             .spawn()
-            .map(|_| ())
+            .map(reap)
             .map_err(|e| e.to_string())
     }
     #[cfg(not(windows))]
@@ -583,7 +596,7 @@ pub fn open_with_default(path: String) -> Result<(), String> {
         std::process::Command::new("xdg-open")
             .arg(&path)
             .spawn()
-            .map(|_| ())
+            .map(reap)
             .map_err(|e| e.to_string())
     }
 }
@@ -596,7 +609,7 @@ pub fn reveal_in_explorer(path: String) -> Result<(), String> {
             .arg("/select,")
             .arg(&path)
             .spawn()
-            .map(|_| ())
+            .map(reap)
             .map_err(|e| e.to_string())
     }
     #[cfg(not(windows))]
@@ -608,7 +621,7 @@ pub fn reveal_in_explorer(path: String) -> Result<(), String> {
         std::process::Command::new("xdg-open")
             .arg(target)
             .spawn()
-            .map(|_| ())
+            .map(reap)
             .map_err(|e| e.to_string())
     }
 }
@@ -720,7 +733,7 @@ pub fn spawn_terminal(path: String) -> Result<(), String> {
                 .spawn();
             match child {
                 Ok(c) => {
-                    drop(c);
+                    reap(c);
                     return Ok(());
                 }
                 Err(e) => {
@@ -742,7 +755,7 @@ pub fn spawn_terminal(path: String) -> Result<(), String> {
                 .spawn();
             match child {
                 Ok(c) => {
-                    drop(c);
+                    reap(c);
                     return Ok(());
                 }
                 Err(e) => {
@@ -768,7 +781,7 @@ pub fn spawn_terminal(path: String) -> Result<(), String> {
             .stderr(Stdio::null())
             .spawn()
             .map_err(|e| format!("powershell.exe spawn failed: {}", e))?;
-        drop(child);
+        reap(child);
         Ok(())
     }
     #[cfg(not(windows))]
@@ -781,7 +794,7 @@ pub fn spawn_terminal(path: String) -> Result<(), String> {
             .stderr(Stdio::null())
             .spawn()
             .map_err(|e| e.to_string())?;
-        drop(child);
+        reap(child);
         Ok(())
     }
 }
@@ -816,7 +829,7 @@ pub fn spawn_vscode(path: String) -> Result<(), String> {
             .stderr(Stdio::null())
             .spawn()
             .map_err(|e| format!("spawn code: {}", e))?;
-        drop(child);
+        reap(child);
         Ok(())
     }
     #[cfg(not(windows))]
@@ -828,7 +841,7 @@ pub fn spawn_vscode(path: String) -> Result<(), String> {
             .stderr(Stdio::null())
             .spawn()
             .map_err(|e| format!("spawn code: {}", e))?;
-        drop(child);
+        reap(child);
         Ok(())
     }
 }
@@ -873,6 +886,14 @@ fn config_file(app: &AppHandle, name: &str) -> Result<PathBuf, String> {
     Ok(dir.join(name))
 }
 
+/// Write a config file via temp-file + rename so a crash mid-write can't
+/// truncate existing state (fs::write truncates before writing).
+fn write_config_atomic(path: &Path, body: &str) -> Result<(), String> {
+    let tmp = path.with_extension("json.tmp");
+    std::fs::write(&tmp, body).map_err(|e| e.to_string())?;
+    std::fs::rename(&tmp, path).map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 pub fn read_pins(app: AppHandle) -> Result<Vec<String>, String> {
     let path = config_file(&app, "pins.json")?;
@@ -887,7 +908,7 @@ pub fn read_pins(app: AppHandle) -> Result<Vec<String>, String> {
 pub fn write_pins(app: AppHandle, pins: Vec<String>) -> Result<(), String> {
     let path = config_file(&app, "pins.json")?;
     let body = serde_json::to_string(&pins).map_err(|e| e.to_string())?;
-    std::fs::write(&path, body).map_err(|e| e.to_string())
+    write_config_atomic(&path, &body)
 }
 
 #[tauri::command]
@@ -904,7 +925,7 @@ pub fn read_tags(app: AppHandle) -> Result<HashMap<String, Vec<String>>, String>
 pub fn write_tags(app: AppHandle, tags: HashMap<String, Vec<String>>) -> Result<(), String> {
     let path = config_file(&app, "tags.json")?;
     let body = serde_json::to_string(&tags).map_err(|e| e.to_string())?;
-    std::fs::write(&path, body).map_err(|e| e.to_string())
+    write_config_atomic(&path, &body)
 }
 
 // ---------- git blame ----------
@@ -1999,7 +2020,18 @@ pub fn run_script(script: String, targets: Vec<String>) -> Result<String, String
         .map_err(|e| format!("run_script {}: {}", script, e))?;
     let stdout = String::from_utf8_lossy(&output.stdout).to_string();
     let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-    Ok(format!("{}\n---STDERR---\n{}", stdout, stderr))
+    let mut combined = format!("{}\n---STDERR---\n{}", stdout, stderr);
+    // Surface failure in the output; a bare Ok on a non-zero exit made
+    // failed scripts indistinguishable from successful ones.
+    if !output.status.success() {
+        let code = output
+            .status
+            .code()
+            .map(|c| c.to_string())
+            .unwrap_or_else(|| "killed by signal".to_string());
+        combined.push_str(&format!("\n[exit: {}]", code));
+    }
+    Ok(combined)
 }
 
 // ---------- open url ----------
@@ -2014,7 +2046,7 @@ pub fn open_url(url: String) -> Result<(), String> {
             .args(["/C", "start", "", &url])
             .creation_flags(CREATE_NO_WINDOW)
             .spawn()
-            .map(|_| ())
+            .map(reap)
             .map_err(|e| format!("open_url: {}", e))
     }
     #[cfg(target_os = "macos")]
@@ -2022,7 +2054,7 @@ pub fn open_url(url: String) -> Result<(), String> {
         std::process::Command::new("open")
             .arg(&url)
             .spawn()
-            .map(|_| ())
+            .map(reap)
             .map_err(|e| format!("open_url: {}", e))
     }
     #[cfg(all(unix, not(target_os = "macos")))]
@@ -2030,7 +2062,7 @@ pub fn open_url(url: String) -> Result<(), String> {
         std::process::Command::new("xdg-open")
             .arg(&url)
             .spawn()
-            .map(|_| ())
+            .map(reap)
             .map_err(|e| format!("open_url: {}", e))
     }
 }
@@ -2054,7 +2086,7 @@ pub fn spawn_new_window() -> Result<(), String> {
             .stderr(Stdio::null())
             .spawn()
             .map_err(|e| format!("spawn_new_window: {}", e))?;
-        drop(child);
+        reap(child);
         Ok(())
     }
     #[cfg(not(windows))]
@@ -2065,7 +2097,7 @@ pub fn spawn_new_window() -> Result<(), String> {
             .stderr(Stdio::null())
             .spawn()
             .map_err(|e| format!("spawn_new_window: {}", e))?;
-        drop(child);
+        reap(child);
         Ok(())
     }
 }
@@ -2301,7 +2333,7 @@ pub fn spawn_terminal_profile(profile: ShellProfile, cwd: String) -> Result<(), 
                 .spawn();
             match res {
                 Ok(c) => {
-                    drop(c);
+                    reap(c);
                     return Ok(());
                 }
                 Err(e) => {
@@ -2339,7 +2371,7 @@ pub fn spawn_terminal_profile(profile: ShellProfile, cwd: String) -> Result<(), 
             .stderr(Stdio::null());
         let _ = cwd; // cwd used above for wt; fallback ignores per spec.
         cmd.spawn()
-            .map(|c| drop(c))
+            .map(reap)
             .map_err(|e| format!("spawn_terminal_profile fallback: {}", e))
     }
     #[cfg(not(windows))]
@@ -2354,7 +2386,7 @@ pub fn spawn_terminal_profile(profile: ShellProfile, cwd: String) -> Result<(), 
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .spawn()
-            .map(drop)
+            .map(reap)
             .map_err(|e| format!("spawn_terminal_profile: {}", e))
     }
 }
@@ -2386,14 +2418,14 @@ pub fn append_recent(app: AppHandle, path: String) -> Result<(), String> {
         list.truncate(RECENT_MAX);
     }
     let body = serde_json::to_string(&list).map_err(|e| e.to_string())?;
-    std::fs::write(&cfg, body).map_err(|e| e.to_string())
+    write_config_atomic(&cfg, &body)
 }
 
 #[tauri::command]
 pub fn clear_recent(app: AppHandle) -> Result<(), String> {
     let cfg = config_file(&app, "recent.json")?;
     let body = serde_json::to_string(&Vec::<String>::new()).map_err(|e| e.to_string())?;
-    std::fs::write(&cfg, body).map_err(|e| e.to_string())
+    write_config_atomic(&cfg, &body)
 }
 
 // ---------- extended file stat ----------
