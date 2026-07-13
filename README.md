@@ -2,13 +2,11 @@
 
 > A riced-out file manager for Windows — tabbed browsing, embedded terminal, git-aware sidebar, themed dialogs.
 
-<!-- Screenshot goes here once you have one — replace this line with:
 ![glasshouse](docs/screenshot.png)
--->
 
 ## What it is
 
-Glasshouse is a desktop file manager built with Tauri 2 (Rust backend) and React 18 + TypeScript on the frontend. It targets Windows and focuses on the things stock Explorer doesn't do well: a real embedded terminal, multi-tab navigation, archive handling, and a sidebar that knows what's a git repo and what isn't.
+Glasshouse is a desktop file manager built with Tauri 2 (Rust backend) and React 18 + TypeScript on the frontend. It's Windows-first — focused on the things stock Explorer doesn't do well: a real embedded terminal, multi-tab navigation, archive handling, and a sidebar that knows what's a git repo and what isn't — and it also runs on Linux (mounts, trash, net rates, and terminal spawning all have native backends).
 
 ## Features
 
