@@ -117,27 +117,55 @@ function readThemeVars(): ITheme {
   };
 }
 
-export function TerminalDrawer({ open, cwd, profile, height, onHeightChange, onClose }: TerminalDrawerProps) {
+function ttabPrefix(p: ShellProfile): string {
+  switch (p.kind) {
+    case "wsl": return "wsl";
+    case "ssh": return "ssh";
+    default: return "sh";
+  }
+}
+
+function ttabLabel(p: ShellProfile): string {
+  if (p.kind === "wsl") return p.label.replace(/^WSL · /, "");
+  if (p.kind === "ssh") return p.label.replace(/^SSH: /, "");
+  return p.label.toLowerCase();
+}
+
+interface TermTab {
+  key: number;
+  profile: ShellProfile;
+  dead?: boolean;
+}
+
+interface TermPaneProps {
+  profile: ShellProfile;
+  cwd: string;
+  visible: boolean;
+  open: boolean;
+  height: number;
+  onExit: () => void;
+}
+
+/** One xterm + one PTY session, alive for the lifetime of its tab. Closing
+ *  the tab unmounts the pane, which kills the PTY. Inactive panes stay
+ *  mounted (their sessions keep running) and are hidden with
+ *  visibility:hidden rather than display:none, so the element stays
+ *  measurable and FitAddon stays accurate on hidden tabs. */
+function TermPane({ profile, cwd, visible, open, height, onExit }: TermPaneProps) {
   const hostRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
   const sessionRef = useRef<string | null>(null);
-  const lastCwdRef = useRef<string>("");
-  const [profiles, setProfiles] = useState<ShellProfile[]>([]);
-  const [active, setActive] = useState<ShellProfile | null>(profile);
+  const lastCwdRef = useRef<string>(cwd);
+  const onExitRef = useRef(onExit);
+  onExitRef.current = onExit;
 
-  useEffect(() => {
-    void (async () => {
-      const list = await listShellProfiles();
-      setProfiles(list);
-      if (!active && list.length > 0) setActive(list[0]);
-    })();
-  }, []);
-
-  useEffect(() => {
-    if (profile && (!active || profile.id !== active.id)) setActive(profile);
-  }, [profile]);
-
+  // Create the terminal, register pty event routing, then spawn the PTY —
+  // strictly in that order. The Rust reader thread starts emitting pty-data
+  // the moment the shell launches, before the pty_spawn invoke resolves with
+  // our session id, so the listeners must already be up and early chunks are
+  // buffered until the id is known, then replayed. (Filtering on a
+  // not-yet-set id silently ate the shell's first prompt.)
   useEffect(() => {
     if (!hostRef.current) return;
     const term = new Terminal({
@@ -163,7 +191,65 @@ export function TerminalDrawer({ open, cwd, profile, height, onHeightChange, onC
       const id = sessionRef.current; if (id) void ptyResize(id, cols, rows);
     });
 
+    let disposed = false;
+    let unData: UnlistenFn | null = null;
+    let unExit: UnlistenFn | null = null;
+    let myId: string | null = null;
+    const pendingData: PtyDataEvent[] = [];
+    const pendingExits: PtyExitEvent[] = [];
+
+    const showExit = (code: number | null) => {
+      sessionRef.current = null;
+      term.write(`\r\n\x1b[2m[process exited${code !== null ? ` (${code})` : ""}]\x1b[0m\r\n`);
+      onExitRef.current();
+    };
+
+    void (async () => {
+      const [ud, ue] = await Promise.all([
+        listen<PtyDataEvent>("pty-data", evt => {
+          const p = evt.payload;
+          if (disposed) return;
+          if (myId === null) {
+            if (pendingData.length < 256) pendingData.push(p);
+            return;
+          }
+          if (p.session_id !== myId) return;
+          term.write(p.data);
+        }),
+        listen<PtyExitEvent>("pty-exit", evt => {
+          const p = evt.payload;
+          if (disposed) return;
+          if (myId === null) { pendingExits.push(p); return; }
+          if (p.session_id !== myId || sessionRef.current === null) return;
+          showExit(p.exit_code);
+        }),
+      ]);
+      unData = ud;
+      unExit = ue;
+      if (disposed) { ud(); ue(); return; }
+
+      try {
+        const id = await ptySpawn(profile, cwd || "", term.cols, term.rows);
+        if (disposed) { void ptyKill(id); return; }
+        myId = id;
+        sessionRef.current = id;
+        for (const p of pendingData) {
+          if (p.session_id === id) term.write(p.data);
+        }
+        pendingData.length = 0;
+        const exited = pendingExits.find(p => p.session_id === id);
+        pendingExits.length = 0;
+        if (exited) showExit(exited.exit_code);
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        if (!disposed) term.write(`\x1b[31mpty spawn failed: ${msg}\x1b[0m\r\n`);
+      }
+    })();
+
     return () => {
+      disposed = true;
+      unData?.();
+      unExit?.();
       const id = sessionRef.current;
       if (id) void ptyKill(id);
       sessionRef.current = null;
@@ -181,65 +267,24 @@ export function TerminalDrawer({ open, cwd, profile, height, onHeightChange, onC
     return () => obs.disconnect();
   }, []);
 
+  // cd-follow: only the visible pane chases the browser cwd. Hidden panes
+  // record the change without emitting, so switching tabs never retro-cds
+  // a shell you left somewhere on purpose.
   useEffect(() => {
-    let unData: UnlistenFn | null = null;
-    let unExit: UnlistenFn | null = null;
-    let cancelled = false;
-    void (async () => {
-      unData = await listen<PtyDataEvent>("pty-data", evt => {
-        const p = evt.payload;
-        if (!termRef.current) return;
-        if (p.session_id !== sessionRef.current) return;
-        termRef.current.write(p.data);
-      });
-      unExit = await listen<PtyExitEvent>("pty-exit", evt => {
-        const p = evt.payload;
-        if (p.session_id !== sessionRef.current) return;
-        sessionRef.current = null;
-        if (termRef.current) {
-          termRef.current.write(`\r\n\x1b[2m[process exited${p.exit_code !== null ? ` (${p.exit_code})` : ""}]\x1b[0m\r\n`);
-        }
-      });
-      if (cancelled) { unData?.(); unExit?.(); }
-    })();
-    return () => { cancelled = true; unData?.(); unExit?.(); };
-  }, []);
-
-  useEffect(() => {
-    if (!active || !termRef.current) return;
-    void (async () => {
-      const prev = sessionRef.current;
-      if (prev) { await ptyKill(prev); sessionRef.current = null; }
-      termRef.current?.clear();
-      const t = termRef.current;
-      const cols = t?.cols ?? 80;
-      const rows = t?.rows ?? 24;
-      try {
-        const id = await ptySpawn(active, cwd || "", cols, rows);
-        sessionRef.current = id;
-        lastCwdRef.current = cwd;
-      } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
-        termRef.current?.write(`\x1b[31mpty spawn failed: ${msg}\x1b[0m\r\n`);
-      }
-    })();
-  }, [active]);
-
-  useEffect(() => {
-    if (!sessionRef.current) return;
-    if (!active) return;
     if (!cwd || cwd === lastCwdRef.current) return;
-    const cmd = makeCdCommand(active, cwd);
-    if (cmd !== null) void ptyWrite(sessionRef.current, cmd + "\r");
+    if (visible && sessionRef.current) {
+      const cmd = makeCdCommand(profile, cwd);
+      if (cmd !== null) void ptyWrite(sessionRef.current, cmd + "\r");
+    }
     lastCwdRef.current = cwd;
-  }, [cwd, active]);
+  }, [cwd, visible]);
 
   useEffect(() => {
     const t = window.setTimeout(() => {
       try { fitRef.current?.fit(); } catch { /* ignore */ }
     }, 40);
     return () => window.clearTimeout(t);
-  }, [height, open]);
+  }, [height, open, visible]);
 
   useEffect(() => {
     const onWinResize = () => { try { fitRef.current?.fit(); } catch { /* ignore */ } };
@@ -248,13 +293,103 @@ export function TerminalDrawer({ open, cwd, profile, height, onHeightChange, onC
   }, []);
 
   useEffect(() => {
-    if (open) {
-      const t = window.setTimeout(() => {
-        try { termRef.current?.focus(); } catch { /* ignore */ }
-      }, 200);
-      return () => window.clearTimeout(t);
+    if (!open || !visible) return;
+    const t = window.setTimeout(() => {
+      try { termRef.current?.focus(); } catch { /* ignore */ }
+    }, 200);
+    return () => window.clearTimeout(t);
+  }, [open, visible]);
+
+  return (
+    <div
+      className={"term-body" + (visible ? "" : " hidden")}
+      ref={hostRef}
+      tabIndex={0}
+      onClick={() => { try { termRef.current?.focus(); } catch { /* ignore */ } }}
+    />
+  );
+}
+
+export function TerminalDrawer({ open, cwd, profile, height, onHeightChange, onClose }: TerminalDrawerProps) {
+  const [profiles, setProfiles] = useState<ShellProfile[]>([]);
+  const [tabs, setTabs] = useState<TermTab[]>([]);
+  const [activeKey, setActiveKey] = useState(0);
+  const [plusOpen, setPlusOpen] = useState(false);
+  const nextKeyRef = useRef(1);
+  const tabsRef = useRef(tabs);
+  tabsRef.current = tabs;
+  const handledProfileRef = useRef<ShellProfile | null>(null);
+
+  useEffect(() => {
+    void (async () => setProfiles(await listShellProfiles()))();
+  }, []);
+
+  const addTab = (p: ShellProfile) => {
+    const key = nextKeyRef.current++;
+    setTabs(ts => [...ts, { key, profile: p }]);
+    setActiveKey(key);
+    setPlusOpen(false);
+  };
+
+  const closeTab = (key: number) => {
+    const ts = tabsRef.current;
+    const idx = ts.findIndex(t => t.key === key);
+    if (idx < 0) return;
+    const next = ts.filter(t => t.key !== key);
+    setTabs(next);
+    if (next.length === 0) { onClose(); return; }
+    if (key === activeKey) {
+      setActiveKey(next[Math.min(idx, next.length - 1)].key);
     }
-  }, [open]);
+  };
+
+  const markDead = (key: number) => {
+    setTabs(ts => ts.map(t => (t.key === key ? { ...t, dead: true } : t)));
+  };
+
+  // Tab lifecycle driven from outside:
+  //  - App pushes a profile (ssh Connect, run-profile menu items): focus an
+  //    existing live tab with the same id, else open a new tab for it. App
+  //    creates a fresh object per request, so identity tracks "new request".
+  //  - First open with no tabs: spawn the default shell lazily (no PTY until
+  //    the drawer is actually used).
+  useEffect(() => {
+    if (profile && profile !== handledProfileRef.current) {
+      handledProfileRef.current = profile;
+      const existing = tabsRef.current.find(t => t.profile.id === profile.id && !t.dead);
+      if (existing) setActiveKey(existing.key);
+      else addTab(profile);
+      return;
+    }
+    if (open && tabsRef.current.length === 0 && profiles.length > 0) {
+      addTab(profiles[0]);
+    }
+  }, [open, profile, profiles]);
+
+  // Ctrl+Shift+` opens a new tab with the active tab's profile (VS Code
+  // convention). Capture phase so it beats xterm's own key handling; App's
+  // Ctrl+` toggle is unaffected (with Shift the key produces "~" there).
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!open) return;
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.code === "Backquote") {
+        e.preventDefault();
+        const p = tabsRef.current.find(t => t.key === activeKey)?.profile ?? profiles[0];
+        if (p) addTab(p);
+      }
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [open, profiles, activeKey]);
+
+  // The plus menu closes on any outside mousedown; the button and menu stop
+  // propagation so their own clicks don't count as "outside".
+  useEffect(() => {
+    if (!plusOpen) return;
+    const onDown = () => setPlusOpen(false);
+    window.addEventListener("mousedown", onDown);
+    return () => window.removeEventListener("mousedown", onDown);
+  }, [plusOpen]);
 
   const onDragStart = (e: React.MouseEvent) => {
     e.preventDefault();
@@ -273,23 +408,19 @@ export function TerminalDrawer({ open, cwd, profile, height, onHeightChange, onC
     window.addEventListener("mouseup", onUp);
   };
 
-  const ttabPrefix = (p: ShellProfile): string => {
-    switch (p.kind) {
-      case "wsl": return "wsl";
-      case "ssh": return "ssh";
-      default: return "sh";
-    }
-  };
-  const ttabLabel = (p: ShellProfile): string => {
-    if (p.kind === "wsl") return p.label.replace(/^WSL · /, "");
-    if (p.kind === "ssh") return p.label.replace(/^SSH: /, "");
-    return p.label.toLowerCase();
+  const activeTab = tabs.find(t => t.key === activeKey) ?? null;
+
+  const handlePlus = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (profiles.length === 0) return;
+    if (profiles.length === 1) { addTab(profiles[0]); return; }
+    setPlusOpen(v => !v);
   };
 
   const handleExport = (e: React.MouseEvent) => {
     e.stopPropagation();
-    if (!active) return;
-    void spawnTerminalProfile(active, cwd || "");
+    if (!activeTab) return;
+    void spawnTerminalProfile(activeTab.profile, cwd || "");
   };
 
   const handleClose = (e: React.MouseEvent) => {
@@ -301,32 +432,64 @@ export function TerminalDrawer({ open, cwd, profile, height, onHeightChange, onC
     <div className={"term-drawer" + (open ? " open" : "")} style={{ height }}>
       <div className="term-resize" onMouseDown={onDragStart} title="drag to resize" />
       <div className="term-head">
-        {profiles.map(p => {
-          const isActive = active?.id === p.id;
+        {tabs.map(t => {
+          const isActive = t.key === activeKey;
           return (
             <div
-              key={p.id}
-              className={"ttab" + (isActive ? " active" : "")}
-              onClick={() => setActive(p)}
-              title={p.label}
+              key={t.key}
+              className={"ttab" + (isActive ? " active" : "") + (t.dead ? " dead" : "")}
+              onClick={() => setActiveKey(t.key)}
+              onAuxClick={e => { if (e.button === 1) closeTab(t.key); }}
+              title={t.profile.label + (t.dead ? " (exited)" : "")}
             >
-              {isActive && <span style={{ color: "var(--green)" }}>✓</span>}
-              <span>{ttabPrefix(p)} · {ttabLabel(p)}</span>
+              <span>{ttabPrefix(t.profile)} · {ttabLabel(t.profile)}</span>
+              <span
+                className="close"
+                title="close tab"
+                onClick={e => { e.stopPropagation(); closeTab(t.key); }}
+              >×</span>
             </div>
           );
         })}
-        <div className="ttab" style={{ color: "var(--fg-3)" }} title="new tab (coming soon)">+</div>
+        <div
+          className="ttab plus"
+          title="new terminal tab (Ctrl+Shift+`)"
+          onMouseDown={e => e.stopPropagation()}
+          onClick={handlePlus}
+        >
+          +
+          {plusOpen && (
+            <div className="term-plus-menu" onMouseDown={e => e.stopPropagation()}>
+              {profiles.map(p => (
+                <div
+                  key={p.id}
+                  className="item"
+                  onClick={e => { e.stopPropagation(); addTab(p); }}
+                >
+                  {ttabPrefix(p)} · {ttabLabel(p)}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
         <div className="right">
           <span title="open in external terminal" onClick={handleExport}>↗</span>
           <span title="close (Ctrl+`)" onClick={handleClose}>×</span>
         </div>
       </div>
-      <div
-        className="term-body"
-        ref={hostRef}
-        tabIndex={0}
-        onClick={() => { try { termRef.current?.focus(); } catch { /* ignore */ } }}
-      />
+      <div className="term-stack">
+        {tabs.map(t => (
+          <TermPane
+            key={t.key}
+            profile={t.profile}
+            cwd={cwd}
+            visible={t.key === activeKey}
+            open={open}
+            height={height}
+            onExit={() => markDead(t.key)}
+          />
+        ))}
+      </div>
     </div>
   );
 }

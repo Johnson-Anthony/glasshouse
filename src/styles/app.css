@@ -759,9 +759,41 @@ html.no-status .statusbar { display: none; }
 }
 .term-head .ttab.active { background: var(--bg-3); color: var(--fg-0); }
 .term-head .ttab .close { opacity: 0.5; }
+.term-head .ttab .close:hover { opacity: 1; color: var(--red); }
+.term-head .ttab.dead { opacity: 0.55; }
+.term-head .ttab.plus { position: relative; color: var(--fg-3); }
+.term-head .ttab.plus:hover { background: var(--bg-3); color: var(--fg-0); }
 .term-head .right { margin-left: auto; display: flex; gap: 6px; color: var(--fg-3); }
 .term-head .right span { cursor: pointer; padding: 2px 6px; border-radius: 3px; }
 .term-head .right span:hover { background: var(--bg-3); color: var(--fg-0); }
+
+/* Profile picker under the "+" tab. Mirrors .dropdown styling. */
+.term-plus-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  min-width: 160px;
+  background: var(--bg-2);
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  padding: 4px;
+  z-index: 40;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+  white-space: nowrap;
+}
+.term-plus-menu .item {
+  padding: 4px 10px;
+  border-radius: 4px;
+  color: var(--fg-1);
+  cursor: pointer;
+}
+.term-plus-menu .item:hover { background: var(--bg-sel); color: var(--fg-0); }
+
+/* Stack of per-tab panes. Inactive panes keep visibility:hidden (not
+ * display:none) so xterm's FitAddon can still measure them. */
+.term-stack { flex: 1; min-height: 0; position: relative; }
+.term-stack .term-body { position: absolute; inset: 0; }
+.term-stack .term-body.hidden { visibility: hidden; }
 
 .term-body {
   flex: 1;
