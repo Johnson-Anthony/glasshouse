@@ -1632,7 +1632,7 @@ pub fn set_permissions(path: String, mode: u32) -> Result<(), String> {
         perms.set_readonly(!writable);
         std::fs::set_permissions(&path, perms)
             .map_err(|e| format!("set_permissions({}): {}", path, e))?;
-        return Ok(());
+        Ok(())
     }
     #[cfg(not(any(unix, windows)))]
     {
