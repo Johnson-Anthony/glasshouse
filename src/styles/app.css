@@ -66,7 +66,11 @@ html, body {
   position: fixed;
   inset: 0;
   display: grid;
-  grid-template-rows: auto auto auto auto 1fr auto;
+  /* In-flow rows: Titlebar, Menubar, Toolbar, .body, StatusBar.
+     (.term-drawer is position:absolute and not a grid row, so .body must
+     own the 1fr — with a trailing auto row the StatusBar landed in the 1fr
+     and left a dead band below it in sparse directories.) */
+  grid-template-rows: auto auto auto 1fr auto;
   background: var(--bg-0);
   border: 1px solid var(--accent);
   border-radius: 10px;
