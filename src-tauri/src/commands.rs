@@ -172,7 +172,7 @@ fn scan_repo_statuses(dir: &Path) -> Option<HashMap<PathBuf, String>> {
         // `rel` can include a trailing slash for untracked directories. Trim
         // it before joining so the resulting PathBuf lines up with the
         // canonicalized FileEntry paths we look up against later.
-        let rel_trim = rel.trim_end_matches(|c| c == '/' || c == '\\');
+        let rel_trim = rel.trim_end_matches(['/', '\\']);
         let abs = workdir.join(rel_trim);
         let key = dunce::canonicalize(&abs).unwrap_or(abs);
         out.insert(key, code.to_string());
@@ -295,6 +295,7 @@ pub struct WslDistro {
 
 #[tauri::command]
 pub fn list_wsl_distros() -> Vec<WslDistro> {
+    #[cfg_attr(not(windows), allow(unused_mut))]
     let mut out = Vec::new();
     #[cfg(windows)]
     {
@@ -949,11 +950,11 @@ pub fn git_blame(path: String, max_lines: u32) -> Result<Vec<BlameLine>, String>
     let text = String::from_utf8_lossy(&raw);
     let lines: Vec<&str> = text.split('\n').collect();
 
-    let cap = max_lines.min(BLAME_MAX_CAP).max(1) as usize;
+    let cap = max_lines.clamp(1, BLAME_MAX_CAP) as usize;
     let mut out: Vec<BlameLine> = Vec::new();
 
     for hunk in blame.iter() {
-        let start = hunk.final_start_line() as usize; // 1-based
+        let start = hunk.final_start_line(); // 1-based
         let count = hunk.lines_in_hunk();
         let sha_full = hunk.final_commit_id().to_string();
         let sha = sha_full.chars().take(8).collect::<String>();
@@ -1193,7 +1194,7 @@ pub fn find_in_files(
                     let line_no = mat.line_number().unwrap_or(0) as u32;
                     let bytes = mat.bytes();
                     let line = String::from_utf8_lossy(bytes)
-                        .trim_end_matches(|c| c == '\n' || c == '\r')
+                        .trim_end_matches(['\n', '\r'])
                         .to_string();
                     let mut guard = match self.out.lock() {
                         Ok(g) => g,
@@ -1401,12 +1402,9 @@ pub fn archive_can_handle(format: String) -> bool {
     match format.as_str() {
         "zip" => true, // in-process zip crate
         "tar.gz" => which::which("tar").is_ok() || which::which("tar.exe").is_ok(),
-        "tar.zst" => {
-            (which::which("tar").is_ok() || which::which("tar.exe").is_ok())
-                && (true /* bsdtar handles --zstd, zstd.exe fallback if not */
-                    || which::which("zstd").is_ok()
-                    || which::which("zstd.exe").is_ok())
-        }
+        // tar alone suffices: bsdtar handles --zstd natively, and the extract
+        // path falls back to a separate zstd binary only when tar lacks it.
+        "tar.zst" => which::which("tar").is_ok() || which::which("tar.exe").is_ok(),
         "7z" => which::which("7z").is_ok() || which::which("7z.exe").is_ok(),
         _ => false,
     }
@@ -1601,7 +1599,7 @@ pub fn set_permissions(path: String, mode: u32) -> Result<(), String> {
         use std::os::unix::fs::PermissionsExt;
         std::fs::set_permissions(&path, std::fs::Permissions::from_mode(mode))
             .map_err(|e| format!("set_permissions({}): {}", path, e))?;
-        return Ok(());
+        Ok(())
     }
     #[cfg(windows)]
     {
@@ -2101,6 +2099,7 @@ fn home_dir_path() -> Option<PathBuf> {
 }
 
 /// Decode UTF-16LE byte buffer into String. Returns lossy UTF-8 on failure.
+#[cfg(windows)]
 fn decode_utf16le(bytes: &[u8]) -> String {
     // Strip BOM if present.
     let mut slice = bytes;
@@ -2355,7 +2354,7 @@ pub fn spawn_terminal_profile(profile: ShellProfile, cwd: String) -> Result<(), 
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .spawn()
-            .map(|c| drop(c))
+            .map(drop)
             .map_err(|e| format!("spawn_terminal_profile: {}", e))
     }
 }
