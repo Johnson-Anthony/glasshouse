@@ -251,7 +251,8 @@ export const MENUS: MenusData = {
     { kind: "sep" },
     { kind: "item", ic: "", label: "Expand Selection to Folder" },
     { kind: "item", ic: "", label: "Extend to Line End (Visual)" },
-    { kind: "item", ic: "", label: "Add Next Match",      kb: "Ctrl+D" },
+    // no kb hint: Ctrl+D belongs to Bookmark This Folder (Go menu)
+    { kind: "item", ic: "", label: "Add Next Match" },
   ],
   View: [
     { kind: "sub",  ic: "", label: "Layout",
@@ -351,7 +352,8 @@ export const MENUS: MenusData = {
     { kind: "item", ic: "", label: "Compare Files (diff)" },
     { kind: "sep" },
     { kind: "item", ic: "", label: "Screenshot → Auto-sort" },
-    { kind: "item", ic: "", label: "Clipboard Stack",     kb: "Ctrl+Shift+V" },
+    // no kb hint: Ctrl+Shift+V belongs to Paste Special
+    { kind: "item", ic: "", label: "Clipboard Stack" },
     { kind: "item", ic: "", label: "File Queue" },
     { kind: "item", ic: "", label: "Run Script on Selection…" },
   ],
@@ -383,16 +385,19 @@ export const MENUS: MenusData = {
   ],
   Terminal: [
     { kind: "item", ic: "", label: "Toggle Drawer",       kb: "Ctrl+`" },
-    { kind: "item", ic: "", label: "Open in New Window",  kb: "Ctrl+Shift+`" },
-    { kind: "item", ic: "", label: "New Tab",             kb: "Ctrl+Shift+T" },
+    { kind: "item", ic: "", label: "Open in New Window" },
+    // "New Tab" here means a *terminal* tab; the action key keeps it from
+    // colliding with the file-pane "New Tab" dispatch.
+    { kind: "item", ic: "", label: "New Tab", action: "New Terminal Tab", kb: "Ctrl+Shift+`" },
     { kind: "sub",  ic: "", label: "Profile",
       children: [
         { kind: "dynamic", source: "terminal-profiles" },
       ] },
     { kind: "sep" },
-    { kind: "item", ic: "", label: "Split Horizontal",    kb: "Ctrl+Shift+H" },
-    { kind: "item", ic: "", label: "Split Vertical",      kb: "Ctrl+Shift+V" },
-    { kind: "item", ic: "", label: "Zoom Pane",           kb: "Ctrl+Shift+Z" },
+    // Split Horizontal/Vertical removed: never implemented, and their
+    // advertised shortcuts collided with Paste Special. Re-add with the
+    // real feature.
+    { kind: "item", ic: "", label: "Zoom Pane" },
   ],
   Help: [
     { kind: "item", ic: "", label: "Command Palette",     kb: "Ctrl+P" },

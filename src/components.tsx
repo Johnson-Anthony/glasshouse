@@ -203,6 +203,7 @@ export interface MenuToggleState {
   tweaks?: TweakState;
   sidebarVisible?: boolean;
   statusBarVisible?: boolean;
+  inspectorVisible?: boolean;
 }
 
 const MenuToggleContext = React.createContext<MenuToggleState>({});
@@ -240,6 +241,8 @@ function resolveChecked(item: MenuItemDef, toggles: MenuToggleState, parentLabel
       return toggles.sidebarVisible !== undefined ? toggles.sidebarVisible : !!item.check;
     case "Status Bar":
       return toggles.statusBarVisible !== undefined ? toggles.statusBarVisible : !!item.check;
+    case "Inspector":
+      return toggles.inspectorVisible !== undefined ? toggles.inspectorVisible : !!item.check;
   }
   return !!item.check;
 }
@@ -5335,8 +5338,20 @@ export function FolderPickerDialog({ initialPath, title, onClose, onPick }: Fold
             <div style={{ padding: "4px 10px", color: "var(--fg-3)", fontSize: 10, letterSpacing: "0.12em", textTransform: "uppercase" }}>drives</div>
             {driveList.length === 0 && <div style={{ padding: "4px 10px", color: "var(--fg-3)", fontSize: 11 }}>(none)</div>}
             {driveList.map((d) => {
-              const root = d.letter + ":\\";
-              const active = cwd.startsWith(d.letter + ":");
+              // d.letter is already a navigable root ("C:\" on Windows, a
+              // mount point like "/" or "/home" on Linux) — use it verbatim.
+              // Longest-prefix match keeps "/" from claiming every path.
+              const root = d.letter;
+              const matches = (r: string) => {
+                const base = r.replace(/[\\/]+$/, "");
+                if (base === "") return cwd.startsWith("/");
+                return cwd === base || cwd.startsWith(base + (r.includes("\\") ? "\\" : "/"));
+              };
+              const best = driveList
+                .map(x => x.letter)
+                .filter(matches)
+                .sort((a, b) => b.length - a.length)[0];
+              const active = matches(root) && root === best;
               return (
                 <div
                   key={d.letter}
@@ -5351,7 +5366,7 @@ export function FolderPickerDialog({ initialPath, title, onClose, onPick }: Fold
                   onMouseLeave={(e) => { if (!active) (e.currentTarget.style.background = "transparent"); }}
                 >
                   <span style={{ color: "var(--accent)", marginRight: 4 }}>▪</span>
-                  {d.letter}: {d.label && <span style={{ color: "var(--fg-3)", fontSize: 10 }}>({d.label})</span>}
+                  {d.letter} {d.label && <span style={{ color: "var(--fg-3)", fontSize: 10 }}>({d.label})</span>}
                 </div>
               );
             })}

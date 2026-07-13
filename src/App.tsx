@@ -386,6 +386,22 @@ function winToWslInline(p: string): string {
   return `/mnt/${m[1].toLowerCase()}/${m[2].replace(/\\/g, "/")}`;
 }
 
+/** Build the ssh terminal profile for a saved remote, honoring a trailing
+ *  :port in the host ("example.com:2222" → ssh -p 2222 example.com). */
+function sshProfileFor(r: SavedRemote): ShellProfile {
+  const colonIdx = r.host.lastIndexOf(":");
+  const portPart = colonIdx > 0 ? r.host.slice(colonIdx + 1) : "";
+  const hasPort = colonIdx > 0 && /^\d+$/.test(portPart);
+  const hostOnly = hasPort ? r.host.slice(0, colonIdx) : r.host;
+  return {
+    id: `ssh:${r.host}`,
+    label: `SSH: ${r.label}`,
+    kind: "ssh",
+    exec: "ssh",
+    args: hasPort ? ["-p", portPart, hostOnly] : [hostOnly],
+  };
+}
+
 interface AppClipboard {
   op: "copy" | "cut";
   paths: string[];
@@ -639,7 +655,7 @@ export function App() {
         }
       }
 
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "p") {
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === "p") {
         e.preventDefault(); setPalOpen(v => !v); return;
       }
       if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === "f") {
@@ -652,6 +668,17 @@ export function App() {
         if (inText) return;
         e.preventDefault(); dispatch("Paste Special…"); return;
       }
+      // Menu-advertised Ctrl+Shift bindings (audit: hints existed, keys didn't).
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && !e.altKey) {
+        const k = e.key.toLowerCase();
+        if (k === "n") { e.preventDefault(); dispatch("New Private Session"); return; }
+        if (k === "p") { e.preventDefault(); dispatch("Batch Permissions…"); return; }
+        if (!inText) {
+          if (k === "e") { e.preventDefault(); dispatch("Open in VS Code"); return; }
+          if (k === "r") { e.preventDefault(); dispatch("Bulk Rename…"); return; }
+          if (k === "d") { e.preventDefault(); dispatch("Folder"); return; }
+        }
+      }
       if ((e.ctrlKey || e.metaKey) && e.key === "`") {
         e.preventDefault();
         setTermOpen(v => !v);
@@ -659,6 +686,21 @@ export function App() {
       }
       if ((e.ctrlKey || e.metaKey) && e.key === ",") {
         e.preventDefault(); setTweaksOpen(v => !v); return;
+      }
+      // Panel/layout toggles work even while a text input has focus — they
+      // don't insert text and shouldn't die just because the path bar or a
+      // search box is focused (VS Code treats Ctrl+B the same way).
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey) {
+        const k = e.key.toLowerCase();
+        if (k === "b") { e.preventDefault(); dispatch("Sidebar"); return; }
+        if (k === "j") { e.preventDefault(); dispatch("Inspector"); return; }
+        if (k === "l") { e.preventDefault(); dispatch("Go to Path…"); return; }
+        if (k === "[") { e.preventDefault(); dispatch("Previous Location"); return; }
+        if (k === "]") { e.preventDefault(); dispatch("Next Location"); return; }
+        if (k >= "1" && k <= "6") {
+          const modes = ["Details (rows)", "Compact List", "Icons", "Tiles", "Grid (thumbs)", "Tree Flat"];
+          e.preventDefault(); dispatch(modes[Number(k) - 1]); return;
+        }
       }
       if (e.key === "Escape") {
         setPalOpen(false); setCtx(null);
@@ -701,12 +743,28 @@ export function App() {
         if (k === "=" || k === "+") { e.preventDefault(); dispatch("Zoom In"); return; }
         if (k === "-" || k === "_") { e.preventDefault(); dispatch("Zoom Out"); return; }
         if (k === "0") { e.preventDefault(); dispatch("Reset Zoom"); return; }
+        // Menu-advertised bindings (audit: hints existed, keys didn't).
+        // Panel/layout toggles live above the inText guard; these are file
+        // and selection ops, so they stay suppressed while typing.
+        if (k === "o") { e.preventDefault(); dispatch("Open…"); return; }
+        if (k === "n") { e.preventDefault(); dispatch("New Window"); return; }
+        if (k === "i") { e.preventDefault(); dispatch("Invert Selection"); return; }
+        if (k === "u") { e.preventDefault(); dispatch("Duplicate"); return; }
+        if (k === "d") { e.preventDefault(); dispatch("Bookmark This Folder"); return; }
+        if (e.key === "Home") { e.preventDefault(); dispatch("Home"); return; }
       }
 
       if (e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey) {
         if (e.key === "ArrowLeft") { e.preventDefault(); dispatch("Back"); return; }
         if (e.key === "ArrowRight") { e.preventDefault(); dispatch("Forward"); return; }
+        if (e.key === "ArrowUp") { e.preventDefault(); dispatch("Open Parent"); return; }
+        if (e.key === "Enter") { e.preventDefault(); dispatch("Properties"); return; }
       }
+
+      if (e.key === "F5") { e.preventDefault(); dispatch("Refresh"); return; }
+      if (e.key === "F11") { e.preventDefault(); dispatch("Full Screen"); return; }
+      if (e.key === "F3") { e.preventDefault(); dispatch("Tree + Pane + Inspector"); return; }
+      if (e.key === "F7") { e.preventDefault(); dispatch("Single Pane"); return; }
 
       if (e.key === "F2") {
         e.preventDefault();
@@ -871,18 +929,7 @@ export function App() {
             contextTarget = null;
             const r = savedRemotes.find(x => x.host === host);
             if (!r) return;
-            const colonIdx = r.host.lastIndexOf(":");
-            const portPart = colonIdx > 0 ? r.host.slice(colonIdx + 1) : "";
-            const hasPort = colonIdx > 0 && /^\d+$/.test(portPart);
-            const hostOnly = hasPort ? r.host.slice(0, colonIdx) : r.host;
-            const args = hasPort ? ["-p", portPart, hostOnly] : [hostOnly];
-            setTermProfile({
-              id: `ssh:${r.host}`,
-              label: `SSH: ${r.label}`,
-              kind: "ssh",
-              exec: "ssh",
-              args,
-            });
+            setTermProfile(sshProfileFor(r));
             setTermOpen(true);
             void dialogs.showToast({ message: `connecting to ${r.label}…`, variant: "info" });
             return;
@@ -974,12 +1021,17 @@ export function App() {
               });
               if (!next || next === base) return;
               const dst = join(dirname(target), next);
-              await renameEntry(target, dst);
-              pushUndo({
-                label: `rename ${base} → ${next}`,
-                inverse: async () => { await renameEntry(dst, target); },
-              });
-              activeHandle?.actions.refresh();
+              try {
+                await renameEntry(target, dst);
+                pushUndo({
+                  label: `rename ${base} → ${next}`,
+                  inverse: async () => { await renameEntry(dst, target); },
+                });
+                activeHandle?.actions.refresh();
+              } catch (err) {
+                const msg = err instanceof Error ? err.message : String(err);
+                void dialogs.showAlert({ message: `rename failed: ${msg}`, variant: "error" });
+              }
             })();
             return;
           }
@@ -1017,8 +1069,13 @@ export function App() {
           case "Move to Trash": {
             contextTarget = null;
             void (async () => {
-              await moveToTrash(target);
-              activeHandle?.actions.refresh();
+              try {
+                await moveToTrash(target);
+                activeHandle?.actions.refresh();
+              } catch (err) {
+                const msg = err instanceof Error ? err.message : String(err);
+                void dialogs.showAlert({ message: `trash failed: ${msg}`, variant: "error" });
+              }
             })();
             return;
           }
@@ -1100,8 +1157,16 @@ export function App() {
         setConnectOpen(true); return;
       case "New Tab":
         openNewTab(); return;
+      case "New Terminal Tab":
+        // Drawer owns tab state; open it and signal it to add a tab.
+        setTermOpen(true);
+        window.dispatchEvent(new Event("glasshouse:term-new-tab"));
+        return;
       case "Close Tab":
         closeTabAt(activeTab); return;
+      case "Close Other Tabs":
+        // File-menu path; the tab context-menu variant passes ctxT.tabIndex.
+        closeOtherTabsAt(activeTab); return;
       case "Home":
         void (async () => {
           const h = await homeDir();
@@ -1304,7 +1369,8 @@ export function App() {
             label: `${op === "copy" ? "paste copy" : "paste move"} ${pasted.length} item(s)`,
             inverse: async () => {
               if (op === "copy") {
-                for (const { dst } of pasted) { await deleteEntry(dst, false); }
+                // recursive: pasted entries can be non-empty folders
+                for (const { dst } of pasted) { await deleteEntry(dst, true); }
               } else {
                 for (const { src, dst } of pasted) { await moveEntry(dst, src); }
               }
@@ -1417,7 +1483,8 @@ export function App() {
           pushUndo({
             label: `duplicate ${dupes.length} item(s)`,
             inverse: async () => {
-              for (const d of dupes) { await deleteEntry(d, false); }
+              // recursive: duplicated entries can be non-empty folders
+              for (const d of dupes) { await deleteEntry(d, true); }
             },
           });
           refresh();
@@ -1552,9 +1619,10 @@ export function App() {
           }
           return;
         }
+        // "Show Checksums" is a View-menu column toggle handled by the view
+        // handler — grouping it here hijacked it into a one-shot hash+copy.
         case "Checksum SHA256":
-        case "Checksum (SHA256)":
-        case "Show Checksums": {
+        case "Checksum (SHA256)": {
           if (!firstPath) return;
           try {
             const hex = await hashSha256(firstPath);
@@ -1932,6 +2000,7 @@ export function App() {
     if (srcPaths.length === 0 || !dstDir) return;
     const moved: Array<{ src: string; dst: string }> = [];
     const copied: string[] = [];
+    let failed = 0;
     void (async () => {
       for (const src of srcPaths) {
         const sep = dstDir.includes("\\") ? "\\" : "/";
@@ -1942,8 +2011,15 @@ export function App() {
           if (copy) { await copyEntry(src, dst); copied.push(dst); }
           else { await moveEntry(src, dst); moved.push({ src, dst }); }
         } catch (err) {
+          failed++;
           console.error(copy ? "drop copy failed" : "drop move failed", src, "→", dst, err);
         }
+      }
+      if (failed > 0) {
+        dialogs.showToast({
+          message: `${failed} of ${srcPaths.length} item(s) failed to ${copy ? "copy" : "move"}`,
+          variant: "warning",
+        });
       }
       if (moved.length > 0) {
         pushUndo({
@@ -1957,7 +2033,8 @@ export function App() {
         pushUndo({
           label: `copy ${copied.length} item(s) to ${dstDir}`,
           inverse: async () => {
-            for (const d of copied) { await deleteEntry(d, false); }
+            // recursive: drag-copied entries can be non-empty folders
+            for (const d of copied) { await deleteEntry(d, true); }
           },
         });
       }
@@ -2060,7 +2137,7 @@ export function App() {
         onOpenPalette={() => setPalOpen(true)}
         onCommand={handleMenuCommand}
         onPayload={handleMenuPayload}
-        toggles={{ tweaks: state, sidebarVisible: showSidebar, statusBarVisible: showStatusBar }}
+        toggles={{ tweaks: state, sidebarVisible: showSidebar, statusBarVisible: showStatusBar, inspectorVisible: showInspector }}
       />
       <Toolbar
         path={activeHandle?.state.path ?? ""}
@@ -2117,19 +2194,7 @@ export function App() {
           savedRemotes={savedRemotes}
           onOpenConnectDialog={() => setConnectOpen(true)}
           onRemoteClick={(r) => {
-            const colonIdx = r.host.lastIndexOf(":");
-            const portPart = colonIdx > 0 ? r.host.slice(colonIdx + 1) : "";
-            const hasPort = colonIdx > 0 && /^\d+$/.test(portPart);
-            const hostOnly = hasPort ? r.host.slice(0, colonIdx) : r.host;
-            const args = hasPort ? ["-p", portPart, hostOnly] : [hostOnly];
-            const profile: ShellProfile = {
-              id: `ssh:${r.host}`,
-              label: `SSH: ${r.label}`,
-              kind: "ssh",
-              exec: "ssh",
-              args,
-            };
-            setTermProfile(profile);
+            setTermProfile(sshProfileFor(r));
             setTermOpen(true);
             void dialogs.showToast({ message: `connecting to ${r.label}…`, variant: "info" });
           }}

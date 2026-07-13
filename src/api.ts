@@ -120,6 +120,15 @@ async function safe<T>(fn: () => Promise<T>, fallback: T): Promise<T> {
   }
 }
 
+/** For mutating ops: rejects on failure instead of swallowing it. Wrapping
+ *  these in safe() meant a failed delete/move/rename resolved like a success
+ *  — callers toasted "done", pushed bogus undo entries, and the user never
+ *  learned nothing happened. */
+function mustInvoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
+  if (!TAURI_AVAILABLE) return Promise.reject(new Error("tauri unavailable"));
+  return invoke<T>(cmd, args);
+}
+
 export function ping(): Promise<string> {
   return safe(() => invoke<string>("ping"), "");
 }
@@ -148,23 +157,23 @@ export function systemInfo(): Promise<SystemInfo | null> {
 }
 
 export function makeDir(path: string): Promise<void> {
-  return safe(() => invoke<void>("make_dir", { path }), undefined);
+  return mustInvoke<void>("make_dir", { path });
 }
 
 export function renameEntry(from: string, to: string): Promise<void> {
-  return safe(() => invoke<void>("rename_entry", { from, to }), undefined);
+  return mustInvoke<void>("rename_entry", { from, to });
 }
 
 export function copyEntry(from: string, to: string): Promise<void> {
-  return safe(() => invoke<void>("copy_entry", { from, to }), undefined);
+  return mustInvoke<void>("copy_entry", { from, to });
 }
 
 export function moveEntry(from: string, to: string): Promise<void> {
-  return safe(() => invoke<void>("move_entry", { from, to }), undefined);
+  return mustInvoke<void>("move_entry", { from, to });
 }
 
 export function deleteEntry(path: string, recursive: boolean): Promise<void> {
-  return safe(() => invoke<void>("delete_entry", { path, recursive }), undefined);
+  return mustInvoke<void>("delete_entry", { path, recursive });
 }
 
 export function readText(path: string, maxBytes: number): Promise<string> {
@@ -277,7 +286,7 @@ export function openWithDefaultStrict(path: string): Promise<void> {
 }
 
 export function moveToTrash(path: string): Promise<void> {
-  return safe(() => invoke<void>("move_to_trash", { path }), undefined);
+  return mustInvoke<void>("move_to_trash", { path });
 }
 
 export function winToWsl(path: string): Promise<string> {
@@ -289,7 +298,7 @@ export function wslToWin(path: string): Promise<string> {
 }
 
 export function writeText(path: string, content: string): Promise<void> {
-  return safe(() => invoke<void>("write_text", { path, content }), undefined);
+  return mustInvoke<void>("write_text", { path, content });
 }
 
 export function watchDir(path: string): Promise<void> {

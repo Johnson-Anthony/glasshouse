@@ -382,6 +382,18 @@ export function TerminalDrawer({ open, cwd, profile, height, onHeightChange, onC
     return () => window.removeEventListener("keydown", onKey, true);
   }, [open, profiles, activeKey]);
 
+  // "New Terminal Tab" menu item — App can't reach into drawer state, so it
+  // opens the drawer and signals via a window event. No `open` check: the
+  // dispatch that fires this is also the one flipping the drawer open.
+  useEffect(() => {
+    const onNewTab = () => {
+      const p = tabsRef.current.find(t => t.key === activeKey)?.profile ?? profiles[0];
+      if (p) addTab(p);
+    };
+    window.addEventListener("glasshouse:term-new-tab", onNewTab);
+    return () => window.removeEventListener("glasshouse:term-new-tab", onNewTab);
+  }, [profiles, activeKey]);
+
   // The plus menu closes on any outside mousedown; the button and menu stop
   // propagation so their own clicks don't count as "outside".
   useEffect(() => {
