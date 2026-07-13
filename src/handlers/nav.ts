@@ -1,5 +1,6 @@
 import type { Handler } from "./types";
 import { dialogs } from "../components";
+import { IS_WINDOWS } from "../platform";
 import {
   spawnTerminal,
   spawnVscode,
@@ -124,7 +125,7 @@ export const navHandler: Handler = async (label, ctx) => {
       const path = await dialogs.showPrompt({
         title: "open",
         message: "enter path or URL:",
-        placeholder: "C:\\… or /… or https://…",
+        placeholder: IS_WINDOWS ? "C:\\… or /… or https://…" : "/… or ~/… or https://…",
         validate: (v) => v.trim() ? null : "path required",
       });
       if (path != null && path.trim() !== "") {
@@ -175,7 +176,7 @@ export const navHandler: Handler = async (label, ctx) => {
       const path = await dialogs.showPrompt({
         title: "jump to bookmark",
         message: "bookmark path:",
-        placeholder: "C:\\… or /…",
+        placeholder: IS_WINDOWS ? "C:\\… or /…" : "/… or ~/…",
         validate: (v) => v.trim() ? null : "path required",
       });
       if (path != null && path.trim() !== "") {
@@ -200,7 +201,7 @@ export const navHandler: Handler = async (label, ctx) => {
       void (async () => {
         const home = await homeDir();
         if (!home) {
-          window.alert("home directory unavailable");
+          await dialogs.showAlert({ title: "Navigation", message: "home directory unavailable" });
           return;
         }
         ctx.activeHandle?.actions.goTo(home);
@@ -214,7 +215,7 @@ export const navHandler: Handler = async (label, ctx) => {
       void (async () => {
         const home = await homeDir();
         if (!home) {
-          window.alert("home directory unavailable");
+          await dialogs.showAlert({ title: "Navigation", message: "home directory unavailable" });
           return;
         }
         ctx.activeHandle?.actions.goTo(joinPath(home, label));

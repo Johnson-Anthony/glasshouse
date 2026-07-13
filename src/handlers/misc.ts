@@ -1,5 +1,6 @@
 import type { Handler, HandlerCtx } from "./types";
 import { dialogs } from "../components";
+import { IS_WINDOWS } from "../platform";
 import {
   makeDir,
   writeText,
@@ -132,7 +133,7 @@ export const miscHandler: Handler = async (label, ctx) => {
       const target = await dialogs.showPrompt({
         title: "create symlink",
         message: "target file or folder:",
-        placeholder: "C:\\path\\to\\target",
+        placeholder: IS_WINDOWS ? "C:\\path\\to\\target" : "/path/to/target",
         validate: (v) => v.trim() ? null : "target required",
       });
       if (target == null || target.trim() === "") return true;

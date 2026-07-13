@@ -1,5 +1,7 @@
 // Mock filesystem data + menu definitions for glasshouse file manager
 
+import { IS_WINDOWS } from "./platform";
+
 export const APP_VERSION = "0.0.1";
 export const TAURI_VERSION = "2";
 
@@ -579,3 +581,58 @@ export const CONTEXT_EMPTY: MenuItemDef[] = [
     ] },
   { kind: "item", ic: "", label: "Refresh",           kb: "F5" },
 ];
+
+// ─── Platform gating ───────────────────────────────────────────────────────
+// Windows-only concepts (WSL, UNC, .lnk shortcuts, Authenticode) get stripped
+// from every menu structure on other platforms, and Windows wording gets a
+// display-label rename (dispatch key preserved via `action`). Runs once at
+// module load, mutating the exported arrays in place.
+
+const WIN_ONLY_LABELS = new Set([
+  "Copy Path (WSL)",
+  "Copy as WSL Path",
+  "Copy as UNC",
+  "Go to WSL Distro…",
+  "Paste as Shortcut",
+  "Verify Signature…",
+]);
+
+const NON_WIN_RENAMES: Record<string, string> = {
+  "Reveal in Explorer": "Reveal in File Manager",
+};
+
+function stripWinOnly(items: MenuItemDef[]): void {
+  for (let i = items.length - 1; i >= 0; i--) {
+    const it = items[i];
+    if ((it.kind === "item" || it.kind === "sub") && WIN_ONLY_LABELS.has(it.label)) {
+      items.splice(i, 1);
+      continue;
+    }
+    if (it.kind === "item" && NON_WIN_RENAMES[it.label] && !it.action) {
+      it.action = it.label;
+      it.label = NON_WIN_RENAMES[it.label];
+    }
+    if (it.kind === "sub") stripWinOnly(it.children);
+  }
+  // collapse separators left dangling by removals
+  for (let i = items.length - 1; i >= 0; i--) {
+    const isSep = items[i].kind === "sep";
+    const prevSep = i > 0 && items[i - 1].kind === "sep";
+    if (isSep && (prevSep || i === 0 || i === items.length - 1)) items.splice(i, 1);
+  }
+}
+
+if (!IS_WINDOWS) {
+  Object.values(MENUS).forEach(stripWinOnly);
+  [
+    CONTEXT_FILE,
+    CONTEXT_SIDEBAR,
+    CONTEXT_SIDEBAR_PINNED,
+    CONTEXT_SIDEBAR_FOLDER,
+    CONTEXT_SIDEBAR_DRIVE,
+    CONTEXT_SIDEBAR_REMOTE,
+    CONTEXT_TAB,
+    CONTEXT_BREADCRUMB,
+    CONTEXT_EMPTY,
+  ].forEach(stripWinOnly);
+}

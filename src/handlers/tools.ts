@@ -1,5 +1,6 @@
 import type { Handler } from "./types";
 import { dialogs } from "../components";
+import { IS_WINDOWS } from "../platform";
 import {
   hashSha256,
   findInFiles,
@@ -226,7 +227,7 @@ export const toolsHandler: Handler = async (label, ctx) => {
       const script = await dialogs.showPrompt({
         title: "run script on selection",
         message: `script to run (${targets.length} target${targets.length === 1 ? "" : "s"} will be appended as arguments):`,
-        placeholder: "C:\\tools\\myscript.ps1",
+        placeholder: IS_WINDOWS ? "C:\\tools\\myscript.ps1" : "/path/to/script.sh",
         validate: (v) => v.trim() ? null : "script required",
       });
       if (script == null || script.trim() === "") return true;
@@ -384,7 +385,7 @@ export const toolsHandler: Handler = async (label, ctx) => {
         title: "go to path",
         message: "path to navigate to:",
         initialValue: ctx.cwd,
-        placeholder: "C:\\… or /…",
+        placeholder: IS_WINDOWS ? "C:\\… or /…" : "/… or ~/…",
         validate: (v) => v.trim() ? null : "path required",
       });
       if (target == null || target.trim() === "") return true;

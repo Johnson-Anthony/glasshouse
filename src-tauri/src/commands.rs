@@ -262,6 +262,28 @@ pub fn drives() -> Vec<Drive> {
             }
         }
     }
+    #[cfg(not(windows))]
+    {
+        // Mounted filesystems stand in for drive letters. sysinfo already
+        // filters to real block-device mounts, so no /proc pseudo-fs noise.
+        use sysinfo::Disks;
+        let disks = Disks::new_with_refreshed_list();
+        let mut seen = std::collections::HashSet::new();
+        for d in disks.list() {
+            let mount = d.mount_point().to_string_lossy().into_owned();
+            if !seen.insert(mount.clone()) {
+                continue;
+            }
+            out.push(Drive {
+                letter: mount,
+                label: d.name().to_string_lossy().into_owned(),
+                total: d.total_space(),
+                free: d.available_space(),
+                fs: d.file_system().to_string_lossy().into_owned(),
+            });
+        }
+        out.sort_by(|a, b| a.letter.cmp(&b.letter));
+    }
     out
 }
 
@@ -578,7 +600,15 @@ pub fn reveal_in_explorer(path: String) -> Result<(), String> {
     }
     #[cfg(not(windows))]
     {
-        Err(format!("reveal_in_explorer unsupported on this platform: {}", path))
+        // "Reveal" = show in containing folder. No portable selection API,
+        // so open the parent in the default file manager.
+        let p = std::path::Path::new(&path);
+        let target = p.parent().filter(|d| !d.as_os_str().is_empty()).unwrap_or(p);
+        std::process::Command::new("xdg-open")
+            .arg(target)
+            .spawn()
+            .map(|_| ())
+            .map_err(|e| e.to_string())
     }
 }
 
@@ -586,6 +616,90 @@ pub fn reveal_in_explorer(path: String) -> Result<(), String> {
 
 #[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x08000000;
+
+/// Build a command that opens a visible terminal emulator, optionally running
+/// `run` inside it. Probes $TERMINAL first, then common emulators; per-emulator
+/// flags for cwd and command execution since there is no cross-terminal standard.
+#[cfg(not(windows))]
+fn linux_terminal_command(
+    cwd: &str,
+    run: Option<(&str, &[String])>,
+) -> Result<std::process::Command, String> {
+    let mut candidates: Vec<String> = Vec::new();
+    if let Ok(t) = std::env::var("TERMINAL") {
+        if !t.trim().is_empty() {
+            candidates.push(t);
+        }
+    }
+    for c in [
+        "kitty",
+        "alacritty",
+        "foot",
+        "wezterm",
+        "konsole",
+        "gnome-terminal",
+        "xfce4-terminal",
+        "x-terminal-emulator",
+        "xterm",
+    ] {
+        candidates.push(c.to_string());
+    }
+    let term = candidates
+        .into_iter()
+        .find(|c| which::which(c).is_ok())
+        .ok_or_else(|| "no terminal emulator found — set $TERMINAL".to_string())?;
+    let name = std::path::Path::new(&term)
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or(term.as_str())
+        .to_string();
+
+    let mut cmd = std::process::Command::new(&term);
+    if !cwd.is_empty() {
+        cmd.current_dir(cwd);
+        match name.as_str() {
+            "kitty" => {
+                cmd.args(["--directory", cwd]);
+            }
+            "alacritty" | "foot" => {
+                cmd.args(["--working-directory", cwd]);
+            }
+            "konsole" => {
+                cmd.args(["--workdir", cwd]);
+            }
+            "gnome-terminal" | "xfce4-terminal" => {
+                cmd.arg(format!("--working-directory={}", cwd));
+            }
+            // wezterm gets --cwd below; the rest inherit the process cwd.
+            _ => {}
+        }
+    }
+    match (name.as_str(), run) {
+        ("wezterm", run) => {
+            cmd.arg("start");
+            if !cwd.is_empty() {
+                cmd.args(["--cwd", cwd]);
+            }
+            if let Some((prog, args)) = run {
+                cmd.arg("--").arg(prog).args(args);
+            }
+        }
+        (_, None) => {}
+        ("kitty" | "foot", Some((prog, args))) => {
+            cmd.arg(prog).args(args);
+        }
+        ("gnome-terminal", Some((prog, args))) => {
+            cmd.arg("--").arg(prog).args(args);
+        }
+        ("xfce4-terminal", Some((prog, args))) => {
+            cmd.arg("-x").arg(prog).args(args);
+        }
+        (_, Some((prog, args))) => {
+            cmd.arg("-e").arg(prog).args(args);
+        }
+    }
+    Ok(cmd)
+}
 
 /// Open a terminal window at `path`. Prefers Windows Terminal, then pwsh, then powershell.
 #[tauri::command]
@@ -658,10 +772,9 @@ pub fn spawn_terminal(path: String) -> Result<(), String> {
     }
     #[cfg(not(windows))]
     {
-        use std::process::{Command, Stdio};
-        let child = Command::new("x-terminal-emulator")
-            .arg("--working-directory")
-            .arg(&path)
+        use std::process::Stdio;
+        let mut cmd = linux_terminal_command(&path, None)?;
+        let child = cmd
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null())
@@ -2087,12 +2200,21 @@ pub fn list_shell_profiles() -> Vec<ShellProfile> {
     let mut out: Vec<ShellProfile> = Vec::new();
 
     // Shell probes, in preferred order.
+    #[cfg(windows)]
     let shell_probes: [(&str, &str, &str); 5] = [
         ("bash.exe", "bash", "shell:bash"),
         ("zsh.exe", "zsh", "shell:zsh"),
         ("fish.exe", "fish", "shell:fish"),
         ("pwsh.exe", "PowerShell", "shell:pwsh"),
         ("powershell.exe", "PowerShell", "shell:powershell"),
+    ];
+    #[cfg(not(windows))]
+    let shell_probes: [(&str, &str, &str); 5] = [
+        ("bash", "bash", "shell:bash"),
+        ("zsh", "zsh", "shell:zsh"),
+        ("fish", "fish", "shell:fish"),
+        ("pwsh", "PowerShell", "shell:pwsh"),
+        ("powershell", "PowerShell", "shell:powershell"),
     ];
     let mut have_pwsh_label = false;
     for (exe, label, id) in shell_probes.iter() {
@@ -2223,12 +2345,12 @@ pub fn spawn_terminal_profile(profile: ShellProfile, cwd: String) -> Result<(), 
     }
     #[cfg(not(windows))]
     {
-        use std::process::{Command, Stdio};
-        let mut cmd = Command::new(&profile.exec);
-        for a in &profile.args {
-            cmd.arg(a);
-        }
-        let _ = cwd;
+        use std::process::Stdio;
+        let prog: &str = match profile.kind.as_str() {
+            "ssh" => "ssh",
+            _ => profile.exec.as_str(),
+        };
+        let mut cmd = linux_terminal_command(&cwd, Some((prog, &profile.args)))?;
         cmd.stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null())
@@ -2550,8 +2672,24 @@ pub fn path_fs_type(path: String) -> Result<String, String> {
     }
     #[cfg(not(windows))]
     {
-        let _ = path;
-        Ok(String::new())
+        // Longest mount-point prefix of `path` wins. /proc/self/mounts escapes
+        // spaces in mount points as \040.
+        let mounts = std::fs::read_to_string("/proc/self/mounts").map_err(|e| e.to_string())?;
+        let mut best_len = 0usize;
+        let mut best_fs = String::new();
+        for line in mounts.lines() {
+            let mut it = line.split_whitespace();
+            let (Some(_dev), Some(mp_raw), Some(fs)) = (it.next(), it.next(), it.next()) else {
+                continue;
+            };
+            let mp = mp_raw.replace("\\040", " ");
+            let matches = mp == "/" || path == mp || path.starts_with(&(mp.clone() + "/"));
+            if matches && mp.len() > best_len {
+                best_len = mp.len();
+                best_fs = fs.to_string();
+            }
+        }
+        Ok(best_fs)
     }
 }
 
@@ -2618,7 +2756,26 @@ fn sample_net_octets() -> Result<(u64, u64), String> {
 
 #[cfg(not(windows))]
 fn sample_net_octets() -> Result<(u64, u64), String> {
-    Ok((0, 0))
+    // /proc/net/dev: two header lines, then "iface: rx_bytes ... tx_bytes ..."
+    // with tx_bytes at field index 8 after the colon.
+    let text = std::fs::read_to_string("/proc/net/dev").map_err(|e| e.to_string())?;
+    let mut total_in = 0u64;
+    let mut total_out = 0u64;
+    for line in text.lines().skip(2) {
+        let Some((iface, rest)) = line.split_once(':') else {
+            continue;
+        };
+        if iface.trim() == "lo" {
+            continue;
+        }
+        let fields: Vec<&str> = rest.split_whitespace().collect();
+        if fields.len() < 9 {
+            continue;
+        }
+        total_in = total_in.saturating_add(fields[0].parse::<u64>().unwrap_or(0));
+        total_out = total_out.saturating_add(fields[8].parse::<u64>().unwrap_or(0));
+    }
+    Ok((total_in, total_out))
 }
 
 // ---------- per-repo dirty count ----------
@@ -2676,7 +2833,7 @@ fn build_git_command(cwd: &str) -> std::process::Command {
 
 fn classify_spawn_err(e: &std::io::Error) -> String {
     if e.kind() == std::io::ErrorKind::NotFound {
-        "git not found — install git for Windows".to_string()
+        "git not found — is it installed and on PATH?".to_string()
     } else {
         format!("git spawn failed: {}", e)
     }

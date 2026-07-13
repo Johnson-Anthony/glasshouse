@@ -47,6 +47,7 @@ import {
   type UseTabResult,
 } from "./state";
 import { HANDLERS, type HandlerCtx } from "./handlers";
+import { IS_WINDOWS } from "./platform";
 import { TerminalDrawer } from "./Terminal";
 import {
   homeDir,
@@ -103,7 +104,7 @@ interface CtxState {
   items: MenuItemDef[];
 }
 
-const FALLBACK_PATH = "C:\\";
+const FALLBACK_PATH = IS_WINDOWS ? "C:\\" : "/";
 
 interface TabShellProps {
   index: number;
@@ -1251,7 +1252,7 @@ export function App() {
           if (selectedPaths.length > 1) {
             const ok = await dialogs.showConfirm({
               title: "move to trash",
-              message: `Move ${selectedPaths.length} items to Recycle Bin?`,
+              message: `Move ${selectedPaths.length} items to ${IS_WINDOWS ? "Recycle Bin" : "Trash"}?`,
               okLabel: "move",
             });
             if (!ok) return;
