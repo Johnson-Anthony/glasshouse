@@ -32,3 +32,6 @@ vite.config.js
 # Env
 .env
 .env.local
+
+# Local agent notes (machine-specific)
+CLAUDE.md
