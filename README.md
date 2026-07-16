@@ -32,7 +32,10 @@ Glasshouse is a desktop file manager built with Tauri 2 (Rust backend) and React
 
 ## Run it
 
-Requires Rust toolchain, Node 20+, and pnpm. Platform extras:
+Pre-built binaries are on the [Releases page](https://github.com/Johnson-Anthony/glasshouse/releases) —
+Windows `.msi` / `.exe` installer, Linux `.AppImage` / `.deb` (unsigned; SmartScreen will warn once).
+
+To build from source instead: Rust toolchain, Node 20+, and pnpm. Platform extras:
 
 - **Windows:** the [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/) (WebView2, Visual Studio Build Tools).
 - **Linux:** WebKitGTK and friends — `webkit2gtk-4.1` (Arch) or `libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev patchelf` (Debian/Ubuntu).
