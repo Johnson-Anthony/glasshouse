@@ -2965,3 +2965,85 @@ pub fn git_ahead_behind(cwd: String) -> Result<(u32, u32), String> {
     let b: u32 = parts.get(1).and_then(|x| x.parse().ok()).unwrap_or(0);
     Ok((a, b))
 }
+
+// ---------- tests ----------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn temp_dir(name: &str) -> PathBuf {
+        let d = std::env::temp_dir().join(format!("glasshouse-test-{}-{}", std::process::id(), name));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d).unwrap();
+        d
+    }
+
+    #[test]
+    fn kind_from_ext_dir_wins_over_ext() {
+        assert_eq!(kind_from_ext("rs", true), "folder");
+        assert_eq!(kind_from_ext("", true), "folder");
+    }
+
+    #[test]
+    fn kind_from_ext_maps_common_types() {
+        assert_eq!(kind_from_ext("md", false), "text");
+        assert_eq!(kind_from_ext("rs", false), "code");
+        assert_eq!(kind_from_ext("PNG", false), "img"); // case-insensitive
+        assert_eq!(kind_from_ext("tar", false), "archive");
+        assert_eq!(kind_from_ext("exe", false), "exec");
+        assert_eq!(kind_from_ext("blob", false), "bin");
+        assert_eq!(kind_from_ext("", false), "bin");
+    }
+
+    #[test]
+    fn win_to_wsl_drive_paths() {
+        assert_eq!(win_to_wsl("C:\\Users\\me".into()), "/mnt/c/Users/me");
+        assert_eq!(win_to_wsl("D:/data".into()), "/mnt/d/data");
+        assert_eq!(win_to_wsl("C:".into()), "/mnt/c");
+    }
+
+    #[test]
+    fn win_to_wsl_leaves_posix_paths() {
+        assert_eq!(win_to_wsl("/home/me".into()), "/home/me");
+    }
+
+    #[test]
+    fn wsl_to_win_mnt_paths() {
+        assert_eq!(wsl_to_win("/mnt/c/Users/me".into()), "C:\\Users\\me");
+        assert_eq!(wsl_to_win("/mnt/d/".into()), "D:\\");
+    }
+
+    #[test]
+    fn win_wsl_round_trip() {
+        let orig = "C:\\Users\\me\\proj";
+        assert_eq!(wsl_to_win(win_to_wsl(orig.into())), orig);
+    }
+
+    #[test]
+    fn write_config_atomic_writes_and_replaces() {
+        let dir = temp_dir("atomic");
+        let target = dir.join("pins.json");
+        write_config_atomic(&target, "[1]").unwrap();
+        assert_eq!(std::fs::read_to_string(&target).unwrap(), "[1]");
+        write_config_atomic(&target, "[1,2]").unwrap();
+        assert_eq!(std::fs::read_to_string(&target).unwrap(), "[1,2]");
+        // no stray tmp file left behind
+        assert!(!dir.join("pins.json.tmp").exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn copy_dir_recursive_copies_nested_tree() {
+        let dir = temp_dir("copytree");
+        let src = dir.join("src");
+        std::fs::create_dir_all(src.join("a/b")).unwrap();
+        std::fs::write(src.join("root.txt"), "r").unwrap();
+        std::fs::write(src.join("a/b/leaf.txt"), "leaf").unwrap();
+        let dst = dir.join("dst");
+        copy_dir_recursive(&src, &dst).unwrap();
+        assert_eq!(std::fs::read_to_string(dst.join("root.txt")).unwrap(), "r");
+        assert_eq!(std::fs::read_to_string(dst.join("a/b/leaf.txt")).unwrap(), "leaf");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}
