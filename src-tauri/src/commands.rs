@@ -13,6 +13,10 @@ pub struct FileEntry {
     pub hidden: bool,
     pub ext: String,
     pub is_symlink: bool,
+    /// True when the on-disk path isn't valid UTF-8, i.e. `name`/`path` are
+    /// lossy renderings (U+FFFD substitutions) that cannot address the real
+    /// file — the frontend blocks mutating ops on such entries.
+    pub lossy: bool,
     /// Per-row git status relative to the repo containing the listing dir.
     /// One of: "M" (modified), "A" (added/new), "D" (deleted), "U" (conflicted),
     /// "?" (untracked), "!" (ignored). `None` for clean-tracked or outside-repo.
@@ -89,15 +93,18 @@ pub fn list_dir(path: String, show_hidden: bool) -> Result<Vec<FileEntry>, Strin
             .and_then(|m| m.duration_since(std::time::UNIX_EPOCH).ok())
             .map(|d| d.as_millis() as i64)
             .unwrap_or(0);
+        let raw_path = entry.path();
+        let lossy = raw_path.to_str().is_none();
         out.push(FileEntry {
             name,
-            path: entry.path().to_string_lossy().to_string(),
+            path: raw_path.to_string_lossy().to_string(),
             kind: kind_from_ext(&ext, is_dir).to_string(),
             size,
             modified_ms,
             hidden,
             ext,
             is_symlink,
+            lossy,
             git: None,
         });
     }

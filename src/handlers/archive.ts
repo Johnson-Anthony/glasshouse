@@ -6,18 +6,7 @@ import {
   archiveCanHandle,
 } from "../api";
 import { dialogs } from "../components";
-
-function joinPath(dir: string, name: string): string {
-  if (!dir) return name;
-  const sep = dir.includes("\\") && !dir.includes("/") ? "\\" : "/";
-  const trimmed = dir.replace(/[\\/]+$/, "");
-  return trimmed + sep + name;
-}
-
-function basename(p: string): string {
-  const idx = Math.max(p.lastIndexOf("/"), p.lastIndexOf("\\"));
-  return idx < 0 ? p : p.slice(idx + 1);
-}
+import { basename, joinPath } from "../paths";
 
 function stripArchiveExt(name: string): string {
   const lower = name.toLowerCase();

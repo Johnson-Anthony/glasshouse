@@ -13,6 +13,7 @@ import {
 import { drives as apiDrives, fileStatExtended, gitBranchList, gitFileInfo, hashCrc32, hashMd5, hashSha256, homeDir as apiHomeDir, listDir, listShellProfiles, listWslDistros, netRate, pathFsType, pickDirectory, readImageB64, readPins, readRecent, readTags, readText, setPermissions, systemInfo as apiSystemInfo, winClose, winMinimize, winToggleMaximize, writeTags, writeText, type BlameLine, type Drive, type FileEntry, type FileStatExt, type GitFileInfo, type GitInfo, type NetRate, type ShellProfile, type SystemInfo, type WslDistro } from "./api";
 import { getVersion } from "@tauri-apps/api/app";
 import { fuzzyFilter } from "./fuzzy";
+import { joinPath } from "./paths";
 
 // ─── dynamic menu expansion ────────────────────────────────────────────────
 // Menu trees include `{ kind: "dynamic", source: … }` sentinel nodes. When a
@@ -3422,15 +3423,6 @@ function baseOf(p: string): string {
   return idx < 0 ? trimmed : trimmed.slice(idx + 1);
 }
 
-function joinPath(dir: string, name: string): string {
-  const sep = dir.includes("\\") ? "\\" : "/";
-  if (!dir) return name;
-  // Drive root like "C:\" — already ends in sep.
-  if (dir.endsWith("\\") || dir.endsWith("/")) return dir + name;
-  // Bare drive like "C:" — attach separator.
-  if (/^[A-Za-z]:$/.test(dir)) return dir + "\\" + name;
-  return dir + sep + name;
-}
 
 export function PasteSpecialDialog({
   items,

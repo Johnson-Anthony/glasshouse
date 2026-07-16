@@ -10,9 +10,8 @@ import {
   type GitInfo,
 } from "./api";
 
-export function normalizePath(p: string): string {
-  return p.replace(/[\\/]+$/, "").toLowerCase();
-}
+import { normalizePath, parentPath } from "./paths";
+export { normalizePath, parentPath } from "./paths";
 
 export type SortKey = "name" | "size" | "modified" | "tag" | "git" | "type";
 export type SortDir = "asc" | "desc";
@@ -60,23 +59,6 @@ export interface TabActions {
 export interface UseTabResult {
   state: TabState;
   actions: TabActions;
-}
-
-export function parentPath(p: string): string {
-  if (!p) return p;
-  const hasBack = p.includes("\\");
-  const sep = hasBack ? "\\" : "/";
-  const trimmed = p.replace(/[\\/]+$/, "");
-  const idx = Math.max(trimmed.lastIndexOf("\\"), trimmed.lastIndexOf("/"));
-  if (idx <= 0) {
-    if (/^[A-Za-z]:$/.test(trimmed)) return trimmed + sep;
-    if (trimmed.startsWith("/")) return "/";
-    return trimmed;
-  }
-  if (/^[A-Za-z]:$/.test(trimmed.slice(0, 2)) && idx === 2) {
-    return trimmed.slice(0, 3);
-  }
-  return trimmed.slice(0, idx) || sep;
 }
 
 // ─── Undo/redo stack ──────────────────────────────────────────────────────

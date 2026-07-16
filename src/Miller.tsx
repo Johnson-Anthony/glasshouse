@@ -3,7 +3,7 @@
 // are fetched on demand and stay read-only apart from navigation clicks.
 import { useEffect, useMemo, useRef, useState } from "react";
 import { listDir, type FileEntry } from "./api";
-import { normalizePath, parentPath } from "./state";
+import { normalizePath, parentPath } from "./paths";
 
 export interface MillerViewProps {
   cwd: string;

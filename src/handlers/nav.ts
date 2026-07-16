@@ -1,6 +1,7 @@
 import type { Handler } from "./types";
 import { dialogs } from "../components";
 import { IS_WINDOWS } from "../platform";
+import { joinPath } from "../paths";
 import {
   spawnTerminal,
   spawnVscode,
@@ -11,13 +12,6 @@ import {
   clearRecent,
   listWslDistros,
 } from "../api";
-
-function joinPath(dir: string, name: string): string {
-  if (!dir) return name;
-  const sep = dir.includes("\\") && !dir.includes("/") ? "\\" : "/";
-  const trimmed = dir.replace(/[\\/]+$/, "");
-  return trimmed + sep + name;
-}
 
 export const navHandler: Handler = async (label, ctx) => {
   switch (label) {

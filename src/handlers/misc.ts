@@ -1,6 +1,7 @@
 import type { Handler, HandlerCtx } from "./types";
 import { dialogs } from "../components";
 import { IS_WINDOWS } from "../platform";
+import { basename, joinPath } from "../paths";
 import {
   makeDir,
   writeText,
@@ -16,21 +17,6 @@ import {
   copyEntry,
   hashSha256,
 } from "../api";
-// Join a directory with a filename using whichever separator the cwd appears
-// to use. Matches parentPath() in state.ts — backslash wins only if the path
-// already contains one.
-function joinPath(dir: string, name: string): string {
-  if (!dir) return name;
-  const sep = dir.includes("\\") && !dir.includes("/") ? "\\" : "/";
-  const trimmed = dir.replace(/[\\/]+$/, "");
-  return trimmed + sep + name;
-}
-
-function basename(p: string): string {
-  const idx = Math.max(p.lastIndexOf("/"), p.lastIndexOf("\\"));
-  return idx < 0 ? p : p.slice(idx + 1);
-}
-
 async function createFileAt(ctx: HandlerCtx, name: string, body: string): Promise<void> {
   const path = joinPath(ctx.cwd, name);
   await writeText(path, body);

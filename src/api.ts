@@ -31,6 +31,9 @@ export interface FileEntry {
   hidden: boolean;
   ext: string;
   is_symlink: boolean;
+  /** True when the on-disk path isn't valid UTF-8 — `name`/`path` are lossy
+   *  renderings and mutating ops are blocked on this entry. */
+  lossy: boolean;
   /** Single-char git status: "M"|"A"|"D"|"U"|"?"|"!" or null. */
   git: string | null;
 }
@@ -156,6 +159,7 @@ function mockRows(): FileEntry[] {
       hidden: false,
       ext: dir ? "" : exts[i % exts.length],
       is_symlink: false,
+      lossy: false,
       git: i % 23 === 0 ? "M" : null,
     });
   }

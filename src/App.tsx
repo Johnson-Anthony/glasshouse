@@ -50,8 +50,11 @@ import { HANDLERS, type HandlerCtx } from "./handlers";
 import { IS_WINDOWS } from "./platform";
 import { TerminalDrawer } from "./Terminal";
 import { MillerView } from "./Miller";
+import { joinPath, parentPath, basename, normalizePath } from "./paths";
+import { winPathToWsl } from "./shellCd";
 import {
   homeDir,
+  listDir,
   makeDir,
   renameEntry,
   copyEntry,
@@ -354,38 +357,6 @@ function entryToRow(
   };
 }
 
-function sepOf(p: string): string {
-  return p.includes("\\") ? "\\" : "/";
-}
-
-function join(dir: string, name: string): string {
-  if (!dir) return name;
-  const sep = sepOf(dir);
-  const trimmed = dir.replace(/[\\/]+$/, "");
-  if (/^[A-Za-z]:$/.test(trimmed)) return trimmed + sep + name;
-  return trimmed + sep + name;
-}
-
-function basename(p: string): string {
-  const trimmed = p.replace(/[\\/]+$/, "");
-  const idx = Math.max(trimmed.lastIndexOf("\\"), trimmed.lastIndexOf("/"));
-  return idx < 0 ? trimmed : trimmed.slice(idx + 1);
-}
-
-function dirname(p: string): string {
-  const trimmed = p.replace(/[\\/]+$/, "");
-  const idx = Math.max(trimmed.lastIndexOf("\\"), trimmed.lastIndexOf("/"));
-  if (idx < 0) return trimmed;
-  // Preserve drive root like "C:\"
-  if (/^[A-Za-z]:$/.test(trimmed.slice(0, idx))) return trimmed.slice(0, idx + 1);
-  return trimmed.slice(0, idx);
-}
-
-function winToWslInline(p: string): string {
-  const m = /^([A-Za-z]):[\\/](.*)$/.exec(p);
-  if (!m) return p;
-  return `/mnt/${m[1].toLowerCase()}/${m[2].replace(/\\/g, "/")}`;
-}
 
 /** Build the ssh terminal profile for a saved remote, honoring a trailing
  *  :port in the host ("example.com:2222" → ssh -p 2222 example.com). */
@@ -538,7 +509,7 @@ export function App() {
       setTabs([{ ic: "", color: "var(--blue)", label: p }]);
       setPrivateTabs([false]);
       if (home) {
-        const remotesPath = join(join(home, ".glasshouse"), "remotes.json");
+        const remotesPath = joinPath(joinPath(home, ".glasshouse"), "remotes.json");
         try {
           const txt = await readText(remotesPath, 0);
           if (txt) {
@@ -561,8 +532,8 @@ export function App() {
   const persistRemotes = (next: SavedRemote[]) => {
     setSavedRemotes(next);
     if (!homePath) return;
-    const dir = join(homePath, ".glasshouse");
-    const file = join(dir, "remotes.json");
+    const dir = joinPath(homePath, ".glasshouse");
+    const file = joinPath(dir, "remotes.json");
     void (async () => {
       try { await makeDir(dir); } catch { /* already exists */ }
       try { await writeText(file, JSON.stringify(next, null, 2)); }
@@ -1010,7 +981,7 @@ export function App() {
             void (async () => {
               let wsl = "";
               try { wsl = await winToWsl(target); } catch { wsl = ""; }
-              if (!wsl) wsl = winToWslInline(target);
+              if (!wsl) wsl = winPathToWsl(target);
               await navigator.clipboard.writeText(wsl);
             })();
             return;
@@ -1033,7 +1004,7 @@ export function App() {
                 validate: (v) => v.trim() ? null : "name required",
               });
               if (!next || next === base) return;
-              const dst = join(dirname(target), next);
+              const dst = joinPath(parentPath(target), next);
               try {
                 await renameEntry(target, dst);
                 pushUndo({
@@ -1059,7 +1030,7 @@ export function App() {
                 title: `move "${basename(target)}" to…`,
                 onPick: (to) => {
                   setFolderPicker(null);
-                  const dst = join(to, basename(target));
+                  const dst = joinPath(to, basename(target));
                   void (async () => {
                     try {
                       await moveEntry(target, dst);
@@ -1098,6 +1069,30 @@ export function App() {
             const next = [...pins, target];
             setPins(next);
             void writePins(next);
+            return;
+          }
+          case "Properties": {
+            // Previously fell through to the pane-selection handler, so the
+            // dialog showed whatever was selected in the pane instead of the
+            // sidebar/breadcrumb row that was right-clicked.
+            contextTarget = null;
+            void (async () => {
+              const siblings = await listDir(parentPath(target), true);
+              const norm = normalizePath(target);
+              const entry = siblings.find(e => normalizePath(e.path) === norm) ?? {
+                name: basename(target) || target,
+                path: target,
+                kind: "folder",
+                size: 0,
+                modified_ms: 0,
+                hidden: false,
+                ext: "",
+                is_symlink: false,
+                lossy: false,
+                git: null,
+              };
+              setPropsEntry(entry);
+            })();
             return;
           }
           case "Add Tag…":
@@ -1222,6 +1217,14 @@ export function App() {
   };
   handleMenuCommandRef.current = handleMenuCommand;
 
+  /** Selection-sourced ops that write to the filesystem — blocked for entries
+   *  with non-UTF-8 (lossy) names since their real path can't be expressed. */
+  const MUTATING_OPS = new Set([
+    "Rename", "Move to Trash", "Delete Permanently", "Cut", "Copy",
+    "Duplicate", "Move to…", "Move to", "Move To…", "Batch Rename…",
+    "Shred", "Shred…", "Compress to Zip", "Compress to Zip…",
+  ]);
+
   async function doFileOp(label: string) {
     if (!activeHandle) return;
     const st = activeHandle.state;
@@ -1232,6 +1235,21 @@ export function App() {
     const firstEntry: FileEntry | undefined = st.entries[st.selected[0]];
     const firstPath = firstEntry?.path;
     const cwd = st.path;
+
+    // Entries whose on-disk name isn't valid UTF-8 carry a lossy rendering of
+    // the real path — any mutating op would target a path that doesn't exist
+    // (or worse). Refuse with an actionable message instead.
+    if (MUTATING_OPS.has(label) && st.selected.some(i => st.entries[i]?.lossy)) {
+      void dialogs.showAlert({
+        title: "invalid filename encoding",
+        variant: "error",
+        message:
+          "The selected entry's on-disk name isn't valid UTF-8, so it can't be " +
+          "addressed safely from here. Rename it in a terminal first (tab-completion " +
+          "will match the raw bytes).",
+      });
+      return;
+    }
 
     try {
       switch (label) {
@@ -1295,7 +1313,7 @@ export function App() {
             validate: (v) => v.trim() ? null : "name required",
           });
           if (!next || next === firstEntry.name) return;
-          const dst = join(cwd, next);
+          const dst = joinPath(cwd, next);
           const src = firstEntry.path;
           await renameEntry(src, dst);
           pushUndo({
@@ -1373,7 +1391,7 @@ export function App() {
           const { op, paths } = appClipboard;
           const pasted: Array<{ src: string; dst: string }> = [];
           for (const src of paths) {
-            const dst = join(cwd, basename(src));
+            const dst = joinPath(cwd, basename(src));
             if (op === "copy") await copyEntry(src, dst);
             else await moveEntry(src, dst);
             pasted.push({ src, dst });
@@ -1421,7 +1439,7 @@ export function App() {
             validate: (v) => v.trim() ? null : "name required",
           });
           if (!name) return;
-          const dst = join(cwd, name);
+          const dst = joinPath(cwd, name);
           await makeDir(dst);
           pushUndo({
             label: `new folder ${name}`,
@@ -1440,7 +1458,7 @@ export function App() {
             validate: (v) => v.trim() ? null : "name required",
           });
           if (!name) return;
-          const dst = join(cwd, name);
+          const dst = joinPath(cwd, name);
           await writeText(dst, "");
           pushUndo({
             label: `new file ${name}`,
@@ -1458,7 +1476,7 @@ export function App() {
             validate: (v) => v.trim() ? null : "name required",
           });
           if (!name) return;
-          const dst = join(cwd, name);
+          const dst = joinPath(cwd, name);
           await writeText(dst, "");
           pushUndo({
             label: `new note ${name}`,
@@ -1476,7 +1494,7 @@ export function App() {
             validate: (v) => v.trim() ? null : "name required",
           });
           if (!name) return;
-          const dst = join(cwd, name);
+          const dst = joinPath(cwd, name);
           await writeText(dst, "#!/usr/bin/env bash\n");
           pushUndo({
             label: `new script ${name}`,
@@ -1534,7 +1552,7 @@ export function App() {
           if (!firstPath) return;
           let wsl = "";
           try { wsl = await winToWsl(firstPath); } catch { wsl = ""; }
-          if (!wsl) wsl = winToWslInline(firstPath);
+          if (!wsl) wsl = winPathToWsl(firstPath);
           await navigator.clipboard.writeText(wsl);
           return;
         }
@@ -1620,7 +1638,7 @@ export function App() {
           let name = entered.trim();
           if (!name) return;
           if (!/\.zip$/i.test(name)) name += ".zip";
-          const outPath = join(cwd, name);
+          const outPath = joinPath(cwd, name);
           try {
             await compress(active, outPath);
             refresh();
@@ -1665,7 +1683,7 @@ export function App() {
               void (async () => {
                 const moved: Array<{ src: string; dst: string }> = [];
                 for (const src of paths) {
-                  const dst = join(target, basename(src));
+                  const dst = joinPath(target, basename(src));
                   try {
                     await moveEntry(src, dst);
                     moved.push({ src, dst });
@@ -2306,7 +2324,7 @@ export function App() {
           root={activeHandle?.state.path ?? ""}
           onClose={() => setShowFindModal(false)}
           onPick={(m) => {
-            const dir = dirname(m.path);
+            const dir = parentPath(m.path);
             if (dir) activeHandle?.actions.goTo(dir);
             setShowFindModal(false);
           }}
