@@ -357,9 +357,16 @@ html, body {
 .body {
   display: grid;
   grid-template-columns: 220px 1fr 280px;
+  /* The single row must be capped at .body's own height (minmax(0,1fr)) and
+   * every column child must be allowed to shrink below its content
+   * (min-height: 0), otherwise a long directory grows .pane past the track
+   * and .rows never gets a scrollbar — Chromium resolves the implicit auto
+   * row to content height; WebKit happened to mask it. */
+  grid-template-rows: minmax(0, 1fr);
   min-height: 0;
   background: var(--bg-0);
 }
+.body > * { min-height: 0; }
 
 /* sidebar */
 .sidebar {
@@ -482,6 +489,12 @@ html, body {
   cursor: default;
   border-left: 2px solid transparent;
   position: relative;
+  /* Skip layout/paint for offscreen rows — with thousands of entries this is
+   * the difference between instant and multi-second directory renders. The
+   * intrinsic-size hint keeps the scrollbar honest; grid/icon display modes
+   * size items from fixed tracks so the hint is only load-bearing here. */
+  content-visibility: auto;
+  contain-intrinsic-size: auto var(--row-h);
 }
 .row:nth-child(odd) { background: color-mix(in oklch, var(--bg-1) 40%, transparent); }
 .row:hover { background: var(--bg-2); color: var(--fg-0); }

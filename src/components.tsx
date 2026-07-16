@@ -1550,6 +1550,66 @@ const PAGE_STEP = 10;
 // test-harness automation impossible and breaks on some webviews.
 const DRAG_THRESHOLD_PX = 5;
 
+/** Stable callback bundle passed to every PaneRow. Kept referentially
+ *  constant (useMemo []) so PaneRow's React.memo actually holds; callbacks
+ *  read live state through FilePane's `latest` ref. */
+interface RowHandlers {
+  pointerDown: (i: number, isSel: boolean, e: React.PointerEvent) => void;
+  click: (i: number, e: React.MouseEvent) => void;
+  dblClick: (i: number) => void;
+  ctxMenu: (i: number, isSel: boolean, e: React.MouseEvent) => void;
+}
+
+/** One file row. Memoized: with thousands of entries, re-rendering every row
+ *  on each selection/focus change is what made large directories crawl —
+ *  only rows whose flags flip re-render now. */
+const PaneRow = React.memo(function PaneRow({
+  f, i, isSel, isFocus, isDragOver, isCut, showGitGutters, showExtensions, h,
+}: {
+  f: FileRow;
+  i: number;
+  isSel: boolean;
+  isFocus: boolean;
+  isDragOver: boolean;
+  isCut: boolean;
+  showGitGutters: boolean;
+  showExtensions: boolean;
+  h: RowHandlers;
+}) {
+  const ki = kindIcon(f.kind);
+  return (
+    <div data-orig={i}
+         className={"row" + (isSel ? " selected" : "") + (isFocus ? " focused" : "") + (isDragOver ? " drop-target" : "") + (isCut ? " clip-cut" : "")}
+         style={{opacity: f.dimmed ? 0.55 : 1}}
+         onPointerDown={(e) => h.pointerDown(i, isSel, e)}
+         onClick={(e) => h.click(i, e)}
+         onDoubleClick={() => h.dblClick(i)}
+         onContextMenu={(e) => h.ctxMenu(i, isSel, e)}>
+      <span className={"ic " + ki.cls}>{ki.ic}</span>
+      <span className="name">
+        {showGitGutters && f.git && <span className={"git-dot " + gitDotClass(f.git)}></span>}
+        <span style={{color: f.hidden ? "var(--fg-3)" : "inherit"}}>{f.name}</span>
+        {showExtensions && f.ext && !f.hidden && f.kind !== "folder" && <span className="ext">.{f.ext}</span>}
+      </span>
+      <span className="tag">
+        {f.tag ? <><span className="dot" style={{background: tagColor(f.tag)}}></span>{f.tag}</> : <span style={{color:"var(--fg-3)"}}>—</span>}
+      </span>
+      <span className="size">{f.size}</span>
+      <span className="date">{f.date}</span>
+      <span className="tag" style={{textAlign:"right"}}>
+        {!showGitGutters ? <span style={{color:"var(--fg-3)"}}>—</span>
+         : f.git === "M" ? <span style={{color:"var(--yellow)"}}>M</span>
+         : f.git === "A" ? <span style={{color:"var(--green)"}}>A</span>
+         : f.git === "D" ? <span style={{color:"var(--red)"}}>D</span>
+         : f.git === "U" ? <span style={{color:"var(--red)"}}>U</span>
+         : f.git === "?" ? <span style={{color:"var(--fg-2)"}}>?</span>
+         : f.git === "!" ? <span style={{color:"var(--fg-3)"}}>!</span>
+         : <span style={{color:"var(--fg-3)"}}>—</span>}
+      </span>
+    </div>
+  );
+});
+
 export function FilePane({
   files,
   selected,
@@ -1906,6 +1966,89 @@ export function FilePane({
     window.addEventListener("mouseup", onMarqueeUp);
   };
 
+  // O(1) membership lookups — `selected.includes(i)` per row made every
+  // selection change O(rows × selection).
+  const selectedSet = useMemo(() => new Set(selected), [selected]);
+  const cutSet = useMemo(() => new Set(cutPaths ?? []), [cutPaths]);
+
+  // Live-state escape hatch for the stable row handlers below.
+  const latest = useRef({ files, selected, handleRowClick, onOpen, onContext, onRowDrop, onExternalDrag, setSelected, setAnchorIndex, setFocusIndex });
+  latest.current = { files, selected, handleRowClick, onOpen, onContext, onRowDrop, onExternalDrag, setSelected, setAnchorIndex, setFocusIndex };
+
+  const rowHandlers = useMemo<RowHandlers>(() => ({
+    pointerDown: (i, isSel, e) => {
+      if (e.button !== 0) return;
+      const startX = e.clientX;
+      const startY = e.clientY;
+      const sources = isSel ? [...latest.current.selected] : [i];
+      let dragging = false;
+      let moved = false;
+      const onMove = (ev: PointerEvent) => {
+        moved = true;
+        const dx = ev.clientX - startX;
+        const dy = ev.clientY - startY;
+        if (!dragging && Math.hypot(dx, dy) < DRAG_THRESHOLD_PX) return;
+        dragging = true;
+        setGhost({
+          x: ev.clientX,
+          y: ev.clientY,
+          count: sources.length,
+          copy: ev.shiftKey,
+        });
+        // Locate the row under the cursor and decide whether it's a valid drop target.
+        const hit = document.elementFromPoint(ev.clientX, ev.clientY);
+        const row = hit?.closest("[data-orig]") as HTMLElement | null;
+        const origAttr = row?.getAttribute("data-orig");
+        const origIdx = origAttr !== null && origAttr !== undefined ? parseInt(origAttr, 10) : -1;
+        const hoverFile = origIdx >= 0 ? latest.current.files[origIdx] : undefined;
+        const validTarget = hoverFile && hoverFile.kind === "folder" && !sources.includes(origIdx);
+        setDragOverIndex(validTarget ? origIdx : null);
+      };
+      const onPointerUp = (ev: PointerEvent) => {
+        window.removeEventListener("pointermove", onMove);
+        window.removeEventListener("pointerup", onPointerUp);
+        window.removeEventListener("pointercancel", onPointerUp);
+        setDragOverIndex(null);
+        setGhost(null);
+        if (!dragging) return;
+        const copy = ev.shiftKey;
+        const hit = document.elementFromPoint(ev.clientX, ev.clientY);
+        const row = hit?.closest("[data-orig]") as HTMLElement | null;
+        const origAttr = row?.getAttribute("data-orig");
+        if (origAttr) {
+          const targetIdx = parseInt(origAttr, 10);
+          const targetFile = latest.current.files[targetIdx];
+          if (targetFile && targetFile.kind === "folder") {
+            const filtered = sources.filter(s => s !== targetIdx);
+            if (filtered.length > 0) {
+              latest.current.onRowDrop?.(targetIdx, filtered, copy);
+              return;
+            }
+          }
+        }
+        // Not over a folder row — delegate to external drop handler
+        // (e.g. sidebar tree-row). App resolves the drop target.
+        latest.current.onExternalDrag?.(sources, ev.clientX, ev.clientY, copy);
+      };
+      window.addEventListener("pointermove", onMove);
+      window.addEventListener("pointerup", onPointerUp);
+      window.addEventListener("pointercancel", onPointerUp);
+      // Let click/dblclick still work when no drag happened.
+      void moved;
+    },
+    click: (i, e) => latest.current.handleRowClick(i, e),
+    dblClick: (i) => latest.current.onOpen?.(i),
+    ctxMenu: (i, isSel, e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const L = latest.current;
+      if (!isSel) { L.setSelected([i]); L.setAnchorIndex(i); }
+      L.setFocusIndex(i);
+      L.onContext(e, "file", i);
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }), []);
+
   return (
     <section
       ref={paneRef}
@@ -1930,111 +2073,22 @@ export function FilePane({
       </div>
       <div className="rows">
         {displayFiles.map(({ file: f, origIndex: i }) => {
-          const ki = kindIcon(f.kind);
-          const isSel = selected.includes(i);
-          const isFocus = paneFocused && focusIndex === i;
-          const isDragOver = dragOverIndex === i && f.kind === "folder";
           // FileRow is a display-only type without a filesystem path, but the
           // host (App.tsx) always passes LiveFileRow which carries entry.path.
           // Peek defensively so we don't over-constrain the public prop type.
           const fPath = (f as { entry?: { path?: string } }).entry?.path;
-          const isCut = cutPaths && fPath ? cutPaths.includes(fPath) : false;
           return (
-            <div key={i}
-                 data-orig={i}
-                 className={"row" + (isSel ? " selected" : "") + (isFocus ? " focused" : "") + (isDragOver ? " drop-target" : "") + (isCut ? " clip-cut" : "")}
-                 style={{opacity: f.dimmed ? 0.55 : 1}}
-                 onPointerDown={(e) => {
-                   if (e.button !== 0) return;
-                   const startX = e.clientX;
-                   const startY = e.clientY;
-                   const sources = isSel ? [...selected] : [i];
-                   let dragging = false;
-                   let moved = false;
-                   const onMove = (ev: PointerEvent) => {
-                     moved = true;
-                     const dx = ev.clientX - startX;
-                     const dy = ev.clientY - startY;
-                     if (!dragging && Math.hypot(dx, dy) < DRAG_THRESHOLD_PX) return;
-                     dragging = true;
-                     setGhost({
-                       x: ev.clientX,
-                       y: ev.clientY,
-                       count: sources.length,
-                       copy: ev.shiftKey,
-                     });
-                     // Locate the row under the cursor and decide whether it's a valid drop target.
-                     const hit = document.elementFromPoint(ev.clientX, ev.clientY);
-                     const row = hit?.closest("[data-orig]") as HTMLElement | null;
-                     const origAttr = row?.getAttribute("data-orig");
-                     const origIdx = origAttr !== null && origAttr !== undefined ? parseInt(origAttr, 10) : -1;
-                     const hoverFile = origIdx >= 0 ? files[origIdx] : undefined;
-                     const validTarget = hoverFile && hoverFile.kind === "folder" && !sources.includes(origIdx);
-                     setDragOverIndex(validTarget ? origIdx : null);
-                   };
-                   const onPointerUp = (ev: PointerEvent) => {
-                     window.removeEventListener("pointermove", onMove);
-                     window.removeEventListener("pointerup", onPointerUp);
-                     window.removeEventListener("pointercancel", onPointerUp);
-                     setDragOverIndex(null);
-                     setGhost(null);
-                     if (!dragging) return;
-                     const copy = ev.shiftKey;
-                     const hit = document.elementFromPoint(ev.clientX, ev.clientY);
-                     const row = hit?.closest("[data-orig]") as HTMLElement | null;
-                     const origAttr = row?.getAttribute("data-orig");
-                     if (origAttr) {
-                       const targetIdx = parseInt(origAttr, 10);
-                       const targetFile = files[targetIdx];
-                       if (targetFile && targetFile.kind === "folder") {
-                         const filtered = sources.filter(s => s !== targetIdx);
-                         if (filtered.length > 0) {
-                           onRowDrop && onRowDrop(targetIdx, filtered, copy);
-                           return;
-                         }
-                       }
-                     }
-                     // Not over a folder row — delegate to external drop handler
-                     // (e.g. sidebar tree-row). App resolves the drop target.
-                     onExternalDrag && onExternalDrag(sources, ev.clientX, ev.clientY, copy);
-                   };
-                   window.addEventListener("pointermove", onMove);
-                   window.addEventListener("pointerup", onPointerUp);
-                   window.addEventListener("pointercancel", onPointerUp);
-                   // Let click/dblclick still work when no drag happened.
-                   void moved;
-                 }}
-                 onClick={(e) => handleRowClick(i, e)}
-                 onDoubleClick={() => onOpen && onOpen(i)}
-                 onContextMenu={(e) => {
-                   e.preventDefault();
-                   e.stopPropagation();
-                   if (!isSel) { setSelected([i]); setAnchorIndex(i); }
-                   setFocusIndex(i);
-                   onContext(e, "file", i);
-                 }}>
-              <span className={"ic " + ki.cls}>{ki.ic}</span>
-              <span className="name">
-                {showGitGutters && f.git && <span className={"git-dot " + gitDotClass(f.git)}></span>}
-                <span style={{color: f.hidden ? "var(--fg-3)" : "inherit"}}>{f.name}</span>
-                {showExtensions && f.ext && !f.hidden && f.kind !== "folder" && <span className="ext">.{f.ext}</span>}
-              </span>
-              <span className="tag">
-                {f.tag ? <><span className="dot" style={{background: tagColor(f.tag)}}></span>{f.tag}</> : <span style={{color:"var(--fg-3)"}}>—</span>}
-              </span>
-              <span className="size">{f.size}</span>
-              <span className="date">{f.date}</span>
-              <span className="tag" style={{textAlign:"right"}}>
-                {!showGitGutters ? <span style={{color:"var(--fg-3)"}}>—</span>
-                 : f.git === "M" ? <span style={{color:"var(--yellow)"}}>M</span>
-                 : f.git === "A" ? <span style={{color:"var(--green)"}}>A</span>
-                 : f.git === "D" ? <span style={{color:"var(--red)"}}>D</span>
-                 : f.git === "U" ? <span style={{color:"var(--red)"}}>U</span>
-                 : f.git === "?" ? <span style={{color:"var(--fg-2)"}}>?</span>
-                 : f.git === "!" ? <span style={{color:"var(--fg-3)"}}>!</span>
-                 : <span style={{color:"var(--fg-3)"}}>—</span>}
-              </span>
-            </div>
+            <PaneRow key={i}
+                     f={f}
+                     i={i}
+                     isSel={selectedSet.has(i)}
+                     isFocus={paneFocused && focusIndex === i}
+                     isDragOver={dragOverIndex === i && f.kind === "folder"}
+                     isCut={fPath ? cutSet.has(fPath) : false}
+                     showGitGutters={showGitGutters}
+                     showExtensions={showExtensions}
+                     h={rowHandlers}
+            />
           );
         })}
       </div>

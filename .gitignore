@@ -35,3 +35,4 @@ vite.config.js
 
 # Local agent notes (machine-specific)
 CLAUDE.md
+.playwright-mcp/

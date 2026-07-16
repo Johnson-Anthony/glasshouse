@@ -137,10 +137,35 @@ export function homeDir(): Promise<string | null> {
   return safe(() => invoke<string | null>("home_dir"), null);
 }
 
+/** Browser-only (dev server, no Tauri): `?mockRows=N` fills every directory
+ *  with N synthetic entries so rendering can be profiled without a backend. */
+function mockRows(): FileEntry[] {
+  const n = Number(new URLSearchParams(window.location.search).get("mockRows"));
+  if (!Number.isFinite(n) || n <= 0) return [];
+  const kinds = ["text", "code", "img", "archive", "bin"];
+  const exts = ["md", "rs", "png", "zip", "dat"];
+  const out: FileEntry[] = [];
+  for (let i = 0; i < n; i++) {
+    const dir = i % 10 === 0;
+    out.push({
+      name: dir ? `folder-${i}` : `file-${i}`,
+      path: `/mock/${i}`,
+      kind: dir ? "folder" : kinds[i % kinds.length],
+      size: (i * 37) % 1_000_000,
+      modified_ms: 1_700_000_000_000 + i * 60_000,
+      hidden: false,
+      ext: dir ? "" : exts[i % exts.length],
+      is_symlink: false,
+      git: i % 23 === 0 ? "M" : null,
+    });
+  }
+  return out;
+}
+
 export function listDir(path: string, showHidden: boolean): Promise<FileEntry[]> {
   return safe(
     () => invoke<FileEntry[]>("list_dir", { path, showHidden }),
-    [],
+    mockRows(),
   );
 }
 
