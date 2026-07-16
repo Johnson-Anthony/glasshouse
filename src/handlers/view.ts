@@ -36,6 +36,9 @@ function setDisplayMode(mode: string): void {
   localStorage.setItem(DISPLAY_MODE_KEY, mode);
   const slug = mode.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
   document.documentElement.setAttribute("data-display-mode", slug);
+  // Most modes are pure CSS off the attribute above, but Miller columns swaps
+  // the pane component — App listens for this to re-render.
+  window.dispatchEvent(new CustomEvent("glasshouse:display-mode", { detail: mode }));
 }
 
 function setLayout(layout: string): void {

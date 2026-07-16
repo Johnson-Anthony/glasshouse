@@ -10,7 +10,7 @@ import {
   type GitInfo,
 } from "./api";
 
-function normalizePath(p: string): string {
+export function normalizePath(p: string): string {
   return p.replace(/[\\/]+$/, "").toLowerCase();
 }
 
@@ -62,7 +62,7 @@ export interface UseTabResult {
   actions: TabActions;
 }
 
-function parentPath(p: string): string {
+export function parentPath(p: string): string {
   if (!p) return p;
   const hasBack = p.includes("\\");
   const sep = hasBack ? "\\" : "/";

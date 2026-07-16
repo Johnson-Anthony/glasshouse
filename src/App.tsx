@@ -49,6 +49,7 @@ import {
 import { HANDLERS, type HandlerCtx } from "./handlers";
 import { IS_WINDOWS } from "./platform";
 import { TerminalDrawer } from "./Terminal";
+import { MillerView } from "./Miller";
 import {
   homeDir,
   makeDir,
@@ -498,6 +499,18 @@ export function App() {
       setPins(await readPins());
       setTagStore(await readTags());
     })();
+  }, []);
+
+  // Display mode is mostly CSS driven off <html data-display-mode>, but
+  // Miller columns needs a different pane component, so App mirrors the mode
+  // in state (updated via the event setDisplayMode fires in handlers/view.ts).
+  const [displayMode, setDisplayModeState] = useState<string>(
+    () => localStorage.getItem("glasshouse.displayMode") ?? "Details (rows)",
+  );
+  useEffect(() => {
+    const h = (e: Event) => setDisplayModeState((e as CustomEvent<string>).detail);
+    window.addEventListener("glasshouse:display-mode", h);
+    return () => window.removeEventListener("glasshouse:display-mode", h);
   }, []);
 
   useEffect(() => {
@@ -2048,6 +2061,21 @@ export function App() {
       ? handle.state.entries.map(e => entryToRow(e, tagStore))
       : [];
     const sel = handle?.state.selected ?? [];
+    if (displayMode === "Miller Columns (ranger)") {
+      return (
+        <MillerView
+          cwd={handle?.state.path ?? ""}
+          entries={handle?.state.entries ?? []}
+          showHidden={handle?.state.showHidden ?? false}
+          focusIndex={handle?.state.focusIndex ?? 0}
+          setFocusIndex={handle?.actions.setFocusIndex ?? (() => {})}
+          setSelected={handle?.actions.setSelected ?? (() => {})}
+          onNavigate={(p) => handle?.actions.goTo(p)}
+          onOpenFile={(p) => { void openWithDefault(p); }}
+          onActivate={() => setFocusedPane("files")}
+        />
+      );
+    }
     return (
       <FilePane
         cutPaths={cutPaths}

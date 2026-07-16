@@ -1195,20 +1195,54 @@ html[data-display-mode="tiles"] .pane .pane-head {
   display: none;
 }
 
-/* Miller Columns (ranger): stub — tint indicator so user sees the mode applied */
-html[data-display-mode="miller-columns-ranger"] .pane {
-  border-left: 3px solid var(--magenta);
+/* Miller Columns (ranger): parent | current | preview */
+.miller {
+  display: grid;
+  grid-template-columns: 1fr 1.4fr 1fr;
+  min-height: 0;
+  background: var(--bg-0);
+  outline: none;
 }
-html[data-display-mode="miller-columns-ranger"] .pane .rows::before {
-  content: "miller columns — preview";
-  display: block;
-  padding: 4px 10px;
-  background: var(--bg-2);
-  color: var(--magenta);
-  font-size: 10px;
-  letter-spacing: 0.08em;
-  border-bottom: 1px solid var(--border);
+.miller .mcol {
+  overflow-y: auto;
+  border-right: 1px solid var(--border);
+  padding: 4px 0;
+  min-width: 0;
 }
+.miller .mcol:last-child { border-right: none; }
+.miller .mrow {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  height: var(--row-h);
+  padding: 0 10px;
+  font-size: 12px;
+  color: var(--fg-1);
+  cursor: default;
+  white-space: nowrap;
+  content-visibility: auto;
+  contain-intrinsic-size: auto var(--row-h);
+}
+.miller .mrow:hover { background: var(--bg-2); color: var(--fg-0); }
+.miller .mrow.active {
+  background: var(--bg-sel);
+  color: var(--fg-0);
+  border-left: 2px solid var(--accent);
+  padding-left: 8px;
+}
+.miller .mrow.hilite { color: var(--accent); }
+.miller .mrow.dim { color: var(--fg-3); }
+.miller .mic { color: var(--fg-3); width: 12px; flex: none; }
+.miller .mname { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.miller .msize { margin-left: auto; color: var(--fg-3); font-size: 11px; flex: none; }
+.miller .mpreview { padding: 14px; font-size: 12px; }
+.miller .mp-name {
+  color: var(--fg-0);
+  margin-bottom: 10px;
+  word-break: break-all;
+}
+.miller .mp-line { color: var(--fg-3); margin-bottom: 4px; }
+.miller .mp-line span { color: var(--fg-1); margin-left: 6px; }
 
 /* Tree Flat: denser rows + subtle tint */
 html[data-display-mode="tree-flat"] {
