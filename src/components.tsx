@@ -1,5 +1,5 @@
 // glasshouse file manager — components
-import React, { useState, useEffect, useRef, useMemo } from "react";
+import React, { useState, useEffect, useLayoutEffect, useRef, useMemo } from "react";
 import { createPortal } from "react-dom";
 import {
   MENUS,
@@ -301,8 +301,34 @@ function SubDropdown({
   onPayload?: (payload: DynamicPayload) => void;
 }) {
   const children = useExpandedItems(item.children, item);
+  const ref = useRef<HTMLDivElement>(null);
+  const [style, setStyle] = useState<React.CSSProperties>({ left: "calc(100% + 2px)", top: -4, minWidth: 240 });
+  // The menu is DOM inside the webview, so a submenu near a window edge just
+  // clips — flip to the parent's left edge / shift up when the natural spot
+  // runs off-screen. Anchored on the parent .mi rect so re-runs (dynamic
+  // children arriving) stay stable regardless of the current placement.
+  useLayoutEffect(() => {
+    const el = ref.current;
+    const anchor = el?.parentElement;
+    if (!el || !anchor) return;
+    const M = 6;
+    const a = anchor.getBoundingClientRect();
+    const w = el.offsetWidth;
+    const h = el.offsetHeight;
+    const next: React.CSSProperties = { left: "calc(100% + 2px)", minWidth: 240 };
+    if (a.right + 2 + w > window.innerWidth - M && a.left - 2 - w > M) {
+      next.left = "auto";
+      next.right = "calc(100% + 2px)";
+    }
+    let top = -4;
+    const overflow = a.top + top + h - (window.innerHeight - M);
+    if (overflow > 0) top -= overflow;
+    if (a.top + top < M) top = M - a.top;
+    next.top = top;
+    setStyle(next);
+  }, [children.length]);
   return (
-    <div className="dropdown" style={{left: "calc(100% + 2px)", top: "-4px", minWidth: 240}}>
+    <div ref={ref} className="dropdown" style={style}>
       {children.map((c, i) => (
         <MenuItem key={i} item={c} onAction={onAction} onPayload={onPayload} parentLabel={item.label} />
       ))}
@@ -2830,6 +2856,35 @@ export interface ContextMenuProps {
 export function ContextMenu({ items, x, y, onClose, onCommand, onPayload }: ContextMenuProps) {
   const [subHover, setSubHover] = useState<MenuItemDef | null>(null);
   const expanded = useExpandedItems(items, items);
+  const ref = useRef<HTMLDivElement>(null);
+  // A right-click near the bottom/right window edge would push the menu tail
+  // outside the webview, where it simply clips (it's DOM, not an OS popup).
+  // Measure at natural size pre-paint and shift into view; if the menu is
+  // taller than the window, pin it to the top edge and let it scroll.
+  const [pos, setPos] = useState<{ left: number; top: number; maxHeight?: number }>({ left: x, top: y });
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const M = 6;
+    // Measure at 0,0 so proximity to the right/bottom edge can't shrink the
+    // natural size (fixed-position boxes shrink-to-fit against the viewport).
+    el.style.left = "0px";
+    el.style.top = "0px";
+    el.style.maxHeight = "none";
+    const w = el.offsetWidth;
+    const h = el.offsetHeight;
+    const fitH = Math.min(h, window.innerHeight - 2 * M);
+    const left = Math.max(M, Math.min(x, window.innerWidth - M - w));
+    const top = Math.max(M, Math.min(y, window.innerHeight - M - fitH));
+    const maxHeight = h > fitH ? fitH : undefined;
+    // Write the result straight to the DOM: React's style diff skips values
+    // it saw last render, so it would leave the measurement position behind.
+    el.style.left = `${left}px`;
+    el.style.top = `${top}px`;
+    el.style.maxHeight = maxHeight ? `${maxHeight}px` : "";
+    el.style.overflowY = maxHeight ? "auto" : "";
+    setPos({ left, top, maxHeight });
+  }, [x, y, expanded.length]);
   useEffect(() => {
     const h = () => onClose();
     setTimeout(() => document.addEventListener("mousedown", h, { once: true }), 0);
@@ -2837,8 +2892,9 @@ export function ContextMenu({ items, x, y, onClose, onCommand, onPayload }: Cont
   }, [onClose]);
   return (
     <div
+      ref={ref}
       className="ctx-menu"
-      style={{left: x, top: y}}
+      style={{left: pos.left, top: pos.top, maxHeight: pos.maxHeight, overflowY: pos.maxHeight ? "auto" : undefined}}
       onClick={(e) => e.stopPropagation()}
       // Stop mousedown so the document-level close listener below doesn't
       // fire → state update → re-render before the click reaches MenuItem.

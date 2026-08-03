@@ -1876,11 +1876,8 @@ export function App() {
   };
 
   const openCtxMenu = (e: React.MouseEvent, items: MenuItemDef[]) => {
-    setCtx({
-      x: Math.min(e.clientX, window.innerWidth - 240),
-      y: Math.min(e.clientY, window.innerHeight - 420),
-      items,
-    });
+    // Raw cursor coords — ContextMenu measures itself and clamps into view.
+    setCtx({ x: e.clientX, y: e.clientY, items });
   };
 
   const onContext = (e: React.MouseEvent, kind: ContextKind, rowIndex?: number) => {
