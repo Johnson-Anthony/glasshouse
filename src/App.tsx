@@ -2216,7 +2216,7 @@ export function App() {
         tagFilter={activeHandle?.state.tagFilter ?? null}
         onClearTagFilter={() => activeHandle?.actions.setTagFilter(null)}
       />
-      <div className="body">
+      <div className={"body" + (showSidebar ? "" : " no-sidebar") + (showInspector ? "" : " no-inspector")}>
         {showSidebar && <Sidebar
           sidebarRootRef={sidebarRootRef}
           onActivate={() => setFocusedPane("sidebar")}

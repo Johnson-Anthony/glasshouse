@@ -1,5 +1,6 @@
 // glasshouse file manager — components
 import React, { useState, useEffect, useRef, useMemo } from "react";
+import { createPortal } from "react-dom";
 import {
   MENUS,
   PALETTE,
@@ -1592,12 +1593,12 @@ const PaneRow = React.memo(function PaneRow({
         <span style={{color: f.hidden ? "var(--fg-3)" : "inherit"}}>{f.name}</span>
         {showExtensions && f.ext && !f.hidden && f.kind !== "folder" && <span className="ext">.{f.ext}</span>}
       </span>
-      <span className="tag">
+      <span className="tag c-tag">
         {f.tag ? <><span className="dot" style={{background: tagColor(f.tag)}}></span>{f.tag}</> : <span style={{color:"var(--fg-3)"}}>—</span>}
       </span>
-      <span className="size">{f.size}</span>
-      <span className="date">{f.date}</span>
-      <span className="tag" style={{textAlign:"right"}}>
+      <span className="size c-size">{f.size}</span>
+      <span className="date c-date">{f.date}</span>
+      <span className="tag c-git" style={{textAlign:"right"}}>
         {!showGitGutters ? <span style={{color:"var(--fg-3)"}}>—</span>
          : f.git === "M" ? <span style={{color:"var(--yellow)"}}>M</span>
          : f.git === "A" ? <span style={{color:"var(--green)"}}>A</span>
@@ -2067,10 +2068,10 @@ export function FilePane({
       <div className="pane-head">
         <div className="col"></div>
         <div className="col" onClick={() => onSortChange("name")}>name <span className="sort">{sortArrow("name")}</span></div>
-        <div className="col" onClick={() => onSortChange("tag")}>tag <span className="sort">{sortArrow("tag")}</span></div>
-        <div className="col" style={{justifyContent:"flex-end"}} onClick={() => onSortChange("size")}>size <span className="sort">{sortArrow("size")}</span></div>
-        <div className="col" onClick={() => onSortChange("modified")}>modified <span className="sort">{sortArrow("modified")}</span></div>
-        <div className="col" style={{justifyContent:"flex-end"}} onClick={() => onSortChange("git")}>git <span className="sort">{sortArrow("git")}</span></div>
+        <div className="col c-tag" onClick={() => onSortChange("tag")}>tag <span className="sort">{sortArrow("tag")}</span></div>
+        <div className="col c-size" style={{justifyContent:"flex-end"}} onClick={() => onSortChange("size")}>size <span className="sort">{sortArrow("size")}</span></div>
+        <div className="col c-date" onClick={() => onSortChange("modified")}>modified <span className="sort">{sortArrow("modified")}</span></div>
+        <div className="col c-git" style={{justifyContent:"flex-end"}} onClick={() => onSortChange("git")}>git <span className="sort">{sortArrow("git")}</span></div>
       </div>
       <div className="rows">
         {displayFiles.map(({ file: f, origIndex: i }) => {
@@ -2109,7 +2110,10 @@ export function FilePane({
           }}
         />
       )}
-      {ghost && (
+      {/* Portaled: .pane is a size container (layout containment), which would
+        * otherwise make it the containing block for this fixed-position ghost
+        * and its viewport clientX/Y coords would land in the wrong place. */}
+      {ghost && createPortal(
         <div
           className="drag-ghost"
           style={{
@@ -2130,7 +2134,8 @@ export function FilePane({
         >
           {ghost.copy ? "copy " : "move "}
           {ghost.count} item{ghost.count === 1 ? "" : "s"}
-        </div>
+        </div>,
+        document.body,
       )}
     </section>
   );
