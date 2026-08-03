@@ -47,6 +47,7 @@ import {
   type UseTabResult,
 } from "./state";
 import { HANDLERS, type HandlerCtx } from "./handlers";
+import { canExtractArchive } from "./handlers/archive";
 import { IS_WINDOWS } from "./platform";
 import { TerminalDrawer } from "./Terminal";
 import { MillerView } from "./Miller";
@@ -1928,6 +1929,13 @@ export function App() {
       if (!blameEligible) {
         items = items.filter(it => !(it.kind === "item" && it.label === "Git: Blame"));
       }
+      // Extract only makes sense for a single archive the backend can unpack.
+      const extractEligible =
+        selCount === 1 && !!firstEntry &&
+        firstEntry.kind !== "folder" && canExtractArchive(firstEntry.name);
+      if (!extractEligible) {
+        items = items.filter(it => !(it.kind === "sub" && it.label === "Extract →"));
+      }
       // Swap single-rename for bulk-rename when multiple rows are selected.
       if (selCount > 1) {
         items = items.map(it => {
@@ -1966,7 +1974,9 @@ export function App() {
         break;
       }
       case "tree-file":
-        menu = CONTEXT_FILE;
+        // Extract dispatches on the pane selection, not the sidebar path —
+        // hide it here so it can't act on the wrong file.
+        menu = CONTEXT_FILE.filter(it => !(it.kind === "sub" && it.label === "Extract →"));
         break;
       case "tree-folder":
         menu = CONTEXT_SIDEBAR_FOLDER;

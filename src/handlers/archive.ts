@@ -8,6 +8,21 @@ import {
 import { dialogs } from "../components";
 import { basename, joinPath } from "../paths";
 
+// Extensions the backend archive_extract command can actually unpack —
+// keep in sync with the dispatch in src-tauri/src/commands.rs.
+const EXTRACT_EXTS = [
+  ".zip", ".7z", ".tar",
+  ".tar.gz", ".tgz",
+  ".tar.bz2", ".tbz2",
+  ".tar.xz", ".txz",
+  ".tar.zst", ".tzst",
+];
+
+export function canExtractArchive(name: string): boolean {
+  const lower = name.toLowerCase();
+  return EXTRACT_EXTS.some((ext) => lower.endsWith(ext));
+}
+
 function stripArchiveExt(name: string): string {
   const lower = name.toLowerCase();
   const longs = [".tar.gz", ".tar.zst", ".tar.bz2", ".tar.xz"];

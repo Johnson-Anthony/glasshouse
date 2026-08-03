@@ -468,6 +468,13 @@ export const CONTEXT_FILE: MenuItemDef[] = [
       { kind: "item", label: "TAR.GZ" },
       { kind: "item", label: "7-Zip" },
     ] },
+  // Shown only when the selection is a single extractable archive —
+  // App.tsx filters this sub out otherwise (same pattern as the git items).
+  { kind: "sub",  ic: "", label: "Extract →",
+    children: [
+      { kind: "item", label: "Extract Here" },
+      { kind: "item", label: "Extract to Folder…" },
+    ] },
   { kind: "item", ic: "", label: "Checksum SHA256" },
   { kind: "item", ic: "", label: "Diff with Clipboard" },
   { kind: "sep" },

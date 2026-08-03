@@ -1530,7 +1530,8 @@ pub fn archive_create(
 
 /// Extract `archive` into `dest_dir`, which must already exist or will be
 /// created. Dispatches on extension:
-///   .zip/.tar/.tar.gz/.tgz/.tar.bz2/.tar.zst → `tar -xf ...`
+///   .zip → in-process zip crate (GNU tar on Linux can't read zip)
+///   .tar/.tar.gz/.tgz/.tar.bz2/.tar.zst → `tar -xf ...`
 ///   .7z → `7z.exe x archive -o<dest_dir> -y`
 #[tauri::command]
 pub fn archive_extract(archive: String, dest_dir: String) -> Result<(), String> {
@@ -1540,10 +1541,21 @@ pub fn archive_extract(archive: String, dest_dir: String) -> Result<(), String> 
     }
 
     let lower = archive.to_ascii_lowercase();
+
+    if lower.ends_with(".zip") {
+        let f = std::fs::File::open(&archive)
+            .map_err(|e| format!("open {}: {}", archive, e))?;
+        let mut za = zip::ZipArchive::new(std::io::BufReader::new(f))
+            .map_err(|e| format!("read zip {}: {}", archive, e))?;
+        // ZipArchive::extract sanitises entry names (rejects traversal).
+        return za
+            .extract(&dest_dir)
+            .map_err(|e| format!("extract {}: {}", archive, e));
+    }
+
     let is_7z = lower.ends_with(".7z");
     let is_tar_zst = lower.ends_with(".tar.zst") || lower.ends_with(".tzst");
-    let is_tar_family = lower.ends_with(".zip")
-        || lower.ends_with(".tar")
+    let is_tar_family = lower.ends_with(".tar")
         || lower.ends_with(".tar.gz")
         || lower.ends_with(".tgz")
         || lower.ends_with(".tar.bz2")
@@ -3037,6 +3049,39 @@ mod tests {
         assert_eq!(std::fs::read_to_string(&target).unwrap(), "[1,2]");
         // no stray tmp file left behind
         assert!(!dir.join("pins.json.tmp").exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn zip_compress_extract_round_trip() {
+        let dir = temp_dir("ziprt");
+        let src = dir.join("payload");
+        std::fs::create_dir_all(src.join("nested/empty")).unwrap();
+        std::fs::write(src.join("top.txt"), "top").unwrap();
+        std::fs::write(src.join("nested/inner.txt"), "inner").unwrap();
+
+        let zip_path = dir.join("payload.zip");
+        compress(
+            vec![src.to_string_lossy().into_owned()],
+            zip_path.to_string_lossy().into_owned(),
+        )
+        .unwrap();
+
+        let out = dir.join("out");
+        archive_extract(
+            zip_path.to_string_lossy().into_owned(),
+            out.to_string_lossy().into_owned(),
+        )
+        .unwrap();
+
+        let root = out.join("payload");
+        assert_eq!(std::fs::read_to_string(root.join("top.txt")).unwrap(), "top");
+        assert_eq!(
+            std::fs::read_to_string(root.join("nested/inner.txt")).unwrap(),
+            "inner"
+        );
+        // empty directory entries survive the round-trip
+        assert!(root.join("nested/empty").is_dir());
         let _ = std::fs::remove_dir_all(&dir);
     }
 
