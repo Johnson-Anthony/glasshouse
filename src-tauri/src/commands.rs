@@ -491,7 +491,8 @@ pub fn read_image_b64(path: String, max_bytes: usize) -> Result<String, String> 
         "bmp" => "image/bmp",
         "ico" => "image/x-icon",
         "avif" => "image/avif",
-        // The inspector's audio preview rides the same data-URL path.
+        // The inspector's audio and pdf previews ride the same data-URL path.
+        "pdf" => "application/pdf",
         "mp3" => "audio/mpeg",
         "wav" => "audio/wav",
         "ogg" | "oga" | "opus" => "audio/ogg",

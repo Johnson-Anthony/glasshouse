@@ -2180,6 +2180,7 @@ export interface InspectorProps {
 }
 
 function mimeGuess(kind: FileKind, ext: string): string {
+  if (ext === "pdf") return "application/pdf";
   if (AUDIO_EXTS.has(ext)) {
     if (ext === "mp3") return "audio/mpeg";
     if (ext === "wav") return "audio/wav";
@@ -2522,6 +2523,126 @@ function FolderPreview({ path, large }: { path: string; large: boolean }) {
   );
 }
 
+// Lazy pdf.js loader — the library is ~1.4 MB, so it only loads (as its own
+// Vite chunk) the first time a PDF is actually previewed.
+let pdfjsPromise: Promise<typeof import("pdfjs-dist")> | null = null;
+function loadPdfjs(): Promise<typeof import("pdfjs-dist")> {
+  if (!pdfjsPromise) {
+    pdfjsPromise = (async () => {
+      // pdf.js 6 uses Promise.withResolvers (Safari 17.4+); polyfill for older
+      // WebKitGTK so a missing builtin degrades to a working preview, not a throw.
+      const P = Promise as PromiseConstructor & {
+        withResolvers?: <T>() => {
+          promise: Promise<T>;
+          resolve: (v: T | PromiseLike<T>) => void;
+          reject: (e?: unknown) => void;
+        };
+      };
+      if (!P.withResolvers) {
+        P.withResolvers = <T,>() => {
+          let resolve!: (v: T | PromiseLike<T>) => void;
+          let reject!: (e?: unknown) => void;
+          const promise = new Promise<T>((res, rej) => { resolve = res; reject = rej; });
+          return { promise, resolve, reject };
+        };
+      }
+      const [pdfjs, worker] = await Promise.all([
+        import("pdfjs-dist"),
+        import("pdfjs-dist/build/pdf.worker.min.mjs?url"),
+      ]);
+      pdfjs.GlobalWorkerOptions.workerSrc = worker.default;
+      return pdfjs;
+    })();
+  }
+  return pdfjsPromise;
+}
+
+const PDF_CAP = 32 * 1024 * 1024;
+
+function PdfPreview({ file, large }: { file: InspectableFile; large: boolean }) {
+  const holderRef = useRef<HTMLDivElement>(null);
+  const [err, setErr] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [pageCount, setPageCount] = useState(0);
+  const tooBig = file.entry.size > PDF_CAP;
+
+  useEffect(() => {
+    if (tooBig) return;
+    let cancelled = false;
+    // Destroying the loading task tears down the document and its worker
+    // resources — both on unmount and when the path changes mid-render.
+    let task: { destroy(): Promise<unknown> } | null = null;
+    setErr("");
+    setLoading(true);
+    setPageCount(0);
+    void (async () => {
+      try {
+        const pdfjs = await loadPdfjs();
+        const dataUrl = await readImageB64(file.entry.path, PDF_CAP);
+        const b64 = dataUrl.slice(dataUrl.indexOf(",") + 1);
+        const bin = atob(b64);
+        const bytes = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+        const loadingTask = pdfjs.getDocument({ data: bytes });
+        task = loadingTask;
+        const loaded = await loadingTask.promise;
+        if (cancelled) return;
+        setPageCount(loaded.numPages);
+        const holder = holderRef.current;
+        if (!holder) return;
+        holder.replaceChildren();
+        const maxPages = Math.min(loaded.numPages, large ? 10 : 1);
+        // Fit the page to the holder's width; render at devicePixelRatio so
+        // text stays crisp on hidpi.
+        const cssWidth = Math.max(120, holder.clientWidth - (large ? 48 : 18));
+        const ratio = window.devicePixelRatio || 1;
+        for (let n = 1; n <= maxPages; n++) {
+          if (cancelled) return;
+          const page = await loaded.getPage(n);
+          const base = page.getViewport({ scale: 1 });
+          const vp = page.getViewport({ scale: (cssWidth / base.width) * ratio });
+          const canvas = document.createElement("canvas");
+          canvas.width = Math.floor(vp.width);
+          canvas.height = Math.floor(vp.height);
+          canvas.style.width = `${Math.floor(vp.width / ratio)}px`;
+          canvas.style.height = `${Math.floor(vp.height / ratio)}px`;
+          await page.render({ canvas, viewport: vp }).promise;
+          if (cancelled) return;
+          holder.appendChild(canvas);
+        }
+        if (!cancelled && loaded.numPages > maxPages) {
+          const more = document.createElement("div");
+          more.className = "more";
+          more.textContent = `+${loaded.numPages - maxPages} more page${loaded.numPages - maxPages === 1 ? "" : "s"}`;
+          holder.appendChild(more);
+        }
+        if (!cancelled) setLoading(false);
+      } catch (e) {
+        if (!cancelled) {
+          setLoading(false);
+          setErr(e instanceof Error ? e.message : String(e));
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+      if (task) void task.destroy().catch(() => undefined);
+    };
+  }, [file.entry.path, large, tooBig]);
+
+  if (tooBig) return <div className="ghost">pdf too large to preview ({file.size})</div>;
+  if (err) return <div className="ghost" style={{ fontSize: 10 }}>pdf: {err}</div>;
+  return (
+    <>
+      {loading && <div className="ghost" style={{ position: "absolute", zIndex: 1 }}>rendering pdf…</div>}
+      <div ref={holderRef} className="pv-pdf" />
+      {pageCount > 0 && !loading && (
+        <div className="pv-badge">{pageCount} page{pageCount === 1 ? "" : "s"} · pdf</div>
+      )}
+    </>
+  );
+}
+
 const AUDIO_CAP = 16 * 1024 * 1024;
 
 function AudioPreview({ file }: { file: InspectableFile }) {
@@ -2565,8 +2686,9 @@ export function FilePreview({ file: f, large = false, onExpand }: FilePreviewPro
   const isFolder = f.kind === "folder";
   const isImg = f.kind === "img";
   const isAudio = !isFolder && !isImg && AUDIO_EXTS.has(extL);
+  const isPdf = !isFolder && !isImg && extL === "pdf";
   const isTextLike =
-    !isFolder && !isImg && !isAudio &&
+    !isFolder && !isImg && !isAudio && !isPdf &&
     (f.kind === "text" || f.kind === "code" || TEXT_EXT_FALLBACK.has(extL));
 
   const [text, setText] = useState("");
@@ -2701,6 +2823,8 @@ export function FilePreview({ file: f, large = false, onExpand }: FilePreviewPro
     }
   } else if (isAudio) {
     body = <AudioPreview file={f} />;
+  } else if (isPdf) {
+    body = <PdfPreview file={f} large={large} />;
   } else if (isTextLike && !sniffedBinary) {
     if (textLoading) body = <div className="ghost">reading…</div>;
     else if (textErr) body = <div className="ghost" style={{ fontSize: 10, color: "var(--red, #f7768e)" }}>can't preview: {textErr}</div>;
