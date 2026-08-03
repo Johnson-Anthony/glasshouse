@@ -6,6 +6,7 @@ import {
   Sidebar,
   FilePane,
   Inspector,
+  QuickLook,
   StatusBar,
   Palette,
   ContextMenu,
@@ -412,6 +413,7 @@ export function App() {
   const [palOpen, setPalOpen] = useState(false);
   const [ctx, setCtx] = useState<CtxState | null>(null);
   const [tweaksOpen, setTweaksOpen] = useState(false);
+  const [quickLookOpen, setQuickLookOpen] = useState(false);
   const [showInspector, setShowInspector] = useState(true);
   const [showSidebar, setShowSidebar] = useState(true);
   const [showStatusBar, setShowStatusBar] = useState(true);
@@ -688,7 +690,7 @@ export function App() {
         }
       }
       if (e.key === "Escape") {
-        setPalOpen(false); setCtx(null);
+        setPalOpen(false); setCtx(null); setQuickLookOpen(false);
       }
       if (e.key === "/" && !e.ctrlKey && !e.metaKey && !e.altKey) {
         if (inText) return;
@@ -702,6 +704,18 @@ export function App() {
       // owns the behaviour. Skip anything fired while focus is in a text input
       // so typing into fields doesn't nuke files.
       if (inText) return;
+
+      // Space — Quick Look toggle for the selected file. defaultPrevented
+      // means a focused widget (e.g. a sidebar group title) already consumed
+      // the key for its own activation.
+      if (e.key === " " && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) {
+        if (e.defaultPrevented) return;
+        if ((activeHandle?.state.selected.length ?? 0) > 0) {
+          e.preventDefault();
+          setQuickLookOpen(v => !v);
+        }
+        return;
+      }
 
       // Ctrl+Z / Ctrl+Y / Ctrl+Shift+Z — Undo / Redo. Routed through dispatch
       // so the misc.ts handler's undo/redo entry point handles both keyboard
@@ -2266,6 +2280,7 @@ export function App() {
         {showInspector && (
           <Inspector
             file={selectedFile}
+            onExpand={() => setQuickLookOpen(true)}
             onQuickAction={(action) => {
               const path = selectedFile?.entry.path;
               if (!path) return;
@@ -2322,6 +2337,9 @@ export function App() {
 
       {palOpen && <Palette onClose={() => setPalOpen(false)} onCommand={handleMenuCommand} />}
       {ctx && <ContextMenu items={ctx.items} x={ctx.x} y={ctx.y} onClose={() => setCtx(null)} onCommand={handleMenuCommand} onPayload={handleMenuPayload} />}
+      {quickLookOpen && selectedFile && (
+        <QuickLook file={selectedFile} onClose={() => setQuickLookOpen(false)} />
+      )}
       {tweaksOpen && <Tweaks state={state} setState={setState} onClose={() => setTweaksOpen(false)} />}
       {blame && <BlameDialog blame={blame} onClose={() => setBlame(null)} />}
       {gitOutput && <GitOutputDialog state={gitOutput} onClose={() => setGitOutput(null)} />}

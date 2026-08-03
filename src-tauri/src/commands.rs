@@ -490,6 +490,13 @@ pub fn read_image_b64(path: String, max_bytes: usize) -> Result<String, String> 
         "svg" => "image/svg+xml",
         "bmp" => "image/bmp",
         "ico" => "image/x-icon",
+        "avif" => "image/avif",
+        // The inspector's audio preview rides the same data-URL path.
+        "mp3" => "audio/mpeg",
+        "wav" => "audio/wav",
+        "ogg" | "oga" | "opus" => "audio/ogg",
+        "flac" => "audio/flac",
+        "m4a" => "audio/mp4",
         _ => "application/octet-stream",
     };
     Ok(format!("data:{};base64,{}", mime, STANDARD.encode(&bytes)))
