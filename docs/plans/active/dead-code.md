@@ -5,9 +5,10 @@ Backlog section: `## dead-code` in `docs/plans/active/survey-fixes.md`.
 
 ## Status
 Started 2026-11-08. Main merged at `db582d4`. The lead approved implementing without a user check-in; keep-or-delete calls go to `docs/decisions/` and "For review" below.
-- [ ] Frontend items
-- [ ] Rust items (wait for a build slot from the lead; merge main first)
-- [ ] Checks, decision records, handoff
+- [x] Frontend items. `pnpm build` OK, `pnpm test` 134/134, `pnpm check:wiring` clean.
+- [ ] Rust items. The lead approved the list. Committed unbuilt while waiting for a slot: shared hash loop (`be03654`), dependency removals (`d35ef98`), rust-version 1.88 (`66a9b77`). Still to do once command-security merges: merge main, remove the five commands, then clippy and cargo test.
+- [x] Decision records: `docs/decisions/2026-11-08-dead-code-{wiring-audit,command-owners,toggles}.md`
+- [ ] Final checks and handoff
 
 ## Scope and approach
 One removal per commit, so each merges on its own.
