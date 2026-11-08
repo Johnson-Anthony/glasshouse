@@ -153,7 +153,11 @@ export const navHandler: Handler = async (label, ctx) => {
         validate: (v) => v.trim() ? null : "distro name required",
       });
       if (distro == null || distro.trim() === "") return true;
-      ctx.activeHandle?.actions.goTo(`/mnt/wsl/${distro.trim()}`);
+      const name = distro.trim();
+      // Same `\\wsl$\<name>\` root the sidebar uses; fall back to building it
+      // for a distro the backend didn't list.
+      const known = distros.find(d => d.name.toLowerCase() === name.toLowerCase());
+      ctx.activeHandle?.actions.goTo(known?.path ?? `\\\\wsl$\\${name}\\`);
       return true;
     }
 

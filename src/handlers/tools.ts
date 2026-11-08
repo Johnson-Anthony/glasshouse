@@ -2,6 +2,7 @@ import type { Handler } from "./types";
 import { dialogs } from "../components";
 import { IS_WINDOWS } from "../platform";
 import { parseOctalMode } from "../octal";
+import { joinPath } from "../paths";
 import {
   hashSha256,
   findInFiles,
@@ -17,13 +18,6 @@ import {
   readText,
   writeText,
 } from "../api";
-
-function joinToolPath(dir: string, name: string): string {
-  if (!dir) return name;
-  const sep = dir.includes("\\") && !dir.includes("/") ? "\\" : "/";
-  const trimmed = dir.replace(/[\\/]+$/, "");
-  return trimmed + sep + name;
-}
 
 const clipboardStack: string[][] = [];
 
@@ -322,13 +316,13 @@ export const toolsHandler: Handler = async (label, ctx) => {
         const yyyy = d.getFullYear();
         const mm = String(d.getMonth() + 1).padStart(2, "0");
         const sub = `${yyyy}-${mm}`;
-        const targetDir = joinToolPath(ctx.cwd, sub);
+        const targetDir = joinPath(ctx.cwd, sub);
         try {
           if (!subfolders.has(sub)) {
             await makeDir(targetDir);
             subfolders.add(sub);
           }
-          const dest = joinToolPath(targetDir, entry.name);
+          const dest = joinPath(targetDir, entry.name);
           await moveEntry(entry.path, dest);
           moved++;
         } catch (e) {

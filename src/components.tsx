@@ -13,7 +13,7 @@ import {
 import { drives as apiDrives, fileStatExtended, gitBranchList, gitFileInfo, hashCrc32, hashMd5, hashSha256, homeDir as apiHomeDir, listDir, listShellProfiles, listWslDistros, netRate, pathFsType, pickDirectory, readHexDump, readImageB64, readPins, readRecent, readTags, readText, setPermissions, systemInfo as apiSystemInfo, winClose, winMinimize, winToggleMaximize, writeTags, writeText, type BlameLine, type Drive, type FileEntry, type FileStatExt, type GitFileInfo, type GitInfo, type NetRate, type ShellProfile, type SystemInfo, type WslDistro } from "./api";
 import { getVersion } from "@tauri-apps/api/app";
 import { fuzzyFilter } from "./fuzzy";
-import { joinPath } from "./paths";
+import { basename, joinPath, parentPath, pathSegments, splitBreadcrumb } from "./paths";
 
 // ─── dynamic menu expansion ────────────────────────────────────────────────
 // Menu trees include `{ kind: "dynamic", source: … }` sentinel nodes. When a
@@ -458,41 +458,6 @@ export interface ToolbarProps {
   onClearTagFilter?: () => void;
 }
 
-interface Crumb {
-  label: string;
-  path: string;
-}
-
-function splitBreadcrumb(path: string): Crumb[] {
-  if (!path) return [];
-  const isWin = /^[A-Za-z]:/.test(path) || path.includes("\\");
-  const sep = isWin ? "\\" : "/";
-  if (isWin) {
-    const normalized = path.replace(/\//g, "\\");
-    const parts = normalized.split("\\").filter(Boolean);
-    const out: Crumb[] = [];
-    let acc = "";
-    parts.forEach((p, i) => {
-      if (i === 0 && /^[A-Za-z]:$/.test(p)) {
-        acc = p + "\\";
-        out.push({ label: p, path: acc });
-      } else {
-        acc = acc.endsWith(sep) ? acc + p : acc + sep + p;
-        out.push({ label: p, path: acc });
-      }
-    });
-    return out;
-  }
-  const parts = path.split("/").filter(Boolean);
-  const out: Crumb[] = [];
-  let acc = "";
-  parts.forEach(p => {
-    acc = acc + "/" + p;
-    out.push({ label: p, path: acc });
-  });
-  return out;
-}
-
 export function Toolbar({ path, gitInfo, canBack, canForward, onBack, onForward, onUp, onRefresh, onGoTo, onSearchFocus, searchQuery, onSearchChange, searchInputRef, showHidden, onToggleHidden, showInspector, onToggleInspector, onCrumbContext, tagFilter, onClearTagFilter }: ToolbarProps) {
   const parts = splitBreadcrumb(path);
   return (
@@ -590,13 +555,6 @@ interface TreeNodeState {
   open: boolean;
   hasChildren: boolean;
   // children are stored in a sibling map keyed by path
-}
-
-function pathBasename(p: string): string {
-  const trimmed = p.replace(/[\\/]+$/, "");
-  const idx = Math.max(trimmed.lastIndexOf("\\"), trimmed.lastIndexOf("/"));
-  if (idx < 0) return trimmed || p;
-  return trimmed.slice(idx + 1) || trimmed;
 }
 
 function formatSidebarBytes(n: number): string {
@@ -814,12 +772,10 @@ export function Sidebar({ activePath, onGoTo, onRowContext, pins, onAddPin, tags
     if (!treePrefs.followActive || !rootPath || !activePath) return;
     if (!activePath.startsWith(rootPath)) return;
     void (async () => {
-      const sep = rootPath.includes("\\") ? "\\" : "/";
-      const rel = activePath.slice(rootPath.length).replace(/^[\\/]+/, "");
-      const parts = rel.split(/[\\/]/).filter(Boolean);
+      const parts = pathSegments(activePath.slice(rootPath.length));
       let cur = rootPath;
       for (let i = 0; i < parts.length - 1; i++) {
-        cur = cur.endsWith(sep) ? cur + parts[i] : cur + sep + parts[i];
+        cur = joinPath(cur, parts[i]);
         if (!children[cur]) {
           try {
             const kids = await listDir(cur, treePrefs.showHidden);
@@ -914,7 +870,7 @@ export function Sidebar({ activePath, onGoTo, onRowContext, pins, onAddPin, tags
     const out: { path: string; name: string; depth: number; open: boolean; kind: "folder" | "file" }[] = [];
     if (!rootPath) return out;
     const walk = (p: string, depth: number, kind: "folder" | "file") => {
-      const name = depth === 0 ? pathBasename(p) || p : pathBasename(p);
+      const name = basename(p) || p;
       const open = !!expanded[p];
       out.push({ path: p, name, depth, open, kind });
       if (open && kind === "folder") {
@@ -1238,7 +1194,7 @@ export function Sidebar({ activePath, onGoTo, onRowContext, pins, onAddPin, tags
                  title={p}
                  style={{cursor:"pointer"}}>
               <span className="ic">{home && p === home ? "󰋜" : ""}</span>
-              <span style={{overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap"}}>{pathBasename(p) || p}</span>
+              <span style={{overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap"}}>{basename(p) || p}</span>
               <span className="badge"></span>
             </div>
           );
@@ -2921,7 +2877,7 @@ export function Inspector({ file, onQuickAction, onExpand }: InspectorProps) {
   useEffect(() => {
     setGitFile(null);
     if (!file) return;
-    const parent = file.entry.path.replace(/[\\/][^\\/]*$/, "") || file.entry.path;
+    const parent = parentPath(file.entry.path);
     let cancelled = false;
     const id = window.setTimeout(() => {
       void (async () => {
@@ -3598,25 +3554,10 @@ export function BulkRenameDialog({ items, onClose, renameOne, onDone }: BulkRena
     setRunning(true);
     setErr(null);
     setProgress({ done: 0, total: plan.length });
-    // Resolve sep from the first source path — all selections live in the same
-    // directory, so this is consistent for the whole batch.
-    const sep = (() => {
-      const p = plan[0]?.path ?? "";
-      return p.includes("\\") ? "\\" : "/";
-    })();
-    const dirOf = (p: string): string => {
-      const trimmed = p.replace(/[\\/]+$/, "");
-      const idx = Math.max(trimmed.lastIndexOf("\\"), trimmed.lastIndexOf("/"));
-      if (idx < 0) return trimmed;
-      if (/^[A-Za-z]:$/.test(trimmed.slice(0, idx))) return trimmed.slice(0, idx + 1);
-      return trimmed.slice(0, idx);
-    };
     try {
       for (let i = 0; i < plan.length; i++) {
         const item = plan[i];
-        const parent = dirOf(item.path);
-        const joiner = /^[A-Za-z]:$/.test(parent) ? "" : sep;
-        const dst = parent + (parent.endsWith(sep) ? "" : joiner) + item.to;
+        const dst = joinPath(parentPath(item.path), item.to);
         await renameOne(item.path, dst);
         setProgress({ done: i + 1, total: plan.length });
       }
@@ -3894,12 +3835,6 @@ interface RowStatus {
   message?: string;
 }
 
-function baseOf(p: string): string {
-  const trimmed = p.replace(/[\\/]+$/, "");
-  const idx = Math.max(trimmed.lastIndexOf("\\"), trimmed.lastIndexOf("/"));
-  return idx < 0 ? trimmed : trimmed.slice(idx + 1);
-}
-
 
 export function PasteSpecialDialog({
   items,
@@ -3917,7 +3852,7 @@ export function PasteSpecialDialog({
   const [rows, setRows] = useState<RowStatus[]>(() =>
     items.map(it => ({
       path: it.path,
-      name: baseOf(it.path),
+      name: basename(it.path),
       kind: it.kind,
       state: "pending" as const,
     })),
@@ -3931,7 +3866,7 @@ export function PasteSpecialDialog({
     return () => window.removeEventListener("keydown", h);
   }, [onClose, running]);
 
-  const preview = items.slice(0, 5).map(it => baseOf(it.path));
+  const preview = items.slice(0, 5).map(it => basename(it.path));
   const extra = items.length > 5 ? items.length - 5 : 0;
 
   const run = async () => {
@@ -3943,7 +3878,7 @@ export function PasteSpecialDialog({
     setRows(working.slice());
     for (let i = 0; i < items.length; i++) {
       const it = items[i];
-      const name = baseOf(it.path);
+      const name = basename(it.path);
       const dst = joinPath(dstDir, name);
       working[i] = { ...working[i], state: "running" };
       setRows(working.slice());
@@ -4194,11 +4129,7 @@ export function BlameDialog({ blame, onClose }: BlameDialogProps) {
     return () => window.removeEventListener("keydown", handler);
   }, [onClose]);
 
-  const shortName = (() => {
-    const t = blame.path.replace(/[\\/]+$/, "");
-    const i = Math.max(t.lastIndexOf("\\"), t.lastIndexOf("/"));
-    return i < 0 ? t : t.slice(i + 1);
-  })();
+  const shortName = basename(blame.path);
 
   const fmtDate = (ms: number): string => {
     if (!ms) return "—";
@@ -4447,12 +4378,6 @@ export function DiffDialog({ a, b, diff, onClose }: DiffDialogProps) {
     return () => window.removeEventListener("keydown", handler);
   }, [onClose]);
 
-  const base = (p: string): string => {
-    const t = p.replace(/[\\/]+$/, "");
-    const i = Math.max(t.lastIndexOf("\\"), t.lastIndexOf("/"));
-    return i < 0 ? t : t.slice(i + 1);
-  };
-
   const lines = diff.split("\n");
 
   const colorFor = (line: string): string => {
@@ -4479,7 +4404,7 @@ export function DiffDialog({ a, b, diff, onClose }: DiffDialogProps) {
           padding: "8px 12px", borderBottom: "1px solid var(--fg-3)",
           background: "var(--bg-2, #16161e)",
         }}>
-          <span style={{ color: "var(--accent)" }}>⎘ diff — {base(a)} ↔ {base(b)}</span>
+          <span style={{ color: "var(--accent)" }}>⎘ diff — {basename(a)} ↔ {basename(b)}</span>
           <span style={{ color: "var(--fg-3)", fontSize: 12 }}>esc/click to close</span>
           <button onClick={onClose} style={{
             background: "transparent", border: "1px solid var(--fg-3)", color: "var(--fg-1)",
@@ -5731,18 +5656,6 @@ export interface FolderPickerDialogProps {
   onPick: (path: string) => void;
 }
 
-function fpSepOf(p: string): string {
-  return p.includes("\\") ? "\\" : "/";
-}
-
-function fpDirname(p: string): string {
-  const trimmed = p.replace(/[\\/]+$/, "");
-  const idx = Math.max(trimmed.lastIndexOf("\\"), trimmed.lastIndexOf("/"));
-  if (idx < 0) return trimmed;
-  if (/^[A-Za-z]:$/.test(trimmed.slice(0, idx))) return trimmed.slice(0, idx + 1);
-  return trimmed.slice(0, idx);
-}
-
 export function FolderPickerDialog({ initialPath, title, onClose, onPick }: FolderPickerDialogProps) {
   const [cwd, setCwd] = useState<string>(initialPath ?? "");
   const [entries, setEntries] = useState<FileEntry[]>([]);
@@ -5790,31 +5703,11 @@ export function FolderPickerDialog({ initialPath, title, onClose, onPick }: Fold
 
   const up = () => {
     if (!cwd) return;
-    const parent = fpDirname(cwd);
+    const parent = parentPath(cwd);
     if (parent && parent !== cwd) setCwd(parent);
   };
 
-  const crumbs = useMemo(() => {
-    if (!cwd) return [];
-    const sep = fpSepOf(cwd);
-    const parts = cwd.split(/[\\/]+/).filter(Boolean);
-    const out: Array<{ label: string; path: string }> = [];
-    if (/^[A-Za-z]:$/.test(parts[0] ?? "")) {
-      out.push({ label: parts[0], path: parts[0] + sep });
-      let acc = parts[0] + sep;
-      for (let i = 1; i < parts.length; i++) {
-        acc = acc.replace(/[\\/]+$/, "") + sep + parts[i];
-        out.push({ label: parts[i], path: acc });
-      }
-    } else {
-      let acc = "";
-      for (const p of parts) {
-        acc = acc ? acc + sep + p : sep + p;
-        out.push({ label: p, path: acc });
-      }
-    }
-    return out;
-  }, [cwd]);
+  const crumbs = useMemo(() => splitBreadcrumb(cwd), [cwd]);
 
   return (
     <div onClick={onClose} style={{
