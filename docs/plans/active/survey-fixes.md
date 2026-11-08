@@ -8,7 +8,8 @@ Line numbers are from commit `14c68bd` and drift, so search by name. Items marke
 | Task | Area | Status |
 |---|---|---|
 | symlink-safety | Rust | **merged** (60e4eef) |
-| paste-conflicts | frontend | running (found by symlink-safety) |
+| paste-conflicts | frontend | done on `claude/cool-shamir-734852`, ready to merge |
+| create-rename-conflicts | frontend | running (found by paste-conflicts; same session) |
 | ui-fixes | frontend | **merged** (dfe77ca) |
 | tab-state | frontend | **merged** (971da66) |
 | undo-redo | frontend | running (found by tab-state; same session) |
@@ -49,6 +50,13 @@ Merge order is the table order: small, contained fixes go first, and broad chang
   - Check whether `performDrop` (it already skips `src === dst`) and the FolderPicker "Move to…" flow need the same.
   - Keep the undo entries correct; they record src/dst pairs.
   - Add vitest coverage for the name-picking helper.
+
+## create-rename-conflicts (frontend; found 2026-11-08 by paste-conflicts) — data loss
+- **New File / Markdown Note / Script (.sh)** call `writeText` on `dir/name`. Rust `write_text` is `fs::write`, so an existing file with that name is emptied, and its undo then deletes it.
+- **New Folder** uses `create_dir_all`, which succeeds on an existing folder. Its undo then recursively deletes that **pre-existing** folder.
+- **Rename** (selection, context target and BulkRenameDialog) calls `rename_entry` = `fs::rename`, which replaces an existing file at the destination.
+- **Fix:** check the name against the target folder first, reusing `transfer.ts`'s `pickFreeName` and the `readDir` listing; compare case-insensitively on Windows. Then refuse, or suggest a free name. Undo must never delete something that existed before the operation.
+- **Coordinate with undo-redo,** which is changing `UndoEntry` and the `pushUndo` sites in `App.tsx`. Keep your edits to the checks before each operation, and `git merge main` before finishing.
 
 ## undo-redo (frontend; found 2026-11-08 by tab-state)
 - **Redo is broken.** `UndoEntry` only has `inverse`, and redo calls that same inverse again. For example, after undoing a rename, redo tries to rename back a second time and fails with "redo failed". Add a forward action to `UndoEntry` and have redo call it. There are about 13 `pushUndo` sites in `src/App.tsx`.
@@ -117,6 +125,7 @@ Merge order is the table order: small, contained fixes go first, and broad chang
   - `git_run` (network operations), `git_branch_list`, and `git_file_info` (two process spawns on every selection change);
   - `run_script`, `diff_files`, the preview readers, `system_info`, `shred`.
 - Prefer `#[tauri::command(async)]` or `tauri::async_runtime::spawn_blocking` over rewriting the bodies. Other branches edit `commands.rs`, so keep changes on the attribute and signature lines where possible.
+- `git_branch_list` turns per-branch rev-list failures into (0,0). Return or flag the error while you're changing it (found by backend-bugs).
 - Consider making `list_dir`'s git status cheaper (cache it, or scope it to the directory). Progress events for long operations are optional: plan them, but don't build them unless they're small.
 - Check that the UI stays responsive, for example while hashing a large file.
 
@@ -137,6 +146,7 @@ Merge order is the table order: small, contained fixes go first, and broad chang
 - **Unused backend code:**
   - the `git_dirty_count` command;
   - the Rust dependencies `thiserror`, `anyhow`, `tokio`, `walkdir` and the direct `grep-matcher`.
+- `components.tsx` renders a "!" git badge that can no longer appear, because backend-bugs removed the "ignored" status. `git_dirty_count` now returns `Result<Option<u32>>` and still has no caller.
 - The hash read loop is copied three times (`hash_sha256`, `hash_md5`, `hash_crc32`). Merge it into one helper.
 - **Toggles that do nothing:** "Show Ignored" and "Show Checksums" only flip their checkmarks, and "Browse archive in place" just opens the default app. Implement them, or remove or relabel them. Record the decision.
 - Also fix the stale `rust-version` in `Cargo.toml` (the locked dependencies need 1.88 or newer).
