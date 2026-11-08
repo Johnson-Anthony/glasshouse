@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::io::{Read, Write};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::thread;
 
 use portable_pty::{ChildKiller, CommandBuilder, MasterPty, PtySize, native_pty_system};
@@ -19,9 +19,13 @@ pub struct PtySession {
     killer: Mutex<Box<dyn ChildKiller + Send + Sync>>,
 }
 
+/// Live sessions by id. Each session's wait thread holds a clone, so it can
+/// remove its own entry when the child exits.
+type Sessions = Arc<Mutex<HashMap<String, PtySession>>>;
+
 #[derive(Default)]
 pub struct PtyRegistry {
-    sessions: Mutex<HashMap<String, PtySession>>,
+    sessions: Sessions,
     next_id: Mutex<u64>,
 }
 
@@ -37,8 +41,17 @@ pub struct PtyExitEvent {
     pub exit_code: Option<i32>,
 }
 
+/// Lock `m` even if a thread panicked while holding it. Nothing these locks
+/// guard (the session map, the id counter, a writer, a kill handle) is left
+/// half-updated by a panic, so the data is still usable, and unwrapping would
+/// turn one panic into every later pty call panicking too. Release builds
+/// abort on panic, so this only matters in dev and test builds.
+fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
+    m.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
 fn next_session_id(reg: &PtyRegistry) -> String {
-    let mut n = reg.next_id.lock().unwrap();
+    let mut n = lock(&reg.next_id);
     *n += 1;
     format!("pty-{}", *n)
 }
@@ -58,16 +71,12 @@ pub fn pty_spawn(
     cols: Option<u16>,
     rows: Option<u16>,
 ) -> Result<String, String> {
-    let pty_system = native_pty_system();
     let size = PtySize {
         rows: rows.unwrap_or(24),
         cols: cols.unwrap_or(80),
         pixel_width: 0,
         pixel_height: 0,
     };
-    let pair = pty_system
-        .openpty(size)
-        .map_err(|e| format!("openpty: {}", e))?;
 
     let mut cmd = match profile.kind.as_str() {
         "wsl" => {
@@ -96,6 +105,46 @@ pub fn pty_spawn(
         cmd.cwd(&cwd);
     }
 
+    let session_id = next_session_id(&registry);
+    let data_id = session_id.clone();
+    let data_app = app.clone();
+    spawn_session(
+        &registry.sessions,
+        session_id.clone(),
+        cmd,
+        size,
+        move |data| {
+            let _ = data_app.emit(
+                "pty-data",
+                PtyDataEvent {
+                    session_id: data_id.clone(),
+                    data,
+                },
+            );
+        },
+        move |exit| {
+            let _ = app.emit("pty-exit", exit);
+        },
+    )?;
+    Ok(session_id)
+}
+
+/// Open a PTY, start `cmd` in it and register the session as `session_id`.
+/// `on_data` gets the child's output as text. `on_exit` runs once the child
+/// has exited and its session is gone from `sessions`, so a pty-exit is never
+/// reported for a session that's still registered.
+fn spawn_session(
+    sessions: &Sessions,
+    session_id: String,
+    cmd: CommandBuilder,
+    size: PtySize,
+    on_data: impl Fn(String) + Send + 'static,
+    on_exit: impl FnOnce(PtyExitEvent) + Send + 'static,
+) -> Result<(), String> {
+    let pair = native_pty_system()
+        .openpty(size)
+        .map_err(|e| format!("openpty: {}", e))?;
+
     let mut child = pair
         .slave
         .spawn_command(cmd)
@@ -112,11 +161,17 @@ pub fn pty_spawn(
         .map_err(|e| format!("take writer: {}", e))?;
     let killer = child.clone_killer();
 
-    let session_id = next_session_id(&registry);
-    let writer = Arc::new(Mutex::new(writer));
+    // Register before the wait thread starts: a child that exits at once
+    // could otherwise be removed before it was inserted, leaking the entry.
+    lock(sessions).insert(
+        session_id.clone(),
+        PtySession {
+            master: pair.master,
+            writer: Arc::new(Mutex::new(writer)),
+            killer: Mutex::new(killer),
+        },
+    );
 
-    let reader_id = session_id.clone();
-    let reader_app = app.clone();
     thread::spawn(move || {
         let mut reader = reader;
         let mut buf = [0u8; 4096];
@@ -128,13 +183,7 @@ pub fn pty_spawn(
             if data.is_empty() {
                 return;
             }
-            let _ = reader_app.emit(
-                "pty-data",
-                PtyDataEvent {
-                    session_id: reader_id.clone(),
-                    data,
-                },
-            );
+            on_data(data);
         };
         loop {
             match reader.read(&mut buf) {
@@ -173,28 +222,19 @@ pub fn pty_spawn(
         }
     });
 
-    let wait_id = session_id.clone();
-    let wait_app = app.clone();
+    let sessions = Arc::clone(sessions);
     thread::spawn(move || {
         let exit_code = child.wait().ok().map(|s| s.exit_code() as i32);
-        let _ = wait_app.emit(
-            "pty-exit",
-            PtyExitEvent {
-                session_id: wait_id,
-                exit_code,
-            },
-        );
+        // Drop the session after releasing the lock: closing a ConPTY can
+        // block, and the reader keeps its own handle to drain what's left.
+        let session = lock(&sessions).remove(&session_id);
+        drop(session);
+        on_exit(PtyExitEvent {
+            session_id,
+            exit_code,
+        });
     });
-
-    registry.sessions.lock().unwrap().insert(
-        session_id.clone(),
-        PtySession {
-            master: pair.master,
-            writer,
-            killer: Mutex::new(killer),
-        },
-    );
-    Ok(session_id)
+    Ok(())
 }
 
 #[tauri::command]
@@ -208,13 +248,13 @@ pub fn pty_write(
     // child stopped draining stdin stalled every pty op, including the
     // pty_kill that would have freed it.
     let writer = {
-        let sessions = registry.sessions.lock().unwrap();
+        let sessions = lock(&registry.sessions);
         let session = sessions
             .get(&session_id)
             .ok_or_else(|| format!("no pty session: {}", session_id))?;
         session.writer.clone()
     };
-    let mut w = writer.lock().unwrap();
+    let mut w = lock(&writer);
     w.write_all(data.as_bytes())
         .map_err(|e| format!("pty_write: {}", e))?;
     w.flush().map_err(|e| format!("pty_write flush: {}", e))
@@ -227,7 +267,7 @@ pub fn pty_resize(
     cols: u16,
     rows: u16,
 ) -> Result<(), String> {
-    let sessions = registry.sessions.lock().unwrap();
+    let sessions = lock(&registry.sessions);
     let session = sessions
         .get(&session_id)
         .ok_or_else(|| format!("no pty session: {}", session_id))?;
@@ -244,11 +284,97 @@ pub fn pty_resize(
 
 #[tauri::command]
 pub fn pty_kill(registry: State<'_, PtyRegistry>, session_id: String) -> Result<(), String> {
-    let mut sessions = registry.sessions.lock().unwrap();
-    if let Some(session) = sessions.remove(&session_id) {
-        if let Ok(mut k) = session.killer.lock() {
-            let _ = k.kill();
-        }
+    // Kill after releasing the registry lock, as the wait thread does. A
+    // poisoned kill handle still kills (the old `if let Ok` skipped it).
+    let session = lock(&registry.sessions).remove(&session_id);
+    if let Some(session) = session {
+        let _ = lock(&session.killer).kill();
     }
     Ok(())
+}
+
+// Unix only: these spawn `sh` in a real PTY. The ConPTY side isn't checked
+// locally, so it isn't asserted here either.
+#[cfg(all(test, unix))]
+mod tests {
+    use super::*;
+    use std::sync::mpsc::{self, RecvTimeoutError};
+    use std::time::Duration;
+
+    const SIZE: PtySize = PtySize {
+        rows: 24,
+        cols: 80,
+        pixel_width: 0,
+        pixel_height: 0,
+    };
+    const TIMEOUT: Duration = Duration::from_secs(10);
+
+    fn sh(script: &str) -> CommandBuilder {
+        let mut c = CommandBuilder::new("sh");
+        c.args(["-c", script]);
+        c
+    }
+
+    #[test]
+    fn exited_session_is_removed_before_exit_is_reported() {
+        let sessions = Sessions::default();
+        let observed = Arc::clone(&sessions);
+        let (exit_tx, exit_rx) = mpsc::channel();
+        let (data_tx, data_rx) = mpsc::channel();
+        spawn_session(
+            &sessions,
+            "pty-1".into(),
+            sh("printf hello; exit 3"),
+            SIZE,
+            move |data| data_tx.send(data).unwrap(),
+            move |exit| {
+                let still_registered = lock(&observed).contains_key(&exit.session_id);
+                exit_tx.send((exit, still_registered)).unwrap();
+            },
+        )
+        .unwrap();
+
+        let (exit, still_registered) = exit_rx.recv_timeout(TIMEOUT).unwrap();
+        assert_eq!(exit.session_id, "pty-1");
+        assert_eq!(exit.exit_code, Some(3));
+        assert!(!still_registered);
+        assert!(lock(&sessions).is_empty());
+
+        // Dropping the session on exit doesn't cut off buffered output: the
+        // reader drains it and then ends (dropping `data_tx`).
+        let mut out = String::new();
+        loop {
+            match data_rx.recv_timeout(TIMEOUT) {
+                Ok(s) => out.push_str(&s),
+                Err(RecvTimeoutError::Disconnected) => break,
+                Err(RecvTimeoutError::Timeout) => panic!("reader never finished; got {:?}", out),
+            }
+        }
+        assert!(out.contains("hello"), "output was {:?}", out);
+    }
+
+    #[test]
+    fn poisoned_registry_lock_still_works() {
+        let sessions = Sessions::default();
+        let poisoner = Arc::clone(&sessions);
+        let _ = thread::spawn(move || {
+            let _guard = poisoner.lock().unwrap();
+            panic!("poison the registry");
+        })
+        .join();
+        assert!(sessions.is_poisoned());
+
+        let (tx, rx) = mpsc::channel();
+        spawn_session(
+            &sessions,
+            "pty-2".into(),
+            sh("exit 0"),
+            SIZE,
+            |_| {},
+            move |exit| tx.send(exit).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(rx.recv_timeout(TIMEOUT).unwrap().exit_code, Some(0));
+        assert!(lock(&sessions).is_empty());
+    }
 }
