@@ -11,7 +11,6 @@
 identifier = "files-read"
 description = "Read files, folders and system info; hash, diff and search files; watch folders."
 commands.allow = [
-  "ping",
   "home_dir",
   "list_dir",
   "drives",
@@ -31,7 +30,6 @@ commands.allow = [
   "trash_dir",
   "net_rate",
   "win_to_wsl",
-  "wsl_to_win",
   "archive_can_handle",
   "list_shell_profiles",
   "verify_signature",
@@ -72,9 +70,7 @@ commands.allow = [
   "git_discard",
   "git_run",
   "git_branch_list",
-  "git_ahead_behind",
   "git_file_info",
-  "git_dirty_count",
 ]
 
 [[permission]]
@@ -112,11 +108,4 @@ commands.allow = [
   "pty_write",
   "pty_resize",
   "pty_kill",
-]
-
-[[permission]]
-identifier = "window"
-description = "Change the calling window's own state."
-commands.allow = [
-  "set_always_on_top",
 ]

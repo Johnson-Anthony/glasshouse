@@ -35,11 +35,6 @@ pub struct SystemInfo {
 }
 
 #[tauri::command]
-pub fn ping() -> &'static str {
-    "pong"
-}
-
-#[tauri::command]
 pub fn home_dir() -> Option<String> {
     home_dir_path().map(|p| p.to_string_lossy().into_owned())
 }
@@ -151,8 +146,8 @@ pub fn list_dir(path: String, show_hidden: bool) -> Result<Vec<FileEntry>, Strin
     Ok(out)
 }
 
-/// Single-char code for one status entry, shared by `list_dir`, `git_status`
-/// and `git_dirty_count` so they agree. Priority: conflict > staged new >
+/// Single-char code for one status entry, shared by `list_dir` and
+/// `git_status` so they agree. Priority: conflict > staged new >
 /// untracked > delete > modify (renames and type changes count as "M").
 /// `None` for anything else; ignored entries never reach here because no
 /// caller asks libgit2 for them.
@@ -793,17 +788,6 @@ pub struct GitInfo {
     pub status: std::collections::HashMap<String, String>, // repo-relative path -> code, as in FileEntry.git
 }
 
-/// Open the repo containing `path`. `Ok(None)` when `path` isn't inside one
-/// (libgit2 says the same for a path that doesn't exist); `Err` when there is
-/// one but it can't be opened (unreadable, dubious ownership).
-fn discover_repo(path: &str) -> Result<Option<git2::Repository>, String> {
-    match git2::Repository::discover(path) {
-        Ok(repo) => Ok(Some(repo)),
-        Err(e) if e.code() == git2::ErrorCode::NotFound => Ok(None),
-        Err(e) => Err(format!("open repo at {}: {}", path, e.message())),
-    }
-}
-
 /// Commits HEAD is ahead of and behind its upstream. `Ok(None)` when there's
 /// nothing to compare: detached or unborn HEAD, no upstream configured, or
 /// an upstream ref that's gone (deleted on the remote and pruned).
@@ -846,8 +830,7 @@ pub fn git_status(path: String) -> Option<GitInfo> {
         .and_then(|h| h.shorthand().map(|s| s.to_string()))
         .unwrap_or_else(|| "(detached)".to_string());
 
-    // The toolbar just hides zero counts, so a failure here shows nothing;
-    // git_ahead_behind reports the error.
+    // The toolbar just hides zero counts, so a failure here shows nothing.
     let (ahead, behind) = upstream_ahead_behind(&repo)
         .ok()
         .flatten()
@@ -1223,20 +1206,6 @@ pub fn win_to_wsl(path: String) -> String {
         }
     }
     p
-}
-
-#[tauri::command]
-pub fn wsl_to_win(path: String) -> String {
-    // /mnt/c/Users/me -> C:\Users\me, /mnt/c -> C:\
-    if let Some(rest) = path.strip_prefix("/mnt/") {
-        let (letter, tail) = rest.split_once('/').unwrap_or((rest, ""));
-        if letter.len() == 1 && letter.as_bytes()[0].is_ascii_alphabetic() {
-            let mut s = format!("{}:\\", letter.to_ascii_uppercase());
-            s.push_str(&tail.replace('/', "\\"));
-            return s;
-        }
-    }
-    path.replace('/', "\\")
 }
 
 // ---------- pins / tags persistence ----------
@@ -2041,30 +2010,40 @@ pub fn archive_extract(archive: String, dest_dir: String) -> Result<(), String> 
 
 // ---------- sha256 hash ----------
 
-/// Stream the file at `path` in 64 KB chunks and return the lowercase hex
-/// SHA-256 digest.
-#[tauri::command(async)]
-pub fn hash_sha256(path: String) -> Result<String, String> {
-    use sha2::{Digest, Sha256};
+/// Stream the file at `path` through `update` in 64 KB chunks. Shared by
+/// the hash_* commands.
+fn read_chunks(path: &str, mut update: impl FnMut(&[u8])) -> Result<(), String> {
     use std::io::Read;
 
-    let mut f = std::fs::File::open(&path).map_err(|e| format!("open {}: {}", path, e))?;
-    let mut hasher = Sha256::new();
+    let mut f = std::fs::File::open(path).map_err(|e| format!("open {}: {}", path, e))?;
     let mut buf = [0u8; 64 * 1024];
     loop {
         let n = f.read(&mut buf).map_err(|e| e.to_string())?;
         if n == 0 {
-            break;
+            return Ok(());
         }
-        hasher.update(&buf[..n]);
+        update(&buf[..n]);
     }
+}
+
+/// Lowercase hex digest of the file at `path` with hasher `D`.
+fn digest_file<D: sha2::Digest>(path: &str) -> Result<String, String> {
+    use std::fmt::Write;
+
+    let mut hasher = D::new();
+    read_chunks(path, |chunk| hasher.update(chunk))?;
     let digest = hasher.finalize();
     let mut hex = String::with_capacity(digest.len() * 2);
     for byte in digest {
-        use std::fmt::Write;
         let _ = write!(&mut hex, "{:02x}", byte);
     }
     Ok(hex)
+}
+
+/// Lowercase hex SHA-256 digest of the file at `path`.
+#[tauri::command(async)]
+pub fn hash_sha256(path: String) -> Result<String, String> {
+    digest_file::<sha2::Sha256>(&path)
 }
 
 // ---------- permissions (chmod) ----------
@@ -2732,37 +2711,6 @@ pub fn spawn_new_window() -> Result<(), String> {
     }
 }
 
-// ---------- window always-on-top ----------
-
-/// Toggle the always-on-top flag on the invoking window. Errors on Wayland:
-/// no protocol lets a client keep itself above others, so GTK drops the
-/// keep-above request and tao would report a success that did nothing.
-#[tauri::command]
-pub fn set_always_on_top(window: tauri::Window, enabled: bool) -> Result<(), String> {
-    #[cfg(target_os = "linux")]
-    if gtk_uses_wayland(
-        std::env::var("GDK_BACKEND").ok().as_deref(),
-        std::env::var_os("WAYLAND_DISPLAY").is_some_and(|v| !v.is_empty()),
-    ) {
-        return Err("always-on-top isn't supported on Wayland".to_string());
-    }
-    window
-        .set_always_on_top(enabled)
-        .map_err(|e| format!("set_always_on_top: {}", e))
-}
-
-/// Whether GTK opens its Wayland backend. GDK_BACKEND is a comma list tried
-/// in order; unset or "*" means GTK's default, which tries Wayland first.
-#[cfg(target_os = "linux")]
-fn gtk_uses_wayland(gdk_backend: Option<&str>, wayland_display_set: bool) -> bool {
-    let first = gdk_backend.and_then(|b| b.split(',').map(str::trim).find(|s| !s.is_empty()));
-    match first {
-        Some("wayland") => true,
-        Some("*") | None => wayland_display_set,
-        Some(_) => false,
-    }
-}
-
 // ---------- shell profile detection ----------
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -3341,42 +3289,13 @@ fn win_file_owner(path: &str) -> Option<String> {
 
 #[tauri::command(async)]
 pub fn hash_md5(path: String) -> Result<String, String> {
-    use md5::{Digest, Md5};
-    use std::io::Read;
-
-    let mut f = std::fs::File::open(&path).map_err(|e| format!("open {}: {}", path, e))?;
-    let mut hasher = Md5::new();
-    let mut buf = [0u8; 64 * 1024];
-    loop {
-        let n = f.read(&mut buf).map_err(|e| e.to_string())?;
-        if n == 0 {
-            break;
-        }
-        hasher.update(&buf[..n]);
-    }
-    let digest = hasher.finalize();
-    let mut hex = String::with_capacity(digest.len() * 2);
-    for byte in digest {
-        use std::fmt::Write;
-        let _ = write!(&mut hex, "{:02x}", byte);
-    }
-    Ok(hex)
+    digest_file::<md5::Md5>(&path)
 }
 
 #[tauri::command(async)]
 pub fn hash_crc32(path: String) -> Result<String, String> {
-    use std::io::Read;
-
-    let mut f = std::fs::File::open(&path).map_err(|e| format!("open {}: {}", path, e))?;
     let mut hasher = crc32fast::Hasher::new();
-    let mut buf = [0u8; 64 * 1024];
-    loop {
-        let n = f.read(&mut buf).map_err(|e| e.to_string())?;
-        if n == 0 {
-            break;
-        }
-        hasher.update(&buf[..n]);
-    }
+    read_chunks(&path, |chunk| hasher.update(chunk))?;
     Ok(format!("{:08x}", hasher.finalize()))
 }
 
@@ -3606,32 +3525,6 @@ fn sample_net_octets() -> Result<(u64, u64), String> {
     Ok((total_in, total_out))
 }
 
-// ---------- per-repo dirty count ----------
-
-/// Changed and untracked entries in the repo containing `path`, counted as
-/// `git_status`'s `dirty` is. `Ok(None)` when `path` isn't in a repo with a
-/// working tree; `Err` when the repo can't be opened or its status read.
-#[tauri::command(async)]
-pub fn git_dirty_count(path: String) -> Result<Option<u32>, String> {
-    use git2::StatusOptions;
-    let Some(repo) = discover_repo(&path)? else {
-        return Ok(None);
-    };
-    if repo.is_bare() {
-        return Ok(None);
-    }
-    let mut opts = StatusOptions::new();
-    opts.include_untracked(true).recurse_untracked_dirs(false);
-    let statuses = repo
-        .statuses(Some(&mut opts))
-        .map_err(|e| format!("git status: {}", e.message()))?;
-    let n = statuses
-        .iter()
-        .filter(|s| git_status_code(s.status()).is_some())
-        .count();
-    Ok(Some(n as u32))
-}
-
 // ---------- real git shell-outs ----------
 
 #[derive(Debug, Serialize)]
@@ -3821,20 +3714,6 @@ fn parse_upstream_track(track: &str) -> (u32, u32, bool) {
     (ahead, behind, false)
 }
 
-/// Commits the current branch is ahead of and behind its upstream. `Ok(None)`
-/// when there's nothing to compare: not in a repo, detached or unborn HEAD,
-/// no upstream, or the upstream ref is gone. `Err` is a real failure, such as
-/// an unreadable repo, dubious ownership or a missing object.
-#[tauri::command(async)]
-pub fn git_ahead_behind(cwd: String) -> Result<Option<(u32, u32)>, String> {
-    let Some(repo) = discover_repo(&cwd)? else {
-        return Ok(None);
-    };
-    let counts =
-        upstream_ahead_behind(&repo).map_err(|e| format!("git ahead/behind: {}", e.message()))?;
-    Ok(counts.map(|(a, b)| (a as u32, b as u32)))
-}
-
 // ---------- tests ----------
 
 #[cfg(test)]
@@ -3875,18 +3754,6 @@ mod tests {
     #[test]
     fn win_to_wsl_leaves_posix_paths() {
         assert_eq!(win_to_wsl("/home/me".into()), "/home/me");
-    }
-
-    #[test]
-    fn wsl_to_win_mnt_paths() {
-        assert_eq!(wsl_to_win("/mnt/c/Users/me".into()), "C:\\Users\\me");
-        assert_eq!(wsl_to_win("/mnt/d/".into()), "D:\\");
-    }
-
-    #[test]
-    fn win_wsl_round_trip() {
-        let orig = "C:\\Users\\me\\proj";
-        assert_eq!(wsl_to_win(win_to_wsl(orig.into())), orig);
     }
 
     #[test]
@@ -4172,16 +4039,6 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    #[test]
-    fn wsl_to_win_bare_mount_and_non_letters() {
-        assert_eq!(wsl_to_win("/mnt/c".into()), "C:\\");
-        assert_eq!(wsl_to_win("/mnt/C/x".into()), "C:\\x");
-        assert_eq!(wsl_to_win(win_to_wsl("C:".into())), "C:\\");
-        // Not a drive letter: just the separator swap, as before.
-        assert_eq!(wsl_to_win("/mnt/1/x".into()), "\\mnt\\1\\x");
-        assert_eq!(wsl_to_win("/mnt/wsl/x".into()), "\\mnt\\wsl\\x");
-    }
-
     fn test_repo(name: &str) -> (PathBuf, git2::Repository) {
         let dir = temp_dir(name);
         let mut opts = git2::RepositoryInitOptions::new();
@@ -4225,8 +4082,7 @@ mod tests {
             ("untracked.txt", "?"),
             ("staged.txt", "A"),
         ];
-        let path = dir.to_string_lossy().into_owned();
-        let info = git_status(path.clone()).unwrap();
+        let info = git_status(dir.to_string_lossy().into_owned()).unwrap();
         let listed: HashMap<String, String> = scan_repo_statuses(&dir)
             .unwrap()
             .into_iter()
@@ -4248,7 +4104,6 @@ mod tests {
         }
         assert_eq!(info.status.len(), expected.len());
         assert_eq!(info.dirty, expected.len());
-        assert_eq!(git_dirty_count(path), Ok(Some(expected.len() as u32)));
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -4381,13 +4236,13 @@ mod tests {
     }
 
     #[test]
-    fn git_ahead_behind_counts_and_nothing_to_compare() {
+    fn upstream_ahead_behind_counts_and_nothing_to_compare() {
         let (dir, repo) = test_repo("aheadbehind");
         let cwd = dir.to_string_lossy().into_owned();
-        assert_eq!(git_ahead_behind(cwd.clone()), Ok(None), "unborn HEAD");
+        assert_eq!(upstream_ahead_behind(&repo).unwrap(), None, "unborn HEAD");
         std::fs::write(dir.join("a.txt"), "1").unwrap();
         let base = commit_all(&repo, "one");
-        assert_eq!(git_ahead_behind(cwd.clone()), Ok(None), "no upstream");
+        assert_eq!(upstream_ahead_behind(&repo).unwrap(), None, "no upstream");
 
         // A fake origin/main at the first commit, then two local commits.
         repo.remote("origin", "https://example.invalid/repo.git")
@@ -4402,8 +4257,8 @@ mod tests {
         commit_all(&repo, "two");
         std::fs::write(dir.join("a.txt"), "3").unwrap();
         let tip = commit_all(&repo, "three");
-        assert_eq!(git_ahead_behind(cwd.clone()), Ok(Some((2, 0))));
-        let info = git_status(cwd.clone()).unwrap();
+        assert_eq!(upstream_ahead_behind(&repo).unwrap(), Some((2, 0)));
+        let info = git_status(cwd).unwrap();
         assert_eq!((info.ahead, info.behind), (2, 0));
 
         // Swap them: local main at the first commit, origin/main at the tip.
@@ -4411,32 +4266,61 @@ mod tests {
             .unwrap();
         repo.reference("refs/heads/main", base, true, "test")
             .unwrap();
-        assert_eq!(git_ahead_behind(cwd.clone()), Ok(Some((0, 2))));
+        assert_eq!(upstream_ahead_behind(&repo).unwrap(), Some((0, 2)));
 
         repo.set_head_detached(base).unwrap();
-        assert_eq!(git_ahead_behind(cwd.clone()), Ok(None), "detached HEAD");
+        assert_eq!(upstream_ahead_behind(&repo).unwrap(), None, "detached HEAD");
         repo.set_head("refs/heads/main").unwrap();
         repo.find_reference("refs/remotes/origin/main")
             .unwrap()
             .delete()
             .unwrap();
-        assert_eq!(git_ahead_behind(cwd.clone()), Ok(None), "upstream gone");
+        assert_eq!(upstream_ahead_behind(&repo).unwrap(), None, "upstream gone");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
-    fn git_counts_outside_a_repo_are_none() {
+    fn git_status_outside_a_repo_is_none() {
         let dir = temp_dir("norepo");
         // Only meaningful when the temp dir isn't itself inside a repo.
         if git2::Repository::discover(&dir).is_err() {
-            let path = dir.to_string_lossy().into_owned();
-            assert_eq!(git_ahead_behind(path.clone()), Ok(None));
-            assert_eq!(git_dirty_count(path), Ok(None));
+            assert!(git_status(s(&dir)).is_none());
             // libgit2 reports a path that doesn't exist as NotFound too.
-            let missing = s(&dir.join("missing"));
-            assert_eq!(git_ahead_behind(missing.clone()), Ok(None));
-            assert_eq!(git_dirty_count(missing), Ok(None));
+            assert!(git_status(s(&dir.join("missing"))).is_none());
         }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn hashes_match_known_digests_across_chunks() {
+        use sha2::Digest;
+        let dir = temp_dir("hashes");
+        let abc = dir.join("abc.txt");
+        std::fs::write(&abc, "abc").unwrap();
+        assert_eq!(
+            hash_sha256(s(&abc)).unwrap(),
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+        );
+        assert_eq!(hash_md5(s(&abc)).unwrap(), "900150983cd24fb0d6963f7d28e17f72");
+        assert_eq!(hash_crc32(s(&abc)).unwrap(), "352441c2");
+
+        let empty = dir.join("empty");
+        std::fs::write(&empty, "").unwrap();
+        assert_eq!(hash_md5(s(&empty)).unwrap(), "d41d8cd98f00b204e9800998ecf8427e");
+        assert_eq!(hash_crc32(s(&empty)).unwrap(), "00000000");
+
+        // Three and a bit 64 KB chunks, against one-shot digests of the bytes.
+        let data: Vec<u8> = (0..200_000u32).map(|i| (i % 251) as u8).collect();
+        let big = dir.join("big.bin");
+        std::fs::write(&big, &data).unwrap();
+        let sha: String = sha2::Sha256::digest(&data).iter().map(|b| format!("{:02x}", b)).collect();
+        let md5: String = md5::Md5::digest(&data).iter().map(|b| format!("{:02x}", b)).collect();
+        assert_eq!(hash_sha256(s(&big)).unwrap(), sha);
+        assert_eq!(hash_md5(s(&big)).unwrap(), md5);
+        assert_eq!(hash_crc32(s(&big)).unwrap(), format!("{:08x}", crc32fast::hash(&data)));
+
+        let err = hash_sha256(s(&dir.join("missing"))).unwrap_err();
+        assert!(err.starts_with("open "), "{}", err);
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -4619,19 +4503,6 @@ mod tests {
         assert_eq!(login_shell(Some(String::new())), None);
         assert_eq!(login_shell(None), None);
         let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    #[cfg(target_os = "linux")]
-    #[test]
-    fn gtk_uses_wayland_follows_gdk_backend() {
-        assert!(gtk_uses_wayland(None, true));
-        assert!(!gtk_uses_wayland(None, false));
-        assert!(gtk_uses_wayland(Some("wayland"), true));
-        assert!(gtk_uses_wayland(Some("wayland,x11"), true));
-        assert!(!gtk_uses_wayland(Some("x11"), true));
-        assert!(!gtk_uses_wayland(Some(" x11 , wayland"), true));
-        assert!(gtk_uses_wayland(Some("*"), true));
-        assert!(gtk_uses_wayland(Some(""), true));
     }
 
     #[cfg(not(windows))]
