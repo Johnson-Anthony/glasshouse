@@ -1,4 +1,5 @@
 mod commands;
+mod proc_tree;
 mod pty;
 mod watcher;
 

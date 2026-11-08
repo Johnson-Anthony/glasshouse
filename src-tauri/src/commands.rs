@@ -2645,8 +2645,9 @@ struct CappedRun {
     incomplete: bool,
 }
 
-/// Run `cmd` with stdin closed, killing it after `timeout`, keeping at most
-/// `cap` bytes of each output stream.
+/// Run `cmd` with stdin closed, killing it and every process it started
+/// (`proc_tree`) after `timeout`, keeping at most `cap` bytes of each output
+/// stream.
 fn run_capped(
     mut cmd: std::process::Command,
     timeout: std::time::Duration,
@@ -2684,23 +2685,24 @@ fn run_capped(
         sink
     }
 
-    let mut child = cmd
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()?;
+    let mut tree = crate::proc_tree::spawn(
+        cmd.stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped()),
+    )?;
     let (done_tx, done_rx) = mpsc::channel();
-    let out = reader(child.stdout.take().expect("stdout is piped"), cap, done_tx.clone());
-    let err = reader(child.stderr.take().expect("stderr is piped"), cap, done_tx);
+    let out = reader(tree.child.stdout.take().expect("stdout is piped"), cap, done_tx.clone());
+    let err = reader(tree.child.stderr.take().expect("stderr is piped"), cap, done_tx);
 
     let deadline = Instant::now() + timeout;
     let status = loop {
-        if let Some(s) = child.try_wait()? {
+        if let Some(s) = tree.child.try_wait()? {
             break Some(s);
         }
         if Instant::now() >= deadline {
-            let _ = child.kill();
-            let _ = child.wait();
+            // The whole tree: a background child would otherwise keep
+            // running, and keep the output pipes open.
+            tree.kill_tree();
             break None;
         }
         std::thread::sleep(std::time::Duration::from_millis(20));
@@ -4920,6 +4922,36 @@ mod tests {
         assert_eq!(String::from_utf8_lossy(&run.stdout), "started\n");
         let text = format_script_output(&run, Duration::from_secs(60));
         assert!(text.contains("[timed out after 60 s"), "{}", text);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn run_capped_kills_the_whole_tree_at_the_timeout() {
+        use std::time::{Duration, Instant};
+        let t = Instant::now();
+        // The background sleep holds stdout open. Killing only `sh` left it
+        // running and made the drain wait out its whole grace period.
+        let run = run_capped(
+            sh("sleep 30 & echo $!; wait"),
+            Duration::from_millis(300),
+            1024,
+            Duration::from_secs(10),
+        )
+        .unwrap();
+        assert!(run.status.is_none());
+        assert!(!run.incomplete, "a killed tree closes its pipes");
+        assert!(t.elapsed() < Duration::from_secs(5), "{:?}", t.elapsed());
+        let bg: u32 = String::from_utf8_lossy(&run.stdout).trim().parse().unwrap();
+        // Gone, or a zombie waiting for whichever ancestor reaps orphans.
+        let dead = || match std::fs::read_to_string(format!("/proc/{}/stat", bg)) {
+            Ok(stat) => stat.rsplit(')').next().and_then(|s| s.trim().chars().next()) == Some('Z'),
+            Err(_) => true,
+        };
+        let until = Instant::now() + Duration::from_secs(5);
+        while !dead() && Instant::now() < until {
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        assert!(dead(), "background child {} outlived the timeout", bg);
     }
 
     #[cfg(unix)]
