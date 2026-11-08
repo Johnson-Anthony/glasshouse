@@ -4,7 +4,7 @@
 // (selection, view, git, archive, …) lives in its own file and they don't
 // collide on merges.
 
-import type { UseTabResult } from "../state";
+import type { UndoEntry, UseTabResult } from "../state";
 import type { FileEntry, BlameLine } from "../api";
 import type { TweakState, GitOutputState } from "../components";
 
@@ -30,7 +30,7 @@ export interface HandlerCtx {
   clipboardPaths?: () => string[];
   refresh: () => void;
   // Optional — wired up by App.tsx in a later pass. Handlers use `ctx.undo?.()` etc.
-  pushUndo?: (entry: { label: string; inverse: () => Promise<void> | void }) => void;
+  pushUndo?: (entry: UndoEntry) => void;
   undo?: () => void;
   redo?: () => void;
   moveTab?: (from: number, to: number) => void;

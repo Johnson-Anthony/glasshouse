@@ -65,40 +65,70 @@ export interface UseTabResult {
 // ─── Undo/redo stack ──────────────────────────────────────────────────────
 // In-memory, frontend-only. Bounded at 20 entries; oldest shifts out.
 // pushUndo clears the redo stack (fresh action invalidates forward history).
+// Entries for file operations are built in undoActions.ts.
 
-export type UndoEntry = { label: string; inverse: () => Promise<void> | void };
+export type UndoEntry = {
+  label: string;
+  /** Reverses the action. */
+  inverse: () => Promise<void> | void;
+  /** Performs the action again after it has been undone. */
+  redo: () => Promise<void> | void;
+};
+
+export type UndoOutcome =
+  | { status: "empty" }
+  | { status: "done"; label: string }
+  | { status: "failed"; label: string; error: unknown };
 
 const UNDO_LIMIT = 20;
 
 export const undoStack: UndoEntry[] = [];
 export const redoStack: UndoEntry[] = [];
 
+function pushBounded(stack: UndoEntry[], entry: UndoEntry): void {
+  stack.push(entry);
+  if (stack.length > UNDO_LIMIT) stack.shift();
+}
+
 export function clearRedo(): void {
   redoStack.length = 0;
 }
 
 export function pushUndo(entry: UndoEntry): void {
-  undoStack.push(entry);
-  if (undoStack.length > UNDO_LIMIT) undoStack.shift();
+  pushBounded(undoStack, entry);
   clearRedo();
 }
 
-export function popUndo(): UndoEntry | undefined {
-  const entry = undoStack.pop();
-  if (entry) {
-    redoStack.push(entry);
-    if (redoStack.length > UNDO_LIMIT) redoStack.shift();
-  }
-  return entry;
+// Undo and redo steps run one at a time, in the order they were asked for, so
+// two quick Ctrl+Z presses can't run two inverses at once.
+let undoQueue: Promise<unknown> = Promise.resolve();
+
+function step(from: UndoEntry[], to: UndoEntry[], run: (e: UndoEntry) => Promise<void> | void): Promise<UndoOutcome> {
+  const next = undoQueue.then(async (): Promise<UndoOutcome> => {
+    const entry = from.pop();
+    if (!entry) return { status: "empty" };
+    try {
+      await run(entry);
+    } catch (error) {
+      // Dropped, not put back: a half-applied step can't be safely replayed
+      // in either direction.
+      return { status: "failed", label: entry.label, error };
+    }
+    pushBounded(to, entry);
+    return { status: "done", label: entry.label };
+  });
+  undoQueue = next;
+  return next;
 }
 
-export function popRedo(): UndoEntry | undefined {
-  const entry = redoStack.pop();
-  if (entry) {
-    undoStack.push(entry);
-    if (undoStack.length > UNDO_LIMIT) undoStack.shift();
-  }
-  return entry;
+/** Undo the latest action; on success it becomes redoable. */
+export function undoLast(): Promise<UndoOutcome> {
+  return step(undoStack, redoStack, e => e.inverse());
+}
+
+/** Redo the latest undone action; on success it becomes undoable again. */
+export function redoLast(): Promise<UndoOutcome> {
+  return step(redoStack, undoStack, e => e.redo());
 }
 
 // ─── Tab list state ───────────────────────────────────────────────────────

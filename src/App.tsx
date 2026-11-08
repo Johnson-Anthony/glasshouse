@@ -39,15 +39,16 @@ import { CONTEXT_FILE, CONTEXT_EMPTY, CONTEXT_SIDEBAR, CONTEXT_SIDEBAR_FOLDER, C
 import {
   useTabState,
   pushUndo,
-  popUndo,
-  popRedo,
+  undoLast,
+  redoLast,
   registerTabListMutator,
   moveTab as stateMoveTab,
   newTab as stateNewTab,
   type UseTabResult,
 } from "./state";
 import { HANDLERS, type HandlerCtx } from "./handlers";
-import { makeTab, closeTab, closeOtherTabs, moveTab as moveTabIn, type TabRecord } from "./tabs";
+import { moveUndo, createUndo } from "./undoActions";
+import { makeTab, closeTab, closeOtherTabs, moveTab as moveTabIn, tabLabel, type TabRecord } from "./tabs";
 import { canExtractArchive } from "./handlers/archive";
 import { IS_WINDOWS } from "./platform";
 import { TerminalDrawer } from "./Terminal";
@@ -577,7 +578,7 @@ export function App() {
 
   useEffect(() => {
     if (!activeHandle) return;
-    const label = activeHandle.state.path;
+    const label = tabLabel(activeHandle.state.path, activeHandle.state.private);
     setTabs(prev => {
       if (prev[activeTab] && prev[activeTab].label !== label) {
         const next = [...prev];
@@ -586,7 +587,7 @@ export function App() {
       }
       return prev;
     });
-  }, [activeHandle?.state.path, activeTab]);
+  }, [activeHandle?.state.path, activeHandle?.state.private, activeTab]);
 
   // Keep a ref to the latest handleMenuCommand so the keydown listener below
   // (which installs once) always dispatches through the current closure.
@@ -853,7 +854,7 @@ export function App() {
   };
 
   const closeTabAt = (i: number) => {
-    applyTabList(closeTab({ tabs, active: activeTab }, i));
+    applyTabList(closeTab({ tabs, active: activeTab }, i, homePath ?? FALLBACK_PATH));
   };
 
   const THEMES = ["tokyo-night","catppuccin-mocha","gruvbox-dark","rose-pine","everforest","solarized-dark","green-crt","synthwave"];
@@ -887,6 +888,26 @@ export function App() {
     });
     return () => registerTabListMutator(null);
   }, [tabs, activeTab, activeHandle]);
+
+  const runUndoStep = async (which: "undo" | "redo") => {
+    const r = await (which === "undo" ? undoLast() : redoLast());
+    if (r.status === "empty") {
+      dialogs.showToast({ message: `nothing to ${which}`, variant: "info" });
+      return;
+    }
+    // Refresh on failure too: a multi-item step can fail partway.
+    activeHandle?.actions.refresh();
+    if (r.status === "done") {
+      dialogs.showToast({ message: `${which === "undo" ? "undid" : "redid"}: ${r.label}`, variant: "success" });
+    } else {
+      const msg = r.error instanceof Error ? r.error.message : String(r.error);
+      void dialogs.showAlert({
+        title: `${which} failed`,
+        message: `${r.label}: ${msg}\n\nThis step was removed from the ${which} history.`,
+        variant: "error",
+      });
+    }
+  };
 
   const handleMenuCommand = (label: string) => {
     // Handle context-sourced commands (sidebar / tab / breadcrumb right-click)
@@ -1007,10 +1028,7 @@ export function App() {
               const dst = joinPath(parentPath(target), next);
               try {
                 await renameEntry(target, dst);
-                pushUndo({
-                  label: `rename ${base} → ${next}`,
-                  inverse: async () => { await renameEntry(dst, target); },
-                });
+                pushUndo(moveUndo(`rename ${base} → ${next}`, [{ src: target, dst }], "rename"));
                 activeHandle?.actions.refresh();
               } catch (err) {
                 const msg = err instanceof Error ? err.message : String(err);
@@ -1301,10 +1319,7 @@ export function App() {
           const dst = joinPath(cwd, next);
           const src = firstEntry.path;
           await renameEntry(src, dst);
-          pushUndo({
-            label: `rename ${firstEntry.name} → ${next}`,
-            inverse: async () => { await renameEntry(dst, src); },
-          });
+          pushUndo(moveUndo(`rename ${firstEntry.name} → ${next}`, [{ src, dst }], "rename"));
           refresh();
           return;
         }
@@ -1412,10 +1427,7 @@ export function App() {
           if (!name) return;
           const dst = joinPath(cwd, name);
           await makeDir(dst);
-          pushUndo({
-            label: `new folder ${name}`,
-            inverse: async () => { await deleteEntry(dst, true); },
-          });
+          pushUndo(createUndo(`new folder ${name}`, dst, { kind: "folder" }));
           refresh();
           return;
         }
@@ -1431,10 +1443,7 @@ export function App() {
           if (!name) return;
           const dst = joinPath(cwd, name);
           await writeText(dst, "");
-          pushUndo({
-            label: `new file ${name}`,
-            inverse: async () => { await deleteEntry(dst, false); },
-          });
+          pushUndo(createUndo(`new file ${name}`, dst, { kind: "file", content: "" }));
           refresh();
           return;
         }
@@ -1449,10 +1458,7 @@ export function App() {
           if (!name) return;
           const dst = joinPath(cwd, name);
           await writeText(dst, "");
-          pushUndo({
-            label: `new note ${name}`,
-            inverse: async () => { await deleteEntry(dst, false); },
-          });
+          pushUndo(createUndo(`new note ${name}`, dst, { kind: "file", content: "" }));
           refresh();
           return;
         }
@@ -1466,11 +1472,9 @@ export function App() {
           });
           if (!name) return;
           const dst = joinPath(cwd, name);
-          await writeText(dst, "#!/usr/bin/env bash\n");
-          pushUndo({
-            label: `new script ${name}`,
-            inverse: async () => { await deleteEntry(dst, false); },
-          });
+          const script = "#!/usr/bin/env bash\n";
+          await writeText(dst, script);
+          pushUndo(createUndo(`new script ${name}`, dst, { kind: "file", content: script }));
           refresh();
           return;
         }
@@ -1757,40 +1761,8 @@ export function App() {
             setGitOutput,
             clipboardPaths: () => appClipboard?.paths ?? [],
             pushUndo,
-            undo: () => {
-              const e = popUndo();
-              if (!e) {
-                dialogs.showToast({ message: "nothing to undo", variant: "info" });
-                return;
-              }
-              void (async () => {
-                try {
-                  await e.inverse();
-                  activeHandle?.actions.refresh();
-                  dialogs.showToast({ message: `undid: ${e.label}`, variant: "success" });
-                } catch (err) {
-                  const msg = err instanceof Error ? err.message : String(err);
-                  void dialogs.showAlert({ title: "undo failed", message: msg, variant: "error" });
-                }
-              })();
-            },
-            redo: () => {
-              const e = popRedo();
-              if (!e) {
-                dialogs.showToast({ message: "nothing to redo", variant: "info" });
-                return;
-              }
-              void (async () => {
-                try {
-                  await e.inverse();
-                  activeHandle?.actions.refresh();
-                  dialogs.showToast({ message: `redid: ${e.label}`, variant: "success" });
-                } catch (err) {
-                  const msg = err instanceof Error ? err.message : String(err);
-                  void dialogs.showAlert({ title: "redo failed", message: msg, variant: "error" });
-                }
-              })();
-            },
+            undo: () => { void runUndoStep("undo"); },
+            redo: () => { void runUndoStep("redo"); },
             moveTab: stateMoveTab,
             newTab: stateNewTab,
             refresh,

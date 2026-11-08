@@ -1,6 +1,6 @@
 // The app's side of transfer.ts: the real fs calls, the conflict question,
 // and the toasts and undo entries every copy/move-into-a-folder shares.
-import { copyEntry, deleteEntry, moveEntry, moveToTrash, readDir } from "./api";
+import { copyEntry, moveEntry, moveToTrash, readDir } from "./api";
 import { dialogs } from "./components";
 import { IS_WINDOWS } from "./platform";
 import { pushUndo } from "./state";
@@ -13,6 +13,7 @@ import {
   type TransferOp,
   type TransferResult,
 } from "./transfer";
+import { copyUndo, moveUndo } from "./undoActions";
 
 /** Copy/move into a folder goes through runTransfer with these, so nothing
  *  lands on an existing name (or on itself) without the user choosing. */
@@ -49,21 +50,11 @@ export function reportTransfer(res: TransferResult, op: TransferOp, onlyIfNotabl
 }
 
 /** Undo for a finished transfer: delete the new copies, or move items back.
- *  Replaced entries stay in the trash. */
+ *  Redo copies or moves them again. Replaced entries stay in the trash. */
 export function pushTransferUndo(res: TransferResult, op: TransferOp, label: string) {
-  const done = res.done;
+  const done = res.done.map(({ src, dst }) => ({ src, dst }));
   if (done.length === 0) return;
-  pushUndo({
-    label,
-    inverse: async () => {
-      if (op === "copy") {
-        // recursive: copies can be non-empty folders
-        for (const { dst } of done) { await deleteEntry(dst, true); }
-      } else {
-        for (const { src, dst } of done) { await moveEntry(dst, src); }
-      }
-    },
-  });
+  pushUndo(op === "copy" ? copyUndo(label, done) : moveUndo(label, done, "move"));
 }
 
 /** Transfer items from parallel path/kind lists (kinds as FileEntry.kind). */
