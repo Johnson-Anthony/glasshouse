@@ -157,7 +157,6 @@ export const miscHandler: Handler = async (label, ctx) => {
   switch (label) {
     // ─── Help / About ──────────────────────────────────────────────────────
     case "About":
-    case "About Glasshouse":
       if (ctx.openAbout) {
         ctx.openAbout();
       } else {
@@ -180,7 +179,6 @@ export const miscHandler: Handler = async (label, ctx) => {
       return true;
     }
 
-    case "Report Bug":
     case "Report Bug…":
       await openUrl(`${REPO_URL}/issues/new`);
       return true;
@@ -253,7 +251,6 @@ export const miscHandler: Handler = async (label, ctx) => {
     }
 
     // ─── Destructive / special file ops ────────────────────────────────────
-    case "Shred":
     case "Shred (srm)": {
       const target = ctx.firstPath;
       if (!target) {
@@ -272,7 +269,6 @@ export const miscHandler: Handler = async (label, ctx) => {
       return true;
     }
 
-    case "Create Symlink":
     case "Create Symlink…": {
       const target = await dialogs.showPrompt({
         title: "create symlink",
@@ -433,7 +429,6 @@ export const miscHandler: Handler = async (label, ctx) => {
       return true;
 
     case "From Template…":
-    case "From Template":
       await createFromTemplate(ctx);
       return true;
 
@@ -443,16 +438,6 @@ export const miscHandler: Handler = async (label, ctx) => {
       return true;
     case "Redo":
       ctx.redo?.();
-      return true;
-
-    // ─── Submenu parents (no-ops, already marked consumed) ────────────────
-    case "New":
-    case "New →":
-    case "Open With":
-    case "Template":
-    case "Template →":
-    case "Profile":
-    case "Profile →":
       return true;
 
     default:

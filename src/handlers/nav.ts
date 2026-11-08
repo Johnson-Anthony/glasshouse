@@ -14,12 +14,9 @@ import {
 
 export const navHandler: Handler = async (label, ctx) => {
   switch (label) {
-    // Palette-invoked submenu parents. Menubar presents them as hovers; from
-    // the palette there is no hover target so we drop a prompt asking the
-    // user to pick a target. "Open Recent →" and "Jump to Bookmark →" list
-    // real paths; "Go →" and "Bookmarks →" fall back to a toast hint.
-    case "Open Recent →":
-    case "Open Recent": {
+    // Palette entries for what the menubar shows as submenus: the palette
+    // can't open a submenu, so these prompt with a numbered list instead.
+    case "Open Recent →": {
       const paths = await readRecent();
       if (paths.length === 0) {
         dialogs.showToast({ message: "no recent paths", variant: "info" });
@@ -67,11 +64,6 @@ export const navHandler: Handler = async (label, ctx) => {
       }
       return true;
     }
-    case "Go →":
-    case "Bookmarks →":
-      dialogs.showToast({ message: `"${label}" — open from the menubar to browse submenu`, variant: "info" });
-      return true;
-
     case "Clear History":
       ctx.activeHandle?.actions.clearHistory();
       void clearRecent();
@@ -90,7 +82,6 @@ export const navHandler: Handler = async (label, ctx) => {
       }
       return true;
     }
-    case "Previous Tab":
     case "Prev Tab": {
       const n = ctx.tabs.length;
       if (n > 0) {
@@ -108,9 +99,7 @@ export const navHandler: Handler = async (label, ctx) => {
       ctx.newTab?.(ctx.cwd, { private: true });
       return true;
 
-    case "Open…":
-    case "Open Path…":
-    case "Open Path": {
+    case "Open…": {
       const path = await dialogs.showPrompt({
         title: "open",
         message: "enter path or URL:",
@@ -123,7 +112,6 @@ export const navHandler: Handler = async (label, ctx) => {
       return true;
     }
 
-    case "Go to WSL Distro":
     case "Go to WSL Distro…": {
       let distros: Awaited<ReturnType<typeof listWslDistros>> = [];
       try { distros = await listWslDistros(); } catch { distros = []; }
@@ -149,23 +137,6 @@ export const navHandler: Handler = async (label, ctx) => {
     case "Bookmark This Folder":
       if (ctx.cwd) ctx.pinPath(ctx.cwd);
       return true;
-
-    case "Pin to Workspace":
-      ctx.pinPath(ctx.firstPath ?? ctx.cwd);
-      return true;
-
-    case "Jump to Bookmark…": {
-      const path = await dialogs.showPrompt({
-        title: "jump to bookmark",
-        message: "bookmark path:",
-        placeholder: IS_WINDOWS ? "C:\\… or /…" : "/… or ~/…",
-        validate: (v) => v.trim() ? null : "path required",
-      });
-      if (path != null && path.trim() !== "") {
-        ctx.activeHandle?.actions.goTo(path.trim());
-      }
-      return true;
-    }
 
     case "Zoom Pane": {
       const target =
@@ -193,9 +164,7 @@ export const navHandler: Handler = async (label, ctx) => {
       })();
       return true;
 
-    case "Trash":
-    case "Go to Trash":
-    case "Go to Trash…": {
+    case "Trash": {
       // Windows: in-app only — spawning Explorer here (shell:RecycleBinFolder)
       // yanks the user out of Glasshouse and was a repeat complaint. A real
       // in-app Recycle Bin view needs FOLDERID_RecycleBinFolder + IShellFolder

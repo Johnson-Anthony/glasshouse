@@ -85,7 +85,6 @@ export const gitHandler: Handler = async (label, ctx) => {
       }
       return true;
     }
-    case "Git Status":
     case "Status": {
       await runAndShow(ctx, "git status", ["status", "--short"], false);
       return true;
