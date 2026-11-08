@@ -33,6 +33,5 @@ vite.config.js
 .env
 .env.local
 
-# Local agent notes (machine-specific)
-CLAUDE.md
+# Local agent notes
 .playwright-mcp/

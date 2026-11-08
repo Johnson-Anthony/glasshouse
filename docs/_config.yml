@@ -1,0 +1,7 @@
+# GitHub Pages serves this folder as the project site (index.html).
+# Keep the project's working docs out of the published site.
+exclude:
+  - SPEC.md
+  - ARCHITECTURE.md
+  - plans
+  - decisions
