@@ -36,7 +36,7 @@ import {
   type SidebarRowKind,
   setDynamicGitCwd,
 } from "./components";
-import { CONTEXT_FILE, CONTEXT_EMPTY, CONTEXT_SIDEBAR, CONTEXT_SIDEBAR_FOLDER, CONTEXT_SIDEBAR_DRIVE, CONTEXT_SIDEBAR_REMOTE, CONTEXT_TAB, CONTEXT_BREADCRUMB, type MenuItemDef, type DynamicPayload, type FileRow, type FileKind, type GitStatus } from "./data";
+import { CONTEXT_FILE, CONTEXT_EMPTY, CONTEXT_SIDEBAR, CONTEXT_SIDEBAR_FOLDER, CONTEXT_SIDEBAR_DRIVE, CONTEXT_SIDEBAR_REMOTE, CONTEXT_TAB, CONTEXT_BREADCRUMB, GIT_CHORDS, MUTATING_LABELS, type MenuItemDef, type DynamicPayload, type FileRow, type FileKind, type GitStatus } from "./data";
 import {
   useTabState,
   pushUndo,
@@ -111,6 +111,8 @@ interface CtxState {
 }
 
 const FALLBACK_PATH = IS_WINDOWS ? "C:\\" : "/";
+/** How long a Ctrl+G chord waits for its second key. */
+const GIT_CHORD_MS = 1500;
 
 interface TabShellProps {
   index: number;
@@ -587,6 +589,8 @@ export function App() {
   // Keep a ref to the latest handleMenuCommand so the keydown listener below
   // (which installs once) always dispatches through the current closure.
   const handleMenuCommandRef = useRef<(label: string) => void>(() => {});
+  // Time of the Ctrl+G that opened a pending git chord; 0 when none.
+  const gitChordAt = useRef(0);
 
   useEffect(() => {
     const isTextInput = (t: EventTarget | null): boolean => {
@@ -599,6 +603,23 @@ export function App() {
     const h = (e: KeyboardEvent) => {
       const dispatch = (label: string) => handleMenuCommandRef.current(label);
       const inText = isTextInput(e.target);
+
+      // ── Git chords (Ctrl+G then S / A / C / P, per the Git menu hints) ──
+      // Checked first so the second key wins over its own binding, with or
+      // without Ctrl still held (Ctrl+G Ctrl+P is Pull, not the palette). A
+      // key that doesn't match cancels the chord and is swallowed, so a typo
+      // after Ctrl+G can't fall through to Delete and friends.
+      if (gitChordAt.current) {
+        if (e.key === "Control" || e.key === "Meta" || e.key === "Shift" || e.key === "Alt") return;
+        const live = Date.now() - gitChordAt.current < GIT_CHORD_MS;
+        gitChordAt.current = 0;
+        if (live && !inText) {
+          e.preventDefault();
+          const label = e.altKey || e.shiftKey ? undefined : GIT_CHORDS[e.key.toLowerCase()];
+          if (label) dispatch(label);
+          return;
+        }
+      }
 
       // ── Next / Prev Tab (Ctrl+Tab / Ctrl+Shift+Tab) ─────────────────────
       // Must run before the Tab/F6 pane-cycle handler below, otherwise the
@@ -704,6 +725,10 @@ export function App() {
       // owns the behaviour. Skip anything fired while focus is in a text input
       // so typing into fields doesn't nuke files.
       if (inText) return;
+
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "g") {
+        e.preventDefault(); gitChordAt.current = Date.now(); return;
+      }
 
       // Space — Quick Look toggle for the selected file. defaultPrevented
       // means a focused widget (e.g. a sidebar group title) already consumed
@@ -1232,14 +1257,6 @@ export function App() {
   };
   handleMenuCommandRef.current = handleMenuCommand;
 
-  /** Selection-sourced ops that write to the filesystem — blocked for entries
-   *  with non-UTF-8 (lossy) names since their real path can't be expressed. */
-  const MUTATING_OPS = new Set([
-    "Rename", "Move to Trash", "Delete Permanently", "Cut", "Copy",
-    "Duplicate", "Move to…", "Move to", "Move To…", "Batch Rename…",
-    "Shred", "Shred…", "Compress to Zip", "Compress to Zip…",
-  ]);
-
   async function doFileOp(label: string) {
     if (!activeHandle) return;
     const st = activeHandle.state;
@@ -1254,7 +1271,8 @@ export function App() {
     // Entries whose on-disk name isn't valid UTF-8 carry a lossy rendering of
     // the real path — any mutating op would target a path that doesn't exist
     // (or worse). Refuse with an actionable message instead.
-    if (MUTATING_OPS.has(label) && st.selected.some(i => st.entries[i]?.lossy)) {
+    // MUTATING_LABELS is derived from the `mutates` flags in data.ts.
+    if (MUTATING_LABELS.has(label) && st.selected.some(i => st.entries[i]?.lossy)) {
       void dialogs.showAlert({
         title: "invalid filename encoding",
         variant: "error",

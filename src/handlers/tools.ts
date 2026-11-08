@@ -1,6 +1,7 @@
 import type { Handler } from "./types";
 import { dialogs } from "../components";
 import { IS_WINDOWS } from "../platform";
+import { parseOctalMode } from "../octal";
 import {
   hashSha256,
   findInFiles,
@@ -448,13 +449,12 @@ export const toolsHandler: Handler = async (label, ctx) => {
         placeholder: "755",
         validate: (v) => {
           if (!v.trim()) return "mode required";
-          const n = parseInt(v.trim(), 8);
-          return Number.isFinite(n) ? null : "invalid octal (e.g. 644, 755)";
+          return parseOctalMode(v) == null ? "invalid octal (e.g. 644, 755)" : null;
         },
       });
       if (modeStr == null || modeStr.trim() === "") return true;
-      const mode = parseInt(modeStr.trim(), 8);
-      if (!Number.isFinite(mode)) {
+      const mode = parseOctalMode(modeStr);
+      if (mode == null) {
         void dialogs.showAlert({ title: "invalid", variant: "error", message: `invalid octal mode: ${modeStr}` });
         return true;
       }
