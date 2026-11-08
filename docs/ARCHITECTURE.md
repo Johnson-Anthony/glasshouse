@@ -16,7 +16,7 @@ Snapshot from the 2026-11-08 survey. Line numbers will drift, so search by name.
 | `src/styles/themes.css`, `app.css` | 8 themes as CSS variables on `[data-theme]`; layout and component CSS |
 | `src-tauri/src/lib.rs` | Plugin setup, managed state, registration of every command (`generate_handler!`; `build.rs` checks it against `permissions/app.toml`) |
 | `src-tauri/src/commands.rs` (~3.1k lines) | Nearly all `#[tauri::command]`s, divided by `// ---------- … ----------` section headers; unit tests at the end |
-| `src-tauri/src/pty.rs`, `watcher.rs` | Terminal sessions (portable-pty) and directory watching (notify, 300 ms debounce) |
+| `src-tauri/src/pty.rs`, `watcher.rs` | Terminal sessions (portable-pty; each session has a reader thread, a wait thread and a writer thread that `pty_write` queues input onto) and directory watching (notify, 300 ms debounce) |
 | `src-tauri/capabilities/default.json` | What the main window may call: plugin permissions (fs, shell, dialog, os, opener) and the app permissions |
 | `src-tauri/permissions/app.toml` | App command permissions, grouped (files-read, files-write, git, settings, launch, exec). `build.rs` fails the build if a command in `generate_handler!` isn't in one |
 
