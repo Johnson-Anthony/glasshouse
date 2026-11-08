@@ -93,7 +93,8 @@ import {
   type ShellProfile,
 } from "./api";
 import { runTransfer, planTransfer, type TransferItem, type TransferOp, type TransferResult } from "./transfer";
-import { transferDeps, reportTransfer, pushTransferUndo, asItems } from "./transferUi";
+import { transferDeps, reportTransfer, pushTransferUndo, asItems, namesIn, assertFree, listNames } from "./transferUi";
+import { NameSet, freeNewName, nameProblem } from "./names";
 
 const TWEAK_DEFAULTS: TweakState = {
   theme: "gruvbox-dark",
@@ -1017,16 +1018,20 @@ export function App() {
             contextTarget = null;
             const base = basename(target);
             void (async () => {
+              const dir = parentPath(target);
+              // An unreadable folder still gets a prompt; assertFree reports it.
+              const taken = await namesIn(dir).catch(() => new NameSet([], IS_WINDOWS));
               const next = await dialogs.showPrompt({
                 title: "rename",
                 message: `rename "${base}" to:`,
                 initialValue: base,
                 placeholder: "new name",
-                validate: (v) => v.trim() ? null : "name required",
+                validate: (v) => nameProblem(v, taken, base),
               });
               if (!next || next === base) return;
-              const dst = joinPath(parentPath(target), next);
+              const dst = joinPath(dir, next);
               try {
+                await assertFree(dir, next, base);
                 await renameEntry(target, dst);
                 pushUndo(moveUndo(`rename ${base} → ${next}`, [{ src: target, dst }], "rename"));
                 activeHandle?.actions.refresh();
@@ -1308,16 +1313,20 @@ export function App() {
             setBulkRenameItems(items);
             return;
           }
+          // The entry's own folder: search results can live outside cwd.
+          const src = firstEntry.path;
+          const dir = parentPath(src);
+          const taken = await namesIn(dir);
           const next = await dialogs.showPrompt({
             title: "rename",
             message: `rename "${firstEntry.name}" to:`,
             initialValue: firstEntry.name,
             placeholder: "new name",
-            validate: (v) => v.trim() ? null : "name required",
+            validate: (v) => nameProblem(v, taken, firstEntry.name),
           });
           if (!next || next === firstEntry.name) return;
-          const dst = joinPath(cwd, next);
-          const src = firstEntry.path;
+          await assertFree(dir, next, firstEntry.name);
+          const dst = joinPath(dir, next);
           await renameEntry(src, dst);
           pushUndo(moveUndo(`rename ${firstEntry.name} → ${next}`, [{ src, dst }], "rename"));
           refresh();
@@ -1417,14 +1426,16 @@ export function App() {
         }
         case "New Folder":
         case "Folder": {
+          const taken = await namesIn(cwd);
           const name = await dialogs.showPrompt({
             title: "new folder",
             message: "folder name:",
-            initialValue: "new-folder",
+            initialValue: freeNewName("new-folder", true, taken.has),
             placeholder: "folder-name",
-            validate: (v) => v.trim() ? null : "name required",
+            validate: (v) => nameProblem(v, taken),
           });
           if (!name) return;
+          await assertFree(cwd, name);
           const dst = joinPath(cwd, name);
           await makeDir(dst);
           pushUndo(createUndo(`new folder ${name}`, dst, { kind: "folder" }));
@@ -1433,14 +1444,16 @@ export function App() {
         }
         case "New File":
         case "Text File": {
+          const taken = await namesIn(cwd);
           const name = await dialogs.showPrompt({
             title: "new text file",
             message: "file name:",
-            initialValue: "untitled.txt",
+            initialValue: freeNewName("untitled.txt", false, taken.has),
             placeholder: "name.txt",
-            validate: (v) => v.trim() ? null : "name required",
+            validate: (v) => nameProblem(v, taken),
           });
           if (!name) return;
+          await assertFree(cwd, name);
           const dst = joinPath(cwd, name);
           await writeText(dst, "");
           pushUndo(createUndo(`new file ${name}`, dst, { kind: "file", content: "" }));
@@ -1448,14 +1461,16 @@ export function App() {
           return;
         }
         case "Markdown Note": {
+          const taken = await namesIn(cwd);
           const name = await dialogs.showPrompt({
             title: "new markdown note",
             message: "note name:",
-            initialValue: "note.md",
+            initialValue: freeNewName("note.md", false, taken.has),
             placeholder: "note.md",
-            validate: (v) => v.trim() ? null : "name required",
+            validate: (v) => nameProblem(v, taken),
           });
           if (!name) return;
+          await assertFree(cwd, name);
           const dst = joinPath(cwd, name);
           await writeText(dst, "");
           pushUndo(createUndo(`new note ${name}`, dst, { kind: "file", content: "" }));
@@ -1463,14 +1478,16 @@ export function App() {
           return;
         }
         case "Script (.sh)": {
+          const taken = await namesIn(cwd);
           const name = await dialogs.showPrompt({
             title: "new shell script",
             message: "script name:",
-            initialValue: "script.sh",
+            initialValue: freeNewName("script.sh", false, taken.has),
             placeholder: "script.sh",
-            validate: (v) => v.trim() ? null : "name required",
+            validate: (v) => nameProblem(v, taken),
           });
           if (!name) return;
+          await assertFree(cwd, name);
           const dst = joinPath(cwd, name);
           const script = "#!/usr/bin/env bash\n";
           await writeText(dst, script);
@@ -2249,6 +2266,7 @@ export function App() {
           items={bulkRenameItems}
           onClose={() => setBulkRenameItems(null)}
           renameOne={(from, to) => renameEntry(from, to)}
+          listNames={listNames}
           onDone={() => activeHandle?.actions.refresh()}
         />
       )}
