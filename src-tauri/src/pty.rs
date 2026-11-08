@@ -62,7 +62,7 @@ fn next_session_id(reg: &PtyRegistry) -> String {
 /// On Windows, `portable-pty`'s ConPTY backend handles CREATE_NO_WINDOW
 /// semantics internally — the host process gets attached to the PTY pipe
 /// rather than a real console, so no console window flashes.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn pty_spawn(
     app: AppHandle,
     registry: State<'_, PtyRegistry>,

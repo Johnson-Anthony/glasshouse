@@ -39,7 +39,7 @@ Snapshot from the 2026-11-08 survey. Line numbers will drift, so search by name.
 ## Backend
 - Commands return `Result<T, String>`. Some return `Option`, or a default value, on failure.
 - Events sent to the frontend: `fs-changed` (parent dir), `pty-data` `{session_id,data}`, `pty-exit` `{session_id,exit_code}`. Long operations send no progress events.
-- **Every command is synchronous** (no `async`), so Tauri runs them all on the main thread.
+- **Threading:** commands that do I/O are `#[tauri::command(async)]`, so they run on Tauri's tokio workers, in parallel and finishing in any order. Commands that rely on call order stay plain `#[tauri::command]` and run on the main thread, one at a time: config read/write (pins, tags, recents), `watch_dir`/`unwatch_dir`, `pty_write`/`pty_resize`/`pty_kill`, and a few instant ones. A new command that does I/O should be `(async)`. See `docs/decisions/2026-11-08-async-commands-threading.md`.
 - Platform splits: `cfg(windows)` covers Win32 drives, hidden attributes, WSL, shortcuts, signatures and `cmd /C` launching. `cfg(not(windows))` covers sysinfo drives, `xdg-open`, terminal discovery (`$TERMINAL`, kitty, alacritty, foot…) and the `/proc` parsers.
 - Config data (pins, tags, recents) is stored as JSON in the app config dir, with atomic writes.
 - Plugin permissions are narrow, but the custom commands have no permission manifest (`build.rs`), so the webview can call all of them.

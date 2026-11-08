@@ -78,7 +78,7 @@ fn canonicalize_soft(p: &str) -> PathBuf {
     dunce::canonicalize(p).unwrap_or_else(|_| PathBuf::from(p))
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn list_dir(path: String, show_hidden: bool) -> Result<Vec<FileEntry>, String> {
     let p = canonicalize_soft(&path);
     let mut out = Vec::new();
@@ -191,6 +191,11 @@ fn scan_repo_statuses(dir: &Path) -> Option<HashMap<PathBuf, String>> {
     opts.include_untracked(true)
         .include_ignored(false)
         .recurse_untracked_dirs(false);
+    // Only the listed folder's children get a label, so scan just its subtree
+    // instead of the whole repo.
+    if let Some(spec) = status_pathspec(&workdir, dir) {
+        opts.pathspec(spec);
+    }
     let statuses = repo.statuses(Some(&mut opts)).ok()?;
     let mut out: HashMap<PathBuf, String> = HashMap::new();
     for s in statuses.iter() {
@@ -210,6 +215,30 @@ fn scan_repo_statuses(dir: &Path) -> Option<HashMap<PathBuf, String>> {
         out.insert(key, code.to_string());
     }
     Some(out)
+}
+
+/// The workdir-relative pathspec that limits a status scan to `dir`, or
+/// `None` to scan the whole repo: at the repo root, when `dir` isn't under the
+/// workdir or isn't UTF-8, and when libgit2 would read the path as a pattern
+/// (glob characters, a leading `!` or `#`, trailing whitespace) rather than
+/// as a plain folder prefix.
+fn status_pathspec(workdir: &Path, dir: &Path) -> Option<String> {
+    let rel = dir.strip_prefix(workdir).ok()?;
+    let parts = rel
+        .components()
+        .map(|c| match c {
+            std::path::Component::Normal(s) => s.to_str(),
+            _ => None,
+        })
+        .collect::<Option<Vec<_>>>()?;
+    if parts.is_empty() {
+        return None;
+    }
+    let spec = parts.join("/");
+    let literal = !spec.contains(['*', '?', '[', ']', '\\'])
+        && !spec.starts_with(['!', '#'])
+        && !spec.ends_with(char::is_whitespace);
+    literal.then_some(spec)
 }
 
 #[cfg(windows)]
@@ -238,7 +267,7 @@ pub struct Drive {
     pub fs: String,
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn drives() -> Vec<Drive> {
     let mut out = Vec::new();
     #[cfg(windows)]
@@ -377,7 +406,7 @@ pub struct WslDistro {
     pub path: String,
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn list_wsl_distros() -> Vec<WslDistro> {
     #[cfg_attr(not(windows), allow(unused_mut))]
     let mut out = Vec::new();
@@ -423,7 +452,7 @@ pub fn list_wsl_distros() -> Vec<WslDistro> {
 static SYSINFO: std::sync::OnceLock<std::sync::Mutex<sysinfo::System>> =
     std::sync::OnceLock::new();
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn system_info() -> SystemInfo {
     use sysinfo::System;
     // Keep a process-lifetime System instance; System::new_all() is very
@@ -455,19 +484,19 @@ pub fn system_info() -> SystemInfo {
 
 // ---------- file operations ----------
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn make_dir(path: String) -> Result<(), String> {
     std::fs::create_dir_all(&path).map_err(|e| e.to_string())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn rename_entry(from: String, to: String) -> Result<(), String> {
     std::fs::rename(&from, &to).map_err(|e| e.to_string())
 }
 
 /// Copy a file, folder or symlink. Symlinks are recreated as links, never
 /// followed, whether selected directly or found inside a folder.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn copy_entry(from: String, to: String) -> Result<(), String> {
     let src = Path::new(&from);
     let dst = Path::new(&to);
@@ -606,7 +635,7 @@ fn is_cross_device(e: &std::io::Error) -> bool {
     e.raw_os_error() == Some(CODE)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn move_entry(from: String, to: String) -> Result<(), String> {
     let src = Path::new(&from);
     let dst = Path::new(&to);
@@ -630,7 +659,7 @@ pub fn move_entry(from: String, to: String) -> Result<(), String> {
     }
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn delete_entry(path: String, recursive: bool) -> Result<(), String> {
     let p = Path::new(&path);
     let meta = std::fs::symlink_metadata(p).map_err(|e| e.to_string())?;
@@ -648,14 +677,14 @@ pub fn delete_entry(path: String, recursive: bool) -> Result<(), String> {
 /// Move a file or directory to the system recycle bin. Uses the `trash`
 /// crate, which dispatches to `IFileOperation` with `FOFX_RECYCLEONDELETE`
 /// on Windows — items land in the recycle bin and can be restored.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn move_to_trash(path: String) -> Result<(), String> {
     trash::delete(&path).map_err(|e| format!("move_to_trash({}): {}", path, e))
 }
 
 /// The folder holding trashed files: the XDG home trash on unix, `None` on
 /// Windows (the Recycle Bin isn't a browsable directory).
-#[tauri::command]
+#[tauri::command(async)]
 pub fn trash_dir() -> Option<String> {
     #[cfg(windows)]
     {
@@ -683,7 +712,7 @@ fn xdg_trash_files(xdg_data_home: Option<String>, home: Option<PathBuf>) -> Opti
     Some(data.join("Trash/files"))
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn read_text(path: String, max_bytes: usize) -> Result<String, String> {
     use std::io::Read;
     let f = std::fs::File::open(&path).map_err(|e| e.to_string())?;
@@ -697,12 +726,12 @@ pub fn read_text(path: String, max_bytes: usize) -> Result<String, String> {
     Ok(String::from_utf8_lossy(&buf).into_owned())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn write_text(path: String, content: String) -> Result<(), String> {
     std::fs::write(&path, content).map_err(|e| e.to_string())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn read_image_b64(path: String, max_bytes: usize) -> Result<String, String> {
     use base64::{engine::general_purpose::STANDARD, Engine as _};
     let cap = if max_bytes == 0 { 8 * 1024 * 1024 } else { max_bytes };
@@ -791,7 +820,7 @@ fn upstream_ahead_behind(repo: &git2::Repository) -> Result<Option<(usize, usize
     repo.graph_ahead_behind(local, upstream_oid).map(Some)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn git_status(path: String) -> Option<GitInfo> {
     use git2::{Repository, StatusOptions};
     let repo = Repository::discover(&path).ok()?;
@@ -847,7 +876,7 @@ fn reap(mut child: std::process::Child) {
     });
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn open_with_default(path: String) -> Result<(), String> {
     #[cfg(windows)]
     {
@@ -869,7 +898,7 @@ pub fn open_with_default(path: String) -> Result<(), String> {
     }
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn reveal_in_explorer(path: String) -> Result<(), String> {
     #[cfg(windows)]
     {
@@ -1020,7 +1049,7 @@ fn linux_terminal_command(
 }
 
 /// Open a terminal window at `path`. Prefers Windows Terminal, then pwsh, then powershell.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn spawn_terminal(path: String) -> Result<(), String> {
     #[cfg(windows)]
     {
@@ -1123,7 +1152,7 @@ const VSCODE_NAMES: &[&str] = &["code.cmd", "code.exe", "code", "codium.cmd", "c
 const VSCODE_NAMES: &[&str] = &["code", "codium", "code-oss"];
 
 /// Open VS Code at `path` (file or folder).
-#[tauri::command]
+#[tauri::command(async)]
 pub fn spawn_vscode(path: String) -> Result<(), String> {
     use std::process::{Command, Stdio};
 
@@ -1257,7 +1286,7 @@ pub struct BlameLine {
 
 const BLAME_MAX_CAP: u32 = 2000;
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn git_blame(path: String, max_lines: u32) -> Result<Vec<BlameLine>, String> {
     use git2::{BlameOptions, Repository};
     let abs = canonicalize_soft(&path);
@@ -1349,7 +1378,7 @@ fn open_repo_and_relpaths(
     Ok((repo, rels))
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn git_stage(paths: Vec<String>) -> Result<(), String> {
     let (repo, rels) = open_repo_and_relpaths(&paths)?;
     let workdir = repo.workdir().unwrap().to_path_buf();
@@ -1369,7 +1398,7 @@ pub fn git_stage(paths: Vec<String>) -> Result<(), String> {
     Ok(())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn git_unstage(paths: Vec<String>) -> Result<(), String> {
     let (repo, rels) = open_repo_and_relpaths(&paths)?;
     // Equivalent of `git reset HEAD -- path`: reset the index entries for
@@ -1392,7 +1421,7 @@ pub fn git_unstage(paths: Vec<String>) -> Result<(), String> {
     Ok(())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn git_discard(paths: Vec<String>) -> Result<(), String> {
     use git2::build::CheckoutBuilder;
     let (repo, rels) = open_repo_and_relpaths(&paths)?;
@@ -1456,7 +1485,7 @@ pub struct FindMatch {
 const FIND_MAX_FILE_BYTES: u64 = 1 << 20; // 1 MiB per task spec
 const FIND_HARD_CAP: u32 = 10_000;
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn find_in_files(
     root: String,
     query: String,
@@ -1593,7 +1622,7 @@ pub fn find_in_files(
 /// are added at their basename; directories are walked recursively and their
 /// children stored with paths rooted at the directory's basename so the
 /// archive keeps a recognisable structure.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn compress(paths: Vec<String>, output: String) -> Result<(), String> {
     use std::io::{BufWriter, Read, Write};
 
@@ -1837,7 +1866,7 @@ fn find_7z() -> Result<String, String> {
 
 /// Return whether the local machine has the tooling required to handle the
 /// given archive format. Values: "zip" | "tar.gz" | "tar.zst" | "7z".
-#[tauri::command]
+#[tauri::command(async)]
 pub fn archive_can_handle(format: String) -> bool {
     match format.as_str() {
         "zip" => true, // in-process zip crate
@@ -1854,7 +1883,7 @@ pub fn archive_can_handle(format: String) -> bool {
 /// "zip" | "tar.gz" | "tar.zst" | "7z". Relative entries are archived using
 /// each input's basename (`tar -C <parent> <basename>`) so the resulting
 /// archive mirrors the structure produced by the existing zip path.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn archive_create(
     paths: Vec<String>,
     dest: String,
@@ -1932,7 +1961,7 @@ pub fn archive_create(
 ///   .tar/.tar.gz/.tgz/.tar.bz2 → `tar -xf ...`
 ///   .tar.zst/.tzst → in-process zstd piped into `tar -xf -`
 ///   .7z → `7z.exe x archive -o<dest_dir> -y`
-#[tauri::command]
+#[tauri::command(async)]
 pub fn archive_extract(archive: String, dest_dir: String) -> Result<(), String> {
     // Ensure destination exists.
     if let Err(e) = std::fs::create_dir_all(&dest_dir) {
@@ -1991,7 +2020,7 @@ pub fn archive_extract(archive: String, dest_dir: String) -> Result<(), String> 
 
 /// Stream the file at `path` in 64 KB chunks and return the lowercase hex
 /// SHA-256 digest.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn hash_sha256(path: String) -> Result<String, String> {
     use sha2::{Digest, Sha256};
     use std::io::Read;
@@ -2021,7 +2050,7 @@ pub fn hash_sha256(path: String) -> Result<String, String> {
 /// `PermissionsExt::from_mode`. On windows it only toggles the read-only
 /// attribute based on the owner-write bit (`mode & 0o200`); richer ACL
 /// manipulation is out of scope for v1.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn set_permissions(path: String, mode: u32) -> Result<(), String> {
     #[cfg(unix)]
     {
@@ -2054,7 +2083,7 @@ pub fn set_permissions(path: String, mode: u32) -> Result<(), String> {
 /// Read up to `length` bytes starting at `offset` from `path` and return a
 /// human-readable hex dump (16 bytes/row, offset + hex + ascii). `length` is
 /// capped at 64 KiB; `0` becomes the default of 4096 bytes.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn read_hex_dump(path: String, offset: u64, length: usize) -> Result<String, String> {
     use std::fmt::Write as FmtWrite;
     use std::io::{Read, Seek, SeekFrom};
@@ -2106,7 +2135,7 @@ pub fn read_hex_dump(path: String, offset: u64, length: usize) -> Result<String,
 /// Return a unified diff between two utf-8 text files. Errors with
 /// "binary or non-utf8" if either file cannot be decoded. An empty diff
 /// (identical content) returns an empty string.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn diff_files(a: String, b: String) -> Result<String, String> {
     let a_bytes = std::fs::read(&a).map_err(|e| format!("read {}: {}", a, e))?;
     let b_bytes = std::fs::read(&b).map_err(|e| format!("read {}: {}", b, e))?;
@@ -2133,7 +2162,7 @@ pub fn diff_files(a: String, b: String) -> Result<String, String> {
 /// Walk `root` recursively via ignore::WalkBuilder honoring .gitignore/hidden,
 /// and return up to `max_results` paths whose filename contains `pattern`
 /// (case-insensitive substring match). Empty pattern → empty result.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn find_file_by_name(
     root: String,
     pattern: String,
@@ -2199,7 +2228,7 @@ pub fn find_file_by_name(
 /// Create a symbolic link at `link_path` pointing at `target`. On windows,
 /// chooses symlink_dir when the target is an existing directory, else
 /// symlink_file. Requires developer mode or admin on pre-1703 Windows.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn create_symlink(target: String, link_path: String) -> Result<(), String> {
     #[cfg(unix)]
     {
@@ -2225,7 +2254,7 @@ pub fn create_symlink(target: String, link_path: String) -> Result<(), String> {
 
 /// Create a hard link at `link_path` pointing at `target`. Requires both on
 /// the same volume; errors otherwise.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn create_hard_link(target: String, link_path: String) -> Result<(), String> {
     std::fs::hard_link(&target, &link_path)
         .map_err(|e| format!("hard_link {} -> {}: {}", link_path, target, e))
@@ -2236,7 +2265,7 @@ pub fn create_hard_link(target: String, link_path: String) -> Result<(), String>
 /// Create a Windows .lnk shortcut at `link_path` pointing at `target`. Shells
 /// out to PowerShell's WScript.Shell COM object — no extra Cargo deps. Errors
 /// when `link_path` does not end in `.lnk`, or on non-Windows platforms.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn create_shortcut(target: String, link_path: String) -> Result<(), String> {
     if !link_path.to_ascii_lowercase().ends_with(".lnk") {
         return Err("link path must end with .lnk".into());
@@ -2274,7 +2303,7 @@ pub fn create_shortcut(target: String, link_path: String) -> Result<(), String> 
 /// Overwrite `path` with fixed-pattern passes (cycling 0xFF, 0x00, 0xAA) then
 /// delete it. Regular files only: rejects directories, special files and
 /// symlinks, and never opens a link's target. `passes` is clamped to 1..=10.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn shred(path: String, passes: u32) -> Result<(), String> {
     use std::fs::OpenOptions;
     use std::io::{Seek, SeekFrom, Write};
@@ -2352,7 +2381,7 @@ pub fn shred(path: String, passes: u32) -> Result<(), String> {
 /// Verify the Authenticode signature on `path`. Returns "valid", "invalid",
 /// or "unsigned". Windows only; shells out to PowerShell Get-AuthenticodeSignature
 /// to avoid hand-rolling WinVerifyTrust bindings.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn verify_signature(path: String) -> Result<String, String> {
     #[cfg(windows)]
     {
@@ -2392,7 +2421,7 @@ pub fn verify_signature(path: String) -> Result<String, String> {
 /// Change ownership of `path`. On unix accepts "uid:gid" with numeric ids
 /// (either side may be omitted: "uid:", ":gid"). On windows returns an
 /// unsupported error.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn change_owner(path: String, owner: String) -> Result<(), String> {
     #[cfg(unix)]
     {
@@ -2430,7 +2459,7 @@ pub fn change_owner(path: String, owner: String) -> Result<(), String> {
 /// exits, and return combined output as "stdout\n---STDERR---\nstderr". On
 /// windows, `.ps1` is run via `powershell -File`, `.bat`/`.cmd` via `cmd /c`,
 /// otherwise executed directly.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn run_script(script: String, targets: Vec<String>) -> Result<String, String> {
     use std::process::Command;
 
@@ -2481,7 +2510,7 @@ pub fn run_script(script: String, targets: Vec<String>) -> Result<String, String
 // ---------- open url ----------
 
 /// Open `url` in the system default browser.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn open_url(url: String) -> Result<(), String> {
     #[cfg(windows)]
     {
@@ -2514,7 +2543,7 @@ pub fn open_url(url: String) -> Result<(), String> {
 // ---------- spawn new window ----------
 
 /// Launch a detached copy of the current executable (new app window).
-#[tauri::command]
+#[tauri::command(async)]
 pub fn spawn_new_window() -> Result<(), String> {
     use std::process::{Command, Stdio};
     let exe = std::env::current_exe()
@@ -2737,7 +2766,7 @@ fn shell_profiles(
 
 /// Probe the system for available shells, WSL distros, and SSH hosts.
 /// Emits only what actually exists: shells first, then WSL, then SSH.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn list_shell_profiles() -> Vec<ShellProfile> {
     let mut out: Vec<ShellProfile> = Vec::new();
 
@@ -2791,7 +2820,7 @@ pub fn list_shell_profiles() -> Vec<ShellProfile> {
 
 /// Launch a terminal profile in `cwd`. Prefers Windows Terminal (`wt.exe`);
 /// falls back to `cmd /C start`. Never flashes a console window.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn spawn_terminal_profile(profile: ShellProfile, cwd: String) -> Result<(), String> {
     #[cfg(windows)]
     {
@@ -2944,7 +2973,7 @@ fn system_time_to_ms(t: std::time::SystemTime) -> Option<i64> {
         .map(|d| d.as_millis() as i64)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn file_stat_extended(path: String) -> Result<FileStatExt, String> {
     let md = std::fs::symlink_metadata(&path).map_err(|e| format!("stat {}: {}", path, e))?;
     let mut out = FileStatExt {
@@ -3064,7 +3093,7 @@ fn win_file_owner(path: &str) -> Option<String> {
 
 // ---------- additional checksums ----------
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn hash_md5(path: String) -> Result<String, String> {
     use md5::{Digest, Md5};
     use std::io::Read;
@@ -3088,7 +3117,7 @@ pub fn hash_md5(path: String) -> Result<String, String> {
     Ok(hex)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn hash_crc32(path: String) -> Result<String, String> {
     use std::io::Read;
 
@@ -3116,7 +3145,7 @@ pub struct GitFileInfo {
     pub removed: u32,
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn git_file_info(cwd: String, path: String) -> Result<GitFileInfo, String> {
     let mut out = GitFileInfo::default();
 
@@ -3167,7 +3196,7 @@ pub fn git_file_info(cwd: String, path: String) -> Result<GitFileInfo, String> {
 
 // ---------- filesystem type for arbitrary path ----------
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn path_fs_type(path: String) -> Result<String, String> {
     #[cfg(windows)]
     {
@@ -3232,7 +3261,7 @@ pub struct NetRate {
 static NET_LAST: std::sync::Mutex<Option<(std::time::Instant, u64, u64)>> =
     std::sync::Mutex::new(None);
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn net_rate() -> Result<NetRate, String> {
     let (total_in, total_out) = sample_net_octets()?;
     let now = std::time::Instant::now();
@@ -3311,7 +3340,7 @@ fn sample_net_octets() -> Result<(u64, u64), String> {
 /// Changed and untracked entries in the repo containing `path`, counted as
 /// `git_status`'s `dirty` is. `Ok(None)` when `path` isn't in a repo with a
 /// working tree; `Err` when the repo can't be opened or its status read.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn git_dirty_count(path: String) -> Result<Option<u32>, String> {
     use git2::StatusOptions;
     let Some(repo) = discover_repo(&path)? else {
@@ -3349,6 +3378,9 @@ pub struct GitBranch {
     pub upstream: Option<String>,
     pub ahead: u32,
     pub behind: u32,
+    /// The upstream is configured but its ref no longer exists (deleted on
+    /// the remote and pruned), so ahead/behind are 0 without meaning "in sync".
+    pub upstream_gone: bool,
 }
 
 fn build_git_command(cwd: &str) -> std::process::Command {
@@ -3370,7 +3402,7 @@ fn classify_spawn_err(e: &std::io::Error) -> String {
     }
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn git_run(cwd: String, args: Vec<String>) -> Result<GitRunResult, String> {
     let mut cmd = build_git_command(&cwd);
     cmd.args(&args);
@@ -3386,12 +3418,16 @@ pub fn git_run(cwd: String, args: Vec<String>) -> Result<GitRunResult, String> {
     })
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn git_branch_list(cwd: String) -> Result<Vec<GitBranch>, String> {
+    // One for-each-ref gives every branch's ahead/behind via upstream:track,
+    // instead of a rev-list per branch. Its words ("ahead", "behind", "gone")
+    // are translated, so ask for the untranslated ones.
     let mut cmd = build_git_command(&cwd);
+    cmd.env("LC_ALL", "C");
     cmd.args([
         "for-each-ref",
-        "--format=%(refname:short)\t%(HEAD)\t%(upstream:short)",
+        "--format=%(refname:short)\t%(HEAD)\t%(upstream:short)\t%(upstream:track,nobracket)",
         "refs/heads/",
     ]);
     let out = cmd.output().map_err(|e| classify_spawn_err(&e))?;
@@ -3401,7 +3437,7 @@ pub fn git_branch_list(cwd: String) -> Result<Vec<GitBranch>, String> {
     let text = String::from_utf8_lossy(&out.stdout);
     let mut branches = Vec::new();
     for line in text.lines() {
-        let mut it = line.splitn(3, '\t');
+        let mut it = line.splitn(4, '\t');
         let name = match it.next() {
             Some(s) if !s.is_empty() => s.to_string(),
             _ => continue,
@@ -3414,28 +3450,7 @@ pub fn git_branch_list(cwd: String) -> Result<Vec<GitBranch>, String> {
         } else {
             Some(upstream_raw.to_string())
         };
-
-        let (ahead, behind) = if let Some(up) = &upstream {
-            let mut rl = build_git_command(&cwd);
-            rl.args([
-                "rev-list",
-                "--left-right",
-                "--count",
-                &format!("{}...{}", name, up),
-            ]);
-            match rl.output() {
-                Ok(o) if o.status.success() => {
-                    let s = String::from_utf8_lossy(&o.stdout);
-                    let parts: Vec<&str> = s.split_whitespace().collect();
-                    let a: u32 = parts.first().and_then(|x| x.parse().ok()).unwrap_or(0);
-                    let b: u32 = parts.get(1).and_then(|x| x.parse().ok()).unwrap_or(0);
-                    (a, b)
-                }
-                _ => (0, 0),
-            }
-        } else {
-            (0, 0)
-        };
+        let (ahead, behind, upstream_gone) = parse_upstream_track(it.next().unwrap_or(""));
 
         branches.push(GitBranch {
             name,
@@ -3443,16 +3458,36 @@ pub fn git_branch_list(cwd: String) -> Result<Vec<GitBranch>, String> {
             upstream,
             ahead,
             behind,
+            upstream_gone,
         });
     }
     Ok(branches)
+}
+
+/// Parse `%(upstream:track,nobracket)` as git prints it under LC_ALL=C: ""
+/// (in sync, or no upstream), "gone", "ahead 3", "behind 2" or
+/// "ahead 3, behind 2". Returns (ahead, behind, gone).
+fn parse_upstream_track(track: &str) -> (u32, u32, bool) {
+    let track = track.trim();
+    if track == "gone" {
+        return (0, 0, true);
+    }
+    let (mut ahead, mut behind) = (0, 0);
+    for part in track.split(", ") {
+        match part.split_once(' ') {
+            Some(("ahead", n)) => ahead = n.parse().unwrap_or(0),
+            Some(("behind", n)) => behind = n.parse().unwrap_or(0),
+            _ => {}
+        }
+    }
+    (ahead, behind, false)
 }
 
 /// Commits the current branch is ahead of and behind its upstream. `Ok(None)`
 /// when there's nothing to compare: not in a repo, detached or unborn HEAD,
 /// no upstream, or the upstream ref is gone. `Err` is a real failure, such as
 /// an unreadable repo, dubious ownership or a missing object.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn git_ahead_behind(cwd: String) -> Result<Option<(u32, u32)>, String> {
     let Some(repo) = discover_repo(&cwd)? else {
         return Ok(None);
@@ -3876,6 +3911,134 @@ mod tests {
         assert_eq!(info.status.len(), expected.len());
         assert_eq!(info.dirty, expected.len());
         assert_eq!(git_dirty_count(path), Ok(Some(expected.len() as u32)));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn list_dir_git_labels_scan_only_the_listed_folder() {
+        let (dir, repo) = test_repo("gitscope");
+        let weird = "we[ir]d";
+        for sub in ["sub/inner/!bang", weird] {
+            std::fs::create_dir_all(dir.join(sub)).unwrap();
+        }
+        let files = [
+            "root.txt",
+            "sub/a.txt",
+            "sub/b.txt",
+            "sub/inner/c.txt",
+            "sub/inner/!bang/z.txt",
+            "we[ir]d/w.txt",
+        ];
+        for f in files {
+            std::fs::write(dir.join(f), "v1").unwrap();
+        }
+        commit_all(&repo, "init");
+        for f in files.iter().filter(|f| **f != "sub/b.txt") {
+            std::fs::write(dir.join(f), "v2").unwrap();
+        }
+        std::fs::write(dir.join("sub/new.txt"), "new").unwrap();
+
+        let labels = |rel: &str| -> HashMap<String, Option<String>> {
+            list_dir(dir.join(rel).to_string_lossy().into_owned(), true)
+                .unwrap()
+                .into_iter()
+                .map(|e| (e.name, e.git))
+                .collect()
+        };
+        let code = |c: &str| Some(c.to_string());
+        let root = labels("");
+        assert_eq!(root["root.txt"], code("M"));
+        assert_eq!(root["sub"], None);
+        let sub = labels("sub");
+        assert_eq!(sub["a.txt"], code("M"));
+        assert_eq!(sub["b.txt"], None);
+        assert_eq!(sub["new.txt"], code("?"));
+        assert_eq!(sub["inner"], None);
+        assert_eq!(labels("sub/inner")["c.txt"], code("M"));
+        // A `!` past the first character is literal, so this scan is scoped.
+        assert_eq!(labels("sub/inner/!bang")["z.txt"], code("M"));
+        // `[` makes the path a pattern to libgit2, so this one scans the whole
+        // repo; the label must still be right.
+        assert_eq!(labels(weird)["w.txt"], code("M"));
+
+        // The scan for `sub` saw nothing outside it.
+        let sub_dir = dunce::canonicalize(dir.join("sub")).unwrap();
+        let scanned = scan_repo_statuses(&sub_dir).unwrap();
+        assert_eq!(scanned.len(), 4, "{:?}", scanned);
+        assert!(scanned.keys().all(|p| p.starts_with(&sub_dir)), "{:?}", scanned);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn status_pathspec_scopes_plain_folders_only() {
+        let wd = Path::new("/repo");
+        assert_eq!(status_pathspec(wd, wd), None);
+        assert_eq!(status_pathspec(wd, &wd.join("src")), Some("src".into()));
+        assert_eq!(
+            status_pathspec(wd, &wd.join("src").join("deep dir")),
+            Some("src/deep dir".into())
+        );
+        assert_eq!(status_pathspec(wd, Path::new("/elsewhere/src")), None);
+        for odd in ["a*b", "a?b", "a[b]", "trail "] {
+            assert_eq!(status_pathspec(wd, &wd.join("src").join(odd)), None, "{}", odd);
+        }
+        // `!` and `#` only mean something at the start of the pathspec.
+        assert_eq!(status_pathspec(wd, &wd.join("!neg")), None);
+        assert_eq!(status_pathspec(wd, &wd.join("#hash")), None);
+        assert_eq!(
+            status_pathspec(wd, &wd.join("src").join("!x")),
+            Some("src/!x".into())
+        );
+        #[cfg(not(windows))]
+        assert_eq!(status_pathspec(wd, &wd.join("back\\slash")), None);
+    }
+
+    #[test]
+    fn parse_upstream_track_reads_counts_and_gone() {
+        assert_eq!(parse_upstream_track(""), (0, 0, false));
+        assert_eq!(parse_upstream_track("gone"), (0, 0, true));
+        assert_eq!(parse_upstream_track("ahead 3"), (3, 0, false));
+        assert_eq!(parse_upstream_track("behind 2"), (0, 2, false));
+        assert_eq!(parse_upstream_track("ahead 3, behind 12"), (3, 12, false));
+    }
+
+    #[test]
+    fn git_branch_list_reads_tracking_from_one_call() {
+        if which::which("git").is_err() {
+            return;
+        }
+        let (dir, repo) = test_repo("gitbranches");
+        std::fs::write(dir.join("f.txt"), "v1").unwrap();
+        let base = repo.find_commit(commit_all(&repo, "init")).unwrap();
+        let tree = base.tree().unwrap();
+        let sig = git2::Signature::now("test", "test@example.com").unwrap();
+        let one = repo.commit(None, &sig, &sig, "one", &tree, &[&base]).unwrap();
+        let one = repo.find_commit(one).unwrap();
+        let two = repo.commit(None, &sig, &sig, "two", &tree, &[&one]).unwrap();
+        let two = repo.find_commit(two).unwrap();
+        // feature: two commits ahead of its upstream, main.
+        let mut feature = repo.branch("feature", &two, false).unwrap();
+        feature.set_upstream(Some("main")).unwrap();
+        // stale: its upstream branch was deleted afterwards.
+        repo.branch("doomed", &base, false).unwrap();
+        let mut stale = repo.branch("stale", &base, false).unwrap();
+        stale.set_upstream(Some("doomed")).unwrap();
+        repo.find_branch("doomed", git2::BranchType::Local)
+            .unwrap()
+            .delete()
+            .unwrap();
+
+        let branches = git_branch_list(dir.to_string_lossy().into_owned()).unwrap();
+        let get = |n: &str| branches.iter().find(|b| b.name == n).unwrap();
+        let main = get("main");
+        assert!(main.current);
+        assert_eq!(main.upstream, None);
+        assert_eq!((main.ahead, main.behind, main.upstream_gone), (0, 0, false));
+        let feature = get("feature");
+        assert_eq!(feature.upstream.as_deref(), Some("main"));
+        assert_eq!((feature.ahead, feature.behind, feature.upstream_gone), (2, 0, false));
+        let stale = get("stale");
+        assert_eq!((stale.ahead, stale.behind, stale.upstream_gone), (0, 0, true));
         let _ = std::fs::remove_dir_all(&dir);
     }
 
