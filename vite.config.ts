@@ -1,4 +1,4 @@
-import { defineConfig } from "vite";
+import { defineConfig } from "vitest/config";
 import react from "@vitejs/plugin-react";
 
 const host = process.env.TAURI_DEV_HOST;
@@ -16,6 +16,10 @@ export default defineConfig({
     watch: {
       ignored: ["**/src-tauri/**"],
     },
+  },
+  // Only this checkout's tests: task worktrees live under .claude/worktrees/.
+  test: {
+    include: ["src/**/*.test.{ts,tsx}"],
   },
   envPrefix: ["VITE_", "TAURI_ENV_*"],
   build: {
