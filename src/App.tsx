@@ -1132,40 +1132,23 @@ export function App() {
       }
     }
     switch (label) {
-      case "Toggle Drawer":
-      case "Terminal Drawer": {
+      case "Toggle Drawer": {
         setTermOpen(v => !v);
         return;
       }
-      case "Open Terminal Here": {
-        const cwd = activeHandle?.state.path;
-        if (cwd) void spawnTerminal(cwd);
-        return;
-      }
       case "Command Palette":
-      case "Palette":
         setPalOpen(v => !v); return;
       case "Keybindings Cheatsheet":
-      case "Keybinding Cheatsheet":
-      case "Keybindings":
-      case "Keybindings…":
-      case "Cheatsheet":
-      case "Shortcuts":
         setCheatsheetOpen(true); return;
       case "Find in Files":
         setShowFindModal(true); return;
       case "Tweaks":
       case "Preferences…":
-      case "Preferences":
-      case "Settings":
         setTweaksOpen(v => !v); return;
-      case "Manage Bookmarks":
       case "Manage Bookmarks…":
         setBookmarkManagerOpen(true); return;
-      case "Manage Remotes":
       case "Manage Remotes…":
         setManageRemotesOpen(true); return;
-      case "Connect to Server":
       case "Connect to Server…":
         setConnectOpen(true); return;
       case "New Tab":
@@ -1191,24 +1174,19 @@ export function App() {
       case "Full Screen":
         void winToggleMaximize(); return;
       case "Refresh":
-      case "Reload":
         activeHandle?.actions.refresh(); return;
       case "Back":
         activeHandle?.actions.back(); return;
       case "Forward":
         activeHandle?.actions.forward(); return;
       case "Up":
-      case "Up one level":
       case "Open Parent":
         activeHandle?.actions.up(); return;
       case "Toggle Hidden Files":
-      case "Show Hidden":
       case "Show Hidden Files":
         setState(prev => ({ ...prev, hidden: !prev.hidden })); return;
       case "Inspector":
-      case "Toggle Inspector":
         setShowInspector(v => !v); return;
-      case "Switch Theme":
       case "Switch Theme →": {
         const i = THEMES.indexOf(state.theme);
         const next = THEMES[(i < 0 ? 0 : i + 1) % THEMES.length];
