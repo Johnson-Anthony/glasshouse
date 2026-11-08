@@ -5,11 +5,13 @@ import { copyUndo, createUndo, moveUndo, type UndoFs } from "./undoActions";
 
 // In-memory POSIX file system. Like the real backend, rename/move and write
 // replace whatever is at the destination; the builders' guards are what keep
-// undo and redo from clobbering things.
-type Node = { kind: "dir" } | { kind: "file"; content: string };
+// undo and redo from clobbering things. Every write, mkdir and copy gets a
+// new mtime from a counter; rename keeps it, as on disk.
+type Node = ({ kind: "dir" } | { kind: "file"; content: string }) & { mtime: number };
 
 class MemFs implements UndoFs {
-  nodes = new Map<string, Node>([["/", { kind: "dir" }]]);
+  clock = 0;
+  nodes = new Map<string, Node>([["/", { kind: "dir", mtime: 0 }]]);
 
   constructor(init: Record<string, string | null> = {}) {
     for (const [p, content] of Object.entries(init)) {
@@ -26,11 +28,11 @@ class MemFs implements UndoFs {
     return n;
   }
   mkdirSync(p: string) {
-    for (let cur = p; cur !== "/" && !this.nodes.has(cur); cur = this.parentOf(cur)) this.nodes.set(cur, { kind: "dir" });
+    for (let cur = p; cur !== "/" && !this.nodes.has(cur); cur = this.parentOf(cur)) this.nodes.set(cur, { kind: "dir", mtime: ++this.clock });
   }
   writeSync(p: string, content: string) {
     this.mkdirSync(this.parentOf(p));
-    this.nodes.set(p, { kind: "file", content });
+    this.nodes.set(p, { kind: "file", content, mtime: ++this.clock });
   }
   /** Snapshot as {path: content | null for folders}, for comparisons. */
   tree(): Record<string, string | null> {
@@ -50,7 +52,7 @@ class MemFs implements UndoFs {
   async move(from: string, to: string) { await this.rename(from, to); }
   async copy(from: string, to: string) {
     this.need(from);
-    for (const k of this.under(from)) this.nodes.set(to + k.slice(from.length), { ...this.nodes.get(k)! });
+    for (const k of this.under(from)) this.nodes.set(to + k.slice(from.length), { ...this.nodes.get(k)!, mtime: ++this.clock });
   }
   async remove(p: string, recursive: boolean) {
     const n = this.need(p);
@@ -59,7 +61,7 @@ class MemFs implements UndoFs {
     for (const k of this.under(p)) this.nodes.delete(k);
   }
   async mkdir(p: string) { this.mkdirSync(p); }
-  async write(p: string, content: string) { this.need(this.parentOf(p)); this.nodes.set(p, { kind: "file", content }); }
+  async write(p: string, content: string) { this.need(this.parentOf(p)); this.nodes.set(p, { kind: "file", content, mtime: ++this.clock }); }
   async list(dir: string): Promise<FileEntry[]> {
     if (this.need(dir).kind !== "dir") throw new Error(`not a folder: ${dir}`);
     const prefix = dir === "/" ? "/" : dir + "/";
@@ -68,7 +70,7 @@ class MemFs implements UndoFs {
       .map(([k, n]) => ({
         name: k.slice(prefix.length), path: k, kind: n.kind === "dir" ? "folder" : "text",
         size: n.kind === "file" ? new TextEncoder().encode(n.content).length : 0,
-        modified_ms: 0, hidden: false, ext: "", is_symlink: false, lossy: false, git: null,
+        modified_ms: n.mtime, hidden: false, ext: "", is_symlink: false, lossy: false, git: null,
       }));
   }
 }
@@ -77,6 +79,10 @@ beforeEach(() => {
   undoStack.length = 0;
   redoStack.length = 0;
 });
+
+/** Let copyUndo's background fingerprinting finish (MemFs is all
+ *  microtasks), as it does in the app long before anyone edits a copy. */
+const settle = () => new Promise(r => setTimeout(r, 0));
 
 /** Push `entry` (the action has already been done on `fs`), then undo, redo
  *  and undo again, checking the tree after each step. */
@@ -136,6 +142,86 @@ describe("copyUndo", () => {
     const items = [{ src: "/a/f.txt", dst: "/b/f.txt" }, { src: "/a/sub", dst: "/b/sub" }];
     for (const { src, dst } of items) await fs.copy(src, dst);
     await roundTrip(fs, copyUndo("paste copy", items, fs), before);
+  });
+
+  it("undo deletes nothing when a copied file was edited", async () => {
+    const fs = new MemFs({ "/a/f.txt": "F", "/a/g.txt": "G", "/b": null });
+    const items = [{ src: "/a/f.txt", dst: "/b/f.txt" }, { src: "/a/g.txt", dst: "/b/g.txt" }];
+    for (const { src, dst } of items) await fs.copy(src, dst);
+    pushUndo(copyUndo("paste", items, fs));
+    await settle();
+    await fs.write("/b/g.txt", "G and an afternoon of work");
+    const r = await undoLast();
+    expect(r.status).toBe("failed");
+    expect(String((r as { error: unknown }).error)).toContain("g.txt has changed since it was copied");
+    // the unchanged copy is kept too: the step is all or nothing
+    expect(fs.tree()["/b/f.txt"]).toBe("F");
+    expect(fs.tree()["/b/g.txt"]).toBe("G and an afternoon of work");
+  });
+
+  it("catches a same-size edit by its mtime", async () => {
+    const fs = new MemFs({ "/a/f.txt": "abc", "/b": null });
+    await fs.copy("/a/f.txt", "/b/f.txt");
+    pushUndo(copyUndo("paste", [{ src: "/a/f.txt", dst: "/b/f.txt" }], fs));
+    await settle();
+    await fs.write("/b/f.txt", "xyz");
+    expect((await undoLast()).status).toBe("failed");
+    expect(fs.tree()["/b/f.txt"]).toBe("xyz");
+  });
+
+  it("undo deletes nothing when a copied folder gained a file", async () => {
+    const fs = new MemFs({ "/a/dir/x.txt": "x", "/b": null });
+    await fs.copy("/a/dir", "/b/dir");
+    pushUndo(copyUndo("paste", [{ src: "/a/dir", dst: "/b/dir" }], fs));
+    await settle();
+    await fs.write("/b/dir/new.txt", "new work");
+    expect((await undoLast()).status).toBe("failed");
+    expect(fs.tree()["/b/dir/new.txt"]).toBe("new work");
+  });
+
+  it("undo deletes nothing when a file deep in a copied folder was edited", async () => {
+    const fs = new MemFs({ "/a/dir/sub/deep.txt": "d", "/b": null });
+    await fs.copy("/a/dir", "/b/dir");
+    pushUndo(copyUndo("paste", [{ src: "/a/dir", dst: "/b/dir" }], fs));
+    await settle();
+    await fs.write("/b/dir/sub/deep.txt", "edited");
+    expect((await undoLast()).status).toBe("failed");
+    expect(fs.tree()["/b/dir/sub/deep.txt"]).toBe("edited");
+  });
+
+  it("undo refuses when a copy was removed by hand", async () => {
+    const fs = new MemFs({ "/a/f.txt": "F", "/a/g.txt": "G", "/b": null });
+    const items = [{ src: "/a/f.txt", dst: "/b/f.txt" }, { src: "/a/g.txt", dst: "/b/g.txt" }];
+    for (const { src, dst } of items) await fs.copy(src, dst);
+    pushUndo(copyUndo("paste", items, fs));
+    await settle();
+    await fs.remove("/b/f.txt", false);
+    const r = await undoLast();
+    expect(String((r as { error: unknown }).error)).toContain("f.txt is no longer there");
+    expect(fs.tree()["/b/g.txt"]).toBe("G");
+  });
+
+  it("re-fingerprints after redo, so an untouched redo can be undone", async () => {
+    const fs = new MemFs({ "/a/f.txt": "F", "/b": null });
+    await fs.copy("/a/f.txt", "/b/f.txt");
+    pushUndo(copyUndo("paste", [{ src: "/a/f.txt", dst: "/b/f.txt" }], fs));
+    await undoLast();
+    await redoLast(); // the new copy has a new mtime
+    expect((await undoLast()).status).toBe("done");
+    await redoLast();
+    await settle();
+    await fs.write("/b/f.txt", "edited after the redo");
+    expect((await undoLast()).status).toBe("failed");
+    expect(fs.tree()["/b/f.txt"]).toBe("edited after the redo");
+  });
+
+  it("refuses a copied tree too large to fingerprint", async () => {
+    const fs = new MemFs({ "/a/dir/1": "1", "/a/dir/2": "2", "/a/dir/3": "3", "/b": null });
+    await fs.copy("/a/dir", "/b/dir");
+    pushUndo(copyUndo("paste", [{ src: "/a/dir", dst: "/b/dir" }], fs, 2));
+    const r = await undoLast();
+    expect(String((r as { error: unknown }).error)).toContain("too large to check");
+    expect(fs.tree()["/b/dir/1"]).toBe("1");
   });
 
   it("redo refuses to copy over a file that appeared since", async () => {

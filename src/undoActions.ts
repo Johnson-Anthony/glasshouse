@@ -4,7 +4,7 @@
 // The backend's rename and write replace an existing destination without
 // asking, so every step that creates a path first checks that the path is
 // still free. The steps that delete something they created first check that
-// it hasn't been filled or edited since. Builders take the file system as a
+// it hasn't been filled or edited since (copies by fingerprint, see copyUndo). Builders take the file system as a
 // parameter so tests can run round trips against an in-memory one.
 
 import { copyEntry, deleteEntry, makeDir, moveEntry, readDir, renameEntry, writeText, type FileEntry } from "./api";
@@ -86,18 +86,81 @@ export function moveUndo(label: string, items: PathPair[], via: "rename" | "move
   return { label, inverse: () => run(back), redo: () => run(items) };
 }
 
+/** Copied trees with more entries than this aren't fingerprinted, and their
+ *  undo refuses: walking them means one synchronous list_dir per folder. */
+export const FINGERPRINT_LIMIT = 20_000;
+
+/** A copy's entries by path relative to it ("" is the copy itself), each as
+ *  kind + size + mtime. Folders are just "dir": their listing already shows
+ *  adds and removes, and their mtime moves on editor swap files. A string
+ *  instead says why the copy can't be compared. */
+type Fingerprint = Map<string, string> | string;
+
+const signature = (e: FileEntry) =>
+  e.kind === "folder" && !e.is_symlink ? "dir" : `${e.is_symlink ? "link" : "file"}:${e.size}:${e.modified_ms}`;
+
+async function fingerprint(fs: UndoFs, path: string, limit: number): Promise<Fingerprint> {
+  try {
+    const self = await findEntry(fs, path);
+    if (!self) return "is no longer there";
+    const print = new Map([["", signature(self)]]);
+    if (self.kind !== "folder" || self.is_symlink) return print;
+    const pending: Array<[rel: string, abs: string]> = [["", path]];
+    while (pending.length > 0) {
+      const [rel, abs] = pending.pop()!;
+      for (const e of await fs.list(abs)) {
+        const childRel = rel ? `${rel}/${e.name}` : e.name;
+        print.set(childRel, signature(e));
+        if (print.size > limit) return `is too large to check (over ${limit} entries)`;
+        if (e.kind === "folder" && !e.is_symlink) pending.push([childRel, e.path]);
+      }
+    }
+    return print;
+  } catch (err) {
+    return `couldn't be read (${err instanceof Error ? err.message : String(err)})`;
+  }
+}
+
+function samePrint(a: Map<string, string>, b: Map<string, string>): boolean {
+  if (a.size !== b.size) return false;
+  for (const [k, v] of a) if (b.get(k) !== v) return false;
+  return true;
+}
+
 /** Copy (paste, duplicate, drag-copy): undo deletes the copies, redo copies
- *  again. */
-export function copyUndo(label: string, items: PathPair[], fs: UndoFs = realFs): UndoEntry {
+ *  again. Each copy is fingerprinted (size and mtime of everything in it)
+ *  right after it's made, and undo deletes nothing unless every copy still
+ *  matches, so edits made since are never thrown away. */
+export function copyUndo(label: string, items: PathPair[], fs: UndoFs = realFs, limit = FINGERPRINT_LIMIT): UndoEntry {
+  const takePrints = () => Promise.all(items.map(({ dst }) => fingerprint(fs, dst, limit)));
+  // Started now, awaited by undo, so pushUndo stays synchronous and a Ctrl+Z
+  // straight after the copy still finds this entry.
+  let prints = takePrints();
   return {
     label,
     inverse: async () => {
+      const [before, now] = await Promise.all([prints, takePrints()]);
+      const problems: string[] = [];
+      items.forEach(({ dst }, i) => {
+        const b = before[i];
+        const n = now[i];
+        const name = basename(dst);
+        if (typeof n === "string") problems.push(`${name} ${n}`);
+        else if (typeof b === "string") problems.push(`${name} ${b}`);
+        else if (!samePrint(b, n)) problems.push(`${name} has changed since it was copied`);
+      });
+      if (problems.length > 0) {
+        const shown = problems.slice(0, 5).map(p => `• ${p}`);
+        if (problems.length > 5) shown.push(`• …and ${problems.length - 5} more`);
+        throw new Error(`Nothing was deleted:\n${shown.join("\n")}`);
+      }
       // recursive: copies can be non-empty folders
       for (const { dst } of [...items].reverse()) await fs.remove(dst, true);
     },
     redo: async () => {
       await ensureFree(fs, items);
       for (const { src, dst } of items) await fs.copy(src, dst);
+      prints = takePrints();
     },
   };
 }
