@@ -1,6 +1,7 @@
 {
   "name": "glasshouse",
-  "productName": "rice:// file manager",
+  "productName": "glasshouse",
+  "description": "Desktop file manager for Windows and Linux",
   "version": "0.1.0",
   "private": true,
   "type": "module",
