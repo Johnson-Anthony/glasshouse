@@ -4356,60 +4356,6 @@ export function GitOutputDialog({ state, onClose }: GitOutputDialogProps) {
   );
 }
 
-// ============= HexDialog =============
-export interface HexDialogProps {
-  path: string;
-  hex: string;
-  onClose: () => void;
-}
-
-export function HexDialog({ path, hex, onClose }: HexDialogProps) {
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape") { e.preventDefault(); onClose(); }
-    };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, [onClose]);
-
-  const shortName = (() => {
-    const t = path.replace(/[\\/]+$/, "");
-    const i = Math.max(t.lastIndexOf("\\"), t.lastIndexOf("/"));
-    return i < 0 ? t : t.slice(i + 1);
-  })();
-
-  return (
-    <div onClick={onClose} style={{
-      position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)",
-      zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center",
-    }}>
-      <div onClick={(e) => e.stopPropagation()} style={{
-        width: "90ch", maxWidth: "95vw", maxHeight: "90vh",
-        background: "var(--bg-1, #1a1b26)", border: "1px solid var(--fg-3)",
-        borderRadius: 4, display: "flex", flexDirection: "column",
-        fontFamily: "var(--font-mono)", color: "var(--fg-1)",
-      }}>
-        <div style={{
-          display: "flex", alignItems: "center", justifyContent: "space-between",
-          padding: "8px 12px", borderBottom: "1px solid var(--fg-3)",
-          background: "var(--bg-2, #16161e)",
-        }}>
-          <span style={{ color: "var(--accent)" }}>⎙ hex — {shortName}</span>
-          <span style={{ color: "var(--fg-3)", fontSize: 12 }}>esc/click to close</span>
-          <button onClick={onClose} style={{
-            background: "transparent", border: "1px solid var(--fg-3)", color: "var(--fg-1)",
-            padding: "2px 8px", cursor: "pointer", borderRadius: 2,
-          }} aria-label="close">×</button>
-        </div>
-        <pre style={{
-          overflow: "auto", flex: 1, margin: 0, padding: "8px 12px",
-          fontSize: 12, lineHeight: 1.45, whiteSpace: "pre", color: "var(--fg-1)",
-        }}>{hex || "(empty)"}</pre>
-      </div>
-    </div>
-  );
-}
-
 // ============= DiffDialog =============
 export interface DiffDialogProps {
   a: string;
