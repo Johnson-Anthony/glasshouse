@@ -1,6 +1,7 @@
 # Progress
 
 ## Done
+- 2026-11-08: Merged `presentation`: plain public copy (README, Pages site text, descriptions, window title, release-notes template); the old nickname is gone from code and docs. Settings key is now `glasshouse.tweaks` (saved tweaks reset once), and the layout export file is `.glasshouserc`. The lead session's id now lives in `git config claude.lead`.
 - 2026-11-08: Merged `tab-state` (stable tab ids, side-effect-free nav history, listing errors and loading shown in the pane; Duplicate Tab keeps a private tab private). Follow-up `undo-redo` started.
 - 2026-11-08: Merged `symlink-safety` (shred/copy never follow links; copy/move into itself refused), `ui-fixes` (strict chmod, real lossy-name guard labels, shortcuts, About version/link) and `platform-paths` (case-sensitive paths off Windows, `\` in Linux names, WSL path). Vitest on `main` now runs only `src/` tests. Launcher binary rebuilt.
 - 2026-11-08: Set up as a long-running project (CLAUDE.md, PROGRESS.md, docs/SPEC.md, docs/ARCHITECTURE.md, plans/decisions folders). Linux arm64 build env set up (see `~/.claude/environment.md`); the release build is linked into the fuzzel launcher. The codebase survey is the backlog in `docs/plans/active/survey-fixes.md`.
