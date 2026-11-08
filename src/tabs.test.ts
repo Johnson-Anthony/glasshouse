@@ -1,14 +1,20 @@
 import { describe, expect, it } from "vitest";
-import { closeOtherTabs, closeTab, makeTab, moveTab, type TabList } from "./tabs";
+import { closeOtherTabs, closeTab as closeTabIn, makeTab, moveTab, tabLabel, type TabList } from "./tabs";
 
 const list = (paths: string[], active = 0): TabList => ({ tabs: paths.map(p => makeTab(p)), active });
 const paths = (l: TabList) => l.tabs.map(t => t.initialPath);
 const activePath = (l: TabList) => l.tabs[l.active]?.initialPath;
+const closeTab = (l: TabList, i: number) => closeTabIn(l, i, "/home/me");
 
 describe("makeTab", () => {
   it("gives every tab a fresh id", () => {
     const ids = [makeTab("/"), makeTab("/"), makeTab("/")].map(t => t.id);
     expect(new Set(ids).size).toBe(3);
+  });
+
+  it("tabLabel marks private tabs", () => {
+    expect(tabLabel("/x", false)).toBe("/x");
+    expect(tabLabel("/x", true)).toBe("(private) /x");
   });
 
   it("labels private tabs", () => {
@@ -48,9 +54,18 @@ describe("closeTab", () => {
     expect(closeTab(l, 3)).toEqual(l);
   });
 
-  it("leaves active at 0 when the last tab closes", () => {
-    const next = closeTab(list(["/a"]), 0);
-    expect(next).toEqual({ tabs: [], active: 0 });
+  it("replaces the last tab with a fresh one at the fallback path", () => {
+    const l = list(["/a"]);
+    const next = closeTab(l, 0);
+    expect(next.tabs).toHaveLength(1);
+    expect(next.active).toBe(0);
+    expect(next.tabs[0].initialPath).toBe("/home/me");
+    expect(next.tabs[0].id).not.toBe(l.tabs[0].id);
+  });
+
+  it("replaces a closed private last tab with a normal one", () => {
+    const next = closeTab({ tabs: [makeTab("/a", { private: true })], active: 0 }, 0);
+    expect(next.tabs[0].private).toBe(false);
   });
 });
 
