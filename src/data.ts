@@ -163,6 +163,7 @@ export const MENUS: MenusData = {
         { kind: "item", label: "Tiles",                   kb: "Ctrl+4" },
         { kind: "item", label: "Grid (thumbs)",           kb: "Ctrl+5" },
         { kind: "item", label: "Tree Flat",               kb: "Ctrl+6" },
+        { kind: "item", label: "Miller Columns (ranger)", kb: "Ctrl+7" },
       ] },
     { kind: "sub",  ic: "", label: "Sort By",
       children: [

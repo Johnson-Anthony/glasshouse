@@ -19,12 +19,15 @@ Line numbers are from commit `14c68bd` and drift, so search by name. Items marke
 | platform-paths | frontend | **merged** (2d9fcaf) |
 | backend-bugs | Rust | **merged** (3ece93d) |
 | linux-parity | Rust + a little frontend | **merged** (8d2b0a2) |
-| command-security | Rust + config | running |
+| command-security | Rust + config | **merged** (885bd2a) |
+| local-fonts | frontend, small | **merged** (ff0327c) |
+| font-licenses | assets, small | running (command-security session; found by local-fonts) |
+| script-kill-tree | Rust, small | queued (found by command-security) |
 | async-commands | Rust | **merged** (9c3eefe) |
-| pty-writer | Rust, small | queued; after command-security merges (found by async-commands) |
+| pty-writer | Rust, small | queued; next free Rust slot (found by async-commands) |
 | op-progress | both | queued; after dead-code's Rust part and split-big-files (found by async-commands) |
-| dead-code | both | frontend part **merged** (d61379a); Rust part starts after command-security merges (both edit the command list) |
-| unsent-labels | frontend | running (dead-code session, while it waits for a Rust slot) |
+| dead-code | both | frontend part **merged** (d61379a); Rust part running |
+| unsent-labels | frontend | **merged** (8828d97) |
 | test-coverage | both | queued |
 | presentation | docs + small code | **merged**; GitHub text awaits the user |
 | pages-site | site (big project) | running (presentation session; added by the user) |
@@ -149,6 +152,18 @@ The frontend now checks names before creating or renaming, but a few millisecond
 - `git_branch_list` turns per-branch rev-list failures into (0,0). Return or flag the error while you're changing it (found by backend-bugs).
 - Consider making `list_dir`'s git status cheaper (cache it, or scope it to the directory). Progress events for long operations are optional: plan them, but don't build them unless they're small.
 - Check that the UI stays responsive, for example while hashing a large file.
+
+## local-fonts (frontend, small; found 2026-11-08 by command-security)
+- The font picker loads 3 fonts from Google Fonts, so the app makes a Google request at startup and the CSP has to allow those origins.
+- Bundle them (woff2 subsets, as pages-site did for the demo), or load them only when the picker selects one. Then drop the Google origins from the CSP in `tauri.conf.json`.
+
+## font-licenses (assets, small; found 2026-11-08 by local-fonts)
+- The bundled JetBrainsMono Nerd Font TTFs in `src/assets/fonts` (4 files, about 9 MB) have no license file in the repo. Add the license texts that apply: OFL for JetBrains Mono, plus the Nerd Fonts license and its glyph-set notices.
+- Consider shipping them as woff2: the same glyphs, much smaller. JetBrains Mono has no Reserved Font Name, so a format conversion is allowed. Record the choice.
+
+## script-kill-tree (Rust, small; found 2026-11-08 by command-security)
+- `run_script` kills a script after 60 s, but only the direct child. A script's own children keep running.
+- Kill the whole tree on timeout: a process group on Unix (`setsid`/`killpg`), a job object on Windows.
 
 ## pty-writer (Rust, small; found 2026-11-08 by async-commands)
 - `pty_write` stays on the main thread so keystrokes arrive in order, but it can block there while a pty's input buffer is full. For example, pasting more than about 4 KB while a program that doesn't read stdin is running freezes the UI.

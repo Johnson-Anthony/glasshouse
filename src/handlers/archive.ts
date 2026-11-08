@@ -91,7 +91,6 @@ async function doExtract(ctx: HandlerCtx, promptFolder: boolean): Promise<void> 
 
 export const archiveHandler: Handler = async (label, ctx) => {
   switch (label) {
-    case "Extract":
     case "Extract Here": {
       await doExtract(ctx, false);
       return true;
