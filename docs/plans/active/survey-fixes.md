@@ -8,15 +8,16 @@ Line numbers are from commit `14c68bd` and drift, so search by name. Items marke
 | Task | Area | Status |
 |---|---|---|
 | symlink-safety | Rust | **merged** (60e4eef) |
-| paste-conflicts | frontend | done on `claude/cool-shamir-734852`, ready to merge |
+| paste-conflicts | frontend | **merged** (2b26099) |
 | create-rename-conflicts | frontend | running (found by paste-conflicts; same session) |
 | ui-fixes | frontend | **merged** (dfe77ca) |
 | tab-state | frontend | **merged** (971da66) |
-| undo-redo | frontend | running (found by tab-state; same session) |
+| undo-redo | frontend | **merged** (e1b7067) |
+| copy-undo-guard | frontend | running, low priority (found by undo-redo; tab-state session) |
 | platform-paths | frontend | **merged** (2d9fcaf) |
-| backend-bugs | Rust | running |
+| backend-bugs | Rust | **merged** (3ece93d) |
 | linux-parity | Rust + a little frontend | running |
-| command-security | Rust + config | queued |
+| command-security | Rust + config | running |
 | async-commands | Rust | queued |
 | dead-code | both | queued |
 | test-coverage | both | queued |
@@ -57,6 +58,9 @@ Merge order is the table order: small, contained fixes go first, and broad chang
 - **Rename** (selection, context target and BulkRenameDialog) calls `rename_entry` = `fs::rename`, which replaces an existing file at the destination.
 - **Fix:** check the name against the target folder first, reusing `transfer.ts`'s `pickFreeName` and the `readDir` listing; compare case-insensitively on Windows. Then refuse, or suggest a free name. Undo must never delete something that existed before the operation.
 - **Coordinate with undo-redo,** which is changing `UndoEntry` and the `pushUndo` sites in `App.tsx`. Keep your edits to the checks before each operation, and `git merge main` before finishing.
+
+## copy-undo-guard (frontend, low priority; found 2026-11-08 by undo-redo)
+- Undoing a copy still deletes the copies recursively, even if they were edited after the copy. Guard it the way `createUndo` guards new files: refuse when contents changed since the copy, which needs size, mtime or content hashes recorded at copy time. Builders are in `src/undoActions.ts`.
 
 ## undo-redo (frontend; found 2026-11-08 by tab-state)
 - **Redo is broken.** `UndoEntry` only has `inverse`, and redo calls that same inverse again. For example, after undoing a rename, redo tries to rename back a second time and fails with "redo failed". Add a forward action to `UndoEntry` and have redo call it. There are about 13 `pushUndo` sites in `src/App.tsx`.

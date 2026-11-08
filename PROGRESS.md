@@ -1,6 +1,8 @@
 # Progress
 
 ## Done
+- 2026-11-08: Merged `undo-redo`. UndoEntry has a required `redo`, built by `src/undoActions.ts`. Undo and redo steps check that target paths are free, undoing New Folder deletes non-recursively, undoing a new file refuses if it changed, and steps run one at a time. Closing the last tab opens Home, and private tabs keep their label. **Needs one manual pass in the real app:** rename, then Ctrl+Z, then Ctrl+Y.
+- 2026-11-08: Merged `backend-bugs` (PTY sessions cleaned up on exit, poison-safe locks, one git status code everywhere, real git errors, `wsl_to_win` drive roots, in-process `.tar.zst` via the zstd crate) and `paste-conflicts` (every copy/move plans targets against the destination: "(copy)" names, a keep both / replace / skip / cancel prompt, Replace trashes the old item, and undo only removes what was created).
 - 2026-11-08: Merged `presentation`: plain public copy (README, Pages site text, descriptions, window title, release-notes template); the old nickname is gone from code and docs. Settings key is now `glasshouse.tweaks` (saved tweaks reset once), and the layout export file is `.glasshouserc`. The lead session's id now lives in `git config claude.lead`.
 - 2026-11-08: Merged `tab-state` (stable tab ids, side-effect-free nav history, listing errors and loading shown in the pane; Duplicate Tab keeps a private tab private). Follow-up `undo-redo` started.
 - 2026-11-08: Merged `symlink-safety` (shred/copy never follow links; copy/move into itself refused), `ui-fixes` (strict chmod, real lossy-name guard labels, shortcuts, About version/link) and `platform-paths` (case-sensitive paths off Windows, `\` in Linux names, WSL path). Vitest on `main` now runs only `src/` tests. Launcher binary rebuilt.
@@ -18,8 +20,6 @@
 
 ## Broken / known issues
 - **Data loss:** New Folder on an existing folder followed by Undo recursively deletes the pre-existing folder. New File / Note / Script on an existing name empties that file, and Rename onto an existing name replaces it (task `create-rename-conflicts`).
-- Redo re-runs the undo action instead of redoing, so it fails ("redo failed"); closing the last tab leaves zero tabs; navigating drops a private tab's "(private)" label (task `undo-redo`).
-- Copy then Paste in the same folder now fails with an error instead of emptying the file (since `symlink-safety`); pasting onto an existing same-name item still replaces it silently, and the paste's undo can delete the original (task `paste-conflicts`).
 - All Rust commands are synchronous and run on the main thread, so heavy operations freeze the UI (task `async-commands`).
 - Custom commands have no permission gating, and devtools are enabled in release builds (task `command-security`).
 - `scripts/audit-wiring.mjs` can't run: it reads the deleted `design/` folder (task `dead-code`).

@@ -37,11 +37,23 @@ Out of scope:
 - Tests: `src/names.test.ts`.
 
 ## Status
-- [x] Plan
-- [ ] `names.ts` + tests
-- [ ] App.tsx creates and renames, misc.ts handlers
-- [ ] BulkRenameDialog
-- [ ] Merge main, `pnpm build`, `pnpm test`
+Done. Merged with `main` at `d745256`, which includes undo-redo. The only conflict was the import line in `transferUi.ts`. My checks sit in front of undo-redo's `createUndo` / `moveUndo` calls, and no `pushUndo` line was changed.
+- `pnpm build` passes. `pnpm test` passes: 11 files, 143 tests, 17 of them new in `src/names.test.ts`.
+- Checked in the Vite dev server with `?mockRows`, where `readDir` returns the mock rows:
+  - New Folder with a taken name keeps the prompt open with `"file-1" already exists here`.
+  - BulkRenameDialog, mounted with the real `listNames`:
+    - the chain 2→3, 3→4, 4→5 ran target-first;
+    - a rename onto file-3 (outside the batch) was flagged on its row with the button disabled;
+    - the swap 1↔2 went through `file-2~rename`;
+    - a failure on the third rename put the first two back.
+- Not run against the real Tauri backend (frontend-only task, no cargo build).
 
 ## For review
-- (filled in as choices are made)
+- [Policy](../../decisions/2026-11-08-create-rename-conflicts-policy.md):
+  - Typed names that are taken are refused inline, not replaced or auto-renamed.
+  - Default names become "untitled (2).txt"-style.
+  - `/` (and `\` on Windows), `.` and `..` are refused.
+  - Bulk Rename orders its renames, breaks cycles with `name~rename`, and rolls back on failure.
+  - Single rename now works in the entry's own folder instead of `cwd`.
+- Follow-up for the lead: the frontend check leaves a small race before each write. Closing it needs backend no-clobber commands (`File::create_new` for new files, `create_dir` instead of `create_dir_all`, `renameat2(RENAME_NOREPLACE)` / `MoveFileExW` without `REPLACE_EXISTING`).
+- Bulk Rename still pushes no undo entry (undo-redo's area if wanted).

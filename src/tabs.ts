@@ -20,23 +20,31 @@ export interface TabList {
 
 let nextTabId = 1;
 
+/** Titlebar label for a tab showing `path`. */
+export function tabLabel(path: string, isPrivate: boolean): string {
+  return isPrivate ? `(private) ${path}` : path;
+}
+
 export function makeTab(path: string, opts: { private?: boolean; color?: string } = {}): TabRecord {
   const isPrivate = !!opts.private;
   return {
     id: nextTabId++,
     ic: "",
     color: opts.color ?? (isPrivate ? "var(--magenta, #bb9af7)" : "var(--cyan)"),
-    label: isPrivate ? `(private) ${path}` : path,
+    label: tabLabel(path, isPrivate),
     initialPath: path,
     private: isPrivate,
   };
 }
 
 /** Close the tab at `i`. The active tab stays active; if it's the one being
- *  closed, its left neighbour takes over (the right one for the first tab). */
-export function closeTab({ tabs, active }: TabList, i: number): TabList {
+ *  closed, its left neighbour takes over (the right one for the first tab).
+ *  Closing the last tab replaces it with a fresh tab at `fallbackPath`, so
+ *  there's always one. */
+export function closeTab({ tabs, active }: TabList, i: number, fallbackPath: string): TabList {
   if (i < 0 || i >= tabs.length) return { tabs, active };
   const next = tabs.filter((_, k) => k !== i);
+  if (next.length === 0) return { tabs: [makeTab(fallbackPath)], active: 0 };
   const shifted = active > i || (active === i && active > 0) ? active - 1 : active;
   return { tabs: next, active: Math.min(shifted, Math.max(next.length - 1, 0)) };
 }

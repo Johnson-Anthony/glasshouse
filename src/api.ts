@@ -34,7 +34,8 @@ export interface FileEntry {
   /** True when the on-disk path isn't valid UTF-8 — `name`/`path` are lossy
    *  renderings and mutating ops are blocked on this entry. */
   lossy: boolean;
-  /** Single-char git status: "M"|"A"|"D"|"U"|"?"|"!" or null. */
+  /** Single-char git status: "M"|"A"|"D"|"U"|"?", or null when clean,
+   *  ignored or outside a repo. */
   git: string | null;
 }
 
@@ -80,6 +81,7 @@ export interface GitInfo {
   ahead: number;
   behind: number;
   dirty: number;
+  /** Repo-relative path → the same single-char code as `FileEntry.git`. */
   status: Record<string, string>;
 }
 
@@ -270,9 +272,12 @@ export function gitBranchList(cwd: string): Promise<GitBranch[]> {
   return invoke<GitBranch[]>("git_branch_list", { cwd });
 }
 
-export function gitAheadBehind(cwd: string): Promise<[number, number]> {
+/** [ahead, behind] vs the current branch's upstream, or null when there's
+ *  nothing to compare (not a repo, detached HEAD, no upstream). Rejects with
+ *  the error when git itself fails. */
+export function gitAheadBehind(cwd: string): Promise<[number, number] | null> {
   if (!TAURI_AVAILABLE) return Promise.reject(new Error("tauri unavailable"));
-  return invoke<[number, number]>("git_ahead_behind", { cwd });
+  return invoke<[number, number] | null>("git_ahead_behind", { cwd });
 }
 
 export function findInFiles(
