@@ -16,7 +16,6 @@ export interface FileRow {
   git: GitStatus | null;
   hidden: boolean;
   ext: string;
-  dimmed?: boolean;
 }
 
 /** Runtime payload attached to dynamically-generated items so the menu

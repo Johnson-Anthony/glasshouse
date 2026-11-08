@@ -1568,7 +1568,6 @@ const PaneRow = React.memo(function PaneRow({
   return (
     <div data-orig={i}
          className={"row" + (isSel ? " selected" : "") + (isFocus ? " focused" : "") + (isDragOver ? " drop-target" : "") + (isCut ? " clip-cut" : "")}
-         style={{opacity: f.dimmed ? 0.55 : 1}}
          onPointerDown={(e) => h.pointerDown(i, isSel, e)}
          onClick={(e) => h.click(i, e)}
          onDoubleClick={() => h.dblClick(i)}
