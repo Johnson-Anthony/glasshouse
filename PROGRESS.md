@@ -1,6 +1,12 @@
 # Progress
 
 ## Done
+- 2026-11-08: Merged `dead-code`'s frontend part (d61379a).
+  - It removed 19 handler cases that App.tsx always handled first, plus HexDialog, the mock data and four unused api.ts wrappers.
+  - It also removed three menu toggles that did nothing: Show Ignored, Show Checksums and Browse archive in place (see `docs/decisions/2026-11-08-dead-code-toggles.md`).
+  - Select by Tag now works, and themes come from one list.
+  - `pnpm check:wiring` (the reworked `scripts/audit-wiring.mjs`) runs in CI and fails on unhandled, shadowed or no-op menu labels.
+  - The Rust part (unused commands and dependencies, shared hash loop, `rust-version`) waits for command-security.
 - 2026-11-08: Merged `linux-parity`:
   - symlinked folders list and sort as folders;
   - Reveal selects the item via FileManager1 D-Bus;
@@ -32,6 +38,5 @@
 - A few-ms race remains between the frontend's name check and the backend write, because `write_text`, `make_dir` and `rename_entry` still overwrite (task `no-clobber-fs`).
 - All Rust commands are synchronous and run on the main thread, so heavy operations freeze the UI (task `async-commands`).
 - Custom commands have no permission gating, and devtools are enabled in release builds (task `command-security`).
-- `scripts/audit-wiring.mjs` can't run: it reads the deleted `design/` folder (task `dead-code`).
 - `origin/feature` has one unmerged commit from April, `ddb5466` (14 files, +2470/-492, merge base 23 commits behind `main`, so it won't merge cleanly). It contains: a Windows terminal-launch probe (`terminal_probe.rs`, HKCU DelegationTerminal, wt/DelegatedConsole), a menubar outside-click fix, and assorted polish (terminal drawer, themed dialogs, sidebar keyboard/drag-and-drop, remote manager, private tabs, About). Its "drive label dedup" is one Sidebar line, which `linux-parity` ports. The rest is undecided: cherry-pick parts or drop it.
 - The `rust-version = "1.77"` in `Cargo.toml` is stale: the locked dependencies need rustc 1.88 or newer.

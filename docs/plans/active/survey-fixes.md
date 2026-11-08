@@ -10,7 +10,7 @@ Line numbers are from commit `14c68bd` and drift, so search by name. Items marke
 | symlink-safety | Rust | **merged** (60e4eef) |
 | paste-conflicts | frontend | **merged** (2b26099) |
 | create-rename-conflicts | frontend | **merged** (ebd1571) |
-| no-clobber-fs | Rust, small | queued (found by create-rename-conflicts) |
+| no-clobber-fs | Rust, small | queued; starts after async-commands merges (both touch `write_text`, `make_dir`, `rename_entry`) |
 | link-display | both, low priority | queued (found by linux-parity) |
 | ui-fixes | frontend | **merged** (dfe77ca) |
 | tab-state | frontend | **merged** (971da66) |
@@ -21,7 +21,8 @@ Line numbers are from commit `14c68bd` and drift, so search by name. Items marke
 | linux-parity | Rust + a little frontend | **merged** (8d2b0a2) |
 | command-security | Rust + config | running |
 | async-commands | Rust | running |
-| dead-code | both | running (frontend items first) |
+| dead-code | both | frontend part **merged** (d61379a); Rust part starts after command-security merges (both edit the command list) |
+| unsent-labels | frontend | running (dead-code session, while it waits for a Rust slot) |
 | test-coverage | both | queued |
 | presentation | docs + small code | **merged**; GitHub text awaits the user |
 | pages-site | site (big project) | running (presentation session; added by the user) |
@@ -168,6 +169,11 @@ The frontend now checks names before creating or renaming, but a few millisecond
 - The hash read loop is copied three times (`hash_sha256`, `hash_md5`, `hash_crc32`). Merge it into one helper.
 - **Toggles that do nothing:** "Show Ignored" and "Show Checksums" only flip their checkmarks, and "Browse archive in place" just opens the default app. Implement them, or remove or relabel them. Record the decision.
 - Also fix the stale `rust-version` in `Cargo.toml` (the locked dependencies need 1.88 or newer).
+
+## unsent-labels (frontend; found 2026-11-08 by dead-code)
+- `pnpm check:wiring --all` lists 77 labels that App.tsx or a handler handles but nothing sends: aliases such as "Prev Tab", "Reload" and "Settings", and no-op cases for submenu parents such as "New →" and "Template →".
+- Delete the cases that are dead. Keep a case only if something can still send it (a keybinding, a payload path the audit can't see, a label built at runtime), and say why in a comment or the decision record.
+- This edits App.tsx's switches, so keep each change line-local.
 
 ## test-coverage (both)
 - **Frontend:** only `fuzzy`, `paths` (without `basename`) and `shellCd` are tested. Add tests for:
