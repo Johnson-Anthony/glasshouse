@@ -39,6 +39,8 @@ grep-matcher = "0.1"
 grep-regex = "0.1"
 regex = "1"
 zip = "2"
+# Same features as zip's own zstd dependency, so nothing extra gets built.
+zstd = { version = "0.13", default-features = false }
 sha2 = "0.10"
 md-5 = "0.10"
 crc32fast = "1"
