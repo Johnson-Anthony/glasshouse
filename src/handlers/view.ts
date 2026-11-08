@@ -161,12 +161,6 @@ export const viewHandler: Handler = (label, ctx) => {
       else document.documentElement.classList.toggle("no-status");
       return true;
 
-    case "Show Checksums":
-      if (ctx.tweaks && ctx.setTweaks) {
-        ctx.setTweaks({ ...ctx.tweaks, showChecksums: !ctx.tweaks.showChecksums });
-      }
-      return true;
-
     default:
       return false;
   }

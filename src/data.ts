@@ -181,7 +181,6 @@ export const MENUS: MenusData = {
     { kind: "item", ic: "", label: "Show Ignored (.gitignore)" },
     { kind: "item", ic: "", label: "Show File Extensions", check: true },
     { kind: "item", ic: "", label: "Show Git Gutters",    check: true },
-    { kind: "item", ic: "", label: "Show Checksums" },
     { kind: "sep" },
     { kind: "item", ic: "", label: "Sidebar",             kb: "Ctrl+B", check: true },
     { kind: "item", ic: "", label: "Inspector",           kb: "Ctrl+J", check: true },

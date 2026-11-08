@@ -1630,8 +1630,6 @@ export function App() {
           }
           return;
         }
-        // "Show Checksums" is a View-menu column toggle handled by the view
-        // handler — grouping it here hijacked it into a one-shot hash+copy.
         case "Checksum SHA256":
         case "Checksum (SHA256)": {
           if (!firstPath) return;

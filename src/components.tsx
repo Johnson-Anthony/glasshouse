@@ -238,8 +238,6 @@ function resolveChecked(item: MenuItemDef, toggles: MenuToggleState, parentLabel
       return !!tw?.showIgnored;
     case "Folders First":
       return !!tw?.foldersFirst;
-    case "Show Checksums":
-      return !!tw?.showChecksums;
     case "Sidebar":
       return toggles.sidebarVisible !== undefined ? toggles.sidebarVisible : !!item.check;
     case "Status Bar":
@@ -3311,7 +3309,6 @@ export interface TweakState {
   showGitGutters: boolean;
   showIgnored: boolean;
   foldersFirst: boolean;
-  showChecksums?: boolean;
 }
 
 export interface TweaksProps {
