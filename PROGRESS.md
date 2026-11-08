@@ -13,6 +13,7 @@
 4. Tag a v0.2.0 release once the pass is merged and CI is green.
 
 ## Broken / known issues
+- **Data loss:** Copy then Paste in the same folder empties the file (`fs::copy` onto itself), and undoing that paste deletes the original (task `paste-conflicts`). Merging `symlink-safety` turns the emptying into an error.
 - `shred` follows symlinks: it overwrites the link's target and deletes only the link (task `symlink-safety`).
 - All Rust commands are synchronous and run on the main thread, so heavy operations freeze the UI (task `async-commands`).
 - Custom commands have no permission gating, and devtools are enabled in release builds (task `command-security`).

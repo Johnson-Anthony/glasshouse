@@ -7,7 +7,8 @@ Line numbers are from commit `14c68bd` and drift, so search by name. Items marke
 ## Status
 | Task | Area | Status |
 |---|---|---|
-| symlink-safety | Rust | queued |
+| symlink-safety | Rust | done on `claude/recursing-allen-a7ecf9`, ready to merge |
+| paste-conflicts | frontend | queued (found by symlink-safety) |
 | ui-fixes | frontend | queued |
 | tab-state | frontend | queued |
 | platform-paths | frontend | queued |
@@ -34,6 +35,18 @@ Merge order is the table order: small, contained fixes go first, and broad chang
 - Nothing stops copying or moving a directory into itself (`copy_entry`, `move_entry`).
 - `move_entry` falls back to copy plus recursive delete on **any** rename error (~L422). Limit the fallback to cross-device errors.
 - Add tempdir-based unit tests for each case.
+
+## paste-conflicts (frontend, small; found 2026-11-08 by symlink-safety)
+- `case "Paste":` in `src/App.tsx` (~L1401) builds `dst = joinPath(cwd, basename(src))` and calls `copyEntry`/`moveEntry` without checking whether `dst` exists.
+- **Data loss on `main`:** Copy, then Paste in the same folder, makes `dst === src`.
+  - Rust `copy_entry` then calls `std::fs::copy(a, a)`, which truncates the file to 0 bytes. For a folder, every file in it is emptied.
+  - The paste's undo entry for a copy deletes `dst`, so undoing it deletes the **original**.
+  - After symlink-safety merges, `copy_entry` refuses same-path and into-itself copies, so pasting in place errors instead.
+- Pasting onto an existing item with the same name silently replaces it (`fs::copy` and rename both overwrite). A cut-paste of a folder onto an existing non-empty folder used to merge and then delete the source; after symlink-safety it errors.
+- **Wanted:** when the destination exists (including `dst === src`), pick a free name ("name (copy).ext", then "name (copy 2).ext") and/or ask: replace / keep both / skip.
+  - Check whether `performDrop` (it already skips `src === dst`) and the FolderPicker "Move to…" flow need the same.
+  - Keep the undo entries correct; they record src/dst pairs.
+  - Add vitest coverage for the name-picking helper.
 
 ## ui-fixes (frontend, small)
 - **chmod:** `parseInt(v, 8)` accepts partial input ("78" becomes 7, "0o755" becomes 0) and applies the result (`handlers/tools.ts` ~L451, ~L456). Validate strictly, e.g. `/^[0-7]{3,4}$/`.
