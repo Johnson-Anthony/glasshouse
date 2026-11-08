@@ -18,6 +18,7 @@ Line numbers are from commit `14c68bd` and drift, so search by name. Items marke
 | async-commands | Rust | queued |
 | dead-code | both | queued |
 | test-coverage | both | queued |
+| presentation | docs + small code | queued (added by the user) |
 | split-big-files | both | **wait until all the others are merged** |
 
 Merge order is the table order: small, contained fixes go first, and broad changes go last, so the broad ones absorb the conflicts.
@@ -145,6 +146,29 @@ Merge order is the table order: small, contained fixes go first, and broad chang
   - the `/proc` parsers (mounts, `net/dev`), `ssh_hosts` parsing and terminal argument building;
   - the basics of the pty and watcher.
 - Put new tests in new files where you can. Don't write tests that lock in behaviour other branches are fixing (symlinks, paths, chmod, tabs).
+
+## presentation (docs + small code; added by the user 2026-11-08)
+The user is fine with how the GitHub page and the Pages site **look**, but finds the **text** cringe. Rewrite it in a plain, matter-of-fact voice.
+**No form of the word "rice"** ("rice", "riced", "riced-out", "ricing", "rice://") may appear anywhere in the code, docs or on GitHub.
+- **Code and config:**
+  - `package.json` `productName` ("rice:// file manager");
+  - `index.html` `<title>`;
+  - the `src-tauri/Cargo.toml` `description`;
+  - the settings key `rice.tweaks` (`src/App.tsx` ~L406, ~L554) and the `rice.` prefix checks in the reset-preferences code (`src/handlers/misc.ts` ~L191, ~L228). Rename the key to `glasshouse.tweaks`. Don't keep the old name in the code, not even for migration: saved display tweaks resetting once is accepted.
+- **Docs:**
+  - `README.md` (tagline and any other copy);
+  - `docs/index.html`, the Pages site (title, meta description, the `rice://` prefix on the heading, the tagline, "breaking the rice", and the rest of the copy). Keep its design as is.
+  - `docs/ARCHITECTURE.md` and any other doc that quotes these strings.
+- **Also check:**
+  - the About dialog's text and other user-facing copy;
+  - the release notes template in `.github/workflows/release.yml`;
+  - whether `docs/screenshot.png` shows the word (look at the image).
+- **GitHub itself:** don't change anything on GitHub. Put the exact proposed text in your plan under "GitHub changes" for the lead to apply after the user reviews it: the repo description ("A riced-out file manager…"), topics (drop `ricing`, maybe add better ones), and anything on the v0.1.0 release that should change.
+- **Out of scope** (the user decides separately):
+  - git history (old commit messages and file versions);
+  - the unmerged `origin/feature` branch;
+  - the bundled Nerd Font files, which match "rice" only inside third-party glyph-name data.
+- **Done when** `git grep -i -E '(^|[^a-z])ric(e|ed|ing)([^a-z]|$)|rice[:.]'` finds nothing outside those fonts.
 
 ## split-big-files (both: only after every other task is merged)
 - **`components.tsx`:** dialogs (~L3472–6105) into `src/dialogs/`, previews (~L2182–3096) into `src/preview/`, the Sidebar (~L710–1503) into its own file, and the menus into `menus.tsx`.
