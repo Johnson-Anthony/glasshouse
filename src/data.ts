@@ -2,7 +2,6 @@
 
 import { IS_WINDOWS } from "./platform";
 
-export const APP_VERSION = "0.0.1";
 export const TAURI_VERSION = "2";
 
 export type FileKind = "folder" | "text" | "code" | "img" | "archive" | "exec";
@@ -82,6 +81,9 @@ export type MenuItemDef =
       payload?: DynamicPayload;
       /** If set, dispatched instead of `label` when the item is invoked. */
       action?: string;
+      /** Writes to the files in the current selection. Collected into
+       *  MUTATING_LABELS, which App.tsx refuses for lossy (non-UTF-8) names. */
+      mutates?: boolean;
     }
   | {
       kind: "sub";
@@ -104,6 +106,8 @@ export interface PaletteItem {
   ic: string;
   label: string;
   kb?: string[];
+  /** Same meaning as on MenuItemDef items. */
+  mutates?: boolean;
 }
 
 export const FILES: FileRow[] = [
@@ -215,8 +219,8 @@ export const MENUS: MenusData = {
     { kind: "item", ic: "", label: "Undo",                kb: "Ctrl+Z" },
     { kind: "item", ic: "", label: "Redo",                kb: "Ctrl+Shift+Z" },
     { kind: "sep" },
-    { kind: "item", ic: "", label: "Cut",                 kb: "Ctrl+X" },
-    { kind: "item", ic: "", label: "Copy",                kb: "Ctrl+C" },
+    { kind: "item", ic: "", label: "Cut",                 kb: "Ctrl+X", mutates: true },
+    { kind: "item", ic: "", label: "Copy",                kb: "Ctrl+C", mutates: true },
     { kind: "item", ic: "", label: "Copy Path",           kb: "Ctrl+Shift+C" },
     { kind: "item", ic: "", label: "Copy Path (WSL)",     kb: "Ctrl+Alt+C" },
     { kind: "item", ic: "", label: "Copy as UNC" },
@@ -226,14 +230,14 @@ export const MENUS: MenusData = {
         { kind: "item", label: "Paste as Link (symlink)" },
         { kind: "item", label: "Paste as Hard Link" },
         { kind: "item", label: "Paste as Copy (verify SHA256)" },
-        { kind: "item", label: "Paste Text into Filename" },
+        { kind: "item", label: "Paste Text into Filename", mutates: true },
       ] },
     { kind: "sep" },
-    { kind: "item", ic: "", label: "Rename",              kb: "F2" },
-    { kind: "item", ic: "", label: "Bulk Rename…",        kb: "Ctrl+Shift+R" },
-    { kind: "item", ic: "", label: "Move to Trash",       kb: "Del" },
-    { kind: "item", ic: "", label: "Delete Permanently",  kb: "Shift+Del", danger: true },
-    { kind: "item", ic: "", label: "Shred (srm)",         danger: true },
+    { kind: "item", ic: "", label: "Rename",              kb: "F2", mutates: true },
+    { kind: "item", ic: "", label: "Bulk Rename…",        kb: "Ctrl+Shift+R", mutates: true },
+    { kind: "item", ic: "", label: "Move to Trash",       kb: "Del", mutates: true },
+    { kind: "item", ic: "", label: "Delete Permanently",  kb: "Shift+Del", danger: true, mutates: true },
+    { kind: "item", ic: "", label: "Shred (srm)",         danger: true, mutates: true },
     { kind: "sep" },
     { kind: "item", ic: "", label: "Preferences…",        kb: "Ctrl+," },
   ],
@@ -328,22 +332,22 @@ export const MENUS: MenusData = {
     { kind: "dynamic", source: "recent" },
   ],
   Tools: [
-    { kind: "item", ic: "", label: "Bulk Rename…",        kb: "Ctrl+Shift+R" },
-    { kind: "item", ic: "", label: "Batch Permissions…",  kb: "Ctrl+Shift+P" },
-    { kind: "item", ic: "", label: "Change Owner (chown)…" },
+    { kind: "item", ic: "", label: "Bulk Rename…",        kb: "Ctrl+Shift+R", mutates: true },
+    { kind: "item", ic: "", label: "Batch Permissions…",  kb: "Ctrl+Shift+P", mutates: true },
+    { kind: "item", ic: "", label: "Change Owner (chown)…", mutates: true },
     { kind: "item", ic: "", label: "Find & Replace in Files", kb: "Ctrl+Shift+F" },
     { kind: "sep" },
     { kind: "sub",  ic: "", label: "Compress",
       children: [
-        { kind: "item", label: "Zip (.zip)" },
-        { kind: "item", label: "Tar + gzip (.tar.gz)" },
-        { kind: "item", label: "Tar + zstd (.tar.zst)" },
-        { kind: "item", label: "7-zip (.7z)" },
+        { kind: "item", label: "Zip (.zip)", mutates: true },
+        { kind: "item", label: "Tar + gzip (.tar.gz)", mutates: true },
+        { kind: "item", label: "Tar + zstd (.tar.zst)", mutates: true },
+        { kind: "item", label: "7-zip (.7z)", mutates: true },
       ] },
     { kind: "sub",  ic: "", label: "Extract",
       children: [
-        { kind: "item", label: "Extract Here" },
-        { kind: "item", label: "Extract to Folder…" },
+        { kind: "item", label: "Extract Here", mutates: true },
+        { kind: "item", label: "Extract to Folder…", mutates: true },
         { kind: "item", label: "Browse archive in place" },
       ] },
     { kind: "sep" },
@@ -355,12 +359,12 @@ export const MENUS: MenusData = {
     // no kb hint: Ctrl+Shift+V belongs to Paste Special
     { kind: "item", ic: "", label: "Clipboard Stack" },
     { kind: "item", ic: "", label: "File Queue" },
-    { kind: "item", ic: "", label: "Run Script on Selection…" },
+    { kind: "item", ic: "", label: "Run Script on Selection…", mutates: true },
   ],
   Git: [
     { kind: "item", ic: "", label: "Status",              kb: "Ctrl+G S" },
-    { kind: "item", ic: "", label: "Stage Selected",      kb: "Ctrl+G A" },
-    { kind: "item", ic: "", label: "Unstage Selected" },
+    { kind: "item", ic: "", label: "Stage Selected",      kb: "Ctrl+G A", mutates: true },
+    { kind: "item", ic: "", label: "Unstage Selected", mutates: true },
     { kind: "item", ic: "", label: "Commit…",             kb: "Ctrl+G C" },
     { kind: "item", ic: "", label: "Commit Amend" },
     { kind: "sep" },
@@ -380,7 +384,7 @@ export const MENUS: MenusData = {
     { kind: "item", ic: "", label: "Blame Selected" },
     { kind: "item", ic: "", label: "Stash" },
     { kind: "sep" },
-    { kind: "item", ic: "", label: "Discard Changes", danger: true },
+    { kind: "item", ic: "", label: "Discard Changes", danger: true, mutates: true },
     { kind: "item", ic: "", label: "Clean Untracked…", danger: true },
   ],
   Terminal: [
@@ -413,16 +417,17 @@ export const MENUS: MenusData = {
 
 export const PALETTE: PaletteItem[] = [
   { g: "NAVIGATE", ic: "", label: "Go to Path…",          kb: ["Ctrl", "L"] },
-  { g: "NAVIGATE", ic: "", label: "Find File by Name (fuzzy)", kb: ["Ctrl", "P"] },
+  // no kb hint: Ctrl+P toggles this palette
+  { g: "NAVIGATE", ic: "", label: "Find File by Name (fuzzy)" },
   { g: "NAVIGATE", ic: "", label: "Find in Files",        kb: ["Ctrl", "Shift", "F"] },
   { g: "NAVIGATE", ic: "", label: "Jump to Bookmark →" },
   { g: "NAVIGATE", ic: "", label: "Open Recent →" },
   { g: "FILE",     ic: "", label: "New Folder",            kb: ["Ctrl", "Shift", "D"] },
-  { g: "FILE",     ic: "", label: "Bulk Rename…",          kb: ["Ctrl", "Shift", "R"] },
+  { g: "FILE",     ic: "", label: "Bulk Rename…",          kb: ["Ctrl", "Shift", "R"], mutates: true },
   { g: "FILE",     ic: "", label: "Paste Special…",        kb: ["Ctrl", "Shift", "V"] },
-  { g: "FILE",     ic: "", label: "Batch Permissions…" },
+  { g: "FILE",     ic: "", label: "Batch Permissions…", mutates: true },
   { g: "FILE",     ic: "", label: "Hash SHA256 of Selection" },
-  { g: "GIT",      ic: "", label: "Git: Stage Selected" },
+  { g: "GIT",      ic: "", label: "Git: Stage Selected", mutates: true },
   { g: "GIT",      ic: "", label: "Git: Commit…",          kb: ["Ctrl","G","C"] },
   { g: "GIT",      ic: "", label: "Git: Checkout Branch →"  },
   { g: "VIEW",     ic: "", label: "Switch Theme →"  },
@@ -430,7 +435,7 @@ export const PALETTE: PaletteItem[] = [
   { g: "VIEW",     ic: "", label: "Change Layout →" },
   { g: "TOOLS",    ic: "", label: "Open in Terminal",       kb: ["Ctrl","`"] },
   { g: "TOOLS",    ic: "", label: "Open in VS Code",        kb: ["Ctrl","Shift","E"] },
-  { g: "TOOLS",    ic: "", label: "Run Script on Selection…" },
+  { g: "TOOLS",    ic: "", label: "Run Script on Selection…", mutates: true },
 ];
 
 export const CONTEXT_FILE: MenuItemDef[] = [
@@ -445,14 +450,15 @@ export const CONTEXT_FILE: MenuItemDef[] = [
     ] },
   { kind: "item", ic: "", label: "Add Bookmark" },
   { kind: "sep" },
-  { kind: "item", ic: "", label: "Cut",               kb: "Ctrl+X" },
-  { kind: "item", ic: "", label: "Copy",              kb: "Ctrl+C" },
+  { kind: "item", ic: "", label: "Cut",               kb: "Ctrl+X", mutates: true },
+  { kind: "item", ic: "", label: "Copy",              kb: "Ctrl+C", mutates: true },
   { kind: "item", ic: "", label: "Copy Path" },
   { kind: "item", ic: "", label: "Copy as WSL Path" },
-  { kind: "item", ic: "", label: "Duplicate",         kb: "Ctrl+U" },
+  { kind: "item", ic: "", label: "Duplicate",         kb: "Ctrl+U", mutates: true },
   { kind: "sep" },
-  { kind: "item", ic: "", label: "Rename",            kb: "F2" },
-  { kind: "item", ic: "", label: "Move to…",          kb: "F6" },
+  { kind: "item", ic: "", label: "Rename",            kb: "F2", mutates: true },
+  // no kb hint: F6 cycles panes (App.tsx)
+  { kind: "item", ic: "", label: "Move to…",          mutates: true },
   { kind: "item", ic: "", label: "Create Symlink…" },
   { kind: "sub",  ic: "", label: "Tag →",
     children: [
@@ -463,28 +469,28 @@ export const CONTEXT_FILE: MenuItemDef[] = [
   { kind: "sep" },
   { kind: "sub",  ic: "", label: "Compress →",
     children: [
-      { kind: "item", label: "ZIP (bundled)" },
-      { kind: "item", label: "ZIP (each individually)" },
-      { kind: "item", label: "TAR.GZ" },
-      { kind: "item", label: "7-Zip" },
+      { kind: "item", label: "ZIP (bundled)", mutates: true },
+      { kind: "item", label: "ZIP (each individually)", mutates: true },
+      { kind: "item", label: "TAR.GZ", mutates: true },
+      { kind: "item", label: "7-Zip", mutates: true },
     ] },
   // Shown only when the selection is a single extractable archive —
   // App.tsx filters this sub out otherwise (same pattern as the git items).
   { kind: "sub",  ic: "", label: "Extract →",
     children: [
-      { kind: "item", label: "Extract Here" },
-      { kind: "item", label: "Extract to Folder…" },
+      { kind: "item", label: "Extract Here", mutates: true },
+      { kind: "item", label: "Extract to Folder…", mutates: true },
     ] },
   { kind: "item", ic: "", label: "Checksum SHA256" },
   { kind: "item", ic: "", label: "Diff with Clipboard" },
   { kind: "sep" },
-  { kind: "item", ic: "", label: "Git: Stage" },
-  { kind: "item", ic: "", label: "Git: Unstage" },
-  { kind: "item", ic: "", label: "Git: Discard changes", danger: true },
+  { kind: "item", ic: "", label: "Git: Stage", mutates: true },
+  { kind: "item", ic: "", label: "Git: Unstage", mutates: true },
+  { kind: "item", ic: "", label: "Git: Discard changes", danger: true, mutates: true },
   { kind: "item", ic: "", label: "Git: Blame" },
   { kind: "sep" },
   { kind: "item", ic: "", label: "Properties",        kb: "Alt+Enter" },
-  { kind: "item", ic: "", label: "Move to Trash",     kb: "Del", danger: true },
+  { kind: "item", ic: "", label: "Move to Trash",     kb: "Del", danger: true, mutates: true },
 ];
 
 export const CONTEXT_SIDEBAR: MenuItemDef[] = [
@@ -519,7 +525,8 @@ export const CONTEXT_SIDEBAR_FOLDER: MenuItemDef[] = [
   { kind: "item", ic: "", label: "Copy as Command" },
   { kind: "sep" },
   { kind: "item", ic: "", label: "Rename",              kb: "F2" },
-  { kind: "item", ic: "", label: "Move to…",            kb: "F6" },
+  // no kb hint: F6 cycles panes (App.tsx)
+  { kind: "item", ic: "", label: "Move to…" },
   { kind: "sub",  ic: "", label: "Tag →",
     children: [
       { kind: "item", label: "Add Tag…" },
@@ -649,3 +656,49 @@ if (!IS_WINDOWS) {
     CONTEXT_EMPTY,
   ].forEach(stripWinOnly);
 }
+
+// ─── Derived lookups ───────────────────────────────────────────────────────
+// Built after platform gating so they see the final dispatch keys.
+
+const ALL_MENU_TREES: MenuItemDef[][] = [
+  ...Object.values(MENUS),
+  CONTEXT_FILE,
+  CONTEXT_SIDEBAR,
+  CONTEXT_SIDEBAR_PINNED,
+  CONTEXT_SIDEBAR_FOLDER,
+  CONTEXT_SIDEBAR_DRIVE,
+  CONTEXT_SIDEBAR_REMOTE,
+  CONTEXT_TAB,
+  CONTEXT_BREADCRUMB,
+  CONTEXT_EMPTY,
+];
+
+function collectMutating(items: MenuItemDef[], out: Set<string>): void {
+  for (const it of items) {
+    if (it.kind === "item" && it.mutates) out.add(it.action ?? it.label);
+    else if (it.kind === "sub") collectMutating(it.children, out);
+  }
+}
+
+/** Selection-writing labels dispatched from code rather than a menu item. */
+const MUTATING_CODE_LABELS = [
+  "Compress to ZIP…", // Inspector compress chip (App.tsx)
+];
+
+/** Every dispatch label flagged `mutates`, plus MUTATING_CODE_LABELS. */
+export const MUTATING_LABELS: ReadonlySet<string> = (() => {
+  const out = new Set<string>(MUTATING_CODE_LABELS);
+  ALL_MENU_TREES.forEach(t => collectMutating(t, out));
+  PALETTE.forEach(p => { if (p.mutates) out.add(p.label); });
+  return out;
+})();
+
+/** Second key → label for the Git menu's "Ctrl+G X" chord hints. */
+export const GIT_CHORDS: Readonly<Record<string, string>> = (() => {
+  const out: Record<string, string> = {};
+  for (const it of MENUS.Git) {
+    const m = it.kind === "item" ? /^Ctrl\+G ([A-Z])$/.exec(it.kb ?? "") : null;
+    if (m && it.kind === "item") out[m[1].toLowerCase()] = it.action ?? it.label;
+  }
+  return out;
+})();

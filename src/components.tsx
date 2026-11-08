@@ -4,7 +4,6 @@ import { createPortal } from "react-dom";
 import {
   MENUS,
   PALETTE,
-  APP_VERSION,
   TAURI_VERSION,
   type FileRow,
   type FileKind,
@@ -5158,6 +5157,8 @@ export interface AboutDialogProps {
 }
 
 export function AboutDialog({ open, onClose }: AboutDialogProps) {
+  const [version, setVersion] = useState("…");
+
   useEffect(() => {
     if (!open) return;
     const h = (e: KeyboardEvent) => {
@@ -5167,14 +5168,29 @@ export function AboutDialog({ open, onClose }: AboutDialogProps) {
     return () => window.removeEventListener("keydown", h);
   }, [open, onClose]);
 
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const v = await getVersion();
+        if (!cancelled) setVersion(v);
+      } catch {
+        // tauri unavailable (e.g. vite dev without tauri host)
+        if (!cancelled) setVersion("unknown");
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [open]);
+
   if (!open) return null;
 
-  const builtOn = new Date().toISOString().slice(0, 10);
   const rows: Array<[string, string]> = [
     ["app", "Glasshouse"],
-    ["version", APP_VERSION],
+    ["version", version],
     ["tauri", TAURI_VERSION],
-    ["built on", builtOn],
+    // Stamped by vite.config.ts `define` at build (or dev-server start) time.
+    ["built on", __BUILD_DATE__],
   ];
 
   return (

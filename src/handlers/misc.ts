@@ -2,6 +2,7 @@ import type { Handler, HandlerCtx } from "./types";
 import { dialogs } from "../components";
 import { IS_WINDOWS } from "../platform";
 import { basename, joinPath } from "../paths";
+import { getVersion } from "@tauri-apps/api/app";
 import {
   makeDir,
   writeText,
@@ -17,6 +18,8 @@ import {
   copyEntry,
   hashSha256,
 } from "../api";
+const REPO_URL = "https://github.com/Johnson-Anthony/glasshouse";
+
 async function createFileAt(ctx: HandlerCtx, name: string, body: string): Promise<void> {
   const path = joinPath(ctx.cwd, name);
   await writeText(path, body);
@@ -159,21 +162,23 @@ export const miscHandler: Handler = async (label, ctx) => {
       return true;
 
     case "Documentation":
-      await openUrl("https://github.com/anthony/glasshouse#readme");
+      await openUrl(`${REPO_URL}#readme`);
       return true;
 
     case "Release Notes":
-      await openUrl("https://github.com/anthony/glasshouse/releases");
+      await openUrl(`${REPO_URL}/releases`);
       return true;
 
-    case "Check for Updates":
-      await dialogs.showAlert({ title: "check for updates", message: "Current version: 0.0.1. Opening releases page…", variant: "info" });
-      await openUrl("https://github.com/anthony/glasshouse/releases");
+    case "Check for Updates": {
+      const version = await getVersion().catch(() => "unknown");
+      await dialogs.showAlert({ title: "check for updates", message: `Current version: ${version}. Opening releases page…`, variant: "info" });
+      await openUrl(`${REPO_URL}/releases`);
       return true;
+    }
 
     case "Report Bug":
     case "Report Bug…":
-      await openUrl("https://github.com/anthony/glasshouse/issues/new");
+      await openUrl(`${REPO_URL}/issues/new`);
       return true;
 
     case "Export Layout (.ricerc)": {
