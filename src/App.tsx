@@ -332,7 +332,7 @@ function formatDate(ms: number): string {
 
 function normalizeGit(flag: string | null | undefined): GitStatus | null {
   if (!flag) return null;
-  if (flag === "M" || flag === "A" || flag === "D" || flag === "U" || flag === "?" || flag === "!") {
+  if (flag === "M" || flag === "A" || flag === "D" || flag === "U" || flag === "?") {
     return flag;
   }
   return null;

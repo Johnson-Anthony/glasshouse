@@ -12,7 +12,7 @@ export const THEMES = [
 ];
 
 export type FileKind = "folder" | "text" | "code" | "img" | "archive" | "exec";
-export type GitStatus = "M" | "A" | "D" | "U" | "?" | "!";
+export type GitStatus = "M" | "A" | "D" | "U" | "?";
 
 export interface FileRow {
   name: string;

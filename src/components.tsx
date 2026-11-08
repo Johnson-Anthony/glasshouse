@@ -1470,8 +1470,8 @@ function tagColor(tag: string | null): string {
   return (tag && m[tag]) || "var(--fg-3)";
 }
 
-// Map single-char git status codes to CSS-safe class suffixes. "?" and "!"
-// aren't valid in class names, so we translate.
+// Map single-char git status codes to CSS-safe class suffixes. "?" isn't
+// valid in a class name, so we translate.
 function gitDotClass(code: string): string {
   switch (code) {
     case "M": return "gm";
@@ -1479,7 +1479,6 @@ function gitDotClass(code: string): string {
     case "D": return "gd";
     case "U": return "gu";
     case "?": return "gq";
-    case "!": return "gb";
     default: return "gb";
   }
 }
@@ -1587,7 +1586,6 @@ const PaneRow = React.memo(function PaneRow({
          : f.git === "D" ? <span style={{color:"var(--red)"}}>D</span>
          : f.git === "U" ? <span style={{color:"var(--red)"}}>U</span>
          : f.git === "?" ? <span style={{color:"var(--fg-2)"}}>?</span>
-         : f.git === "!" ? <span style={{color:"var(--fg-3)"}}>!</span>
          : <span style={{color:"var(--fg-3)"}}>—</span>}
       </span>
     </div>
