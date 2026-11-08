@@ -6,18 +6,18 @@
 // running the app:
 //
 //   unwired   a label something sends (the menus, palette and context menus
-//             in src/data.ts, the Ctrl+G chords, dispatch("…") calls) that no
-//             switch handles, so clicking it shows "not yet wired";
+//             in src/data.ts, the Ctrl+G chords, menu items built in code,
+//             dispatch("…") calls) that no switch handles, so clicking it
+//             shows "not yet wired";
 //   shadowed  a handler case that never runs, because App.tsx's own switches
 //             or an earlier handler in src/handlers/index.ts take the label
 //             first;
-//   theater   a handled label whose case only logs, alerts, toasts or returns.
-//
-// Labels that are handled but never sent from a menu, the palette or a
-// literal in code are counted as a note. Some are aliases; others are dead.
+//   theater   a handled label whose case only logs, alerts, toasts or returns;
+//   unsent    a case for a label nothing sends (an old alias, or a submenu
+//             parent, which never dispatches). If something the audit can't
+//             see does send it, teach the audit about that sender.
 //
 //   node scripts/audit-wiring.mjs          # report; exits 1 on any problem
-//   node scripts/audit-wiring.mjs --all    # also list the never-sent labels
 //   node scripts/audit-wiring.mjs --json   # all findings as JSON
 
 import fs from "node:fs";
@@ -179,7 +179,7 @@ function dataSenders(data) {
   return { sent, submenus };
 }
 
-// ─── senders: string literals passed to the router from code ────────────
+// ─── senders: menu items built in code, and literals sent to the router ─
 
 const SEND_CALLEES = /(^|\.)(dispatch|handleMenuCommand|onCommand)$|^handleMenuCommandRef\.current$/;
 
@@ -204,6 +204,20 @@ function literalsIn(expr, arrays) {
   return [];
 }
 
+// `{ kind: "item", label: "X" }` written outside data.ts, like App.tsx's
+// pin-reorder menu. Items with a payload go to handleMenuPayload instead.
+function inlineItem(node) {
+  if (!ts.isObjectLiteralExpression(node)) return null;
+  const props = new Map();
+  for (const p of node.properties) {
+    if (ts.isPropertyAssignment(p) && ts.isIdentifier(p.name)) props.set(p.name.text, p.initializer);
+  }
+  const kind = props.get("kind");
+  if (!kind || !ts.isStringLiteralLike(kind) || kind.text !== "item" || props.has("payload")) return null;
+  const sent = props.get("action") ?? props.get("label");
+  return sent && ts.isStringLiteralLike(sent) ? sent.text : null;
+}
+
 function codeSenders() {
   const sent = [];
   for (const file of sourceFiles(SRC)) {
@@ -218,6 +232,8 @@ function codeSenders() {
     };
     collectArrays(sf);
     const visit = (node) => {
+      const item = file === DATA ? null : inlineItem(node);
+      if (item) sent.push({ label: item, where: `${rel(file)}:${lineOf(sf, node)}` });
       if (ts.isCallExpression(node) && node.arguments.length > 0) {
         const callee = node.expression.getText(sf).replace(/\?\.?/g, ".").replace(/\.\./g, ".");
         if (SEND_CALLEES.test(callee)) {
@@ -343,11 +359,9 @@ function audit() {
   const shadowedSet = new Set(shadowed.map((s) => s.where));
   const theater = receivers.filter((r) => r.theater && sentLabels.has(r.label) && !submenus.has(r.label) &&
     !shadowedSet.has(r.where));
-  const neverSent = [...new Map(receivers
-    .filter((r) => !sentLabels.has(r.label))
-    .map((r) => [r.label, r])).values()];
+  const unsent = receivers.filter((r) => !sentLabels.has(r.label));
 
-  return { counts: { sent: sent.length, receivers: receivers.length }, unwired, shadowed, theater, neverSent };
+  return { counts: { sent: sent.length, receivers: receivers.length }, unwired, shadowed, theater, unsent };
 }
 
 // ─── report ─────────────────────────────────────────────────────────────
@@ -366,14 +380,10 @@ function main() {
     section("unwired (sent, but no case handles it)", r.unwired, (s) => `"${s.label}"  sent from ${s.where}`);
     section("shadowed (case never runs)", r.shadowed, (s) => `"${s.label}"  ${s.where}  taken first by ${s.by}`);
     section("theater (case only logs, alerts or returns)", r.theater, (t) => `"${t.label}"  ${t.where}`);
-    if (process.argv.includes("--all")) {
-      section("note: handled but never sent", r.neverSent, (n) => `"${n.label}"  ${n.where}`);
-    } else {
-      lines.push(`note: ${r.neverSent.length} handled labels are never sent (list them with --all)`);
-    }
+    section("unsent (case for a label nothing sends)", r.unsent, (n) => `"${n.label}"  ${n.where}`);
     process.stdout.write(lines.join("\n") + "\n");
   }
-  const problems = r.unwired.length + r.shadowed.length + r.theater.length;
+  const problems = r.unwired.length + r.shadowed.length + r.theater.length + r.unsent.length;
   process.exit(problems > 0 ? 1 : 0);
 }
 
