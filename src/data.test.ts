@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
   CONTEXT_BREADCRUMB,
@@ -13,6 +14,7 @@ import {
   MENUS,
   MUTATING_LABELS,
   PALETTE,
+  THEMES,
   type MenuItemDef,
 } from "./data";
 
@@ -104,5 +106,15 @@ describe("shortcut hints", () => {
 
   it("nothing advertises F6, which cycles panes", () => {
     expect(ALL_ITEMS.filter(it => it.kb === "F6").map(it => it.label)).toEqual([]);
+  });
+});
+
+describe("THEMES", () => {
+  it("lists exactly the [data-theme] blocks in themes.css", () => {
+    // Read from disk: vitest stubs CSS imports, ?raw included.
+    const themesCss = readFileSync(new URL("./styles/themes.css", import.meta.url), "utf8");
+    const inCss = new Set([...themesCss.matchAll(/\[data-theme="([^"]+)"\]/g)].map(m => m[1]));
+    expect(new Set(THEMES)).toEqual(inCss);
+    expect(new Set(THEMES).size).toBe(THEMES.length);
   });
 });

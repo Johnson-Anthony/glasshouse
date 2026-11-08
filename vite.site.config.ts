@@ -1,6 +1,6 @@
 // Builds the project site's browser demo (site/demo) into docs/demo, which
 // GitHub Pages serves. Run with `pnpm site:build`.
-import { copyFileSync, mkdirSync, readFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { defineConfig, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
@@ -23,13 +23,33 @@ const subsetFonts: Plugin = {
   },
 };
 
-// The landing page (docs/index.html) uses the app's theme tokens directly.
+// After the build: the landing page (docs/index.html) uses the app's theme
+// tokens directly, and the demo's fonts are served publicly, so their license
+// texts (everything in src/assets/fonts that isn't a font) go alongside them.
 const copyThemes: Plugin = {
   name: "glasshouse-site-themes",
   apply: "build",
   closeBundle() {
     mkdirSync(here("./docs/assets"), { recursive: true });
     copyFileSync(here("./src/styles/themes.css"), here("./docs/assets/themes.css"));
+    const fonts = here("./src/assets/fonts");
+    const licenses = here("./docs/demo/licenses");
+    mkdirSync(licenses, { recursive: true });
+    const texts = readdirSync(fonts).filter(f => !/\.(ttf|otf|woff2?)$/i.test(f));
+    for (const f of texts) copyFileSync(`${fonts}/${f}`, `${licenses}/${f}`);
+    writeFileSync(`${licenses}/README.txt`, [
+      "Fonts in this demo (assets/*.woff2) and their licenses:",
+      "",
+      "- JetBrainsMonoNerdFont-*.woff2: subsets of JetBrains Mono Nerd Font, keeping only",
+      "  the characters the demo's interface shows (made by site/subset-fonts.sh in the",
+      "  glasshouse repository). JetBrains Mono is under the SIL Open Font License 1.1",
+      "  (OFL-JetBrainsMono.txt); Nerd Fonts patched in additional glyphs.",
+      "- JetBrainsMono-*, IBMPlexMono-*, FiraCode-*.woff2: the app's bundled copies of",
+      "  these fonts, each under the SIL Open Font License 1.1 (OFL-*.txt).",
+      "",
+      `License texts in this folder: ${texts.join(", ")}.`,
+      "",
+    ].join("\n"));
   },
 };
 

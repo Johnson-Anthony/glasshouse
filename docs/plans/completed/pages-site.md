@@ -90,6 +90,8 @@ See `docs/decisions/2026-11-08-pages-site-architecture.md`.
 - **`docs/screenshot.png`** is no longer used by the README or the site (the README now shows `docs/media/hero-tokyo-night.png`). I kept it so old external links don't break; it can be deleted.
 - **CLAUDE.md:** one line added under Commands for the site scripts.
 - **Repo weight:** about 8 MB of built demo and media under `docs/`. Re-recording replaces files; unchanged hashes keep their names.
+- **Font licenses:** `pnpm site:build` copies every non-font file in `src/assets/fonts` (the OFL texts today) into `docs/demo/licenses/`, with a README saying which fonts they cover. Once the `font-licenses` task puts the Nerd Fonts license texts there, run `pnpm site:build` again to ship them.
+- **Merged main** (command-security, dead-code, unsent-labels, local-fonts, async-commands): the mock dropped the four commands the app no longer calls (`ping`, `set_always_on_top`, `wsl_to_win`, `git_ahead_behind`), and the images and clips were re-recorded from the merged UI. The demo also bundles the app's local JetBrains Mono, IBM Plex Mono and Fira Code woff2 files; they're fetched only if a visitor picks one of those fonts in the tweaks panel.
 - **No GitHub setting changes are needed:** Pages keeps serving `main:/docs` with the legacy build. The site goes live when `main` is pushed.
 
 ## Checks

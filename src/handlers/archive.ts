@@ -1,6 +1,5 @@
 import type { Handler, HandlerCtx } from "./types";
 import {
-  openWithDefault,
   archiveCreate,
   archiveExtract,
   archiveCanHandle,
@@ -92,19 +91,12 @@ async function doExtract(ctx: HandlerCtx, promptFolder: boolean): Promise<void> 
 
 export const archiveHandler: Handler = async (label, ctx) => {
   switch (label) {
-    case "Extract":
     case "Extract Here": {
       await doExtract(ctx, false);
       return true;
     }
     case "Extract to Folder…": {
       await doExtract(ctx, true);
-      return true;
-    }
-    case "Browse archive in place": {
-      if (ctx.firstPath) {
-        await openWithDefault(ctx.firstPath);
-      }
       return true;
     }
     case "Zip (.zip)":

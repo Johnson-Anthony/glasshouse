@@ -296,13 +296,18 @@ async function checkPage(cdp, base) {
       if (full === join(DOCS, "_config.yml")) continue;
       if (/^[_.#~]/.test(name)) skipped.push(full.slice(DOCS.length + 1));
       if (statSync(full).isDirectory()) scan(full);
+      // Text files that open with front matter get processed by Jekyll.
+      else if (/\.(html|css|js|mjs|json|txt|md|svg|xml)$/.test(name) && readFileSync(full, "utf8").startsWith("---")) {
+        skipped.push(`${full.slice(DOCS.length + 1)} (front matter)`);
+      }
     }
   };
   for (const d of ["index.html", "favicon.png", "assets", "media", "demo"]) {
     const full = join(DOCS, d);
     if (statSync(full).isDirectory()) scan(full);
+    else if (readFileSync(full).subarray(0, 3).toString() === "---") skipped.push(`${d} (front matter)`);
   }
-  ok("no site file names Jekyll would skip", skipped.length === 0, skipped.join(", "));
+  ok("Jekyll copies the site as is (no _/. names, no front matter)", skipped.length === 0, skipped.join(", "));
 
   // Page weight: what a first visit downloads before the visitor does anything.
   const size = f => statSync(join(DOCS, f)).size;

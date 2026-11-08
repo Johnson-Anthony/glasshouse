@@ -135,7 +135,6 @@ export function createBackend(hooks: BackendHooks) {
   const notInDemo = (what: string) => () => { hooks.notice(`${what} isn't available in the browser demo.`); return null; };
 
   const handlers: Record<string, Handler> = {
-    ping: () => "pong",
     home_dir: () => HOME,
     list_dir: a => {
       const p = str(a.path);
@@ -170,7 +169,6 @@ export function createBackend(hooks: BackendHooks) {
     },
     trash_dir: () => trash,
     win_to_wsl: a => a.path,
-    wsl_to_win: a => a.path,
     watch_dir: () => null,
     unwatch_dir: () => null,
 
@@ -308,7 +306,6 @@ export function createBackend(hooks: BackendHooks) {
         status: Object.fromEntries(changes),
       };
     },
-    git_ahead_behind: a => (vfs.repoOf(str(a.cwd)) ? [repo.ahead, 0] : null),
     git_branch_list: a => {
       if (!vfs.repoOf(str(a.cwd))) throw "not a git repository";
       return repo.branches.map(name => ({
@@ -418,7 +415,6 @@ export function createBackend(hooks: BackendHooks) {
     spawn_terminal_profile: notInDemo("Opening an external terminal"),
     spawn_vscode: notInDemo("Opening VS Code"),
     spawn_new_window: notInDemo("Opening a second window"),
-    set_always_on_top: () => null,
 
     "plugin:app|version": () => __DEMO_VERSION__,
     "plugin:app|name": () => "glasshouse",

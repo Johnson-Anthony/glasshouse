@@ -49,12 +49,6 @@ function winToUnc(path: string): string {
 
 export const toolsHandler: Handler = async (label, ctx) => {
   switch (label) {
-    // Submenu parents — consume to prevent double-handling.
-    case "Compress →":
-    case "Extract →":
-    case "Open With →":
-      return true;
-
     case "Default App":
     case "Text Editor (.txt)": {
       const p = ctx.firstPath;
@@ -134,30 +128,13 @@ export const toolsHandler: Handler = async (label, ctx) => {
       return true;
     }
 
-    case "Checksum (SHA256)":
-    case "Checksum SHA256": {
-      const p = ctx.firstPath;
-      if (!p) {
-        console.log("[tools] Checksum: no selection");
-        return true;
-      }
-      try {
-        const hex = await hashSha256(p);
-        void dialogs.showAlert({ title: "SHA256", message: `${p}\n\n${hex}` });
-      } catch (e) {
-        console.log(`[tools] sha256 failed for ${p}:`, e);
-      }
-      return true;
-    }
-
-    case "Copy as UNC":
-    case "Copy as WSL Path": {
+    case "Copy as UNC": {
       const p = ctx.firstPath;
       if (!p) {
         console.log("[tools] Copy as UNC: no selection");
         return true;
       }
-      const unc = label === "Copy as UNC" ? winToUnc(p) : p;
+      const unc = winToUnc(p);
       await copyToClipboard(unc);
       console.log(`[tools] copied: ${unc}`);
       return true;
@@ -201,8 +178,7 @@ export const toolsHandler: Handler = async (label, ctx) => {
       return true;
     }
 
-    case "Verify Signature…":
-    case "Verify Signature": {
+    case "Verify Signature…": {
       const p = ctx.firstPath;
       if (!p) {
         console.log("[tools] Verify Signature: no selection");
@@ -218,8 +194,7 @@ export const toolsHandler: Handler = async (label, ctx) => {
       return true;
     }
 
-    case "Run Script on Selection…":
-    case "Run Script on Selection": {
+    case "Run Script on Selection…": {
       const targets = ctx.selectedPaths.length
         ? ctx.selectedPaths
         : ctx.firstPath
@@ -293,8 +268,7 @@ export const toolsHandler: Handler = async (label, ctx) => {
       return true;
     }
 
-    case "Screenshot → Auto-sort":
-    case "Screenshot Stack": {
+    case "Screenshot → Auto-sort": {
       const entries = ctx.activeHandle?.state.entries ?? [];
       const screenshotRe1 = /^Screenshot[_-]?\d{4}/i;
       const screenshotRe2 = /screenshot.*\.(png|jpg|jpeg|webp)$/i;
@@ -347,8 +321,7 @@ export const toolsHandler: Handler = async (label, ctx) => {
     // "Find in Files" is handled by App.tsx's main switch (FindInFilesModal)
     // before the registry runs — no case here.
 
-    case "Find File by Name (fuzzy)":
-    case "Find File by Name": {
+    case "Find File by Name (fuzzy)": {
       const pattern = await dialogs.showPrompt({
         title: "find file by name",
         message: `search within ${ctx.cwd || "(no cwd)"} — fuzzy match:`,
@@ -374,8 +347,7 @@ export const toolsHandler: Handler = async (label, ctx) => {
       return true;
     }
 
-    case "Go to Path…":
-    case "Go to Path": {
+    case "Go to Path…": {
       const target = await dialogs.showPrompt({
         title: "go to path",
         message: "path to navigate to:",
@@ -384,12 +356,7 @@ export const toolsHandler: Handler = async (label, ctx) => {
         validate: (v) => v.trim() ? null : "path required",
       });
       if (target == null || target.trim() === "") return true;
-      const go = ctx.activeHandle?.actions.goTo;
-      if (go) {
-        go(target);
-      } else {
-        ctx.dispatch(`Go to Path:${target}`);
-      }
+      ctx.activeHandle?.actions.goTo(target);
       return true;
     }
 
@@ -432,8 +399,7 @@ export const toolsHandler: Handler = async (label, ctx) => {
       return true;
     }
 
-    case "Batch Permissions…":
-    case "Batch Permissions": {
+    case "Batch Permissions…": {
       const paths = ctx.selectedPaths.length
         ? ctx.selectedPaths
         : ctx.firstPath
@@ -477,8 +443,7 @@ export const toolsHandler: Handler = async (label, ctx) => {
       return true;
     }
 
-    case "Change Owner (chown)…":
-    case "Change Owner": {
+    case "Change Owner (chown)…": {
       const p = ctx.firstPath;
       if (!p) {
         console.log("[tools] Change Owner: no selection");

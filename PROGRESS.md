@@ -1,6 +1,34 @@
 # Progress
 
 ## Done
+- 2026-11-08: Merged `local-fonts` (ff0327c). The font picker's JetBrains Mono, IBM Plex Mono and Fira Code are bundled as the upstream woff2 files, with their OFL texts, so the app makes no Google request at startup. The CSP allows only `*.localhost` origins, and `src/offline.test.ts` keeps it that way.
+- 2026-11-08: Merged `command-security` (885bd2a). See `docs/decisions/2026-11-08-command-security-design.md`.
+  - **App ACL:** `src-tauri/permissions/app.toml` puts every command in one of 7 groups, granted to the main window for local pages only. Before this, any page could call all of them. `build.rs` fails the build if a command is missing from it.
+  - **Argument checks:**
+    - Terminal profiles must be detected shells, `-d <distro>` or a plain ssh host.
+    - `git_run` takes only the git menu's subcommands and flags.
+    - `open_url` takes only http, https and mailto.
+    - tar and 7z get `--` before member names.
+  - **Windows:** no user strings pass through `cmd /C` or PowerShell code any more. That covers opening files and URLs, VS Code, `.bat` scripts, Windows Terminal, signatures and shortcuts.
+  - **Hostile repos:** `git_file_info` no longer runs a repo's fsmonitor, filters or gpg program.
+  - **Limits:** `run_script` has a 60 s timeout and a 1 MiB output cap, and `read_image_b64` a 64 MiB ceiling.
+  - **Release builds:** devtools are off. The CSP allows data: media (the audio preview had been blocked).
+- 2026-11-08: Merged `unsent-labels` (8828d97).
+  - Removed 75 command cases that nothing sends (aliases, and no-op cases for submenu parents). App.tsx and the handlers went from 292 switch cases to 212.
+  - View → Display Mode → Miller Columns (ranger) is back, on Ctrl+7. The view worked, but its menu item had been dropped in April.
+  - `pnpm check:wiring` now also fails on cases for labels nothing sends.
+- 2026-11-08: Merged `async-commands` (9c3eefe).
+  - 54 commands and `pty_spawn` run off the main thread (`#[tauri::command(async)]`). A 25 s hash no longer freezes the UI; a main-thread ping answered in a 1 ms median during one.
+  - Commands that rely on call order stay on the main thread: pins, tags and recents config, watch_dir and unwatch_dir, and pty_write, pty_resize and pty_kill.
+  - Git labels in `list_dir` scan only the listed folder, about 3x faster in a big repo, and rows show before the whole-repo `git_status` returns.
+  - `git_branch_list` makes one `for-each-ref` call, and a deleted upstream is reported as `upstream_gone`.
+  - See `docs/decisions/2026-11-08-async-commands-threading.md`.
+- 2026-11-08: Merged `dead-code`'s frontend part (d61379a).
+  - It removed 19 handler cases that App.tsx always handled first, plus HexDialog, the mock data and four unused api.ts wrappers.
+  - It also removed three menu toggles that did nothing: Show Ignored, Show Checksums and Browse archive in place (see `docs/decisions/2026-11-08-dead-code-toggles.md`).
+  - Select by Tag now works, and themes come from one list.
+  - `pnpm check:wiring` (the reworked `scripts/audit-wiring.mjs`) runs in CI and fails on unhandled, shadowed or no-op menu labels.
+  - The Rust part (unused commands and dependencies, shared hash loop, `rust-version`) waits for command-security.
 - 2026-11-08: Merged `linux-parity`:
   - symlinked folders list and sort as folders;
   - Reveal selects the item via FileManager1 D-Bus;
@@ -30,8 +58,12 @@
 
 ## Broken / known issues
 - A few-ms race remains between the frontend's name check and the backend write, because `write_text`, `make_dir` and `rename_entry` still overwrite (task `no-clobber-fs`).
-- All Rust commands are synchronous and run on the main thread, so heavy operations freeze the UI (task `async-commands`).
-- Custom commands have no permission gating, and devtools are enabled in release builds (task `command-security`).
-- `scripts/audit-wiring.mjs` can't run: it reads the deleted `design/` folder (task `dead-code`).
+- `pty_write` can still block the main thread when a pty's input buffer is full, for example on a large paste into a program that isn't reading (task `pty-writer`).
+- Windows is untested for the scoped git-label scan. If `list_dir_git_labels_scan_only_the_listed_folder` fails on Windows CI after the first push, the scan falls back to the whole repo there: labels stay correct, but the test needs adjusting.
+- **command-security's Windows code has never been compiled**; the first windows-latest CI run is its first build. Worth trying by hand on Windows:
+  - open a URL with `&` in it;
+  - Open in Terminal on a folder named `a&b;c`, with and without Windows Terminal;
+  - Verify Signature on a file named with a curly apostrophe (`Tom’s.exe`).
+- `run_script` kills only the direct child at its 60 s timeout (task `script-kill-tree`). Saved ssh remotes are limited to ASCII host names.
 - `origin/feature` has one unmerged commit from April, `ddb5466` (14 files, +2470/-492, merge base 23 commits behind `main`, so it won't merge cleanly). It contains: a Windows terminal-launch probe (`terminal_probe.rs`, HKCU DelegationTerminal, wt/DelegatedConsole), a menubar outside-click fix, and assorted polish (terminal drawer, themed dialogs, sidebar keyboard/drag-and-drop, remote manager, private tabs, About). Its "drive label dedup" is one Sidebar line, which `linux-parity` ports. The rest is undecided: cherry-pick parts or drop it.
 - The `rust-version = "1.77"` in `Cargo.toml` is stale: the locked dependencies need rustc 1.88 or newer.

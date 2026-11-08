@@ -28,3 +28,6 @@ Task sessions are run by a lead Claude session, which acts for the user. Its ses
 - The lead merges finished branches into `main`, updates `PROGRESS.md` and the backlog, and starts queued tasks as running ones finish. It keeps heavy Rust builds to about two at a time.
 
 # Gotchas
+- A new Rust command must also be listed in `src-tauri/permissions/app.toml`, in the group that matches what it can do; `build.rs` fails the build otherwise.
+- A new git menu item that runs through `git_run` needs its subcommand and flags in `GIT_RUN_ALLOWED` in `commands.rs`, or the backend refuses it.
+- `cfg(windows)` Rust code can't be compiled on this Linux machine. The windows-latest CI job is its first compile, so keep it simple and say in your report what wasn't built.

@@ -7,7 +7,7 @@ use portable_pty::{ChildKiller, CommandBuilder, MasterPty, PtySize, native_pty_s
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, State};
 
-use crate::commands::ShellProfile;
+use crate::commands::{check_profile, detect_shells, ShellProfile};
 
 /// One live PTY session — keeps the master handle (for resize) plus a writer
 /// (to forward keystrokes) and a kill handle. The child itself is owned by
@@ -62,7 +62,7 @@ fn next_session_id(reg: &PtyRegistry) -> String {
 /// On Windows, `portable-pty`'s ConPTY backend handles CREATE_NO_WINDOW
 /// semantics internally — the host process gets attached to the PTY pipe
 /// rather than a real console, so no console window flashes.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn pty_spawn(
     app: AppHandle,
     registry: State<'_, PtyRegistry>,
@@ -71,6 +71,9 @@ pub fn pty_spawn(
     cols: Option<u16>,
     rows: Option<u16>,
 ) -> Result<String, String> {
+    // Only the profiles list_shell_profiles and saved remotes produce: no
+    // arbitrary executable, no ssh host that ssh would read as an option.
+    check_profile(&profile, &detect_shells())?;
     let size = PtySize {
         rows: rows.unwrap_or(24),
         cols: cols.unwrap_or(80),

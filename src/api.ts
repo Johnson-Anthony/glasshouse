@@ -134,10 +134,6 @@ function mustInvoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> 
   return invoke<T>(cmd, args);
 }
 
-export function ping(): Promise<string> {
-  return safe(() => invoke<string>("ping"), "");
-}
-
 export function homeDir(): Promise<string | null> {
   return safe(() => invoke<string | null>("home_dir"), null);
 }
@@ -260,6 +256,8 @@ export interface GitBranch {
   upstream: string | null;
   ahead: number;
   behind: number;
+  /** Upstream is set but its ref is gone; ahead/behind are 0 but not "in sync". */
+  upstream_gone: boolean;
 }
 
 export function gitRun(cwd: string, args: string[]): Promise<GitRunResult> {
@@ -270,14 +268,6 @@ export function gitRun(cwd: string, args: string[]): Promise<GitRunResult> {
 export function gitBranchList(cwd: string): Promise<GitBranch[]> {
   if (!TAURI_AVAILABLE) return Promise.reject(new Error("tauri unavailable"));
   return invoke<GitBranch[]>("git_branch_list", { cwd });
-}
-
-/** [ahead, behind] vs the current branch's upstream, or null when there's
- *  nothing to compare (not a repo, detached HEAD, no upstream). Rejects with
- *  the error when git itself fails. */
-export function gitAheadBehind(cwd: string): Promise<[number, number] | null> {
-  if (!TAURI_AVAILABLE) return Promise.reject(new Error("tauri unavailable"));
-  return invoke<[number, number] | null>("git_ahead_behind", { cwd });
 }
 
 export function findInFiles(
@@ -337,10 +327,6 @@ export function trashDir(): Promise<string | null> {
 
 export function winToWsl(path: string): Promise<string> {
   return safe(() => invoke<string>("win_to_wsl", { path }), path);
-}
-
-export function wslToWin(path: string): Promise<string> {
-  return safe(() => invoke<string>("wsl_to_win", { path }), path);
 }
 
 export function writeText(path: string, content: string): Promise<void> {
@@ -472,10 +458,6 @@ export function openUrl(url: string): Promise<void> {
 
 export function spawnNewWindow(): Promise<void> {
   return safe(() => invoke<void>("spawn_new_window"), undefined);
-}
-
-export function setAlwaysOnTop(enabled: boolean): Promise<void> {
-  return safe(() => invoke<void>("set_always_on_top", { enabled }), undefined);
 }
 
 export interface ShellProfile {

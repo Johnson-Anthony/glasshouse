@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/windows-schema.json",
   "identifier": "default",
-  "description": "default capability set for glasshouse",
+  "description": "default capability set for glasshouse: the main window, local (bundled) content only; no remote origin gets IPC access",
   "windows": ["main"],
   "permissions": [
     "core:default",
@@ -17,6 +17,12 @@
     "fs:default",
     "opener:default",
     "os:default",
-    "shell:default"
+    "shell:default",
+    "files-read",
+    "files-write",
+    "git",
+    "settings",
+    "launch",
+    "exec"
   ]
 }

@@ -14,10 +14,11 @@ Snapshot from the 2026-11-08 survey. Line numbers will drift, so search by name.
 | `src/paths.ts`, `shellCd.ts`, `fuzzy.ts`, `platform.ts` | Pure helpers; these are what the vitest suite covers |
 | `src/Terminal.tsx`, `src/Miller.tsx` | xterm drawer, miller-column view |
 | `src/styles/themes.css`, `app.css` | 8 themes as CSS variables on `[data-theme]`; layout and component CSS |
-| `src-tauri/src/lib.rs` | Plugin setup, managed state, registration of all 71 commands |
+| `src-tauri/src/lib.rs` | Plugin setup, managed state, registration of every command (`generate_handler!`; `build.rs` checks it against `permissions/app.toml`) |
 | `src-tauri/src/commands.rs` (~3.1k lines) | Nearly all `#[tauri::command]`s, divided by `// ---------- … ----------` section headers; unit tests at the end |
 | `src-tauri/src/pty.rs`, `watcher.rs` | Terminal sessions (portable-pty) and directory watching (notify, 300 ms debounce) |
-| `src-tauri/capabilities/default.json` | Plugin permissions (fs, shell, dialog, os, opener) |
+| `src-tauri/capabilities/default.json` | What the main window may call: plugin permissions (fs, shell, dialog, os, opener) and the app permissions |
+| `src-tauri/permissions/app.toml` | App command permissions, grouped (files-read, files-write, git, settings, launch, exec). `build.rs` fails the build if a command in `generate_handler!` isn't in one |
 
 ## Frontend
 - **State:** there's no store or reducer. `App()` holds about 45 `useState` hooks, and display tweaks persist in `localStorage["glasshouse.tweaks"]`.
@@ -39,10 +40,10 @@ Snapshot from the 2026-11-08 survey. Line numbers will drift, so search by name.
 ## Backend
 - Commands return `Result<T, String>`. Some return `Option`, or a default value, on failure.
 - Events sent to the frontend: `fs-changed` (parent dir), `pty-data` `{session_id,data}`, `pty-exit` `{session_id,exit_code}`. Long operations send no progress events.
-- **Every command is synchronous** (no `async`), so Tauri runs them all on the main thread.
+- **Threading:** commands that do I/O are `#[tauri::command(async)]`, so they run on Tauri's tokio workers, in parallel and finishing in any order. Commands that rely on call order stay plain `#[tauri::command]` and run on the main thread, one at a time: config read/write (pins, tags, recents), `watch_dir`/`unwatch_dir`, `pty_write`/`pty_resize`/`pty_kill`, and a few instant ones. A new command that does I/O should be `(async)`. See `docs/decisions/2026-11-08-async-commands-threading.md`.
 - Platform splits: `cfg(windows)` covers Win32 drives, hidden attributes, WSL, shortcuts, signatures and `cmd /C` launching. `cfg(not(windows))` covers sysinfo drives, `xdg-open`, terminal discovery (`$TERMINAL`, kitty, alacritty, foot…) and the `/proc` parsers.
 - Config data (pins, tags, recents) is stored as JSON in the app config dir, with atomic writes.
-- Plugin permissions are narrow, but the custom commands have no permission manifest (`build.rs`), so the webview can call all of them.
+- Every command, app or plugin, is ACL-checked: only the `main` window's own (local) pages can call them. **Adding a command means adding it to `permissions/app.toml`**, or the build fails. Commands that start programs check their arguments (`check_profile`, `check_git_args`, `check_open_url`), and none puts user strings on a `cmd.exe` or PowerShell command line. See `docs/decisions/2026-11-08-command-security-design.md`.
 
 ## Project site (`docs/` on GitHub Pages)
 - `docs/index.html` with `docs/assets/site.css` and `site.js` is the landing page, hand-written with no build step. It uses the app's theme tokens (`docs/assets/themes.css`, copied from `src/styles/themes.css` by the site build), so the theme picker sets `data-theme` on `<html>`.

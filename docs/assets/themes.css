@@ -26,7 +26,6 @@
   --blue: #7aa2f7;
   --magenta: #bb9af7;
   --glow: 0 0 0 transparent;
-  --scanlines: 0;
 }
 
 [data-theme="tokyo-night"] {
@@ -196,7 +195,6 @@
   --blue: #55ddaa;
   --magenta: #aaffaa;
   --glow: 0 0 8px rgba(122, 255, 122, 0.25);
-  --scanlines: 1;
 }
 
 [data-theme="synthwave"] {

@@ -1,11 +1,18 @@
-// Mock filesystem data + menu definitions for glasshouse file manager
+// Menu, palette and context-menu definitions for glasshouse file manager
 
 import { IS_WINDOWS } from "./platform";
 
 export const TAURI_VERSION = "2";
 
+/** Theme ids, in "Switch Theme" order. Each is a `[data-theme]` block in
+ *  styles/themes.css. */
+export const THEMES = [
+  "tokyo-night", "catppuccin-mocha", "gruvbox-dark", "rose-pine",
+  "everforest", "solarized-dark", "green-crt", "synthwave",
+];
+
 export type FileKind = "folder" | "text" | "code" | "img" | "archive" | "exec";
-export type GitStatus = "M" | "A" | "D" | "U" | "?" | "!";
+export type GitStatus = "M" | "A" | "D" | "U" | "?";
 
 export interface FileRow {
   name: string;
@@ -16,50 +23,6 @@ export interface FileRow {
   git: GitStatus | null;
   hidden: boolean;
   ext: string;
-  dimmed?: boolean;
-}
-
-export interface SidebarPinned {
-  ic: string;
-  label: string;
-  path: string;
-  active?: boolean;
-  badge: string | null;
-}
-
-export interface SidebarTag {
-  color: string;
-  label: string;
-  count: number;
-}
-
-export interface SidebarDevice {
-  ic: string;
-  label: string;
-  meta: string;
-}
-
-export interface SidebarRemote {
-  ic: string;
-  label: string;
-  meta: string;
-}
-
-export interface SidebarData {
-  pinned: SidebarPinned[];
-  tags: SidebarTag[];
-  devices: SidebarDevice[];
-  remote: SidebarRemote[];
-}
-
-export interface TreeNode {
-  depth: number;
-  name: string;
-  ic: string;
-  open: boolean;
-  git: GitStatus | null;
-  active?: boolean;
-  dim?: boolean;
 }
 
 /** Runtime payload attached to dynamically-generated items so the menu
@@ -109,78 +72,6 @@ export interface PaletteItem {
   /** Same meaning as on MenuItemDef items. */
   mutates?: boolean;
 }
-
-export const FILES: FileRow[] = [
-  { name: ".git",         kind: "folder", size: "—",    date: "2026-04-18 09:12", tag: null,     git: null,        hidden: true,  ext: "" },
-  { name: ".vscode",      kind: "folder", size: "—",    date: "2026-04-20 14:02", tag: null,     git: null,        hidden: true,  ext: "" },
-  { name: "node_modules", kind: "folder", size: "342M", date: "2026-04-19 22:41", tag: null,     git: "?",         hidden: false, ext: "", dimmed: true },
-  { name: "src",          kind: "folder", size: "—",    date: "2026-04-22 10:18", tag: "project",git: "M",         hidden: false, ext: "" },
-  { name: "tests",        kind: "folder", size: "—",    date: "2026-04-21 16:03", tag: "project",git: null,        hidden: false, ext: "" },
-  { name: "public",       kind: "folder", size: "—",    date: "2026-04-15 11:22", tag: null,     git: null,        hidden: false, ext: "" },
-  { name: "docs",         kind: "folder", size: "—",    date: "2026-04-10 08:55", tag: "school", git: null,        hidden: false, ext: "" },
-  { name: ".env",         kind: "text",   size: "412 B",date: "2026-04-22 08:04", tag: "secret", git: "M",         hidden: true,  ext: "env" },
-  { name: ".gitignore",   kind: "text",   size: "1.2 K",date: "2026-04-01 13:14", tag: null,     git: null,        hidden: true,  ext: "" },
-  { name: "README.md",    kind: "text",   size: "4.8 K",date: "2026-04-22 09:30", tag: null,     git: "M",         hidden: false, ext: "md" },
-  { name: "package.json", kind: "code",   size: "2.1 K",date: "2026-04-20 18:47", tag: null,     git: "M",         hidden: false, ext: "json" },
-  { name: "tsconfig.json",kind: "code",   size: "892 B",date: "2026-04-08 12:00", tag: null,     git: null,        hidden: false, ext: "json" },
-  { name: "vite.config.ts",kind: "code",  size: "1.1 K",date: "2026-04-12 15:33", tag: null,     git: null,        hidden: false, ext: "ts" },
-  { name: "main.rs",      kind: "code",   size: "12.4K",date: "2026-04-22 10:15", tag: "project",git: "A",         hidden: false, ext: "rs" },
-  { name: "parser.py",    kind: "code",   size: "8.7 K",date: "2026-04-22 10:18", tag: "school", git: "M",         hidden: false, ext: "py" },
-  { name: "notes.md",     kind: "text",   size: "22.1K",date: "2026-04-21 23:08", tag: "school", git: null,        hidden: false, ext: "md" },
-  { name: "Screenshot_2026-04-22_10-14-03.png", kind: "img", size: "1.8 M", date: "2026-04-22 10:14", tag: "review", git: "?",         hidden: false, ext: "png" },
-  { name: "diagram.svg",  kind: "img",    size: "14.2K",date: "2026-04-20 11:09", tag: null,     git: null,        hidden: false, ext: "svg" },
-  { name: "archive_backup.tar.zst", kind: "archive", size: "128 M", date: "2026-04-15 03:22", tag: "archive", git: null, hidden: false, ext: "tar.zst" },
-  { name: "build.sh",     kind: "exec",   size: "2.4 K",date: "2026-04-18 17:45", tag: null,     git: null,        hidden: false, ext: "sh" },
-];
-
-export const SIDEBAR: SidebarData = {
-  pinned: [
-    { ic: "󰋜", label: "~", path: "/home/void", active: true, badge: null },
-    { ic: "", label: "projects", path: "/home/void/projects", badge: "12" },
-    { ic: "", label: "school", path: "/home/void/school", badge: "4" },
-    { ic: "", label: "downloads", path: "/home/void/Downloads", badge: "87" },
-    { ic: "", label: "screenshots", path: "/home/void/Pictures/screens", badge: "∞" },
-    { ic: "", label: "mnt/c/Users", path: "/mnt/c/Users", badge: "wsl" },
-  ],
-  tags: [
-    { color: "var(--magenta)", label: "project", count: 48 },
-    { color: "var(--green)",   label: "school",  count: 22 },
-    { color: "var(--red)",     label: "secret",  count: 3 },
-    { color: "var(--yellow)",  label: "review",  count: 9 },
-    { color: "var(--cyan)",    label: "archive", count: 14 },
-  ],
-  devices: [
-    { ic: "", label: "root  /", meta: "51% / 512G" },
-    { ic: "", label: "home  /home", meta: "38% / 1.8T" },
-    { ic: "", label: "wsl2  ext4", meta: "62% / 256G" },
-    { ic: "", label: "SanDisk 128G", meta: "USB-C · FAT32" },
-    { ic: "", label: "truenas.local", meta: "SMB · 12T" },
-  ],
-  remote: [
-    { ic: "", label: "origin · git", meta: "github" },
-    { ic: "", label: "void@server", meta: "ssh" },
-    { ic: "", label: "s3://backups", meta: "rclone" },
-  ],
-};
-
-export const TREE: TreeNode[] = [
-  { depth: 0, name: "home",     ic: "", open: true, git: null },
-  { depth: 1, name: "void",     ic: "", open: true, git: null, active: true },
-  { depth: 2, name: "projects", ic: "", open: true, git: null },
-  { depth: 3, name: "glasshouse", ic: "", open: true, git: "M" },
-  { depth: 4, name: ".git",     ic: "", open: false, git: null, dim: true },
-  { depth: 4, name: "src",      ic: "", open: false, git: "M" },
-  { depth: 4, name: "tests",    ic: "", open: false, git: null },
-  { depth: 3, name: "web-lab",  ic: "", open: false, git: null },
-  { depth: 3, name: "rust-cli", ic: "", open: false, git: "A" },
-  { depth: 2, name: "school",   ic: "", open: true, git: null },
-  { depth: 3, name: "cs3410",   ic: "", open: false, git: null },
-  { depth: 3, name: "math2930", ic: "", open: false, git: null },
-  { depth: 2, name: "Downloads",ic: "", open: false, git: null },
-  { depth: 2, name: "Pictures", ic: "", open: false, git: null },
-  { depth: 0, name: "mnt",      ic: "", open: false, git: null },
-  { depth: 0, name: "etc",      ic: "", open: false, git: null },
-];
 
 export const MENUS: MenusData = {
   File: [
@@ -272,6 +163,7 @@ export const MENUS: MenusData = {
         { kind: "item", label: "Tiles",                   kb: "Ctrl+4" },
         { kind: "item", label: "Grid (thumbs)",           kb: "Ctrl+5" },
         { kind: "item", label: "Tree Flat",               kb: "Ctrl+6" },
+        { kind: "item", label: "Miller Columns (ranger)", kb: "Ctrl+7" },
       ] },
     { kind: "sub",  ic: "", label: "Sort By",
       children: [
@@ -287,10 +179,8 @@ export const MENUS: MenusData = {
       ] },
     { kind: "sep" },
     { kind: "item", ic: "", label: "Show Hidden Files",   kb: "Ctrl+H" },
-    { kind: "item", ic: "", label: "Show Ignored (.gitignore)" },
     { kind: "item", ic: "", label: "Show File Extensions", check: true },
     { kind: "item", ic: "", label: "Show Git Gutters",    check: true },
-    { kind: "item", ic: "", label: "Show Checksums" },
     { kind: "sep" },
     { kind: "item", ic: "", label: "Sidebar",             kb: "Ctrl+B", check: true },
     { kind: "item", ic: "", label: "Inspector",           kb: "Ctrl+J", check: true },
@@ -348,7 +238,6 @@ export const MENUS: MenusData = {
       children: [
         { kind: "item", label: "Extract Here", mutates: true },
         { kind: "item", label: "Extract to Folder…", mutates: true },
-        { kind: "item", label: "Browse archive in place" },
       ] },
     { kind: "sep" },
     { kind: "item", ic: "", label: "Checksum (SHA256)" },

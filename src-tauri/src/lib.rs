@@ -12,7 +12,6 @@ pub fn run() {
         .manage(watcher::WatcherState::default())
         .manage(pty::PtyRegistry::default())
         .invoke_handler(tauri::generate_handler![
-            commands::ping,
             commands::home_dir,
             commands::list_dir,
             commands::drives,
@@ -35,7 +34,6 @@ pub fn run() {
             commands::git_discard,
             commands::git_run,
             commands::git_branch_list,
-            commands::git_ahead_behind,
             commands::find_in_files,
             commands::compress,
             commands::archive_create,
@@ -47,7 +45,6 @@ pub fn run() {
             commands::spawn_terminal,
             commands::spawn_vscode,
             commands::win_to_wsl,
-            commands::wsl_to_win,
             commands::read_pins,
             commands::write_pins,
             commands::read_tags,
@@ -65,7 +62,6 @@ pub fn run() {
             commands::run_script,
             commands::open_url,
             commands::spawn_new_window,
-            commands::set_always_on_top,
             commands::list_shell_profiles,
             commands::spawn_terminal_profile,
             commands::read_recent,
@@ -77,7 +73,6 @@ pub fn run() {
             commands::git_file_info,
             commands::path_fs_type,
             commands::net_rate,
-            commands::git_dirty_count,
             watcher::watch_dir,
             watcher::unwatch_dir,
             pty::pty_spawn,

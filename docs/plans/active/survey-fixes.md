@@ -10,7 +10,7 @@ Line numbers are from commit `14c68bd` and drift, so search by name. Items marke
 | symlink-safety | Rust | **merged** (60e4eef) |
 | paste-conflicts | frontend | **merged** (2b26099) |
 | create-rename-conflicts | frontend | **merged** (ebd1571) |
-| no-clobber-fs | Rust, small | queued (found by create-rename-conflicts) |
+| no-clobber-fs | Rust, small | running (backend-bugs session) |
 | link-display | both, low priority | queued (found by linux-parity) |
 | ui-fixes | frontend | **merged** (dfe77ca) |
 | tab-state | frontend | **merged** (971da66) |
@@ -19,9 +19,15 @@ Line numbers are from commit `14c68bd` and drift, so search by name. Items marke
 | platform-paths | frontend | **merged** (2d9fcaf) |
 | backend-bugs | Rust | **merged** (3ece93d) |
 | linux-parity | Rust + a little frontend | **merged** (8d2b0a2) |
-| command-security | Rust + config | running |
-| async-commands | Rust | running |
-| dead-code | both | running (frontend items first) |
+| command-security | Rust + config | **merged** (885bd2a) |
+| local-fonts | frontend, small | **merged** (ff0327c) |
+| font-licenses | assets, small | running (command-security session; found by local-fonts) |
+| script-kill-tree | Rust, small | queued (found by command-security) |
+| async-commands | Rust | **merged** (9c3eefe) |
+| pty-writer | Rust, small | queued; next free Rust slot (found by async-commands) |
+| op-progress | both | queued; after dead-code's Rust part and split-big-files (found by async-commands) |
+| dead-code | both | frontend part **merged** (d61379a); Rust part running |
+| unsent-labels | frontend | **merged** (8828d97) |
 | test-coverage | both | queued |
 | presentation | docs + small code | **merged**; GitHub text awaits the user |
 | pages-site | site (big project) | running (presentation session; added by the user) |
@@ -147,6 +153,28 @@ The frontend now checks names before creating or renaming, but a few millisecond
 - Consider making `list_dir`'s git status cheaper (cache it, or scope it to the directory). Progress events for long operations are optional: plan them, but don't build them unless they're small.
 - Check that the UI stays responsive, for example while hashing a large file.
 
+## local-fonts (frontend, small; found 2026-11-08 by command-security)
+- The font picker loads 3 fonts from Google Fonts, so the app makes a Google request at startup and the CSP has to allow those origins.
+- Bundle them (woff2 subsets, as pages-site did for the demo), or load them only when the picker selects one. Then drop the Google origins from the CSP in `tauri.conf.json`.
+
+## font-licenses (assets, small; found 2026-11-08 by local-fonts)
+- The bundled JetBrainsMono Nerd Font TTFs in `src/assets/fonts` (4 files, about 9 MB) have no license file in the repo. Add the license texts that apply: OFL for JetBrains Mono, plus the Nerd Fonts license and its glyph-set notices.
+- Consider shipping them as woff2: the same glyphs, much smaller. JetBrains Mono has no Reserved Font Name, so a format conversion is allowed. Record the choice.
+
+## script-kill-tree (Rust, small; found 2026-11-08 by command-security)
+- `run_script` kills a script after 60 s, but only the direct child. A script's own children keep running.
+- Kill the whole tree on timeout: a process group on Unix (`setsid`/`killpg`), a job object on Windows.
+
+## pty-writer (Rust, small; found 2026-11-08 by async-commands)
+- `pty_write` stays on the main thread so keystrokes arrive in order, but it can block there while a pty's input buffer is full. For example, pasting more than about 4 KB while a program that doesn't read stdin is running freezes the UI.
+- Fix: a writer thread per session in `pty.rs`, fed by a channel, so `pty_write` only enqueues. Keep the order, and drop the queue when the session exits.
+- Start after command-security merges, since it may change the pty command signatures.
+
+## op-progress (both; found 2026-11-08 by async-commands)
+- Long operations (hash, copy, find) send no progress and can't be cancelled.
+- Design is in `docs/plans/completed/async-commands.md`: an `op_id` per call, an `op-progress` event, and `cancel_op` setting an `AtomicBool`.
+- Start after dead-code's Rust part (shared hash helper) and split-big-files.
+
 ## dead-code (both; one removal per commit)
 - `scripts/audit-wiring.mjs` reads the deleted `design/project/src/*.jsx` (L26–27). Either rework it against `data.ts` and the handlers, which would still catch unhandled labels and "theater" handlers, or delete it. If you keep it, consider running it in CI.
 - About 20 handler cases never run because `App.tsx`'s own switches handle the same commands first. Examples:
@@ -168,6 +196,11 @@ The frontend now checks names before creating or renaming, but a few millisecond
 - The hash read loop is copied three times (`hash_sha256`, `hash_md5`, `hash_crc32`). Merge it into one helper.
 - **Toggles that do nothing:** "Show Ignored" and "Show Checksums" only flip their checkmarks, and "Browse archive in place" just opens the default app. Implement them, or remove or relabel them. Record the decision.
 - Also fix the stale `rust-version` in `Cargo.toml` (the locked dependencies need 1.88 or newer).
+
+## unsent-labels (frontend; found 2026-11-08 by dead-code)
+- `pnpm check:wiring --all` lists 77 labels that App.tsx or a handler handles but nothing sends: aliases such as "Prev Tab", "Reload" and "Settings", and no-op cases for submenu parents such as "New →" and "Template →".
+- Delete the cases that are dead. Keep a case only if something can still send it (a keybinding, a payload path the audit can't see, a label built at runtime), and say why in a comment or the decision record.
+- This edits App.tsx's switches, so keep each change line-local.
 
 ## test-coverage (both)
 - **Frontend:** only `fuzzy`, `paths` (without `basename`) and `shellCd` are tested. Add tests for:
@@ -198,6 +231,7 @@ Turn the GitHub Pages site (`docs/index.html`) into an interactive showcase that
   - the terminal drawer, tabs, git sidebar, Quick Look and the paste-conflict dialog shown in motion.
 - **Constraints:**
   - Pages serves `main:/docs` with the legacy Jekyll build, and `docs/_config.yml` keeps SPEC/ARCHITECTURE/plans/decisions off the site; keep that working.
+  - `docs/.nojekyll` was removed on `main` so the Jekyll build runs and applies those excludes. Don't add it back, and don't start any site file or folder name with `_`, because Jekyll skips those.
   - It must be a static site. If it needs a build step, either commit the built output under `docs/` or *propose* moving Pages to a GitHub Actions deployment. That's a repo setting, so propose it to the lead rather than making it.
   - It must work on phones, respect `prefers-reduced-motion`, and keep page weight sensible (lazy-load media).
 - The site goes live only when the lead pushes `main` with the user's OK.
