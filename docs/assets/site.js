@@ -228,6 +228,12 @@
   window.addEventListener("message", function (ev) {
     if (ev.origin !== location.origin || !iframe || ev.source !== iframe.contentWindow) return;
     var msg = ev.data || {};
+    if (msg.type === "glasshouse-demo" && msg.leave) {
+      if (document.fullscreenElement) document.exitFullscreen();
+      var next = fsBtn && !fsBtn.hidden ? fsBtn : document.querySelector(".demo-scenes button");
+      if (next) next.focus();
+      return;
+    }
     if (msg.type === "glasshouse-demo" && msg.themeChanged && msg.themeChanged !== currentTheme() &&
         chips.some(function (c) { return c.getAttribute("data-choice") === msg.themeChanged; })) {
       applyTheme(msg.themeChanged, true);

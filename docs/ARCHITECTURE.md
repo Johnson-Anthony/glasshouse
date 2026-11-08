@@ -43,3 +43,10 @@ Snapshot from the 2026-11-08 survey. Line numbers will drift, so search by name.
 - Platform splits: `cfg(windows)` covers Win32 drives, hidden attributes, WSL, shortcuts, signatures and `cmd /C` launching. `cfg(not(windows))` covers sysinfo drives, `xdg-open`, terminal discovery (`$TERMINAL`, kitty, alacritty, foot…) and the `/proc` parsers.
 - Config data (pins, tags, recents) is stored as JSON in the app config dir, with atomic writes.
 - Plugin permissions are narrow, but the custom commands have no permission manifest (`build.rs`), so the webview can call all of them.
+
+## Project site (`docs/` on GitHub Pages)
+- `docs/index.html` with `docs/assets/site.css` and `site.js` is the landing page, hand-written with no build step. It uses the app's theme tokens (`docs/assets/themes.css`, copied from `src/styles/themes.css` by the site build), so the theme picker sets `data-theme` on `<html>`.
+- `site/demo/` is a browser demo of the real UI: `main.tsx` installs `@tauri-apps/api/mocks` before importing `App`. `mock/` holds an in-memory filesystem, a pretend git repo and shell, and one handler per Tauri command. `scenes.ts` holds the scripted walkthroughs. `pnpm site:build` (`vite.site.config.ts`) builds it into `docs/demo/`, which is committed.
+- `site/capture/capture.mjs` serves `docs/` like Pages and drives headless Chromium over the DevTools protocol. It records the hero images and tour clips into `docs/media/` (needs chromium and ffmpeg), takes review shots (`page`) and runs behavior checks (`check`).
+- Pages runs Jekyll (there's no `.nojekyll`), and `docs/_config.yml` keeps the working docs off the site. Built asset names never start with `_` or `.`.
+- After UI changes, run `pnpm site:build`, then `pnpm site:capture` to refresh the images and clips, then `pnpm site:capture check`.

@@ -22,7 +22,7 @@ export default defineConfig({
   },
   // Only this checkout's tests: task worktrees live under .claude/worktrees/.
   test: {
-    include: ["src/**/*.test.{ts,tsx}"],
+    include: ["src/**/*.test.{ts,tsx}", "site/**/*.test.{ts,tsx}"],
   },
   envPrefix: ["VITE_", "TAURI_ENV_*"],
   build: {

@@ -10,7 +10,7 @@
 //                                review (desktop and phone), saved to <dir>
 //   pnpm site:capture check      behavior checks of the landing page
 import { spawn, execFileSync } from "node:child_process";
-import { createReadStream, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { createReadStream, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { extname, join, normalize, resolve } from "node:path";
@@ -258,6 +258,15 @@ async function checkPage(cdp, base) {
   }
   const walk = await js(`(() => { const d = document.querySelector(".demo-frame iframe").contentDocument; return { xterm: !!d.querySelector(".xterm"), text: (d.querySelector(".xterm-rows")?.textContent ?? "").slice(0, 300), tab: d.querySelector(".tab.active")?.textContent ?? "" }; })()`);
   ok("walkthrough runs in the live demo", walk.xterm && walk.text.includes("git log"), JSON.stringify(walk));
+  // Esc twice inside the demo hands keyboard focus back to the page.
+  await js(`document.querySelector(".demo-frame iframe").focus(), document.querySelector(".demo-frame iframe").contentDocument.querySelector(".pane")?.focus(), true`);
+  for (let i = 0; i < 2; i++) {
+    await cdp.send("Input.dispatchKeyEvent", { type: "keyDown", key: "Escape", code: "Escape", windowsVirtualKeyCode: 27 });
+    await cdp.send("Input.dispatchKeyEvent", { type: "keyUp", key: "Escape", code: "Escape", windowsVirtualKeyCode: 27 });
+    await sleep(120);
+  }
+  await sleep(300);
+  ok("Esc twice leaves the demo", await js(`document.activeElement && document.activeElement.id === "demo-fullscreen"`));
   await js(`document.querySelector('[data-choice="green-crt"]').click(), true`);
   await sleep(300);
   ok("theme chip recolors the running demo", await js(`document.querySelector(".demo-frame iframe").contentDocument.documentElement.dataset.theme === "green-crt"`));
@@ -278,6 +287,28 @@ async function checkPage(cdp, base) {
   ok("phone: live demo frame hidden, link shown", await js(`getComputedStyle(document.querySelector(".demo-frame")).display === "none" && getComputedStyle(document.querySelector(".demo-small")).display !== "none"`));
 
   ok("no console errors", errors.length === 0, errors.slice(0, 5).join(" | "));
+
+  // Jekyll (GitHub Pages) skips names starting with these, outside _config.yml.
+  const skipped = [];
+  const scan = dir => {
+    for (const name of readdirSync(dir)) {
+      const full = join(dir, name);
+      if (full === join(DOCS, "_config.yml")) continue;
+      if (/^[_.#~]/.test(name)) skipped.push(full.slice(DOCS.length + 1));
+      if (statSync(full).isDirectory()) scan(full);
+    }
+  };
+  for (const d of ["index.html", "favicon.png", "assets", "media", "demo"]) {
+    const full = join(DOCS, d);
+    if (statSync(full).isDirectory()) scan(full);
+  }
+  ok("no site file names Jekyll would skip", skipped.length === 0, skipped.join(", "));
+
+  // Page weight: what a first visit downloads before the visitor does anything.
+  const size = f => statSync(join(DOCS, f)).size;
+  const first = ["index.html", "assets/site.css", "assets/site.js", "assets/themes.css", "media/hero-tokyo-night.webp", "favicon.png"];
+  const kb = Math.round(first.reduce((n, f) => n + size(f), 0) / 1024);
+  ok("first view under 200 KB", kb < 200, `${kb} KB uncompressed`);
   for (const r of results) console.log(`${r.pass ? "PASS" : "FAIL"}  ${r.name}${r.detail ? `  (${r.detail})` : ""}`);
   if (results.some(r => !r.pass)) process.exitCode = 1;
 }

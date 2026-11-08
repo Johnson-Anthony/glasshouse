@@ -3,10 +3,15 @@
 Turn the GitHub Pages site (`docs/index.html`) into an interactive showcase that sells the app with its visuals. Backlog entry: `## pages-site` in `survey-fixes.md` (main commit 62013c8).
 
 ## Status
+**Done** (2026-11-08). All six milestones are complete. `pnpm build`, `pnpm test` (171 tests, including 21 for the demo's mock) and `pnpm site:build` pass, and `pnpm site:capture check` passes 18 behavior checks in headless Chromium: tour playback, theme sync both ways, the live demo and walkthroughs, Esc twice out of the demo, reduced motion, phones at 320/375/414 px, no console errors, Jekyll-safe names, and a first view of 143 KB.
+
 - **M1 done** (2026-11-08): demo of the real UI over a mocked backend (`site/demo/`), built to `docs/demo/` by `pnpm site:build`; woff2 font subsets; pdf.js stubbed; `.nojekyll` removed. It works from a static server under `/glasshouse/`.
 - **M2 done** (2026-11-08): new landing page (`docs/assets/site.css`, `site.js`, `themes.css`), hero images captured from the demo in all 8 themes (`pnpm site:capture`), the theme picker recolors the page, the hero and the running demo, and the live demo loads on click. Screenshots went to the lead.
 - Also done early: the pretend shell (part of M3) and the scene runner, with a visible pretend cursor; one scene (`hero`).
-- **Next:** M3, the six tour scenes.
+- **M3 done:** six scenes (terminal, tabs, git, Quick Look, paste conflicts, command palette).
+- **M4 done:** clips recorded from the scenes (WebM and MP4, 200–630 KB each) with posters; one hero image per theme.
+- **M5 done:** "see it work" player (tabs, lazy clips, plays on screen, advances, pause, reduced motion) and walkthrough links that run scenes in the live demo; phone layout.
+- **M6 done:** demo mock tests in vitest (`site/**/*.test.ts`), Esc twice to leave the demo (the app keeps Tab and F6 for its panes), a `<noscript>` note, behavior checks, README/ARCHITECTURE/CLAUDE.md notes.
 
 ## Audience
 - **Windows power users** who find File Explorer limiting: they want tabs, a terminal in the file manager, archives and git status. This is the primary audience, because the app is Windows-first.
@@ -76,9 +81,16 @@ See `docs/decisions/2026-11-08-pages-site-architecture.md`.
 
 ## For review
 - **Sample photos:** the user rejected generated images, so the demo's pictures are 8 real public-domain or CC0 photos from Wikimedia Commons (credits in `site/demo/public/files/CREDITS.txt`). The "screenshots" folder holds the app's old screenshot, and the demo website's logo is the app icon.
-- **Substring check:** the bundled xterm.js keeps its copyright notice, which names Fabrice Bellard, so a plain `git grep -i` for the old nickname matches `docs/demo/assets/index-*.{js,css}`. The presentation task's word-boundary check doesn't match it. It's third-party license text, like the font glyph names, so I left it in.
+- **Substring check:** the bundled xterm.js keeps its MIT copyright notice, and one of the names in it (the author of jslinux) contains the old nickname as a substring. So a plain `git grep -i` for it matches `docs/demo/assets/index-*.{js,css}`. The presentation task's word-boundary check doesn't. The MIT license requires keeping the notice in copies, so it stays; treat `docs/demo/assets` like the font files.
 - **Phones:** the live demo is replaced by a note and an "open it anyway" link below 760 px. The hero image and the tour (M5) carry the visuals there.
 - **Favicon:** the app icon (`docs/favicon.png`); the site had none before.
+- **Clips are in tokyo night only.** The hero image follows the theme picker (one capture per theme), but the six clips don't. Recording them in all 8 themes would add about 20 MB to the repo.
+- **Phones:** clips play, but the UI in them is small at phone width. Possible follow-up: cropped close-up clips for phones.
+- **Keyboard:** inside the live demo, Tab and F6 belong to the app, so pressing Esc twice returns focus to the page. The hint under the demo says so.
+- **`docs/screenshot.png`** is no longer used by the README or the site (the README now shows `docs/media/hero-tokyo-night.png`). I kept it so old external links don't break; it can be deleted.
+- **CLAUDE.md:** one line added under Commands for the site scripts.
+- **Repo weight:** about 8 MB of built demo and media under `docs/`. Re-recording replaces files; unchanged hashes keep their names.
+- **No GitHub setting changes are needed:** Pages keeps serving `main:/docs` with the legacy build. The site goes live when `main` is pushed.
 
 ## Checks
 - `pnpm build`, `pnpm test`, `pnpm site:build`.

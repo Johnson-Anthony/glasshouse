@@ -32,6 +32,19 @@ window.addEventListener("message", (ev: MessageEvent) => {
   }
 });
 
+// The app uses Tab and F6 to move between its own panes, so keyboard focus
+// can't Tab out of the embedded demo: Esc twice hands focus back to the page.
+let lastEscape = 0;
+window.addEventListener("keydown", e => {
+  if (e.key !== "Escape" || !e.isTrusted || window.parent === window) return;
+  if (e.timeStamp - lastEscape < 600) {
+    lastEscape = 0;
+    window.parent.postMessage({ type: "glasshouse-demo", leave: true }, location.origin);
+  } else {
+    lastEscape = e.timeStamp;
+  }
+}, true);
+
 // Tell the page when the app's theme changes (the palette, the tweaks
 // panel), so the site follows the demo as well as the other way round.
 if (window.parent !== window) {
