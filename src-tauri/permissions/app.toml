@@ -1,0 +1,121 @@
+# Permissions for the app's own commands (the ones in `generate_handler!` in
+# src/lib.rs). Because this file exists, Tauri checks every app command
+# against the capabilities, so a command no permission allows is rejected.
+# build.rs fails the build if a registered command is missing here.
+#
+# Grouped by what a command can do, so the dangerous groups are easy to see.
+# capabilities/default.json grants them all to the main window, local
+# origin only. See docs/decisions/2026-11-08-command-security-design.md.
+
+[[permission]]
+identifier = "files-read"
+description = "Read files, folders and system info; hash, diff and search files; watch folders."
+commands.allow = [
+  "ping",
+  "home_dir",
+  "list_dir",
+  "drives",
+  "list_wsl_distros",
+  "system_info",
+  "read_text",
+  "read_image_b64",
+  "read_hex_dump",
+  "diff_files",
+  "find_in_files",
+  "find_file_by_name",
+  "hash_sha256",
+  "hash_md5",
+  "hash_crc32",
+  "file_stat_extended",
+  "path_fs_type",
+  "net_rate",
+  "win_to_wsl",
+  "wsl_to_win",
+  "archive_can_handle",
+  "list_shell_profiles",
+  "verify_signature",
+  "watch_dir",
+  "unwatch_dir",
+]
+
+[[permission]]
+identifier = "files-write"
+description = "Create, change, move and delete files and folders, including archives, links and permissions."
+commands.allow = [
+  "make_dir",
+  "rename_entry",
+  "copy_entry",
+  "move_entry",
+  "delete_entry",
+  "move_to_trash",
+  "write_text",
+  "compress",
+  "archive_create",
+  "archive_extract",
+  "set_permissions",
+  "create_symlink",
+  "create_hard_link",
+  "create_shortcut",
+  "shred",
+  "change_owner",
+]
+
+[[permission]]
+identifier = "git"
+description = "Read repository state and run the git operations the git menu offers (git_run checks its arguments)."
+commands.allow = [
+  "git_status",
+  "git_blame",
+  "git_stage",
+  "git_unstage",
+  "git_discard",
+  "git_run",
+  "git_branch_list",
+  "git_ahead_behind",
+  "git_file_info",
+  "git_dirty_count",
+]
+
+[[permission]]
+identifier = "settings"
+description = "Read and write the app's own pins, tags and recent folders."
+commands.allow = [
+  "read_pins",
+  "write_pins",
+  "read_tags",
+  "write_tags",
+  "read_recent",
+  "append_recent",
+  "clear_recent",
+]
+
+[[permission]]
+identifier = "launch"
+description = "Hand a file, folder or URL to another program: the default app, the system file manager, a terminal window, VS Code, the browser, a new glasshouse window."
+commands.allow = [
+  "open_with_default",
+  "reveal_in_explorer",
+  "spawn_terminal",
+  "spawn_vscode",
+  "open_url",
+  "spawn_new_window",
+  "spawn_terminal_profile",
+]
+
+[[permission]]
+identifier = "exec"
+description = "Run programs: user scripts and the built-in terminal. Equivalent to full access to the user's account."
+commands.allow = [
+  "run_script",
+  "pty_spawn",
+  "pty_write",
+  "pty_resize",
+  "pty_kill",
+]
+
+[[permission]]
+identifier = "window"
+description = "Change the calling window's own state."
+commands.allow = [
+  "set_always_on_top",
+]
