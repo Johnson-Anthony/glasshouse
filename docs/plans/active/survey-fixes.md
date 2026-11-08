@@ -24,6 +24,7 @@ Line numbers are from commit `14c68bd` and drift, so search by name. Items marke
 | dead-code | both | running (frontend items first) |
 | test-coverage | both | queued |
 | presentation | docs + small code | **merged**; GitHub text awaits the user |
+| pages-site | site (big project) | running (presentation session; added by the user) |
 | split-big-files | both | **wait until all the others are merged** |
 
 Merge order is the table order: small, contained fixes go first, and broad changes go last, so the broad ones absorb the conflicts.
@@ -187,6 +188,19 @@ The public copy is rewritten in a plain voice: README, the Pages site (same desi
 - **Check:** `git grep -i 'r[i]ce' -- ':!src/assets/fonts'` must find nothing. The bundled Nerd Font files match only inside third-party glyph-name data.
 - **Done 2026-11-08:** the GitHub description and topics are applied, and the README and site text are published as `4b8043a`. The code-side renames reach GitHub with the full push at the end of the pass.
 - **The user decides separately:** git history and the unmerged `origin/feature` branch.
+
+## pages-site (big project; added by the user 2026-11-08)
+Turn the GitHub Pages site (`docs/index.html`) into an interactive showcase that **sells the app with its visuals**. The user is happy with the current wording and voice: keep it, extend it only where new sections need text, and never use the old nickname.
+- **Plan first.** This is a project in itself: spec it in `docs/plans/active/pages-site.md` (audience, sections, interactions, visual direction, assets, tech approach, milestones), then build it milestone by milestone. At the first visible milestone, send the lead screenshots so the user can steer.
+- **Ideas (optional):**
+  - an interactive demo built from the app's real React UI with a mocked backend (the Vite dev server already supports `?mockRows=N`);
+  - a live switcher across the app's 8 themes;
+  - the terminal drawer, tabs, git sidebar, Quick Look and the paste-conflict dialog shown in motion.
+- **Constraints:**
+  - Pages serves `main:/docs` with the legacy Jekyll build, and `docs/_config.yml` keeps SPEC/ARCHITECTURE/plans/decisions off the site; keep that working.
+  - It must be a static site. If it needs a build step, either commit the built output under `docs/` or *propose* moving Pages to a GitHub Actions deployment. That's a repo setting, so propose it to the lead rather than making it.
+  - It must work on phones, respect `prefers-reduced-motion`, and keep page weight sensible (lazy-load media).
+- The site goes live only when the lead pushes `main` with the user's OK.
 
 ## split-big-files (both: only after every other task is merged)
 - **`components.tsx`:** dialogs (~L3472–6105) into `src/dialogs/`, previews (~L2182–3096) into `src/preview/`, the Sidebar (~L710–1503) into its own file, and the menus into `menus.tsx`.
