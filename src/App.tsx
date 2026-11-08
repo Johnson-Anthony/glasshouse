@@ -937,8 +937,7 @@ export function App() {
             void dialogs.showToast({ message: `connecting to ${r.label}…`, variant: "info" });
             return;
           }
-          case "Edit…":
-          case "Edit": {
+          case "Edit…": {
             contextTarget = null;
             setManageRemotesOpen(true);
             return;
@@ -960,7 +959,6 @@ export function App() {
             })();
             return;
           }
-          case "Manage Remotes":
           case "Manage Remotes…":
             contextTarget = null;
             setManageRemotesOpen(true);
@@ -1039,9 +1037,7 @@ export function App() {
             })();
             return;
           }
-          case "Move to…":
-          case "Move to":
-          case "Move To…": {
+          case "Move to…": {
             contextTarget = null;
             void (async () => {
               const home = await homeDir();
@@ -1108,9 +1104,6 @@ export function App() {
             return;
           }
           case "Add Tag…":
-          case "Add Tag":
-          case "Tag":
-          case "Tag →":
             contextTarget = null;
             setTagPickerPath(target);
             return;
