@@ -13,7 +13,7 @@ Line numbers are from commit `14c68bd` and drift, so search by name. Items marke
 | ui-fixes | frontend | **merged** (dfe77ca) |
 | tab-state | frontend | **merged** (971da66) |
 | undo-redo | frontend | **merged** (e1b7067) |
-| copy-undo-guard | frontend | queued, low priority (found by undo-redo) |
+| copy-undo-guard | frontend | running, low priority (found by undo-redo; tab-state session) |
 | platform-paths | frontend | **merged** (2d9fcaf) |
 | backend-bugs | Rust | **merged** (3ece93d) |
 | linux-parity | Rust + a little frontend | running |
