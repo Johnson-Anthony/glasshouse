@@ -1,29 +1,33 @@
 /* glasshouse file manager — layout & components */
 
+/* Bundled fonts: sources and licenses are in src/assets/fonts/LICENSES.md.
+   The default, JetBrainsMono Nerd Font, is Nerd Fonts v3.2.1, converted
+   losslessly to woff2 (docs/decisions/2026-11-08-font-licenses-nerd-font.md). */
+
 @font-face {
   font-family: "JetBrainsMono Nerd Font";
-  src: url("../assets/fonts/JetBrainsMonoNerdFont-Regular.ttf") format("truetype");
+  src: url("../assets/fonts/JetBrainsMonoNerdFont-Regular.woff2") format("woff2");
   font-weight: 400;
   font-style: normal;
   font-display: block;
 }
 @font-face {
   font-family: "JetBrainsMono Nerd Font";
-  src: url("../assets/fonts/JetBrainsMonoNerdFont-Bold.ttf") format("truetype");
+  src: url("../assets/fonts/JetBrainsMonoNerdFont-Bold.woff2") format("woff2");
   font-weight: 700;
   font-style: normal;
   font-display: block;
 }
 @font-face {
   font-family: "JetBrainsMono Nerd Font";
-  src: url("../assets/fonts/JetBrainsMonoNerdFont-Italic.ttf") format("truetype");
+  src: url("../assets/fonts/JetBrainsMonoNerdFont-Italic.woff2") format("woff2");
   font-weight: 400;
   font-style: italic;
   font-display: block;
 }
 @font-face {
   font-family: "JetBrainsMono Nerd Font";
-  src: url("../assets/fonts/JetBrainsMonoNerdFont-BoldItalic.ttf") format("truetype");
+  src: url("../assets/fonts/JetBrainsMonoNerdFont-BoldItalic.woff2") format("woff2");
   font-weight: 700;
   font-style: italic;
   font-display: block;

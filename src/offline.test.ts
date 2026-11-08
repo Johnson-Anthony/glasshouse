@@ -47,3 +47,29 @@ describe("no third-party requests", () => {
     expect(weights("Fira Code")).toEqual([400, 500]);
   });
 });
+
+describe("bundled fonts are licensed", () => {
+  // src/assets/fonts/LICENSES.md is the index: each font file's source and
+  // the license texts that cover it.
+  const dir = new URL("./assets/fonts/", import.meta.url);
+  const index = readFileSync(new URL("LICENSES.md", dir), "utf8");
+  const files = (readdirSync(dir, { recursive: true }) as string[]).map((f) => f.replace(/\\/g, "/"));
+  const links = [...index.matchAll(/\]\(([^)]+)\)/g)]
+    .map((m) => m[1])
+    .filter((l) => !/^https?:/.test(l));
+
+  it("every font file is listed in LICENSES.md", () => {
+    const fonts = files.filter((f) => /\.(ttf|otf|woff2?)$/i.test(f));
+    expect(fonts.length).toBeGreaterThan(0);
+    for (const f of fonts) expect(index, f).toContain("`" + f + "`");
+  });
+
+  it("every license file LICENSES.md links to exists, and none is left out", () => {
+    for (const l of links) expect(existsSync(new URL(l, dir)), l).toBe(true);
+    const texts = files.filter(
+      (f) => f !== "LICENSES.md" && !/\.(ttf|otf|woff2?)$/i.test(f) && /\.(txt|md)$|LICEN[CS]E/i.test(f),
+    );
+    expect(texts.length).toBeGreaterThan(10);
+    for (const t of texts) expect(links, t).toContain(t);
+  });
+});
