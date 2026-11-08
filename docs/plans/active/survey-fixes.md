@@ -9,16 +9,18 @@ Line numbers are from commit `14c68bd` and drift, so search by name. Items marke
 |---|---|---|
 | symlink-safety | Rust | **merged** (60e4eef) |
 | paste-conflicts | frontend | **merged** (2b26099) |
-| create-rename-conflicts | frontend | running (found by paste-conflicts; same session) |
+| create-rename-conflicts | frontend | **merged** (ebd1571) |
+| no-clobber-fs | Rust, small | queued (found by create-rename-conflicts) |
+| link-display | both, low priority | queued (found by linux-parity) |
 | ui-fixes | frontend | **merged** (dfe77ca) |
 | tab-state | frontend | **merged** (971da66) |
 | undo-redo | frontend | **merged** (e1b7067) |
 | copy-undo-guard | frontend | **merged** (58daee0) |
 | platform-paths | frontend | **merged** (2d9fcaf) |
 | backend-bugs | Rust | **merged** (3ece93d) |
-| linux-parity | Rust + a little frontend | running |
+| linux-parity | Rust + a little frontend | **merged** (8d2b0a2) |
 | command-security | Rust + config | running |
-| async-commands | Rust | queued |
+| async-commands | Rust | running |
 | dead-code | both | running (frontend items first) |
 | test-coverage | both | queued |
 | presentation | docs + small code | **merged**; GitHub text awaits the user |
@@ -58,6 +60,17 @@ Merge order is the table order: small, contained fixes go first, and broad chang
 - **Rename** (selection, context target and BulkRenameDialog) calls `rename_entry` = `fs::rename`, which replaces an existing file at the destination.
 - **Fix:** check the name against the target folder first, reusing `transfer.ts`'s `pickFreeName` and the `readDir` listing; compare case-insensitively on Windows. Then refuse, or suggest a free name. Undo must never delete something that existed before the operation.
 - **Coordinate with undo-redo,** which is changing `UndoEntry` and the `pushUndo` sites in `App.tsx`. Keep your edits to the checks before each operation, and `git merge main` before finishing.
+
+## no-clobber-fs (Rust, small; found 2026-11-08 by create-rename-conflicts)
+The frontend now checks names before creating or renaming, but a few milliseconds still pass between its last listing and the write. Close that gap in the backend so the frontend only has to show the error:
+- `write_text` for new files: `File::create_new` instead of `fs::write`. Keep a separate overwrite path for real saves.
+- `make_dir`: `create_dir` instead of `create_dir_all` for New Folder.
+- `rename_entry`: `renameat2(RENAME_NOREPLACE)` on Linux, `MoveFileExW` without `MOVEFILE_REPLACE_EXISTING` on Windows, with a fallback where unsupported.
+- Add tests that each one refuses an existing target.
+
+## link-display (both, low priority; found 2026-11-08 by linux-parity)
+- The file list has no visual link marker; only the Inspector shows "symlink: yes". Add a small marker, styled to fit the themes.
+- `list_dir`'s git-status lookup canonicalizes each entry path, so a symlink row probably gets its target's git status instead of the link's own. Confirm, then fix.
 
 ## copy-undo-guard (frontend, low priority; found 2026-11-08 by undo-redo)
 - Undoing a copy still deletes the copies recursively, even if they were edited after the copy. Guard it the way `createUndo` guards new files: refuse when contents changed since the copy, which needs size, mtime or content hashes recorded at copy time. Builders are in `src/undoActions.ts`.

@@ -1,6 +1,13 @@
 # Progress
 
 ## Done
+- 2026-11-08: Merged `linux-parity`:
+  - symlinked folders list and sort as folders;
+  - Reveal selects the item via FileManager1 D-Bus;
+  - HOME is used on unix, and drive labels come from /dev/disk/by-label;
+  - codium/7zz/7za are found, and $SHELL is the first profile;
+  - `trash_dir` for Go to Trash.
+  Merged `create-rename-conflicts`: New File/Folder/Note/Script/Template and Rename (single and bulk) refuse taken names inline, and Bulk Rename runs in a safe order with rollback.
 - 2026-11-08: Merged `copy-undo-guard`. Undoing a copy fingerprints the copies (size+mtime, plus the entry list for folders) and refuses the whole step if anything changed, went missing, or the tree has more than 20,000 entries.
 - 2026-11-08: **Published** the plain-language README, Pages site text and descriptions as `4b8043a` on GitHub `main` (text-only commit on top of the old `origin/main`), and set the new repo description and topics. Everything else is still local; until the full push, the old nickname remains on GitHub in a few code files (`App.tsx`, `components.tsx`, `data.ts`, `handlers/misc.ts`).
 - 2026-11-08: Merged `undo-redo`. UndoEntry has a required `redo`, built by `src/undoActions.ts`. Undo and redo steps check that target paths are free, undoing New Folder deletes non-recursively, undoing a new file refuses if it changed, and steps run one at a time. Closing the last tab opens Home, and private tabs keep their label. **Needs one manual pass in the real app:** rename, then Ctrl+Z, then Ctrl+Y.
@@ -21,7 +28,7 @@
 5. Tag a v0.2.0 release once the pass is merged and CI is green.
 
 ## Broken / known issues
-- **Data loss:** New Folder on an existing folder followed by Undo recursively deletes the pre-existing folder. New File / Note / Script on an existing name empties that file, and Rename onto an existing name replaces it (task `create-rename-conflicts`).
+- A few-ms race remains between the frontend's name check and the backend write, because `write_text`, `make_dir` and `rename_entry` still overwrite (task `no-clobber-fs`).
 - All Rust commands are synchronous and run on the main thread, so heavy operations freeze the UI (task `async-commands`).
 - Custom commands have no permission gating, and devtools are enabled in release builds (task `command-security`).
 - `scripts/audit-wiring.mjs` can't run: it reads the deleted `design/` folder (task `dead-code`).
