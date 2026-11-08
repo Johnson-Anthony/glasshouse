@@ -22,7 +22,8 @@ Line numbers are from commit `14c68bd` and drift, so search by name. Items marke
 | command-security | Rust + config | **merged** (885bd2a) |
 | local-fonts | frontend, small | **merged** (ff0327c) |
 | font-licenses | assets, small | **merged** (19e7dd0) |
-| notices-screen | frontend, small | running (backend-bugs session) |
+| notices-screen | frontend, small | **merged** (c595720) |
+| dependency-notices | both, small | queued; needs a Rust slot for `cargo install cargo-about` (found by notices-screen) |
 | script-kill-tree | Rust, small | **merged** (1fd8435) |
 | async-commands | Rust | **merged** (9c3eefe) |
 | pty-writer | Rust, small | **merged** (16293b0) |
@@ -166,6 +167,12 @@ The frontend now checks names before creating or renaming, but a few millisecond
 ## notices-screen (frontend, small; found 2026-11-08 by font-licenses)
 - The installed app has no third-party notices screen. The font licenses live in `src/assets/fonts` (indexed by `LICENSES.md`), and the npm and crate licenses aren't listed anywhere.
 - Add an About → Third-party notices view that shows the bundled font licenses. Consider generating the npm and Rust dependency license lists at build time.
+
+## dependency-notices (both, small; found 2026-11-08 by notices-screen)
+- Help → Third-party Notices shows only the bundled font licenses. Add the npm and Rust dependency licenses as two more groups. The view needs no other change. See `docs/decisions/2026-11-08-notices-screen-dependency-licenses.md`.
+- npm: `pnpm licenses list --prod --json` (17 prod packages, all MIT or Apache-2.0).
+- Rust: cargo-about with an `about.toml`, filtered to the target being built (632 crates in Cargo.lock). Installing it is a heavy build, so it counts as a Rust slot.
+- Generate the data at release time (a script plus CI), one JSON file per platform. Decide whether the generated files are committed.
 
 ## script-kill-tree (Rust, small; found 2026-11-08 by command-security)
 - `run_script` kills a script after 60 s, but only the direct child. A script's own children keep running.

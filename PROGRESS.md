@@ -1,6 +1,7 @@
 # Progress
 
 ## Done
+- 2026-11-08: Merged `notices-screen` (c595720). Help → Third-party Notices, and a button in About, show every license text bundled under `src/assets/fonts`, with `LICENSES.md` as a clickable index. The texts load as a separate lazy chunk. Dependency license lists are task `dependency-notices`.
 - 2026-11-08: Merged `script-kill-tree` (1fd8435). When `run_script` times out, it kills the script's whole process tree (a process group on unix, a job object on Windows; `src-tauri/src/proc_tree.rs`). A script that exits normally leaves its background children alone. The Windows code was type-checked against the MSVC target, but its test first runs on CI.
 - 2026-11-08: Merged `pty-writer` (16293b0). `pty_write` only queues input for a writer thread per session, so a big paste into a raw-mode program that isn't reading no longer freezes the UI. Keystroke order is kept. See `docs/decisions/2026-11-08-pty-writer-queue.md`.
 - 2026-11-08: Merged `pages-site` (6f72fd7). It goes live on the next push of `main`.
@@ -71,7 +72,7 @@
 1. Merge task branches into `main` as they finish, in the merge order in `survey-fixes.md`. After each merge, rerun all checks and update this file and the task's status.
 2. Start `split-big-files` only after the other branches are merged.
 3. Settle the open questions in `docs/SPEC.md` (remote browsing, macOS, command-line path, `origin/feature`).
-4. **Before the first push:** reword unpushed commit `ee1dd9b`, whose message contains the old nickname. Rewrite only `origin/main..main` (e.g. `git filter-branch --msg-filter` on that range) once every task branch that contains it is merged, so it can't come back.
+4. **Before the first push:** run `pnpm site:build` (and `pnpm site:capture` plus `check` if the UI changed visibly) so the demo matches `main`; since pages-site merged, notices-screen has added a Help item. Also reword unpushed commit `ee1dd9b`, whose message contains the old nickname. Rewrite only `origin/main..main` (e.g. `git filter-branch --msg-filter` on that range) once every task branch that contains it is merged, so it can't come back.
 5. Tag a v0.2.0 release once the pass is merged and CI is green.
 
 ## Broken / known issues
