@@ -13,13 +13,13 @@ Line numbers are from commit `14c68bd` and drift, so search by name. Items marke
 | ui-fixes | frontend | **merged** (dfe77ca) |
 | tab-state | frontend | **merged** (971da66) |
 | undo-redo | frontend | **merged** (e1b7067) |
-| copy-undo-guard | frontend | running, low priority (found by undo-redo; tab-state session) |
+| copy-undo-guard | frontend | **merged** (58daee0) |
 | platform-paths | frontend | **merged** (2d9fcaf) |
 | backend-bugs | Rust | **merged** (3ece93d) |
 | linux-parity | Rust + a little frontend | running |
 | command-security | Rust + config | running |
 | async-commands | Rust | queued |
-| dead-code | both | queued |
+| dead-code | both | running (frontend items first) |
 | test-coverage | both | queued |
 | presentation | docs + small code | **merged**; GitHub text awaits the user |
 | split-big-files | both | **wait until all the others are merged** |
