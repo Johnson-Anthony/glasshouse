@@ -18,5 +18,5 @@
 - All Rust commands are synchronous and run on the main thread, so heavy operations freeze the UI (task `async-commands`).
 - Custom commands have no permission gating, and devtools are enabled in release builds (task `command-security`).
 - `scripts/audit-wiring.mjs` can't run: it reads the deleted `design/` folder (task `dead-code`).
-- `origin/feature` has one unmerged commit from April (`ddb5466`: layered terminal probe, menubar close fix, drive label dedup) that nobody has reviewed.
+- `origin/feature` has one unmerged commit from April, `ddb5466` (14 files, +2470/-492, merge base 23 commits behind `main`, so it won't merge cleanly). It contains: a Windows terminal-launch probe (`terminal_probe.rs`, HKCU DelegationTerminal, wt/DelegatedConsole), a menubar outside-click fix, and assorted polish (terminal drawer, themed dialogs, sidebar keyboard/drag-and-drop, remote manager, private tabs, About). Its "drive label dedup" is one Sidebar line, which `linux-parity` ports. The rest is undecided: cherry-pick parts or drop it.
 - The `rust-version = "1.77"` in `Cargo.toml` is stale: the locked dependencies need rustc 1.88 or newer.

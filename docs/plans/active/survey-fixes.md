@@ -13,12 +13,12 @@ Line numbers are from commit `14c68bd` and drift, so search by name. Items marke
 | tab-state | frontend | running |
 | platform-paths | frontend | **merged** (2d9fcaf) |
 | backend-bugs | Rust | running |
-| linux-parity | Rust + a little frontend | queued |
+| linux-parity | Rust + a little frontend | running |
 | command-security | Rust + config | queued |
 | async-commands | Rust | queued |
 | dead-code | both | queued |
 | test-coverage | both | queued |
-| presentation | docs + small code | queued (added by the user) |
+| presentation | docs + small code | running (added by the user) |
 | split-big-files | both | **wait until all the others are merged** |
 
 Merge order is the table order: small, contained fixes go first, and broad changes go last, so the broad ones absorb the conflicts.
