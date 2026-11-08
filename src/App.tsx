@@ -35,7 +35,7 @@ import {
   type SidebarRowKind,
   setDynamicGitCwd,
 } from "./components";
-import { CONTEXT_FILE, CONTEXT_EMPTY, CONTEXT_SIDEBAR, CONTEXT_SIDEBAR_FOLDER, CONTEXT_SIDEBAR_DRIVE, CONTEXT_SIDEBAR_REMOTE, CONTEXT_TAB, CONTEXT_BREADCRUMB, GIT_CHORDS, MUTATING_LABELS, type MenuItemDef, type DynamicPayload, type FileRow, type FileKind, type GitStatus } from "./data";
+import { CONTEXT_FILE, CONTEXT_EMPTY, CONTEXT_SIDEBAR, CONTEXT_SIDEBAR_FOLDER, CONTEXT_SIDEBAR_DRIVE, CONTEXT_SIDEBAR_REMOTE, CONTEXT_TAB, CONTEXT_BREADCRUMB, GIT_CHORDS, MUTATING_LABELS, THEMES, type MenuItemDef, type DynamicPayload, type FileRow, type FileKind, type GitStatus } from "./data";
 import {
   useTabState,
   pushUndo,
@@ -856,8 +856,6 @@ export function App() {
   const closeTabAt = (i: number) => {
     applyTabList(closeTab({ tabs, active: activeTab }, i, homePath ?? FALLBACK_PATH));
   };
-
-  const THEMES = ["tokyo-night","catppuccin-mocha","gruvbox-dark","rose-pine","everforest","solarized-dark","green-crt","synthwave"];
 
   const duplicateTabAt = (i: number) => {
     const t = tabs[i];

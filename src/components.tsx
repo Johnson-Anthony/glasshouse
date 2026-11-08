@@ -5,6 +5,7 @@ import {
   MENUS,
   PALETTE,
   TAURI_VERSION,
+  THEMES,
   type FileRow,
   type FileKind,
   type MenuItemDef,
@@ -3320,10 +3321,6 @@ export interface TweaksProps {
 }
 
 export function Tweaks({ state, setState, onClose }: TweaksProps) {
-  const themes = [
-    "tokyo-night", "catppuccin-mocha", "gruvbox-dark", "rose-pine",
-    "everforest", "solarized-dark", "green-crt", "synthwave",
-  ];
   const fonts = [
     '"JetBrainsMono Nerd Font", "JetBrains Mono", ui-monospace, monospace',
     '"JetBrains Mono", ui-monospace, monospace',
@@ -3345,7 +3342,7 @@ export function Tweaks({ state, setState, onClose }: TweaksProps) {
         <div className="tweak">
           <label>theme</label>
           <select value={state.theme} onChange={(e) => setState({...state, theme: e.target.value})}>
-            {themes.map(t => <option key={t} value={t}>{t}</option>)}
+            {THEMES.map(t => <option key={t} value={t}>{t}</option>)}
           </select>
         </div>
         <div className="tweak">
