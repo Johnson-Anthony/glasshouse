@@ -50,9 +50,7 @@ function winToUnc(path: string): string {
 export const toolsHandler: Handler = async (label, ctx) => {
   switch (label) {
     // Submenu parents — consume to prevent double-handling.
-    case "Compress →":
     case "Extract →":
-    case "Open With →":
       return true;
 
     case "Default App":
@@ -134,30 +132,13 @@ export const toolsHandler: Handler = async (label, ctx) => {
       return true;
     }
 
-    case "Checksum (SHA256)":
-    case "Checksum SHA256": {
-      const p = ctx.firstPath;
-      if (!p) {
-        console.log("[tools] Checksum: no selection");
-        return true;
-      }
-      try {
-        const hex = await hashSha256(p);
-        void dialogs.showAlert({ title: "SHA256", message: `${p}\n\n${hex}` });
-      } catch (e) {
-        console.log(`[tools] sha256 failed for ${p}:`, e);
-      }
-      return true;
-    }
-
-    case "Copy as UNC":
-    case "Copy as WSL Path": {
+    case "Copy as UNC": {
       const p = ctx.firstPath;
       if (!p) {
         console.log("[tools] Copy as UNC: no selection");
         return true;
       }
-      const unc = label === "Copy as UNC" ? winToUnc(p) : p;
+      const unc = winToUnc(p);
       await copyToClipboard(unc);
       console.log(`[tools] copied: ${unc}`);
       return true;
