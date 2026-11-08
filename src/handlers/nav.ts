@@ -9,6 +9,7 @@ import {
   readPins,
   readRecent,
   homeDir,
+  trashDir,
   clearRecent,
   listWslDistros,
 } from "../api";
@@ -233,12 +234,12 @@ export const navHandler: Handler = async (label, ctx) => {
         return true;
       }
       void (async () => {
-        const home = await homeDir();
-        if (!home) {
-          await dialogs.showAlert({ title: "Navigation", message: "home directory unavailable" });
+        const trash = await trashDir();
+        if (!trash) {
+          await dialogs.showAlert({ title: "Navigation", message: "trash folder unavailable" });
           return;
         }
-        ctx.activeHandle?.actions.goTo(joinPath(home, ".local/share/Trash/files"));
+        ctx.activeHandle?.actions.goTo(trash);
       })();
       return true;
     }

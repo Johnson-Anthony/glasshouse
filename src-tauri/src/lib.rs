@@ -24,6 +24,7 @@ pub fn run() {
             commands::move_entry,
             commands::delete_entry,
             commands::move_to_trash,
+            commands::trash_dir,
             commands::read_text,
             commands::write_text,
             commands::read_image_b64,

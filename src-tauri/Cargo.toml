@@ -60,6 +60,12 @@ windows = { version = "0.58", features = [
     "Win32_Security_Authorization",
 ] }
 
+# Both already come in through tauri-plugin-opener; used for the
+# FileManager1.ShowItems reveal call.
+[target.'cfg(target_os = "linux")'.dependencies]
+zbus = "5"
+url = "2"
+
 [profile.release]
 opt-level = 3
 lto = true
