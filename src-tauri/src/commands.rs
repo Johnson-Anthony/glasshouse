@@ -388,42 +388,169 @@ pub fn rename_entry(from: String, to: String) -> Result<(), String> {
     std::fs::rename(&from, &to).map_err(|e| e.to_string())
 }
 
+/// Copy a file, folder or symlink. Symlinks are recreated as links, never
+/// followed, whether selected directly or found inside a folder.
 #[tauri::command]
 pub fn copy_entry(from: String, to: String) -> Result<(), String> {
     let src = Path::new(&from);
     let dst = Path::new(&to);
-    if src.is_dir() {
-        copy_dir_recursive(src, dst).map_err(|e| e.to_string())
+    let meta = std::fs::symlink_metadata(src).map_err(|e| format!("stat {}: {}", from, e))?;
+    check_not_into_self(src, dst, &meta, false)?;
+    let ty = meta.file_type();
+    let res = if ty.is_symlink() {
+        copy_symlink(src, dst)
+    } else if ty.is_dir() {
+        copy_dir_recursive(src, dst)
     } else {
-        std::fs::copy(src, dst).map(|_| ()).map_err(|e| e.to_string())
-    }
+        copy_regular_file(src, dst, &ty)
+    };
+    res.map_err(|e| e.to_string())
 }
 
 fn copy_dir_recursive(src: &Path, dst: &Path) -> std::io::Result<()> {
     std::fs::create_dir_all(dst)?;
     for entry in std::fs::read_dir(src)? {
         let entry = entry?;
+        // file_type() doesn't follow links, so a link is seen as a link here
         let ty = entry.file_type()?;
         let dst_child = dst.join(entry.file_name());
-        if ty.is_dir() {
+        if ty.is_symlink() {
+            copy_symlink(&entry.path(), &dst_child)?;
+        } else if ty.is_dir() {
             copy_dir_recursive(&entry.path(), &dst_child)?;
         } else {
-            std::fs::copy(entry.path(), &dst_child)?;
+            copy_regular_file(&entry.path(), &dst_child, &ty)?;
         }
     }
     Ok(())
 }
 
+/// `fs::copy`, refusing FIFOs, sockets and devices: reading a FIFO blocks
+/// until something writes to it, which would hang the command.
+fn copy_regular_file(src: &Path, dst: &Path, ty: &std::fs::FileType) -> std::io::Result<()> {
+    if !ty.is_file() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::Unsupported,
+            format!("can't copy {}: not a regular file", src.display()),
+        ));
+    }
+    std::fs::copy(src, dst).map(|_| ())
+}
+
+/// Recreate the symlink `src` at `dst` with the same target text, so a
+/// relative link stays relative. The link's target is never read.
+fn copy_symlink(src: &Path, dst: &Path) -> std::io::Result<()> {
+    let target = std::fs::read_link(src)?;
+    #[cfg(unix)]
+    let res = std::os::unix::fs::symlink(&target, dst);
+    #[cfg(windows)]
+    let res = {
+        use std::os::windows::fs::FileTypeExt;
+        if std::fs::symlink_metadata(src)?.file_type().is_symlink_dir() {
+            std::os::windows::fs::symlink_dir(&target, dst)
+        } else {
+            std::os::windows::fs::symlink_file(&target, dst)
+        }
+    };
+    res.map_err(|e| {
+        // ERROR_PRIVILEGE_NOT_HELD: Windows only lets admins, or anyone once
+        // Developer Mode is on, create symlinks.
+        let hint = if cfg!(windows) && e.raw_os_error() == Some(1314) {
+            " (Windows needs Developer Mode or admin rights to create symlinks)"
+        } else {
+            ""
+        };
+        std::io::Error::new(
+            e.kind(),
+            format!("can't create symlink {}: {}{}", dst.display(), e, hint),
+        )
+    })
+}
+
+/// Resolve `p` without following its last component: canonicalize the
+/// nearest existing ancestor and re-append the rest. Works for paths that
+/// don't exist yet, and keeps a symlink as the link rather than its target.
+fn resolve_no_follow(p: &Path) -> PathBuf {
+    let mut rest = Vec::new();
+    let mut cur = p;
+    while let (Some(parent), Some(name)) = (cur.parent(), cur.file_name()) {
+        rest.push(name);
+        if let Ok(base) = std::fs::canonicalize(parent) {
+            return rest.iter().rev().fold(base, |acc, n| acc.join(n));
+        }
+        cur = parent;
+    }
+    std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf())
+}
+
+/// Refuse a copy or move that would write into its own source. Copying a
+/// file onto itself truncates it to nothing, and copying or moving a folder
+/// into its own subtree recurses until the path gets too long. `allow_same`
+/// lets a move through when the destination resolves to the source, as a
+/// case-only rename on Windows (`Foo` to `foo`) does.
+fn check_not_into_self(
+    src: &Path,
+    dst: &Path,
+    src_meta: &std::fs::Metadata,
+    allow_same: bool,
+) -> Result<(), String> {
+    let s = resolve_no_follow(src);
+    // An existing destination is canonicalized in full: fs::copy and
+    // create_dir_all write through a destination that is a link.
+    let d = std::fs::canonicalize(dst).unwrap_or_else(|_| resolve_no_follow(dst));
+    if d == s {
+        if allow_same {
+            return Ok(());
+        }
+        return Err(format!(
+            "{} is the same as its destination {}",
+            src.display(),
+            dst.display()
+        ));
+    }
+    if src_meta.is_dir() && d.starts_with(&s) {
+        return Err(format!(
+            "can't put folder {} inside itself ({})",
+            src.display(),
+            dst.display()
+        ));
+    }
+    Ok(())
+}
+
+/// Rename failed only because source and destination are on different
+/// volumes. Matches raw codes because `io::ErrorKind::CrossesDevices` is
+/// newer than the crate's `rust-version`.
+fn is_cross_device(e: &std::io::Error) -> bool {
+    #[cfg(unix)]
+    const CODE: i32 = 18; // EXDEV, the same on Linux, macOS and the BSDs
+    #[cfg(windows)]
+    const CODE: i32 = 17; // ERROR_NOT_SAME_DEVICE
+    e.raw_os_error() == Some(CODE)
+}
+
 #[tauri::command]
 pub fn move_entry(from: String, to: String) -> Result<(), String> {
-    // Try rename first (fast path for same volume). Fall back to copy+delete;
-    // the delete must be recursive or a cross-volume directory move leaves
-    // the source behind (remove_dir fails on non-empty) after a full copy.
-    if std::fs::rename(&from, &to).is_ok() {
+    let src = Path::new(&from);
+    let dst = Path::new(&to);
+    let meta = std::fs::symlink_metadata(src).map_err(|e| format!("stat {}: {}", from, e))?;
+    check_not_into_self(src, dst, &meta, true)?;
+    if src == dst {
         return Ok(());
     }
-    copy_entry(from.clone(), to)?;
-    delete_entry(from, true)
+    // Rename is the whole move on one volume. Only a cross-volume move falls
+    // back to copy + delete: after any other rename error (destination not
+    // empty, access denied, file in use) the fallback would merge into the
+    // destination and delete the source. The delete must be recursive or a
+    // directory's source is left behind after a full copy.
+    match std::fs::rename(src, dst) {
+        Ok(()) => Ok(()),
+        Err(e) if is_cross_device(&e) => {
+            copy_entry(from.clone(), to)?;
+            delete_entry(from, true)
+        }
+        Err(e) => Err(e.to_string()),
+    }
 }
 
 #[tauri::command]
@@ -1891,24 +2018,60 @@ pub fn create_shortcut(target: String, link_path: String) -> Result<(), String> 
 // ---------- shred ----------
 
 /// Overwrite `path` with fixed-pattern passes (cycling 0xFF, 0x00, 0xAA) then
-/// delete it. Files only; rejects directories. `passes` is clamped to 1..=10.
+/// delete it. Regular files only: rejects directories, special files and
+/// symlinks, and never opens a link's target. `passes` is clamped to 1..=10.
 #[tauri::command]
 pub fn shred(path: String, passes: u32) -> Result<(), String> {
     use std::fs::OpenOptions;
     use std::io::{Seek, SeekFrom, Write};
 
-    let meta = std::fs::metadata(&path).map_err(|e| format!("stat {}: {}", path, e))?;
-    if meta.is_dir() {
+    let meta = std::fs::symlink_metadata(&path).map_err(|e| format!("stat {}: {}", path, e))?;
+    let ty = meta.file_type();
+    if ty.is_symlink() {
+        // Refuse rather than unlink: removing only the link would look like
+        // the data was destroyed when the target is untouched.
+        let target = std::fs::read_link(&path)
+            .map(|t| format!(" to {}", t.display()))
+            .unwrap_or_default();
+        return Err(format!(
+            "shred: {} is a symbolic link{}; shred the target itself instead",
+            path, target
+        ));
+    }
+    if ty.is_dir() {
         return Err(format!("shred: {} is a directory", path));
+    }
+    if !ty.is_file() {
+        return Err(format!("shred: {} is not a regular file", path));
     }
     let len = meta.len();
     let n = passes.clamp(1, 10);
     let patterns: [u8; 3] = [0xFF, 0x00, 0xAA];
 
-    let mut f = OpenOptions::new()
-        .write(true)
+    let mut opts = OpenOptions::new();
+    opts.write(true);
+    #[cfg(windows)]
+    {
+        // FILE_FLAG_OPEN_REPARSE_POINT: open a link itself, not its target
+        use std::os::windows::fs::OpenOptionsExt;
+        opts.custom_flags(0x0020_0000);
+    }
+    let mut f = opts
         .open(&path)
         .map_err(|e| format!("open {}: {}", path, e))?;
+    // The path could have been swapped for a link between the stat and the
+    // open; make sure the open file is still the one that was checked.
+    let opened = f.metadata().map_err(|e| format!("stat {}: {}", path, e))?;
+    #[cfg(unix)]
+    let same = {
+        use std::os::unix::fs::MetadataExt;
+        opened.dev() == meta.dev() && opened.ino() == meta.ino()
+    };
+    #[cfg(windows)]
+    let same = opened.file_type().is_file();
+    if !same {
+        return Err(format!("shred: {} changed while it was being opened", path));
+    }
 
     const CHUNK: usize = 64 * 1024;
     for i in 0..n {
@@ -3104,6 +3267,229 @@ mod tests {
         copy_dir_recursive(&src, &dst).unwrap();
         assert_eq!(std::fs::read_to_string(dst.join("root.txt")).unwrap(), "r");
         assert_eq!(std::fs::read_to_string(dst.join("a/b/leaf.txt")).unwrap(), "leaf");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    fn s(p: &Path) -> String {
+        p.to_string_lossy().into_owned()
+    }
+
+    fn is_link(p: &Path) -> bool {
+        std::fs::symlink_metadata(p).is_ok_and(|m| m.file_type().is_symlink())
+    }
+
+    #[test]
+    fn shred_overwrites_and_removes_regular_file() {
+        let dir = temp_dir("shredfile");
+        let f = dir.join("secret.txt");
+        std::fs::write(&f, "secret").unwrap();
+        shred(s(&f), 2).unwrap();
+        assert!(!f.exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn shred_rejects_directory() {
+        let dir = temp_dir("shreddir");
+        assert!(shred(s(&dir), 1).is_err());
+        assert!(dir.is_dir());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn shred_refuses_symlink_and_leaves_target_intact() {
+        let dir = temp_dir("shredlink");
+        let target = dir.join("target.txt");
+        std::fs::write(&target, "keep me").unwrap();
+        let link = dir.join("link.txt");
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+
+        let err = shred(s(&link), 3).unwrap_err();
+        assert!(err.contains("symbolic link"), "{err}");
+        assert_eq!(std::fs::read_to_string(&target).unwrap(), "keep me");
+        assert!(is_link(&link));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn copy_dir_recursive_keeps_symlinks_as_links() {
+        use std::os::unix::fs::symlink;
+        let dir = temp_dir("copylinks");
+        let src = dir.join("src");
+        std::fs::create_dir_all(src.join("sub")).unwrap();
+        std::fs::write(src.join("sub/file.txt"), "data").unwrap();
+        symlink("sub/file.txt", src.join("file-link")).unwrap();
+        symlink("sub", src.join("dir-link")).unwrap();
+        // points at its own parent: following it would never end
+        symlink("..", src.join("sub/loop")).unwrap();
+        symlink("missing", src.join("dangling")).unwrap();
+
+        let dst = dir.join("dst");
+        copy_entry(s(&src), s(&dst)).unwrap();
+
+        for (name, target) in [
+            ("file-link", "sub/file.txt"),
+            ("dir-link", "sub"),
+            ("sub/loop", ".."),
+            ("dangling", "missing"),
+        ] {
+            let p = dst.join(name);
+            assert!(is_link(&p), "{name}");
+            assert_eq!(std::fs::read_link(&p).unwrap(), Path::new(target), "{name}");
+        }
+        // relative links resolve inside the copy, not back into the source
+        assert_eq!(std::fs::read_to_string(dst.join("file-link")).unwrap(), "data");
+        assert_eq!(
+            std::fs::canonicalize(dst.join("dir-link")).unwrap(),
+            std::fs::canonicalize(dst.join("sub")).unwrap()
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn copy_entry_copies_a_selected_symlink_as_a_link() {
+        let dir = temp_dir("copytoplink");
+        std::fs::create_dir_all(dir.join("real/inner")).unwrap();
+        let link = dir.join("link");
+        std::os::unix::fs::symlink(dir.join("real"), &link).unwrap();
+        let dst = dir.join("link-copy");
+        copy_entry(s(&link), s(&dst)).unwrap();
+        assert!(is_link(&dst));
+        assert_eq!(std::fs::read_link(&dst).unwrap(), dir.join("real"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn copy_entry_refuses_copy_onto_itself() {
+        let dir = temp_dir("copyself");
+        let f = dir.join("a.txt");
+        std::fs::write(&f, "hello").unwrap();
+        // fs::copy(a, a) would truncate a to 0 bytes
+        assert!(copy_entry(s(&f), s(&f)).is_err());
+        assert_eq!(std::fs::read_to_string(&f).unwrap(), "hello");
+
+        let folder = dir.join("folder");
+        std::fs::create_dir_all(&folder).unwrap();
+        std::fs::write(folder.join("x.txt"), "x").unwrap();
+        assert!(copy_entry(s(&folder), s(&folder)).is_err());
+        assert_eq!(std::fs::read_to_string(folder.join("x.txt")).unwrap(), "x");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn copy_entry_refuses_folder_into_its_own_subtree() {
+        let dir = temp_dir("copyinto");
+        let folder = dir.join("folder");
+        std::fs::create_dir_all(folder.join("sub")).unwrap();
+        let dst = folder.join("sub").join("folder");
+        let err = copy_entry(s(&folder), s(&dst)).unwrap_err();
+        assert!(err.contains("inside itself"), "{err}");
+        assert!(!dst.exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn copy_entry_refuses_destination_that_links_back_into_source() {
+        let dir = temp_dir("copyvialink");
+        let f = dir.join("a.txt");
+        std::fs::write(&f, "hello").unwrap();
+        let alias = dir.join("alias.txt");
+        std::os::unix::fs::symlink(&f, &alias).unwrap();
+        // writing through the alias would truncate the source
+        assert!(copy_entry(s(&f), s(&alias)).is_err());
+        assert_eq!(std::fs::read_to_string(&f).unwrap(), "hello");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn move_entry_refuses_folder_into_its_own_subtree() {
+        let dir = temp_dir("moveinto");
+        let folder = dir.join("folder");
+        std::fs::create_dir_all(folder.join("sub")).unwrap();
+        std::fs::write(folder.join("x.txt"), "x").unwrap();
+        let dst = folder.join("sub").join("folder");
+        let err = move_entry(s(&folder), s(&dst)).unwrap_err();
+        assert!(err.contains("inside itself"), "{err}");
+        assert_eq!(std::fs::read_to_string(folder.join("x.txt")).unwrap(), "x");
+        assert!(!dst.exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn move_entry_onto_its_own_path_is_a_no_op() {
+        let dir = temp_dir("moveself");
+        let folder = dir.join("folder");
+        std::fs::create_dir_all(&folder).unwrap();
+        std::fs::write(folder.join("x.txt"), "x").unwrap();
+        move_entry(s(&folder), s(&folder)).unwrap();
+        assert_eq!(std::fs::read_to_string(folder.join("x.txt")).unwrap(), "x");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn move_entry_does_not_merge_when_rename_fails() {
+        let dir = temp_dir("movenomerge");
+        let a = dir.join("a");
+        std::fs::create_dir_all(&a).unwrap();
+        std::fs::write(a.join("from-a.txt"), "a").unwrap();
+        let b = dir.join("b");
+        std::fs::create_dir_all(&b).unwrap();
+        std::fs::write(b.join("from-b.txt"), "b").unwrap();
+
+        // renaming onto a non-empty folder fails, but not across devices,
+        // so there's no copy + delete fallback
+        assert!(move_entry(s(&a), s(&b)).is_err());
+        assert_eq!(std::fs::read_to_string(a.join("from-a.txt")).unwrap(), "a");
+        assert!(!b.join("from-a.txt").exists());
+        assert_eq!(std::fs::read_to_string(b.join("from-b.txt")).unwrap(), "b");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn is_cross_device_matches_only_the_cross_device_code() {
+        #[cfg(unix)]
+        let code = 18;
+        #[cfg(windows)]
+        let code = 17;
+        assert!(is_cross_device(&std::io::Error::from_raw_os_error(code)));
+        assert!(!is_cross_device(&std::io::Error::from_raw_os_error(2)));
+        assert!(!is_cross_device(&std::io::Error::other("not an os error")));
+    }
+
+    /// Moves between the temp dir and /dev/shm, when they're on different
+    /// devices (true on a Linux CI runner and here, where /tmp and /dev/shm
+    /// are separate tmpfs mounts). Skips itself otherwise.
+    #[cfg(unix)]
+    #[test]
+    fn move_entry_falls_back_to_copy_across_devices() {
+        use std::os::unix::fs::MetadataExt;
+        let shm = Path::new("/dev/shm");
+        let dir = temp_dir("movexdev");
+        let same_dev = match (std::fs::metadata(shm), std::fs::metadata(&dir)) {
+            (Ok(a), Ok(b)) => a.dev() == b.dev(),
+            _ => true,
+        };
+        if same_dev {
+            eprintln!("skipped: /dev/shm and the temp dir share a device");
+            let _ = std::fs::remove_dir_all(&dir);
+            return;
+        }
+        let src = dir.join("tree");
+        std::fs::create_dir_all(src.join("sub")).unwrap();
+        std::fs::write(src.join("sub/f.txt"), "f").unwrap();
+        std::os::unix::fs::symlink("sub/f.txt", src.join("link")).unwrap();
+        let dst = shm.join(format!("glasshouse-test-{}-movexdev", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dst);
+
+        move_entry(s(&src), s(&dst)).unwrap();
+        assert!(!src.exists());
+        assert_eq!(std::fs::read_to_string(dst.join("sub/f.txt")).unwrap(), "f");
+        assert_eq!(std::fs::read_link(dst.join("link")).unwrap(), Path::new("sub/f.txt"));
+        let _ = std::fs::remove_dir_all(&dst);
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
