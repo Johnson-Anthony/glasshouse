@@ -1,6 +1,17 @@
 # Progress
 
 ## Done
+- 2026-11-08: Merged `pages-site` (6f72fd7). It goes live on the next push of `main`.
+  - The Pages site has a hero image of the real UI for each theme, and a theme picker that recolors the page and the demo.
+  - Six recorded clips: terminal, tabs, git, Quick Look, paste conflicts, palette.
+  - A live browser demo of the real React UI over a mocked backend, about 300 KB and loaded on click.
+  - The existing text is unchanged.
+  - Rebuild with `pnpm site:build`, `pnpm site:capture` and `pnpm site:capture check` (18 browser checks). About 8 MB under `docs/`.
+- 2026-11-08: Merged `font-licenses` (19e7dd0). The Nerd Font is shipped as woff2 (lossless, 9.2 → 3.7 MB). Its license and glyph-set notices are in `src/assets/fonts/nerd-fonts/`, indexed by `LICENSES.md`, and `offline.test.ts` fails on an unlicensed font file.
+- 2026-11-08: Merged `no-clobber-fs` (7970a86). `write_text`, `make_dir` and `rename_entry` refuse an existing target unless asked to overwrite.
+  - Rename uses `renameat2(RENAME_NOREPLACE)` on Linux and `MoveFileExW` without replace on Windows.
+  - The name prompt shows the refusal inline.
+  - See `docs/decisions/2026-11-08-no-clobber-fs-design.md`.
 - 2026-11-08: Merged `dead-code`'s Rust part (27340c6).
   - Removed the uncalled commands `ping`, `wsl_to_win`, `set_always_on_top` (with the `window` permission group) and `git_dirty_count` + `git_ahead_behind`. Their logic is still tested through `git_status`. 69 commands remain.
   - Dropped the dependencies thiserror, anyhow, tokio, walkdir and grep-matcher.
@@ -52,7 +63,6 @@
 - 2026-11-08: Set up as a long-running project (CLAUDE.md, PROGRESS.md, docs/SPEC.md, docs/ARCHITECTURE.md, plans/decisions folders). Linux arm64 build env set up (see `~/.claude/environment.md`); the release build is linked into the fuzzel launcher. The codebase survey is the backlog in `docs/plans/active/survey-fixes.md`.
 
 ## In progress
-- `pages-site`: the Pages site becomes an interactive showcase of the app (big project). All milestones are done on its branch (hero per theme, theme picker, six recorded clips, live browser demo of the real UI). It's being rebased onto current main and rebuilt before merge.
 - Survey-fix pass: 12 tasks, each in its own worktree session, run a few at a time by the lead session. Per-task scope and status are in `docs/plans/active/survey-fixes.md`; each session keeps its detail in `docs/plans/active/<task>.md` on its branch.
 
 ## Next
@@ -63,7 +73,7 @@
 5. Tag a v0.2.0 release once the pass is merged and CI is green.
 
 ## Broken / known issues
-- A few-ms race remains between the frontend's name check and the backend write, because `write_text`, `make_dir` and `rename_entry` still overwrite (task `no-clobber-fs`).
+- Renames can still race where `renameat2(RENAME_NOREPLACE)` isn't available (non-Linux unix, NFS, older FUSE), which falls back to check-then-rename. no-clobber-fs's Windows code (`MoveFileExW`, file-id identity) is uncompiled until Windows CI.
 - `pty_write` can still block the main thread when a pty's input buffer is full, for example on a large paste into a program that isn't reading (task `pty-writer`).
 - Windows is untested for the scoped git-label scan. If `list_dir_git_labels_scan_only_the_listed_folder` fails on Windows CI after the first push, the scan falls back to the whole repo there: labels stay correct, but the test needs adjusting.
 - **command-security's Windows code has never been compiled**; the first windows-latest CI run is its first build. Worth trying by hand on Windows:

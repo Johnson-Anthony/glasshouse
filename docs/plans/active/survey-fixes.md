@@ -10,7 +10,7 @@ Line numbers are from commit `14c68bd` and drift, so search by name. Items marke
 | symlink-safety | Rust | **merged** (60e4eef) |
 | paste-conflicts | frontend | **merged** (2b26099) |
 | create-rename-conflicts | frontend | **merged** (ebd1571) |
-| no-clobber-fs | Rust, small | running (backend-bugs session) |
+| no-clobber-fs | Rust, small | **merged** (7970a86) |
 | link-display | both, low priority | queued (found by linux-parity) |
 | ui-fixes | frontend | **merged** (dfe77ca) |
 | tab-state | frontend | **merged** (971da66) |
@@ -21,7 +21,8 @@ Line numbers are from commit `14c68bd` and drift, so search by name. Items marke
 | linux-parity | Rust + a little frontend | **merged** (8d2b0a2) |
 | command-security | Rust + config | **merged** (885bd2a) |
 | local-fonts | frontend, small | **merged** (ff0327c) |
-| font-licenses | assets, small | running (command-security session; found by local-fonts) |
+| font-licenses | assets, small | **merged** (19e7dd0) |
+| notices-screen | frontend, small | queued (found by font-licenses) |
 | script-kill-tree | Rust, small | queued (found by command-security) |
 | async-commands | Rust | **merged** (9c3eefe) |
 | pty-writer | Rust, small | running (async-commands session; found by async-commands) |
@@ -30,7 +31,7 @@ Line numbers are from commit `14c68bd` and drift, so search by name. Items marke
 | unsent-labels | frontend | **merged** (8828d97) |
 | test-coverage | both | queued |
 | presentation | docs + small code | **merged**; GitHub text awaits the user |
-| pages-site | site (big project) | done on branch; merging main and rebuilding the demo before merge |
+| pages-site | site (big project) | **merged** (6f72fd7); live on the next push |
 | split-big-files | both | **wait until all the others are merged** |
 
 Merge order is the table order: small, contained fixes go first, and broad changes go last, so the broad ones absorb the conflicts.
@@ -160,6 +161,10 @@ The frontend now checks names before creating or renaming, but a few millisecond
 ## font-licenses (assets, small; found 2026-11-08 by local-fonts)
 - The bundled JetBrainsMono Nerd Font TTFs in `src/assets/fonts` (4 files, about 9 MB) have no license file in the repo. Add the license texts that apply: OFL for JetBrains Mono, plus the Nerd Fonts license and its glyph-set notices.
 - Consider shipping them as woff2: the same glyphs, much smaller. JetBrains Mono has no Reserved Font Name, so a format conversion is allowed. Record the choice.
+
+## notices-screen (frontend, small; found 2026-11-08 by font-licenses)
+- The installed app has no third-party notices screen. The font licenses live in `src/assets/fonts` (indexed by `LICENSES.md`), and the npm and crate licenses aren't listed anywhere.
+- Add an About → Third-party notices view that shows the bundled font licenses. Consider generating the npm and Rust dependency license lists at build time.
 
 ## script-kill-tree (Rust, small; found 2026-11-08 by command-security)
 - `run_script` kills a script after 60 s, but only the direct child. A script's own children keep running.
