@@ -4,10 +4,12 @@ import { IS_WINDOWS } from "../platform";
 import { basename, joinPath, parentPath } from "../paths";
 import { getVersion } from "@tauri-apps/api/app";
 import { failureDetails, runTransfer, summarize } from "../transfer";
-import { asItems, assertFree, namesIn, pushTransferUndo, transferDeps } from "../transferUi";
-import { freeNewName, nameProblem } from "../names";
+import { asItems, assertFree, namesIn, pushTransferUndo, transferDeps, unlessTaken } from "../transferUi";
+import { freeNewName, nameProblem, takenProblem } from "../names";
 import {
   makeDir,
+  createTextFile,
+  isAlreadyExists,
   writeText,
   readText,
   openUrl,
@@ -20,13 +22,6 @@ import {
 } from "../api";
 const REPO_URL = "https://github.com/Johnson-Anthony/glasshouse";
 
-async function createFileAt(ctx: HandlerCtx, name: string, body: string): Promise<void> {
-  await assertFree(ctx.cwd, name);
-  const path = joinPath(ctx.cwd, name);
-  await writeText(path, body);
-  ctx.refresh();
-}
-
 async function promptAndCreate(ctx: HandlerCtx, defaultName: string, body = ""): Promise<void> {
   const taken = await namesIn(ctx.cwd);
   const name = await dialogs.showPrompt({
@@ -35,9 +30,10 @@ async function promptAndCreate(ctx: HandlerCtx, defaultName: string, body = ""):
     initialValue: freeNewName(defaultName, false, taken.has),
     placeholder: defaultName,
     validate: (v) => nameProblem(v.trim(), taken),
+    submit: (v) => unlessTaken(v.trim(), () => createTextFile(joinPath(ctx.cwd, v.trim()), body)),
   });
   if (name == null || name.trim() === "") return;
-  await createFileAt(ctx, name.trim(), body);
+  ctx.refresh();
 }
 
 // Built-in templates for File → New → From Template…. Bodies are minimal,
@@ -143,13 +139,13 @@ async function createPythonModule(ctx: HandlerCtx): Promise<void> {
     message: "module name (creates a folder with __init__.py):",
     placeholder: "my_module",
     validate: (v) => nameProblem(v.trim(), taken),
+    submit: (v) => unlessTaken(v.trim(), async () => {
+      const dir = joinPath(ctx.cwd, v.trim());
+      await makeDir(dir);
+      await createTextFile(joinPath(dir, "__init__.py"), "");
+    }),
   });
   if (name == null || name.trim() === "") return;
-  const mod = name.trim();
-  await assertFree(ctx.cwd, mod);
-  const dir = joinPath(ctx.cwd, mod);
-  await makeDir(dir);
-  await writeText(joinPath(dir, "__init__.py"), "");
   ctx.refresh();
 }
 
@@ -411,18 +407,18 @@ export const miscHandler: Handler = async (label, ctx) => {
       }
       const self = basename(target);
       if (name === self) return true;
+      const dest = joinPath(parentPath(target), name);
       try {
         await assertFree(parentPath(target), name, self);
+        await renameEntry(target, dest);
       } catch (e) {
         await dialogs.showAlert({
           title: "can't rename",
-          message: e instanceof Error ? e.message : String(e),
+          message: isAlreadyExists(e) ? takenProblem(name) : e instanceof Error ? e.message : String(e),
           variant: "error",
         });
         return true;
       }
-      const dest = joinPath(parentPath(target), name);
-      await renameEntry(target, dest);
       ctx.refresh();
       return true;
     }

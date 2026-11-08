@@ -1,13 +1,13 @@
 // Undo entries for file operations. Each builder returns both directions:
 // `inverse` reverses the operation and `redo` performs it again.
 //
-// The backend's rename and write replace an existing destination without
-// asking, so every step that creates a path first checks that the path is
-// still free. The steps that delete something they created first check that
+// The backend's rename, mkdir and write refuse an existing destination, and
+// every step that creates a path also checks first that the path is still
+// free, so a multi-item step is refused before any of it runs. The steps that delete something they created first check that
 // it hasn't been filled or edited since (copies by fingerprint, see copyUndo). Builders take the file system as a
 // parameter so tests can run round trips against an in-memory one.
 
-import { copyEntry, deleteEntry, makeDir, moveEntry, readDir, renameEntry, writeText, type FileEntry } from "./api";
+import { copyEntry, createTextFile, deleteEntry, makeDir, moveEntry, readDir, renameEntry, type FileEntry } from "./api";
 import { basename, normalizePath, parentPath } from "./paths";
 import type { UndoEntry } from "./state";
 
@@ -28,7 +28,7 @@ export const realFs: UndoFs = {
   copy: copyEntry,
   remove: deleteEntry,
   mkdir: makeDir,
-  write: writeText,
+  write: createTextFile,
   list: dir => readDir(dir, true),
 };
 

@@ -59,6 +59,7 @@ import {
   homeDir,
   listDir,
   makeDir,
+  ensureDir,
   renameEntry,
   copyEntry,
   moveEntry,
@@ -72,6 +73,7 @@ import {
   openWithDefaultStrict,
   moveToTrash,
   winToWsl,
+  createTextFile,
   writeText,
   winClose,
   winToggleMaximize,
@@ -93,7 +95,7 @@ import {
   type ShellProfile,
 } from "./api";
 import { runTransfer, planTransfer, type TransferItem, type TransferOp, type TransferResult } from "./transfer";
-import { transferDeps, reportTransfer, pushTransferUndo, asItems, namesIn, assertFree, listNames } from "./transferUi";
+import { transferDeps, reportTransfer, pushTransferUndo, asItems, namesIn, unlessTaken, listNames } from "./transferUi";
 import { NameSet, freeNewName, nameProblem } from "./names";
 
 const TWEAK_DEFAULTS: TweakState = {
@@ -542,7 +544,7 @@ export function App() {
     const dir = joinPath(homePath, ".glasshouse");
     const file = joinPath(dir, "remotes.json");
     void (async () => {
-      try { await makeDir(dir); } catch { /* already exists */ }
+      try { await ensureDir(dir); } catch { /* the write below reports it */ }
       try { await writeText(file, JSON.stringify(next, null, 2)); }
       catch (err) { console.error("remotes.json write failed:", err); }
     })();
@@ -1016,7 +1018,7 @@ export function App() {
             const base = basename(target);
             void (async () => {
               const dir = parentPath(target);
-              // An unreadable folder still gets a prompt; assertFree reports it.
+              // An unreadable folder still gets a prompt; the rename reports it.
               const taken = await namesIn(dir).catch(() => new NameSet([], IS_WINDOWS));
               const next = await dialogs.showPrompt({
                 title: "rename",
@@ -1024,12 +1026,11 @@ export function App() {
                 initialValue: base,
                 placeholder: "new name",
                 validate: (v) => nameProblem(v, taken, base),
+                submit: (v) => unlessTaken(v, async () => { if (v !== base) await renameEntry(target, joinPath(dir, v)); }),
               });
               if (!next || next === base) return;
               const dst = joinPath(dir, next);
               try {
-                await assertFree(dir, next, base);
-                await renameEntry(target, dst);
                 pushUndo(moveUndo(`rename ${base} → ${next}`, [{ src: target, dst }], "rename"));
                 activeHandle?.actions.refresh();
               } catch (err) {
@@ -1320,11 +1321,10 @@ export function App() {
             initialValue: firstEntry.name,
             placeholder: "new name",
             validate: (v) => nameProblem(v, taken, firstEntry.name),
+            submit: (v) => unlessTaken(v, async () => { if (v !== firstEntry.name) await renameEntry(src, joinPath(dir, v)); }),
           });
           if (!next || next === firstEntry.name) return;
-          await assertFree(dir, next, firstEntry.name);
           const dst = joinPath(dir, next);
-          await renameEntry(src, dst);
           pushUndo(moveUndo(`rename ${firstEntry.name} → ${next}`, [{ src, dst }], "rename"));
           refresh();
           return;
@@ -1430,11 +1430,10 @@ export function App() {
             initialValue: freeNewName("new-folder", true, taken.has),
             placeholder: "folder-name",
             validate: (v) => nameProblem(v, taken),
+            submit: (v) => unlessTaken(v, () => makeDir(joinPath(cwd, v))),
           });
           if (!name) return;
-          await assertFree(cwd, name);
           const dst = joinPath(cwd, name);
-          await makeDir(dst);
           pushUndo(createUndo(`new folder ${name}`, dst, { kind: "folder" }));
           refresh();
           return;
@@ -1448,11 +1447,10 @@ export function App() {
             initialValue: freeNewName("untitled.txt", false, taken.has),
             placeholder: "name.txt",
             validate: (v) => nameProblem(v, taken),
+            submit: (v) => unlessTaken(v, () => createTextFile(joinPath(cwd, v), "")),
           });
           if (!name) return;
-          await assertFree(cwd, name);
           const dst = joinPath(cwd, name);
-          await writeText(dst, "");
           pushUndo(createUndo(`new file ${name}`, dst, { kind: "file", content: "" }));
           refresh();
           return;
@@ -1465,16 +1463,16 @@ export function App() {
             initialValue: freeNewName("note.md", false, taken.has),
             placeholder: "note.md",
             validate: (v) => nameProblem(v, taken),
+            submit: (v) => unlessTaken(v, () => createTextFile(joinPath(cwd, v), "")),
           });
           if (!name) return;
-          await assertFree(cwd, name);
           const dst = joinPath(cwd, name);
-          await writeText(dst, "");
           pushUndo(createUndo(`new note ${name}`, dst, { kind: "file", content: "" }));
           refresh();
           return;
         }
         case "Script (.sh)": {
+          const script = "#!/usr/bin/env bash\n";
           const taken = await namesIn(cwd);
           const name = await dialogs.showPrompt({
             title: "new shell script",
@@ -1482,12 +1480,10 @@ export function App() {
             initialValue: freeNewName("script.sh", false, taken.has),
             placeholder: "script.sh",
             validate: (v) => nameProblem(v, taken),
+            submit: (v) => unlessTaken(v, () => createTextFile(joinPath(cwd, v), script)),
           });
           if (!name) return;
-          await assertFree(cwd, name);
           const dst = joinPath(cwd, name);
-          const script = "#!/usr/bin/env bash\n";
-          await writeText(dst, script);
           pushUndo(createUndo(`new script ${name}`, dst, { kind: "file", content: script }));
           refresh();
           return;

@@ -13,7 +13,7 @@ import {
   findFileByName,
   changeOwner,
   openWithDefaultStrict,
-  makeDir,
+  ensureDir,
   readText,
   writeText,
 } from "../api";
@@ -303,7 +303,8 @@ export const toolsHandler: Handler = async (label, ctx) => {
       for (const [sub, items] of bySub) {
         const targetDir = joinPath(ctx.cwd, sub);
         try {
-          await makeDir(targetDir);
+          // The month folder is usually there already.
+          await ensureDir(targetDir);
         } catch (e) {
           console.log(`[tools] Screenshot Auto-sort: can't create ${targetDir}:`, e);
           continue;

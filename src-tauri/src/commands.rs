@@ -484,14 +484,163 @@ pub fn system_info() -> SystemInfo {
 
 // ---------- file operations ----------
 
+/// Create a folder. By default (New Folder) an existing path is refused, so
+/// undoing the create can never delete a folder that was already there.
+/// `all` is `create_dir_all`, for folders the app keeps for itself, where an
+/// existing one is fine.
 #[tauri::command(async)]
-pub fn make_dir(path: String) -> Result<(), String> {
-    std::fs::create_dir_all(&path).map_err(|e| e.to_string())
+pub fn make_dir(path: String, all: Option<bool>) -> Result<(), String> {
+    if all.unwrap_or(false) {
+        return std::fs::create_dir_all(&path).map_err(|e| e.to_string());
+    }
+    std::fs::create_dir(&path).map_err(|e| no_clobber_err(&path, e))
 }
 
+/// Rename, refusing a target that already exists instead of replacing it.
 #[tauri::command(async)]
 pub fn rename_entry(from: String, to: String) -> Result<(), String> {
-    std::fs::rename(&from, &to).map_err(|e| e.to_string())
+    rename_no_replace(Path::new(&from), Path::new(&to)).map_err(|e| no_clobber_err(&to, e))
+}
+
+/// The error for a create or rename whose target is taken, in the wording
+/// undo's `ensureFree` uses; `isAlreadyExists` in api.ts matches it.
+fn no_clobber_err(path: &str, e: std::io::Error) -> String {
+    if e.kind() != std::io::ErrorKind::AlreadyExists {
+        return e.to_string();
+    }
+    let p = Path::new(path);
+    let name = p.file_name().unwrap_or(p.as_os_str()).to_string_lossy();
+    let parent = p.parent().map(|d| d.to_string_lossy()).unwrap_or_default();
+    format!("\"{}\" already exists in {}", name, parent)
+}
+
+/// `fs::rename` that never replaces an existing entry at `to`. The platform
+/// primitive refuses atomically; where there's none (non-Linux unix, or a
+/// file system that rejects the flag) it's a check followed by the rename,
+/// which leaves a small race.
+fn rename_no_replace(from: &Path, to: &Path) -> std::io::Result<()> {
+    use std::io::ErrorKind;
+    if from == to {
+        return Ok(()); // as fs::rename does; the primitives would call it taken
+    }
+    match rename_no_replace_os(from, to) {
+        Err(e) if e.kind() == ErrorKind::AlreadyExists && is_case_only_self_rename(from, to) => {
+            std::fs::rename(from, to)
+        }
+        Err(e) if e.kind() == ErrorKind::Unsupported => rename_after_check(from, to),
+        other => other,
+    }
+}
+
+/// The fallback without an atomic primitive: refuse a taken `to`, else rename.
+fn rename_after_check(from: &Path, to: &Path) -> std::io::Result<()> {
+    use std::io::ErrorKind;
+    match std::fs::symlink_metadata(to) {
+        Ok(_) if !is_case_only_self_rename(from, to) => Err(ErrorKind::AlreadyExists.into()),
+        Err(e) if e.kind() != ErrorKind::NotFound => Err(e),
+        _ => std::fs::rename(from, to),
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn rename_no_replace_os(from: &Path, to: &Path) -> std::io::Result<()> {
+    use std::ffi::CString;
+    use std::os::unix::ffi::OsStrExt;
+    let from = CString::new(from.as_os_str().as_bytes())?;
+    let to = CString::new(to.as_os_str().as_bytes())?;
+    // The raw syscall rather than the libc wrapper, which only glibc 2.28+
+    // has. SAFETY: both paths are NUL-terminated and outlive the call.
+    let rc = unsafe {
+        libc::syscall(
+            libc::SYS_renameat2,
+            libc::AT_FDCWD,
+            from.as_ptr(),
+            libc::AT_FDCWD,
+            to.as_ptr(),
+            libc::RENAME_NOREPLACE,
+        )
+    };
+    if rc == 0 {
+        return Ok(());
+    }
+    let e = std::io::Error::last_os_error();
+    match e.raw_os_error() {
+        // EINVAL: this file system doesn't take the flag; ENOSYS: kernel < 3.15.
+        Some(libc::EINVAL) | Some(libc::ENOSYS) => Err(std::io::ErrorKind::Unsupported.into()),
+        _ => Err(e),
+    }
+}
+
+#[cfg(windows)]
+fn rename_no_replace_os(from: &Path, to: &Path) -> std::io::Result<()> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows::core::PCWSTR;
+    use windows::Win32::Storage::FileSystem::{MoveFileExW, MOVE_FILE_FLAGS};
+    let wide = |p: &Path| -> Vec<u16> { p.as_os_str().encode_wide().chain(Some(0)).collect() };
+    let (f, t) = (wide(from), wide(to));
+    // No MOVEFILE_REPLACE_EXISTING, so a taken target fails with
+    // ERROR_ALREADY_EXISTS. SAFETY: both strings are NUL-terminated and
+    // outlive the call.
+    let moved = unsafe { MoveFileExW(PCWSTR(f.as_ptr()), PCWSTR(t.as_ptr()), MOVE_FILE_FLAGS(0)) };
+    // A Win32 error HRESULT carries the Win32 code in its low 16 bits.
+    moved.map_err(|e| std::io::Error::from_raw_os_error(e.code().0 & 0xFFFF))
+}
+
+#[cfg(all(unix, not(target_os = "linux")))]
+fn rename_no_replace_os(_from: &Path, _to: &Path) -> std::io::Result<()> {
+    Err(std::io::ErrorKind::Unsupported.into())
+}
+
+/// `to` is `from` itself under a name that differs only in case: a
+/// case-only rename on a case-insensitive file system (NTFS, SMB, vfat, ext4
+/// casefold), where the no-replace primitives see the target as taken.
+/// Decided by identity without following links, so two different entries in
+/// a case-sensitive folder never count.
+fn is_case_only_self_rename(from: &Path, to: &Path) -> bool {
+    let (Some(a), Some(b)) = (from.file_name(), to.file_name()) else {
+        return false;
+    };
+    from.parent() == to.parent()
+        && a != b
+        && a.to_string_lossy().to_lowercase() == b.to_string_lossy().to_lowercase()
+        && same_entry(from, to)
+}
+
+#[cfg(unix)]
+fn same_entry(a: &Path, b: &Path) -> bool {
+    use std::os::unix::fs::MetadataExt;
+    match (std::fs::symlink_metadata(a), std::fs::symlink_metadata(b)) {
+        (Ok(x), Ok(y)) => x.dev() == y.dev() && x.ino() == y.ino(),
+        _ => false,
+    }
+}
+
+#[cfg(windows)]
+fn same_entry(a: &Path, b: &Path) -> bool {
+    fn id(p: &Path) -> Option<(u32, u32, u32)> {
+        use std::os::windows::fs::OpenOptionsExt;
+        use std::os::windows::io::AsRawHandle;
+        use windows::Win32::Foundation::HANDLE;
+        use windows::Win32::Storage::FileSystem::{
+            GetFileInformationByHandle, BY_HANDLE_FILE_INFORMATION,
+        };
+        // No access rights needed to read the file id. BACKUP_SEMANTICS opens
+        // folders; OPEN_REPARSE_POINT opens a link itself, not its target.
+        let f = std::fs::OpenOptions::new()
+            .access_mode(0)
+            .custom_flags(0x0200_0000 | 0x0020_0000)
+            .open(p)
+            .ok()?;
+        let mut info = BY_HANDLE_FILE_INFORMATION::default();
+        // SAFETY: the handle is open for the whole call.
+        unsafe { GetFileInformationByHandle(HANDLE(f.as_raw_handle()), &mut info) }.ok()?;
+        Some((
+            info.dwVolumeSerialNumber,
+            info.nFileIndexHigh,
+            info.nFileIndexLow,
+        ))
+    }
+    matches!((id(a), id(b)), (Some(x), Some(y)) if x == y)
 }
 
 /// Copy a file, folder or symlink. Symlinks are recreated as links, never
@@ -726,9 +875,23 @@ pub fn read_text(path: String, max_bytes: usize) -> Result<String, String> {
     Ok(String::from_utf8_lossy(&buf).into_owned())
 }
 
+/// Write a text file. By default (New File and friends) the file must not
+/// exist yet: an existing path is refused atomically instead of emptied.
+/// `overwrite` is for saving over a file on purpose.
 #[tauri::command(async)]
-pub fn write_text(path: String, content: String) -> Result<(), String> {
-    std::fs::write(&path, content).map_err(|e| e.to_string())
+pub fn write_text(path: String, content: String, overwrite: Option<bool>) -> Result<(), String> {
+    use std::io::Write;
+    if overwrite.unwrap_or(false) {
+        return std::fs::write(&path, content).map_err(|e| e.to_string());
+    }
+    let mut file = std::fs::File::create_new(&path).map_err(|e| no_clobber_err(&path, e))?;
+    if let Err(e) = file.write_all(content.as_bytes()) {
+        // Don't leave a half-written new file behind.
+        drop(file);
+        let _ = std::fs::remove_file(&path);
+        return Err(e.to_string());
+    }
+    Ok(())
 }
 
 #[tauri::command(async)]
@@ -4309,5 +4472,159 @@ mod tests {
         assert_eq!(xdg_trash_files(Some(String::new()), home.clone()), fallback);
         assert_eq!(xdg_trash_files(Some("rel/data".into()), home), fallback);
         assert_eq!(xdg_trash_files(None, None), None);
+    }
+
+    fn read(p: &Path) -> String {
+        std::fs::read_to_string(p).unwrap()
+    }
+
+    #[test]
+    fn write_text_creates_but_never_empties_an_existing_file() {
+        let dir = temp_dir("writenew");
+        let p = dir.join("a.txt");
+        write_text(s(&p), "first".into(), None).unwrap();
+        assert_eq!(read(&p), "first");
+        let err = write_text(s(&p), "second".into(), None).unwrap_err();
+        assert_eq!(
+            err,
+            format!("\"a.txt\" already exists in {}", dir.display())
+        );
+        assert!(write_text(s(&p), "second".into(), Some(false)).is_err());
+        assert_eq!(read(&p), "first");
+        // A save replaces the file.
+        write_text(s(&p), "saved".into(), Some(true)).unwrap();
+        assert_eq!(read(&p), "saved");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn make_dir_refuses_an_existing_path_unless_all() {
+        let dir = temp_dir("mkdirnew");
+        let d = dir.join("sub");
+        make_dir(s(&d), None).unwrap();
+        std::fs::write(d.join("keep.txt"), "k").unwrap();
+        let err = make_dir(s(&d), None).unwrap_err();
+        assert_eq!(err, format!("\"sub\" already exists in {}", dir.display()));
+        std::fs::write(dir.join("file"), "f").unwrap();
+        assert!(make_dir(s(&dir.join("file")), None).is_err());
+        assert_eq!(read(&dir.join("file")), "f");
+        // `all` accepts an existing folder and creates missing parents.
+        make_dir(s(&d), Some(true)).unwrap();
+        make_dir(s(&dir.join("x/y/z")), Some(true)).unwrap();
+        assert!(dir.join("x/y/z").is_dir());
+        assert_eq!(read(&d.join("keep.txt")), "k");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn rename_entry_never_replaces_an_existing_target() {
+        let dir = temp_dir("renamenoclobber");
+        let a = dir.join("a.txt");
+        let b = dir.join("b.txt");
+        let folder = dir.join("folder");
+        std::fs::write(&a, "a").unwrap();
+        std::fs::write(&b, "b").unwrap();
+        std::fs::create_dir(&folder).unwrap();
+        std::fs::write(folder.join("inner.txt"), "i").unwrap();
+
+        let err = rename_entry(s(&a), s(&b)).unwrap_err();
+        assert_eq!(
+            err,
+            format!("\"b.txt\" already exists in {}", dir.display())
+        );
+        assert!(rename_entry(s(&a), s(&folder)).is_err());
+        assert!(rename_entry(s(&folder), s(&b)).is_err());
+        let empty = dir.join("empty");
+        std::fs::create_dir(&empty).unwrap();
+        assert!(rename_entry(s(&folder), s(&empty)).is_err());
+        assert_eq!(read(&a), "a");
+        assert_eq!(read(&b), "b");
+        assert_eq!(read(&folder.join("inner.txt")), "i");
+
+        // A free name still renames, and the same path is a no-op.
+        rename_entry(s(&a), s(&dir.join("c.txt"))).unwrap();
+        assert!(!a.exists());
+        assert_eq!(read(&dir.join("c.txt")), "a");
+        rename_entry(s(&b), s(&b)).unwrap();
+        assert_eq!(read(&b), "b");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn rename_entry_allows_a_case_only_rename() {
+        // On a case-insensitive file system (Windows CI's NTFS) the new name
+        // "exists" because it is the source; on a case-sensitive one it's free.
+        let dir = temp_dir("renamecase");
+        let from = dir.join("Readme.md");
+        let to = dir.join("README.md");
+        std::fs::write(&from, "r").unwrap();
+        rename_entry(s(&from), s(&to)).unwrap();
+        let names: Vec<String> = std::fs::read_dir(&dir)
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(names, ["README.md"]);
+        assert_eq!(read(&to), "r");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn rename_after_check_refuses_a_taken_name() {
+        // The fallback for file systems without RENAME_NOREPLACE, which
+        // ext4 and tmpfs never take, so it's tested directly.
+        let dir = temp_dir("renamefallback");
+        let a = dir.join("a");
+        let b = dir.join("b");
+        std::fs::write(&a, "a").unwrap();
+        std::fs::write(&b, "b").unwrap();
+        let err = rename_after_check(&a, &b).unwrap_err();
+        assert_eq!(err.kind(), std::io::ErrorKind::AlreadyExists);
+        assert_eq!(read(&b), "b");
+        rename_after_check(&a, &dir.join("c")).unwrap();
+        assert_eq!(read(&dir.join("c")), "a");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn case_only_self_rename_needs_the_same_entry() {
+        let dir = temp_dir("caseself");
+        // A hard link stands in for one entry seen under two cases on a
+        // case-insensitive file system: same inode, names differ in case.
+        let foo = dir.join("Foo");
+        std::fs::write(&foo, "f").unwrap();
+        std::fs::hard_link(&foo, dir.join("foo")).unwrap();
+        assert!(is_case_only_self_rename(&foo, &dir.join("foo")));
+        // Same entry, but the names differ by more than case.
+        std::fs::hard_link(&foo, dir.join("other")).unwrap();
+        assert!(!is_case_only_self_rename(&foo, &dir.join("other")));
+        // Two different files in a case-sensitive folder.
+        std::fs::write(dir.join("Bar"), "1").unwrap();
+        std::fs::write(dir.join("bar"), "2").unwrap();
+        let (upper, lower) = (dir.join("Bar"), dir.join("bar"));
+        assert!(!is_case_only_self_rename(&upper, &lower));
+        let err = rename_after_check(&upper, &lower).unwrap_err();
+        assert_eq!(err.kind(), std::io::ErrorKind::AlreadyExists);
+        assert_eq!(read(&dir.join("bar")), "2");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(any(target_os = "linux", windows))]
+    #[test]
+    fn rename_uses_the_atomic_primitive_here() {
+        // AlreadyExists rather than Unsupported from the primitive itself:
+        // renameat2 / MoveFileExW work on this file system, so rename_entry
+        // never takes the check-then-rename fallback here.
+        let dir = temp_dir("primitive");
+        let a = dir.join("a");
+        let b = dir.join("b");
+        std::fs::write(&a, "a").unwrap();
+        std::fs::write(&b, "b").unwrap();
+        let err = rename_no_replace_os(&a, &b).unwrap_err();
+        assert_eq!(err.kind(), std::io::ErrorKind::AlreadyExists, "{}", err);
+        assert_eq!(read(&b), "b");
+        rename_no_replace_os(&a, &dir.join("c")).unwrap();
+        assert_eq!(read(&dir.join("c")), "a");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
