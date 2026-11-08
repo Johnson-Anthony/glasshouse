@@ -1742,7 +1742,6 @@ export function App() {
             firstPath,
             firstEntry,
             dispatch: (l: string) => handleMenuCommandRef.current(l),
-            openPalette: () => setPalOpen(true),
             openAbout: () => setAboutOpen(true),
             toggleSidebar: () => setShowSidebar(v => !v),
             toggleStatusBar: () => setShowStatusBar(v => !v),
