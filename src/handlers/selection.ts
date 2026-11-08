@@ -85,8 +85,7 @@ export const selectionHandler: Handler = async (label, ctx) => {
       });
       return true;
     }
-    case "Select by Extension →":
-    case "Select by Extension": {
+    case "Select by Extension →": {
       // Gather the set of extensions actually present in the current view so
       // we can surface them as hint text — avoids the user typing a
       // non-existent extension and wondering why nothing happened.

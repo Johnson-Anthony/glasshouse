@@ -708,8 +708,8 @@ export function App() {
         if (k === "l") { e.preventDefault(); dispatch("Go to Path…"); return; }
         if (k === "[") { e.preventDefault(); dispatch("Previous Location"); return; }
         if (k === "]") { e.preventDefault(); dispatch("Next Location"); return; }
-        if (k >= "1" && k <= "6") {
-          const modes = ["Details (rows)", "Compact List", "Icons", "Tiles", "Grid (thumbs)", "Tree Flat"];
+        if (k >= "1" && k <= "7") {
+          const modes = ["Details (rows)", "Compact List", "Icons", "Tiles", "Grid (thumbs)", "Tree Flat", "Miller Columns (ranger)"];
           e.preventDefault(); dispatch(modes[Number(k) - 1]); return;
         }
       }
@@ -937,8 +937,7 @@ export function App() {
             void dialogs.showToast({ message: `connecting to ${r.label}…`, variant: "info" });
             return;
           }
-          case "Edit…":
-          case "Edit": {
+          case "Edit…": {
             contextTarget = null;
             setManageRemotesOpen(true);
             return;
@@ -960,7 +959,6 @@ export function App() {
             })();
             return;
           }
-          case "Manage Remotes":
           case "Manage Remotes…":
             contextTarget = null;
             setManageRemotesOpen(true);
@@ -1039,9 +1037,7 @@ export function App() {
             })();
             return;
           }
-          case "Move to…":
-          case "Move to":
-          case "Move To…": {
+          case "Move to…": {
             contextTarget = null;
             void (async () => {
               const home = await homeDir();
@@ -1108,9 +1104,6 @@ export function App() {
             return;
           }
           case "Add Tag…":
-          case "Add Tag":
-          case "Tag":
-          case "Tag →":
             contextTarget = null;
             setTagPickerPath(target);
             return;
@@ -1139,40 +1132,23 @@ export function App() {
       }
     }
     switch (label) {
-      case "Toggle Drawer":
-      case "Terminal Drawer": {
+      case "Toggle Drawer": {
         setTermOpen(v => !v);
         return;
       }
-      case "Open Terminal Here": {
-        const cwd = activeHandle?.state.path;
-        if (cwd) void spawnTerminal(cwd);
-        return;
-      }
       case "Command Palette":
-      case "Palette":
         setPalOpen(v => !v); return;
       case "Keybindings Cheatsheet":
-      case "Keybinding Cheatsheet":
-      case "Keybindings":
-      case "Keybindings…":
-      case "Cheatsheet":
-      case "Shortcuts":
         setCheatsheetOpen(true); return;
       case "Find in Files":
         setShowFindModal(true); return;
       case "Tweaks":
       case "Preferences…":
-      case "Preferences":
-      case "Settings":
         setTweaksOpen(v => !v); return;
-      case "Manage Bookmarks":
       case "Manage Bookmarks…":
         setBookmarkManagerOpen(true); return;
-      case "Manage Remotes":
       case "Manage Remotes…":
         setManageRemotesOpen(true); return;
-      case "Connect to Server":
       case "Connect to Server…":
         setConnectOpen(true); return;
       case "New Tab":
@@ -1198,24 +1174,19 @@ export function App() {
       case "Full Screen":
         void winToggleMaximize(); return;
       case "Refresh":
-      case "Reload":
         activeHandle?.actions.refresh(); return;
       case "Back":
         activeHandle?.actions.back(); return;
       case "Forward":
         activeHandle?.actions.forward(); return;
       case "Up":
-      case "Up one level":
       case "Open Parent":
         activeHandle?.actions.up(); return;
       case "Toggle Hidden Files":
-      case "Show Hidden":
       case "Show Hidden Files":
         setState(prev => ({ ...prev, hidden: !prev.hidden })); return;
       case "Inspector":
-      case "Toggle Inspector":
         setShowInspector(v => !v); return;
-      case "Switch Theme":
       case "Switch Theme →": {
         const i = THEMES.indexOf(state.theme);
         const next = THEMES[(i < 0 ? 0 : i + 1) % THEMES.length];
@@ -1264,8 +1235,7 @@ export function App() {
           else await openWithDefault(firstEntry.path);
           return;
         }
-        case "Add Bookmark":
-        case "Pin to Sidebar": {
+        case "Add Bookmark": {
           const targets = selectedPaths.length > 0
             ? selectedPaths
             : (firstPath ? [firstPath] : []);
@@ -1291,11 +1261,6 @@ export function App() {
             ? `pinned ${basename(added[0])}`
             : `pinned ${added.length} items`;
           dialogs.showToast({ message: msg, variant: "success" });
-          return;
-        }
-        case "Open With →":
-        case "Open With…": {
-          if (firstPath) await openWithDefault(firstPath);
           return;
         }
         case "Rename": {
@@ -1329,7 +1294,6 @@ export function App() {
           refresh();
           return;
         }
-        case "Bulk Rename":
         case "Bulk Rename…": {
           const items: BulkRenameItem[] = st.selected
             .map(i => st.entries[i])
@@ -1339,7 +1303,6 @@ export function App() {
           setBulkRenameItems(items);
           return;
         }
-        case "Delete":
         case "Delete Permanently": {
           if (selectedPaths.length === 0) return;
           const ok = await dialogs.showConfirm({
@@ -1407,7 +1370,6 @@ export function App() {
           reportTransfer(res, xop);
           return;
         }
-        case "Paste Special":
         case "Paste Special…": {
           if (!appClipboard || appClipboard.paths.length === 0) {
             console.warn("[paste-special] clipboard is empty");
@@ -1439,7 +1401,6 @@ export function App() {
           refresh();
           return;
         }
-        case "New File":
         case "Text File": {
           const taken = await namesIn(cwd);
           const name = await dialogs.showPrompt({
@@ -1534,8 +1495,7 @@ export function App() {
           }
           return;
         }
-        case "Reveal in Explorer":
-        case "Reveal in Tree": {
+        case "Reveal in Explorer": {
           if (firstPath) await revealInExplorer(firstPath);
           return;
         }
@@ -1552,16 +1512,12 @@ export function App() {
           await navigator.clipboard.writeText(wsl);
           return;
         }
-        case "Tag":
-        case "Tag →":
-        case "Add Tag…":
-        case "Add Tag": {
+        case "Add Tag…": {
           if (!firstPath) return;
           setTagPickerPath(firstPath);
           return;
         }
-        case "Remove Tag…":
-        case "Remove Tag": {
+        case "Remove Tag…": {
           if (!firstPath) return;
           const existing = tagStore[firstPath] ?? [];
           if (existing.length === 0) return;
@@ -1586,8 +1542,7 @@ export function App() {
           });
           return;
         }
-        case "Clear All Tags":
-        case "Remove All Tags": {
+        case "Clear All Tags": {
           const targets = selectedPaths.length > 0
             ? selectedPaths
             : (firstPath ? [firstPath] : []);
@@ -1612,9 +1567,7 @@ export function App() {
           refresh();
           return;
         }
-        case "Compress to ZIP…":
-        case "Compress →":
-        case "Compress": {
+        case "Compress to ZIP…": {
           // Use the current multi-selection; if empty, fall back to a single
           // firstPath if one exists (e.g. chip-only context with one active).
           const active: string[] = selectedPaths.length > 0
@@ -1660,9 +1613,7 @@ export function App() {
           }
           return;
         }
-        case "Move to…":
-        case "Move to":
-        case "Move To…": {
+        case "Move to…": {
           if (selectedPaths.length === 0) return;
           const home = await homeDir();
           const initial = cwd || home || undefined;
