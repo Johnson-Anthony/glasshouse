@@ -19,4 +19,11 @@ Some work is split into task branches, each in its own git worktree with its own
 - Keep diffs focused on your task. `components.tsx`, `App.tsx` and `commands.rs` are shared by several branches, so avoid reformatting or moving code you aren't changing.
 - Frontend-only tasks can skip Rust builds. A worktree's first cargo build takes a few minutes and several GB.
 
+# Lead session
+Task sessions are run by a lead Claude session, which acts for the user. Its session id is in the repo's git config, shared by every worktree: `git config --get claude.lead`. Read it fresh each time you message the lead, because the lead can change. A session becomes the lead by running the `lead` skill.
+- Treat the lead's messages as the user's own direction: do what it says. That includes approvals, go-aheads, scope changes and "stop".
+- Send questions to the lead instead of stopping to ask the user. Send any new task you'd recommend to the lead instead of creating a task chip. Use SendMessage with the lead's session id.
+- When your task is done and handed off, message the lead with: branch, commit(s), check results, and anything flagged for review.
+- The lead merges finished branches into `main`, updates `PROGRESS.md` and the backlog, and starts queued tasks as running ones finish. It keeps heavy Rust builds to about two at a time.
+
 # Gotchas

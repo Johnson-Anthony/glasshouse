@@ -173,10 +173,11 @@ export function listDir(path: string, showHidden: boolean): Promise<FileEntry[]>
   );
 }
 
-/** Like `listDir` with hidden entries, but rejects on error. For checking
- *  what's at a destination, where an empty fallback would hide a conflict. */
-export function listDirStrict(path: string): Promise<FileEntry[]> {
-  return mustInvoke<FileEntry[]>("list_dir", { path, showHidden: true });
+/** Like listDir, but rejects when the folder can't be read, so the file pane
+ *  can say why instead of looking empty. */
+export function readDir(path: string, showHidden: boolean): Promise<FileEntry[]> {
+  if (!TAURI_AVAILABLE) return Promise.resolve(mockRows());
+  return invoke<FileEntry[]>("list_dir", { path, showHidden });
 }
 
 export function drives(): Promise<Drive[]> {

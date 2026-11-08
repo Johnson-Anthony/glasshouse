@@ -1,6 +1,6 @@
 // The app's side of transfer.ts: the real fs calls, the conflict question,
 // and the toasts and undo entries every copy/move-into-a-folder shares.
-import { copyEntry, deleteEntry, listDirStrict, moveEntry, moveToTrash } from "./api";
+import { copyEntry, deleteEntry, moveEntry, moveToTrash, readDir } from "./api";
 import { dialogs } from "./components";
 import { IS_WINDOWS } from "./platform";
 import { pushUndo } from "./state";
@@ -17,7 +17,8 @@ import {
 /** Copy/move into a folder goes through runTransfer with these, so nothing
  *  lands on an existing name (or on itself) without the user choosing. */
 export const transferDeps: TransferDeps = {
-  list: listDirStrict,
+  // readDir rejects on error, so an unreadable destination aborts.
+  list: (dir) => readDir(dir, true),
   ask: async (names, dstDir) => {
     const id = await dialogs.showChoice({
       title: "already exists",
@@ -41,7 +42,7 @@ export const transferDeps: TransferDeps = {
 export function reportTransfer(res: TransferResult, op: TransferOp, onlyIfNotable = false) {
   const clean = res.skipped.length + res.failed.length + res.replaced.length === 0;
   if (!(onlyIfNotable && clean)) dialogs.showToast(summarize(res, op, IS_WINDOWS));
-  const details = failureDetails(res);
+  const details = failureDetails(res, IS_WINDOWS);
   if (details) {
     void dialogs.showAlert({ title: `${op} failed`, variant: "error", message: details });
   }

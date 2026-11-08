@@ -1,7 +1,8 @@
 import type { Handler, HandlerCtx } from "./types";
 import { dialogs } from "../components";
 import { IS_WINDOWS } from "../platform";
-import { basename, joinPath } from "../paths";
+import { basename, joinPath, parentPath } from "../paths";
+import { getVersion } from "@tauri-apps/api/app";
 import { failureDetails, runTransfer, summarize } from "../transfer";
 import { asItems, pushTransferUndo, transferDeps } from "../transferUi";
 import {
@@ -18,6 +19,8 @@ import {
   writeTags,
   hashSha256,
 } from "../api";
+const REPO_URL = "https://github.com/Johnson-Anthony/glasshouse";
+
 async function createFileAt(ctx: HandlerCtx, name: string, body: string): Promise<void> {
   const path = joinPath(ctx.cwd, name);
   await writeText(path, body);
@@ -160,36 +163,38 @@ export const miscHandler: Handler = async (label, ctx) => {
       return true;
 
     case "Documentation":
-      await openUrl("https://github.com/anthony/glasshouse#readme");
+      await openUrl(`${REPO_URL}#readme`);
       return true;
 
     case "Release Notes":
-      await openUrl("https://github.com/anthony/glasshouse/releases");
+      await openUrl(`${REPO_URL}/releases`);
       return true;
 
-    case "Check for Updates":
-      await dialogs.showAlert({ title: "check for updates", message: "Current version: 0.0.1. Opening releases page…", variant: "info" });
-      await openUrl("https://github.com/anthony/glasshouse/releases");
+    case "Check for Updates": {
+      const version = await getVersion().catch(() => "unknown");
+      await dialogs.showAlert({ title: "check for updates", message: `Current version: ${version}. Opening releases page…`, variant: "info" });
+      await openUrl(`${REPO_URL}/releases`);
       return true;
+    }
 
     case "Report Bug":
     case "Report Bug…":
-      await openUrl("https://github.com/anthony/glasshouse/issues/new");
+      await openUrl(`${REPO_URL}/issues/new`);
       return true;
 
-    case "Export Layout (.ricerc)": {
+    case "Export Layout (.glasshouserc)": {
       // Snapshot every persisted UI preference (tweaks, display mode, layout,
-      // zoom, sidebar/tree prefs — all live under these two prefixes).
+      // zoom, sidebar/tree prefs — all live under this prefix).
       const settings: Record<string, string> = {};
       for (let i = 0; i < localStorage.length; i++) {
         const k = localStorage.key(i);
         if (!k) continue;
-        if (k.startsWith("glasshouse.") || k.startsWith("rice.")) {
+        if (k.startsWith("glasshouse.")) {
           const v = localStorage.getItem(k);
           if (v != null) settings[k] = v;
         }
       }
-      const target = joinPath(ctx.cwd, ".ricerc");
+      const target = joinPath(ctx.cwd, ".glasshouserc");
       const body = JSON.stringify({ version: 2, settings }, null, 2);
       await writeText(target, body);
       dialogs.showToast({
@@ -200,11 +205,11 @@ export const miscHandler: Handler = async (label, ctx) => {
       return true;
     }
 
-    case "Import Layout (.ricerc)": {
+    case "Import Layout (.glasshouserc)": {
       const sel = ctx.firstPath;
-      const source = sel && basename(sel).toLowerCase() === ".ricerc"
+      const source = sel && basename(sel).toLowerCase() === ".glasshouserc"
         ? sel
-        : joinPath(ctx.cwd, ".ricerc");
+        : joinPath(ctx.cwd, ".glasshouserc");
       let parsed: unknown;
       try {
         parsed = JSON.parse(await readText(source, 1_000_000));
@@ -221,14 +226,13 @@ export const miscHandler: Handler = async (label, ctx) => {
       const entries = settings && typeof settings === "object"
         ? Object.entries(settings as Record<string, unknown>).filter(
             ([k, v]) =>
-              (k.startsWith("glasshouse.") || k.startsWith("rice.")) &&
-              typeof v === "string",
+              k.startsWith("glasshouse.") && typeof v === "string",
           )
         : [];
       if (entries.length === 0) {
         await dialogs.showAlert({
           title: "import layout",
-          message: `${source} has no importable settings (expected a v2 .ricerc export)`,
+          message: `${source} has no importable settings (expected a v2 .glasshouserc export)`,
           variant: "error",
         });
         return true;
@@ -394,7 +398,7 @@ export const miscHandler: Handler = async (label, ctx) => {
         message: `${sum.message}, ${verified} verified via SHA256`,
         variant: verified < res.done.length ? "warning" : sum.variant,
       });
-      const details = failureDetails(res);
+      const details = failureDetails(res, IS_WINDOWS);
       if (details) void dialogs.showAlert({ title: "copy failed", variant: "error", message: details });
       ctx.refresh();
       return true;
@@ -422,8 +426,7 @@ export const miscHandler: Handler = async (label, ctx) => {
         dialogs.showToast({ message: "clipboard text is empty", variant: "info" });
         return true;
       }
-      const dir = target.slice(0, Math.max(target.lastIndexOf("/"), target.lastIndexOf("\\")));
-      const dest = joinPath(dir, name);
+      const dest = joinPath(parentPath(target), name);
       await renameEntry(target, dest);
       ctx.refresh();
       return true;

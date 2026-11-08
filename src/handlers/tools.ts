@@ -1,6 +1,8 @@
 import type { Handler } from "./types";
 import { dialogs } from "../components";
 import { IS_WINDOWS } from "../platform";
+import { parseOctalMode } from "../octal";
+import { joinPath } from "../paths";
 import {
   hashSha256,
   findInFiles,
@@ -17,13 +19,6 @@ import {
 } from "../api";
 import { runTransfer, type TransferItem } from "../transfer";
 import { transferDeps } from "../transferUi";
-
-function joinToolPath(dir: string, name: string): string {
-  if (!dir) return name;
-  const sep = dir.includes("\\") && !dir.includes("/") ? "\\" : "/";
-  const trimmed = dir.replace(/[\\/]+$/, "");
-  return trimmed + sep + name;
-}
 
 const clipboardStack: string[][] = [];
 
@@ -325,7 +320,7 @@ export const toolsHandler: Handler = async (label, ctx) => {
       }
       let moved = 0;
       for (const [sub, items] of bySub) {
-        const targetDir = joinToolPath(ctx.cwd, sub);
+        const targetDir = joinPath(ctx.cwd, sub);
         try {
           await makeDir(targetDir);
         } catch (e) {
@@ -454,13 +449,12 @@ export const toolsHandler: Handler = async (label, ctx) => {
         placeholder: "755",
         validate: (v) => {
           if (!v.trim()) return "mode required";
-          const n = parseInt(v.trim(), 8);
-          return Number.isFinite(n) ? null : "invalid octal (e.g. 644, 755)";
+          return parseOctalMode(v) == null ? "invalid octal (e.g. 644, 755)" : null;
         },
       });
       if (modeStr == null || modeStr.trim() === "") return true;
-      const mode = parseInt(modeStr.trim(), 8);
-      if (!Number.isFinite(mode)) {
+      const mode = parseOctalMode(modeStr);
+      if (mode == null) {
         void dialogs.showAlert({ title: "invalid", variant: "error", message: `invalid octal mode: ${modeStr}` });
         return true;
       }

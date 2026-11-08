@@ -1,7 +1,7 @@
 [package]
 name = "glasshouse"
 version = "0.1.0"
-description = "glasshouse — a riced-out Windows file manager"
+description = "Desktop file manager for Windows and Linux"
 authors = ["Anthony Johnson"]
 edition = "2021"
 rust-version = "1.77"

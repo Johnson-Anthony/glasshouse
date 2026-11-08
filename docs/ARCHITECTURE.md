@@ -20,7 +20,7 @@ Snapshot from the 2026-11-08 survey. Line numbers will drift, so search by name.
 | `src-tauri/capabilities/default.json` | Plugin permissions (fs, shell, dialog, os, opener) |
 
 ## Frontend
-- **State:** there's no store or reducer. `App()` holds about 45 `useState` hooks, and display tweaks persist in `localStorage["rice.tweaks"]`.
+- **State:** there's no store or reducer. `App()` holds about 45 `useState` hooks, and display tweaks persist in `localStorage["glasshouse.tweaks"]`.
   - Each tab is a headless `<TabShell>` running `useTabState` and passing `{state, actions}` up into `tabHandles`.
   - Clipboard, context target, undo stacks, the `dialogs` API and the git cwd are module-level variables.
   - Components also signal each other with window events (`glasshouse:*`) and attributes on `<html>`.

@@ -496,6 +496,23 @@ html, body {
   overflow-y: auto;
   font-feature-settings: "tnum";
 }
+/* Shown instead of rows: empty folder, first load, or a listing error. */
+.pane-notice {
+  grid-column: 1 / -1;
+  padding: 18px 20px;
+  font-size: 12px;
+  color: var(--fg-3);
+}
+.pane-notice.error {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: var(--red);
+}
+.pane-notice.error span {
+  color: var(--fg-2);
+  overflow-wrap: anywhere;
+}
 .row {
   display: grid;
   grid-template-columns: 24px 2fr 1fr 100px 120px 80px;
@@ -1505,6 +1522,7 @@ html[data-display-mode="tiles"] .pane .pane-head {
 }
 .miller .mrow.hilite { color: var(--accent); }
 .miller .mrow.dim { color: var(--fg-3); }
+.miller .mrow.merror { color: var(--red); }
 .miller .mic { color: var(--fg-3); width: 12px; flex: none; }
 .miller .mname { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .miller .msize { margin-left: auto; color: var(--fg-3); font-size: 11px; flex: none; }

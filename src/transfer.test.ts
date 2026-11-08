@@ -160,6 +160,13 @@ describe("planSteps", () => {
   });
 });
 
+describe("planSteps off Windows", () => {
+  it("treats a backslash as part of the name", () => {
+    expect(planSteps([{ path: "/d/a\\b.txt" }], "/d", [file("a\\b.txt")], "copy", "keep-both", false))
+      .toEqual([{ action: "transfer", src: "/d/a\\b.txt", dst: "/d/a\\b (copy).txt" }]);
+  });
+});
+
 describe("findConflicts", () => {
   it("lists only names held by a different item", () => {
     const items = [{ path: "/d/a.txt" }, { path: "/src/b.txt" }, { path: "/src/c.txt" }, { path: "/src/b.txt" }];

@@ -5,7 +5,10 @@
 // already used, a one-time question when a different item has the name, and
 // a skip for folders pasted into themselves.
 // Policy notes: docs/decisions/2026-11-08-paste-conflicts-policy.md
-import { basename, joinPath, parentPath } from "./paths";
+import { pathOps } from "./paths";
+
+// Path rules follow the `windows` flag each entry point is given (the app
+// passes IS_WINDOWS), so both flavors can be tested on any host.
 
 export type TransferOp = "copy" | "move";
 export type ConflictPolicy = "keep-both" | "replace" | "skip";
@@ -80,17 +83,12 @@ export function pickFreeName(
 
 // ---------- paths ----------
 
-/** Comparison key. Windows: case-insensitive and either separator. */
-function pathKey(p: string, windows: boolean): string {
-  const k = windows ? p.replace(/\\/g, "/").toLowerCase() : p;
-  return k.replace(/\/+$/, "");
-}
-
 /** True if `child` is `parent` or somewhere below it. */
 export function isInside(child: string, parent: string, windows: boolean): boolean {
-  const c = pathKey(child, windows);
-  const p = pathKey(parent, windows);
-  return c === p || c.startsWith(p + "/");
+  const { normalizePath } = pathOps(windows);
+  const c = normalizePath(child);
+  const p = normalizePath(parent);
+  return c === p || c.startsWith(p + (windows ? "\\" : "/"));
 }
 
 // ---------- planning ----------
@@ -107,9 +105,10 @@ function classify(
   key: (n: string) => string,
   windows: boolean,
 ): Classified {
+  const { basename, normalizePath, parentPath } = pathOps(windows);
   const name = basename(item.path);
   if (isInside(dstDir, item.path, windows)) return { kind: "into-itself", name };
-  if (pathKey(parentPath(item.path), windows) === pathKey(dstDir, windows)) {
+  if (normalizePath(parentPath(item.path)) === normalizePath(dstDir)) {
     return { kind: "same-place", name };
   }
   return { kind: onDisk.has(key(name)) ? "conflict" : "free", name };
@@ -149,6 +148,7 @@ export function planSteps(
   policy: ConflictPolicy,
   windows: boolean,
 ): TransferStep[] {
+  const { joinPath } = pathOps(windows);
   const key = (n: string) => (windows ? n.toLowerCase() : n);
   const onDisk = indexListing(existing, key);
   // Names this batch has already sent something to.
@@ -251,6 +251,7 @@ export async function runTransfer(
     return res;
   }
   if (!steps) return null;
+  const { basename } = pathOps(deps.windows);
   for (const s of steps) {
     if (s.action === "skip") { res.skipped.push({ src: s.src, reason: s.reason }); continue; }
     if (s.replace) {
@@ -282,7 +283,7 @@ const countItems = (n: number) => `${n} item(s)`;
 
 /** Text for the conflict question. */
 export function conflictMessage(names: string[], dstDir: string, windows: boolean): string {
-  const where = basename(dstDir) || dstDir;
+  const where = pathOps(windows).basename(dstDir) || dstDir;
   const trash = windows ? "Recycle Bin" : "Trash";
   if (names.length === 1) {
     return `"${names[0]}" already exists in ${where}.\n\n` +
@@ -323,8 +324,9 @@ export function summarize(
 }
 
 /** Alert text listing failures, or null when nothing failed. */
-export function failureDetails(res: TransferResult): string | null {
+export function failureDetails(res: TransferResult, windows: boolean): string | null {
   if (res.failed.length === 0) return null;
+  const { basename } = pathOps(windows);
   const lines = res.failed.slice(0, 5).map(f => `${basename(f.src)}: ${f.error}`);
   if (res.failed.length > 5) lines.push(`…and ${res.failed.length - 5} more`);
   return lines.join("\n");
