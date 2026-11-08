@@ -198,6 +198,7 @@ Turn the GitHub Pages site (`docs/index.html`) into an interactive showcase that
   - the terminal drawer, tabs, git sidebar, Quick Look and the paste-conflict dialog shown in motion.
 - **Constraints:**
   - Pages serves `main:/docs` with the legacy Jekyll build, and `docs/_config.yml` keeps SPEC/ARCHITECTURE/plans/decisions off the site; keep that working.
+  - `docs/.nojekyll` was removed on `main` so the Jekyll build runs and applies those excludes. Don't add it back, and don't start any site file or folder name with `_`, because Jekyll skips those.
   - It must be a static site. If it needs a build step, either commit the built output under `docs/` or *propose* moving Pages to a GitHub Actions deployment. That's a repo setting, so propose it to the lead rather than making it.
   - It must work on phones, respect `prefers-reduced-motion`, and keep page weight sensible (lazy-load media).
 - The site goes live only when the lead pushes `main` with the user's OK.
