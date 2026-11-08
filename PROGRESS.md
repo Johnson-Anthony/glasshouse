@@ -34,7 +34,7 @@
   - It also removed three menu toggles that did nothing: Show Ignored, Show Checksums and Browse archive in place (see `docs/decisions/2026-11-08-dead-code-toggles.md`).
   - Select by Tag now works, and themes come from one list.
   - `pnpm check:wiring` (the reworked `scripts/audit-wiring.mjs`) runs in CI and fails on unhandled, shadowed or no-op menu labels.
-  - The Rust part (unused commands and dependencies, shared hash loop, `rust-version`) waits for command-security.
+  - The Rust part merged later the same day (see above).
 - 2026-11-08: Merged `linux-parity`:
   - symlinked folders list and sort as folders;
   - Reveal selects the item via FileManager1 D-Bus;
@@ -52,7 +52,7 @@
 - 2026-11-08: Set up as a long-running project (CLAUDE.md, PROGRESS.md, docs/SPEC.md, docs/ARCHITECTURE.md, plans/decisions folders). Linux arm64 build env set up (see `~/.claude/environment.md`); the release build is linked into the fuzzel launcher. The codebase survey is the backlog in `docs/plans/active/survey-fixes.md`.
 
 ## In progress
-- `pages-site`: the Pages site becomes an interactive showcase of the app (big project; spec in `docs/plans/active/pages-site.md` on its branch).
+- `pages-site`: the Pages site becomes an interactive showcase of the app (big project). All milestones are done on its branch (hero per theme, theme picker, six recorded clips, live browser demo of the real UI). It's being rebased onto current main and rebuilt before merge.
 - Survey-fix pass: 12 tasks, each in its own worktree session, run a few at a time by the lead session. Per-task scope and status are in `docs/plans/active/survey-fixes.md`; each session keeps its detail in `docs/plans/active/<task>.md` on its branch.
 
 ## Next

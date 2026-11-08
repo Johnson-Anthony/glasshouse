@@ -30,7 +30,7 @@ Line numbers are from commit `14c68bd` and drift, so search by name. Items marke
 | unsent-labels | frontend | **merged** (8828d97) |
 | test-coverage | both | queued |
 | presentation | docs + small code | **merged**; GitHub text awaits the user |
-| pages-site | site (big project) | running (presentation session; added by the user) |
+| pages-site | site (big project) | done on branch; merging main and rebuilding the demo before merge |
 | split-big-files | both | **wait until all the others are merged** |
 
 Merge order is the table order: small, contained fixes go first, and broad changes go last, so the broad ones absorb the conflicts.
