@@ -1,7 +1,7 @@
 import type { Handler, HandlerCtx } from "./types";
 import { dialogs } from "../components";
 import { IS_WINDOWS } from "../platform";
-import { basename, joinPath } from "../paths";
+import { basename, joinPath, parentPath } from "../paths";
 import {
   makeDir,
   writeText,
@@ -420,8 +420,7 @@ export const miscHandler: Handler = async (label, ctx) => {
         dialogs.showToast({ message: "clipboard text is empty", variant: "info" });
         return true;
       }
-      const dir = target.slice(0, Math.max(target.lastIndexOf("/"), target.lastIndexOf("\\")));
-      const dest = joinPath(dir, name);
+      const dest = joinPath(parentPath(target), name);
       await renameEntry(target, dest);
       ctx.refresh();
       return true;

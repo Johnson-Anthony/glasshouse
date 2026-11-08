@@ -1640,7 +1640,7 @@ export function App() {
             ? selectedPaths
             : (firstPath ? [firstPath] : []);
           if (active.length === 0) return;
-          const baseName = basename(active[0]).replace(/[\\/]+$/, "") || "archive";
+          const baseName = basename(active[0]) || "archive";
           const defaultName = `${baseName}.zip`;
           const entered = await dialogs.showPrompt({
             title: "compress to ZIP",
@@ -2055,9 +2055,7 @@ export function App() {
     let failed = 0;
     void (async () => {
       for (const src of srcPaths) {
-        const sep = dstDir.includes("\\") ? "\\" : "/";
-        const base = src.split(/[\\/]/).pop() ?? "";
-        const dst = dstDir.replace(/[\\/]+$/, "") + sep + base;
+        const dst = joinPath(dstDir, basename(src));
         if (src === dst) continue;
         try {
           if (copy) { await copyEntry(src, dst); copied.push(dst); }
