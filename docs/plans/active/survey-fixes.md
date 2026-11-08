@@ -25,7 +25,8 @@ Line numbers are from commit `14c68bd` and drift, so search by name. Items marke
 | notices-screen | frontend, small | queued (found by font-licenses) |
 | script-kill-tree | Rust, small | queued (found by command-security) |
 | async-commands | Rust | **merged** (9c3eefe) |
-| pty-writer | Rust, small | running (async-commands session; found by async-commands) |
+| pty-writer | Rust, small | **merged** (16293b0) |
+| pty-drain | Rust, small, low priority | queued (found by pty-writer) |
 | op-progress | both | queued; after dead-code's Rust part and split-big-files (found by async-commands) |
 | dead-code | both | **merged** (frontend d61379a, Rust 27340c6) |
 | unsent-labels | frontend | **merged** (8828d97) |
@@ -174,6 +175,10 @@ The frontend now checks names before creating or renaming, but a few millisecond
 - `pty_write` stays on the main thread so keystrokes arrive in order, but it can block there while a pty's input buffer is full. For example, pasting more than about 4 KB while a program that doesn't read stdin is running freezes the UI.
 - Fix: a writer thread per session in `pty.rs`, fed by a channel, so `pty_write` only enqueues. Keep the order, and drop the queue when the session exits.
 - Start after command-security merges, since it may change the pty command signatures.
+
+## pty-drain (Rust, small, low priority; found 2026-11-08 by pty-writer)
+- On unix, if a session ends while its pty input is full (a raw-mode program stopped reading and more than ~64 KB was queued), the kernel never wakes the blocked write. That writer thread, its pty and the queued bytes stay until the app exits. Before pty-writer, the same write hung the whole app.
+- Fix sketched in `docs/decisions/2026-11-08-pty-writer-queue.md`: in Drop, reopen the slave with `O_NOCTTY|O_NONBLOCK` and drain it until the write returns, plus a stop flag. `libc` is already a direct dependency (no-clobber-fs).
 
 ## op-progress (both; found 2026-11-08 by async-commands)
 - Long operations (hash, copy, find) send no progress and can't be cancelled.

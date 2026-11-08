@@ -1,6 +1,7 @@
 # Progress
 
 ## Done
+- 2026-11-08: Merged `pty-writer` (16293b0). `pty_write` only queues input for a writer thread per session, so a big paste into a raw-mode program that isn't reading no longer freezes the UI. Keystroke order is kept. See `docs/decisions/2026-11-08-pty-writer-queue.md`.
 - 2026-11-08: Merged `pages-site` (6f72fd7). It goes live on the next push of `main`.
   - The Pages site has a hero image of the real UI for each theme, and a theme picker that recolors the page and the demo.
   - Six recorded clips: terminal, tabs, git, Quick Look, paste conflicts, palette.
@@ -74,7 +75,7 @@
 
 ## Broken / known issues
 - Renames can still race where `renameat2(RENAME_NOREPLACE)` isn't available (non-Linux unix, NFS, older FUSE), which falls back to check-then-rename. no-clobber-fs's Windows code (`MoveFileExW`, file-id identity) is uncompiled until Windows CI.
-- `pty_write` can still block the main thread when a pty's input buffer is full, for example on a large paste into a program that isn't reading (task `pty-writer`).
+- Unix: if a terminal session ends while its pty input is full, its writer thread and pty stay until the app exits (task `pty-drain`). The UI isn't affected.
 - Windows is untested for the scoped git-label scan. If `list_dir_git_labels_scan_only_the_listed_folder` fails on Windows CI after the first push, the scan falls back to the whole repo there: labels stay correct, but the test needs adjusting.
 - **command-security's Windows code has never been compiled**; the first windows-latest CI run is its first build. Worth trying by hand on Windows:
   - open a URL with `&` in it;
