@@ -1,6 +1,7 @@
 # Progress
 
 ## Done
+- 2026-11-08: Merged `script-kill-tree` (1fd8435). When `run_script` times out, it kills the script's whole process tree (a process group on unix, a job object on Windows; `src-tauri/src/proc_tree.rs`). A script that exits normally leaves its background children alone. The Windows code was type-checked against the MSVC target, but its test first runs on CI.
 - 2026-11-08: Merged `pty-writer` (16293b0). `pty_write` only queues input for a writer thread per session, so a big paste into a raw-mode program that isn't reading no longer freezes the UI. Keystroke order is kept. See `docs/decisions/2026-11-08-pty-writer-queue.md`.
 - 2026-11-08: Merged `pages-site` (6f72fd7). It goes live on the next push of `main`.
   - The Pages site has a hero image of the real UI for each theme, and a theme picker that recolors the page and the demo.
@@ -81,5 +82,5 @@
   - open a URL with `&` in it;
   - Open in Terminal on a folder named `a&b;c`, with and without Windows Terminal;
   - Verify Signature on a file named with a curly apostrophe (`Tom’s.exe`).
-- `run_script` kills only the direct child at its 60 s timeout (task `script-kill-tree`). Saved ssh remotes are limited to ASCII host names.
+- Saved ssh remotes are limited to ASCII host names. A timed-out script's tree is hard-killed with no grace period, and processes that `setsid` out of its group aren't reached.
 - `origin/feature` has one unmerged commit from April, `ddb5466` (14 files, +2470/-492, merge base 23 commits behind `main`, so it won't merge cleanly). It contains: a Windows terminal-launch probe (`terminal_probe.rs`, HKCU DelegationTerminal, wt/DelegatedConsole), a menubar outside-click fix, and assorted polish (terminal drawer, themed dialogs, sidebar keyboard/drag-and-drop, remote manager, private tabs, About). Its "drive label dedup" is one Sidebar line, which `linux-parity` ports. The rest is undecided: cherry-pick parts or drop it.

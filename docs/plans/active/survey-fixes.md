@@ -11,7 +11,7 @@ Line numbers are from commit `14c68bd` and drift, so search by name. Items marke
 | paste-conflicts | frontend | **merged** (2b26099) |
 | create-rename-conflicts | frontend | **merged** (ebd1571) |
 | no-clobber-fs | Rust, small | **merged** (7970a86) |
-| link-display | both, low priority | queued (found by linux-parity) |
+| link-display | both, low priority | running (linux-parity session) |
 | ui-fixes | frontend | **merged** (dfe77ca) |
 | tab-state | frontend | **merged** (971da66) |
 | undo-redo | frontend | **merged** (e1b7067) |
@@ -23,7 +23,7 @@ Line numbers are from commit `14c68bd` and drift, so search by name. Items marke
 | local-fonts | frontend, small | **merged** (ff0327c) |
 | font-licenses | assets, small | **merged** (19e7dd0) |
 | notices-screen | frontend, small | running (backend-bugs session) |
-| script-kill-tree | Rust, small | running (command-security session) |
+| script-kill-tree | Rust, small | **merged** (1fd8435) |
 | async-commands | Rust | **merged** (9c3eefe) |
 | pty-writer | Rust, small | **merged** (16293b0) |
 | pty-drain | Rust, small, low priority | queued (found by pty-writer) |
