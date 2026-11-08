@@ -3420,7 +3420,7 @@ export interface BulkRenameDialogProps {
   onDone: () => void;
 }
 
-type CaseMode = "none" | "lower" | "upper" | "title";
+export type CaseMode = "none" | "lower" | "upper" | "title";
 
 function titleCase(s: string): string {
   return s.replace(/\w\S*/g, w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase());
@@ -3476,6 +3476,44 @@ function expandNumbering(s: string, seq: number): string {
   });
 }
 
+export interface BulkRenameOptions {
+  find: string;
+  replace: string;
+  prefix: string;
+  suffix: string;
+  numberEnabled: boolean;
+  numberStart: number;
+  caseMode: CaseMode;
+}
+
+/** The dialog's preview: each item's new name under `opts`. */
+export function bulkRenamePreview(items: BulkRenameItem[], opts: BulkRenameOptions): BulkRenamePlan[] {
+  const { find, replace, prefix, suffix, numberEnabled, numberStart, caseMode } = opts;
+  const { re, literal } = parseFind(find);
+  return items.map((it, idx) => {
+    const { base, ext } = splitName(it.name);
+    let next = base;
+    // 1. find / replace
+    if (re) {
+      try { next = next.replace(re, replace); } catch { /* bad regex */ }
+    } else if (literal) {
+      // Global literal replace — split/join.
+      next = next.split(literal).join(replace);
+    }
+    // 2. numbering token substitution in prefix/suffix/replace
+    const seq = numberEnabled ? numberStart + idx : 0;
+    if (numberEnabled) next = expandNumbering(next, seq);
+    const pfx = numberEnabled ? expandNumbering(prefix, seq) : prefix;
+    const sfx = numberEnabled ? expandNumbering(suffix, seq) : suffix;
+    // 3. prefix / suffix
+    next = pfx + next + sfx;
+    // 4. case transform (ext preserved verbatim)
+    next = applyCase(next, caseMode);
+    const finalName = next + ext;
+    return { path: it.path, from: it.name, to: finalName };
+  });
+}
+
 export function BulkRenameDialog({ items, onClose, renameOne, listNames, onDone }: BulkRenameDialogProps) {
   const [find, setFind] = useState("");
   const [replace, setReplace] = useState("");
@@ -3512,31 +3550,10 @@ export function BulkRenameDialog({ items, onClose, renameOne, listNames, onDone 
     return () => window.removeEventListener("keydown", h);
   }, [onClose, running]);
 
-  const preview = useMemo(() => {
-    const { re, literal } = parseFind(find);
-    return items.map((it, idx) => {
-      const { base, ext } = splitName(it.name);
-      let next = base;
-      // 1. find / replace
-      if (re) {
-        try { next = next.replace(re, replace); } catch { /* bad regex */ }
-      } else if (literal) {
-        // Global literal replace — split/join.
-        next = next.split(literal).join(replace);
-      }
-      // 2. numbering token substitution in prefix/suffix/replace
-      const seq = numberEnabled ? numberStart + idx : 0;
-      next = expandNumbering(next, seq);
-      const pfx = numberEnabled ? expandNumbering(prefix, seq) : prefix;
-      const sfx = numberEnabled ? expandNumbering(suffix, seq) : suffix;
-      // 3. prefix / suffix
-      next = pfx + next + sfx;
-      // 4. case transform (ext preserved verbatim)
-      next = applyCase(next, caseMode);
-      const finalName = next + ext;
-      return { path: it.path, from: it.name, to: finalName };
-    });
-  }, [items, find, replace, prefix, suffix, numberEnabled, numberStart, numberDigits, caseMode]);
+  const preview = useMemo(
+    () => bulkRenamePreview(items, { find, replace, prefix, suffix, numberEnabled, numberStart, caseMode }),
+    [items, find, replace, prefix, suffix, numberEnabled, numberStart, numberDigits, caseMode],
+  );
 
   // Problems by row: an invalid or duplicate name, or one already used by
   // something outside the batch.

@@ -554,3 +554,6 @@ mod writer_tests {
         assert!(g.input.send(b"d".to_vec()).is_err());
     }
 }
+
+#[cfg(all(test, unix))]
+mod output_tests;

@@ -27,8 +27,21 @@ pub fn watch_dir(
     state: State<'_, WatcherState>,
     path: String,
 ) -> Result<(), String> {
-    let pb = PathBuf::from(&path);
+    watch(&state, PathBuf::from(&path), move |dir| {
+        if let Err(e) = app.emit("fs-changed", dir) {
+            eprintln!("fs-changed emit failed: {}", e);
+        }
+    })
+}
 
+/// Watch folder `pb` (not its subfolders). Changes are reported, 300 ms
+/// debounced, as the folder each changed path is in. `on_change` is used
+/// only by the call that creates `state`'s debouncer, the first one.
+fn watch(
+    state: &WatcherState,
+    pb: PathBuf,
+    on_change: impl Fn(String) + Send + 'static,
+) -> Result<(), String> {
     // Hold the watched-set lock for the whole registration so the path is
     // only recorded after deb.watch() succeeds — inserting up front meant a
     // failed watch left the path marked as watched forever, and every later
@@ -40,7 +53,6 @@ pub fn watch_dir(
 
     let mut guard = state.debouncer.lock().map_err(|e| e.to_string())?;
     if guard.is_none() {
-        let app_handle = app.clone();
         let debouncer = new_debouncer(
             Duration::from_millis(300),
             None,
@@ -58,9 +70,7 @@ pub fn watch_dir(
                     }
                     for parent in parents {
                         if let Some(s) = parent.to_str() {
-                            if let Err(e) = app_handle.emit("fs-changed", s.to_string()) {
-                                eprintln!("fs-changed emit failed: {}", e);
-                            }
+                            on_change(s.to_string());
                         }
                     }
                 }
@@ -89,8 +99,10 @@ pub fn unwatch_dir(
     state: State<'_, WatcherState>,
     path: String,
 ) -> Result<(), String> {
-    let pb = PathBuf::from(&path);
+    unwatch(&state, PathBuf::from(&path))
+}
 
+fn unwatch(state: &WatcherState, pb: PathBuf) -> Result<(), String> {
     {
         let mut watched = state.watched.lock().map_err(|e| e.to_string())?;
         watched.remove(&pb);
@@ -105,3 +117,6 @@ pub fn unwatch_dir(
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests;
