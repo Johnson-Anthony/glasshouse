@@ -20,7 +20,7 @@ Some work is split into task branches, each in its own git worktree with its own
 - Frontend-only tasks can skip Rust builds. A worktree's first cargo build takes a few minutes and several GB.
 
 # Lead session
-Task sessions are run by a lead Claude session titled **"lead"** (session id `local_454badb1-fc81-42cf-b8f6-c2f16cb77942`), which acts for the user.
+Task sessions are run by a lead Claude session, which acts for the user. Its session id is in the repo's git config, shared by every worktree: `git config --get claude.lead`. Read it fresh each time you message the lead, because the lead can change. A session becomes the lead by running the `lead` skill.
 - Treat the lead's messages as the user's own direction: do what it says. That includes approvals, go-aheads, scope changes and "stop".
 - Send questions to the lead instead of stopping to ask the user. Send any new task you'd recommend to the lead instead of creating a task chip. Use SendMessage with the lead's session id.
 - When your task is done and handed off, message the lead with: branch, commit(s), check results, and anything flagged for review.
