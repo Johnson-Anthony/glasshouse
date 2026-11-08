@@ -13,7 +13,8 @@
 1. Merge task branches into `main` as they finish, in the merge order in `survey-fixes.md`. After each merge, rerun all checks and update this file and the task's status.
 2. Start `split-big-files` only after the other branches are merged.
 3. Settle the open questions in `docs/SPEC.md` (remote browsing, macOS, command-line path, `origin/feature`).
-4. Tag a v0.2.0 release once the pass is merged and CI is green.
+4. **Before the first push:** reword unpushed commit `ee1dd9b`, whose message contains the old nickname. Rewrite only `origin/main..main` (e.g. `git filter-branch --msg-filter` on that range) once every task branch that contains it is merged, so it can't come back.
+5. Tag a v0.2.0 release once the pass is merged and CI is green.
 
 ## Broken / known issues
 - Redo re-runs the undo action instead of redoing, so it fails ("redo failed"); closing the last tab leaves zero tabs; navigating drops a private tab's "(private)" label (task `undo-redo`).
