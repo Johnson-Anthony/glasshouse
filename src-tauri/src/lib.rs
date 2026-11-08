@@ -12,7 +12,6 @@ pub fn run() {
         .manage(watcher::WatcherState::default())
         .manage(pty::PtyRegistry::default())
         .invoke_handler(tauri::generate_handler![
-            commands::ping,
             commands::home_dir,
             commands::list_dir,
             commands::drives,

@@ -35,11 +35,6 @@ pub struct SystemInfo {
 }
 
 #[tauri::command]
-pub fn ping() -> &'static str {
-    "pong"
-}
-
-#[tauri::command]
 pub fn home_dir() -> Option<String> {
     home_dir_path().map(|p| p.to_string_lossy().into_owned())
 }
