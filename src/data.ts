@@ -510,7 +510,7 @@ const NON_WIN_RENAMES: Record<string, string> = {
   "Reveal in Explorer": "Reveal in File Manager",
 };
 
-function stripWinOnly(items: MenuItemDef[]): void {
+export function stripWinOnly(items: MenuItemDef[]): void {
   for (let i = items.length - 1; i >= 0; i--) {
     const it = items[i];
     if ((it.kind === "item" || it.kind === "sub") && WIN_ONLY_LABELS.has(it.label)) {
