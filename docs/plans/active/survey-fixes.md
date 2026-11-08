@@ -24,7 +24,7 @@ Merge order is the table order: small, contained fixes go first, and broad chang
 ## Every task
 - Your worktree should contain this file. If `PROGRESS.md` is missing, run `git merge main` first.
 - Read CLAUDE.md, PROGRESS.md, docs/ARCHITECTURE.md and your section below.
-- Write `docs/plans/active/<task>.md`. If the change touches more than about 3 files or involves a real design choice, get the user's OK before implementing.
+- Write your plan to `docs/plans/active/<task>.md`, then implement it; no OK is needed. For a design choice, pick the option you'd recommend and record it in `docs/decisions/`.
 - **Before calling it done:** `pnpm build` and `pnpm test`. For Rust tasks, also `RUSTFLAGS="-D warnings" cargo clippy --all-targets` and `cargo test` in `src-tauri`. Add tests for what you fix.
 - **Wrap up** as CLAUDE.md describes for task branches. Don't push.
 
@@ -74,7 +74,7 @@ Merge order is the table order: small, contained fixes go first, and broad chang
 - *(inferred)* `set_always_on_top` is probably a no-op on Wayland (niri). Verify it, and hide the action where it can't work.
 - The frontend hardcodes trash as `~/.local/share/Trash/files` (`handlers/nav.ts` ~L238). Respect `XDG_DATA_HOME`, or ask the backend for the path.
 
-## command-security (Rust + config: design first, get an OK)
+## command-security (Rust + config: design first)
 - **No command permissions:** `build.rs` has no app manifest, so the webview can call every custom command. That includes:
   - `run_script` (~L2017, no timeout);
   - `pty_spawn` with any executable (`pty.rs` ~L88);
