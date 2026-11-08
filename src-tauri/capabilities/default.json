@@ -23,7 +23,6 @@
     "git",
     "settings",
     "launch",
-    "exec",
-    "window"
+    "exec"
   ]
 }

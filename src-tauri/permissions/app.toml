@@ -111,10 +111,3 @@ commands.allow = [
   "pty_resize",
   "pty_kill",
 ]
-
-[[permission]]
-identifier = "window"
-description = "Change the calling window's own state."
-commands.allow = [
-  "set_always_on_top",
-]

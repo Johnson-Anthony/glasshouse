@@ -2723,37 +2723,6 @@ pub fn spawn_new_window() -> Result<(), String> {
     }
 }
 
-// ---------- window always-on-top ----------
-
-/// Toggle the always-on-top flag on the invoking window. Errors on Wayland:
-/// no protocol lets a client keep itself above others, so GTK drops the
-/// keep-above request and tao would report a success that did nothing.
-#[tauri::command]
-pub fn set_always_on_top(window: tauri::Window, enabled: bool) -> Result<(), String> {
-    #[cfg(target_os = "linux")]
-    if gtk_uses_wayland(
-        std::env::var("GDK_BACKEND").ok().as_deref(),
-        std::env::var_os("WAYLAND_DISPLAY").is_some_and(|v| !v.is_empty()),
-    ) {
-        return Err("always-on-top isn't supported on Wayland".to_string());
-    }
-    window
-        .set_always_on_top(enabled)
-        .map_err(|e| format!("set_always_on_top: {}", e))
-}
-
-/// Whether GTK opens its Wayland backend. GDK_BACKEND is a comma list tried
-/// in order; unset or "*" means GTK's default, which tries Wayland first.
-#[cfg(target_os = "linux")]
-fn gtk_uses_wayland(gdk_backend: Option<&str>, wayland_display_set: bool) -> bool {
-    let first = gdk_backend.and_then(|b| b.split(',').map(str::trim).find(|s| !s.is_empty()));
-    match first {
-        Some("wayland") => true,
-        Some("*") | None => wayland_display_set,
-        Some(_) => false,
-    }
-}
-
 // ---------- shell profile detection ----------
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -4592,19 +4561,6 @@ mod tests {
         assert_eq!(login_shell(Some(String::new())), None);
         assert_eq!(login_shell(None), None);
         let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    #[cfg(target_os = "linux")]
-    #[test]
-    fn gtk_uses_wayland_follows_gdk_backend() {
-        assert!(gtk_uses_wayland(None, true));
-        assert!(!gtk_uses_wayland(None, false));
-        assert!(gtk_uses_wayland(Some("wayland"), true));
-        assert!(gtk_uses_wayland(Some("wayland,x11"), true));
-        assert!(!gtk_uses_wayland(Some("x11"), true));
-        assert!(!gtk_uses_wayland(Some(" x11 , wayland"), true));
-        assert!(gtk_uses_wayland(Some("*"), true));
-        assert!(gtk_uses_wayland(Some(""), true));
     }
 
     #[cfg(not(windows))]

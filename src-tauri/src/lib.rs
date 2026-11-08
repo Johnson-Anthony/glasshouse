@@ -63,7 +63,6 @@ pub fn run() {
             commands::run_script,
             commands::open_url,
             commands::spawn_new_window,
-            commands::set_always_on_top,
             commands::list_shell_profiles,
             commands::spawn_terminal_profile,
             commands::read_recent,
