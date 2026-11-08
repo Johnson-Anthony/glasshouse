@@ -405,7 +405,7 @@ let contextTarget: ContextTarget | null = null;
 export function App() {
   const [state, setState] = useState<TweakState>(() => {
     try {
-      const saved = JSON.parse(localStorage.getItem("rice.tweaks") || "null");
+      const saved = JSON.parse(localStorage.getItem("glasshouse.tweaks") || "null");
       return saved ? { ...TWEAK_DEFAULTS, ...saved } : TWEAK_DEFAULTS;
     } catch { return TWEAK_DEFAULTS; }
   });
@@ -550,7 +550,7 @@ export function App() {
     document.documentElement.setAttribute("data-density", state.density);
     document.documentElement.setAttribute("data-scanlines", state.scanlines ? "on" : "off");
     document.documentElement.style.setProperty("--font-mono", state.font);
-    localStorage.setItem("rice.tweaks", JSON.stringify(state));
+    localStorage.setItem("glasshouse.tweaks", JSON.stringify(state));
   }, [state]);
 
   const activeTabId = tabs[activeTab]?.id;

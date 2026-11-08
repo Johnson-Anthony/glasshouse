@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>glasshouse — a riced-out file manager</title>
-<meta name="description" content="glasshouse: a riced-out file manager for Windows and Linux. Tabs, multi-tab embedded terminal, git-aware sidebar, themed everything. Tauri 2 + React.">
+<title>glasshouse — file manager for Windows and Linux</title>
+<meta name="description" content="glasshouse is a desktop file manager for Windows and Linux, with tabs, a built-in terminal and git status. Built with Tauri 2 and React.">
 <style>
   :root {
     --bg-0: #16161e;
@@ -125,8 +125,8 @@
 
 <header>
   <div class="wrap">
-    <h1><span class="paren">rice://</span>glasshouse</h1>
-    <p class="tagline">a riced-out file manager for <em>Windows</em> and <em>Linux</em> —<br>tabs, embedded terminal, git-aware everything</p>
+    <h1><span class="paren">~/</span>glasshouse</h1>
+    <p class="tagline">a desktop file manager for <em>Windows</em> and <em>Linux</em><br>with tabs, a built-in terminal and git status</p>
     <div class="links">
       <a class="btn primary" href="https://github.com/Johnson-Anthony/glasshouse/releases/latest">Download</a>
       <a class="btn" href="https://github.com/Johnson-Anthony/glasshouse">View on GitHub</a>
@@ -136,8 +136,8 @@
 </header>
 
 <div class="shot">
-  <img src="screenshot.png" alt="glasshouse running on Linux — sidebar with tree, tags and devices; file pane with git column; themed menubar">
-  <p class="caption">running on Linux (Hyprland) — same binary layout as the Windows build</p>
+  <img src="screenshot.png" alt="glasshouse on Linux: sidebar with folder tree, tags and devices; file list with a git status column; menu bar">
+  <p class="caption">running on Linux (Hyprland); the Windows build has the same layout</p>
 </div>
 
 <div class="wrap">
@@ -145,36 +145,36 @@
     <h2>features</h2>
     <div class="grid">
       <div class="card">
-        <h3><span class="ic">▪</span>multi-tab browsing</h3>
-        <p>Tabs with independent history, plus private tabs that stay out of your recents.</p>
+        <h3><span class="ic">▪</span>tabs</h3>
+        <p>Each tab has its own history. Private tabs aren't added to recent folders.</p>
       </div>
       <div class="card">
         <h3><span class="ic">▪</span>embedded terminal</h3>
-        <p>An xterm.js drawer with multiple concurrent shells — bash/zsh/fish, WSL distros, and saved ssh remotes — each pinned to where you're browsing.</p>
+        <p>A terminal drawer (xterm.js) with several shell tabs that follow the folder you're browsing. Profiles cover local shells, WSL distros and ssh hosts.</p>
       </div>
       <div class="card">
-        <h3><span class="ic">▪</span>git-aware</h3>
-        <p>Repos detected via libgit2: branch and dirty state in the breadcrumb, per-file status column, stage/commit/blame from the menu.</p>
+        <h3><span class="ic">▪</span>git status</h3>
+        <p>Repositories are detected with libgit2. The path bar shows the branch and pending changes, the file list has a status column, and the Git menu can stage, commit and blame.</p>
       </div>
       <div class="card">
-        <h3><span class="ic">▪</span>archives inline</h3>
-        <p>Create and extract .zip, .tar.gz, .tar.zst and .7z without leaving the pane.</p>
+        <h3><span class="ic">▪</span>archives</h3>
+        <p>Create and extract .zip, .tar.gz, .tar.zst and .7z from the file list. Zip is built in; the others use the system tar and 7-Zip.</p>
       </div>
       <div class="card">
         <h3><span class="ic">▪</span>tags &amp; bookmarks</h3>
-        <p>Color tags with sidebar filters, pinned folders, and a recents list that follows you.</p>
+        <p>Color tags with sidebar filters, pinned folders, and a list of recent folders.</p>
       </div>
       <div class="card">
-        <h3><span class="ic">▪</span>themed everything</h3>
-        <p>Dialogs, context menus, prompts and toasts all drawn by the app — no native chrome breaking the rice. Multiple themes, exportable as a <code>.ricerc</code>.</p>
+        <h3><span class="ic">▪</span>themes</h3>
+        <p>8 color themes. Dialogs, context menus, prompts and notifications are drawn by the app, so they follow the theme. Layout and display settings export to a <code>.glasshouserc</code> file.</p>
       </div>
       <div class="card">
-        <h3><span class="ic">▪</span>keyboard-first</h3>
-        <p>Command palette (Ctrl+P), fuzzy find-in-files, vim-adjacent pane navigation, and every menu shortcut actually bound.</p>
+        <h3><span class="ic">▪</span>keyboard</h3>
+        <p>Command palette (Ctrl+P), fuzzy search in the current folder, find in files, h/j/k/l in the column view, and shortcuts for menu commands.</p>
       </div>
       <div class="card">
-        <h3><span class="ic">▪</span>small &amp; native</h3>
-        <p>Tauri 2 — a single ~16 MB binary wrapping a Rust backend; no Electron, no bundled Chromium.</p>
+        <h3><span class="ic">▪</span>small</h3>
+        <p>Built on Tauri 2: a Rust backend with the system webview (WebView2 or WebKitGTK) instead of a bundled browser. The release binary is about 15 MB.</p>
       </div>
     </div>
   </section>
@@ -189,8 +189,9 @@
 <span class="p">$</span> cd glasshouse
 <span class="p">$</span> pnpm install
 <span class="p">$</span> pnpm tauri:dev    <span class="c"># dev mode</span>
-<span class="p">$</span> pnpm tauri:build  <span class="c"># release bundle</span></pre>
-    <p class="note">Or skip the toolchain: <a href="https://github.com/Johnson-Anthony/glasshouse/releases/latest">pre-built binaries</a> — Windows <code>.msi</code>/<code>.exe</code> installer, Linux <code>.AppImage</code>/<code>.deb</code>. Unsigned; SmartScreen will grumble once.</p>
+<span class="p">$</span> pnpm tauri:build  <span class="c"># windows installers</span>
+<span class="p">$</span> pnpm tauri build --bundles appimage,deb  <span class="c"># linux packages</span></pre>
+    <p class="note">Or download the <a href="https://github.com/Johnson-Anthony/glasshouse/releases/latest">pre-built binaries</a>: a Windows <code>.msi</code>/<code>.exe</code> installer and Linux <code>.AppImage</code>/<code>.deb</code> packages. They're unsigned, so Windows SmartScreen shows a warning the first time you run the installer.</p>
   </section>
 
   <section id="stack">
@@ -198,11 +199,11 @@
     <div class="grid">
       <div class="card">
         <h3><span class="ic">◆</span>frontend</h3>
-        <p>React 18 + TypeScript + Vite, xterm.js for the terminal, zero component libraries — the chrome is all hand-rolled CSS.</p>
+        <p>React 18, TypeScript and Vite, with xterm.js for the terminal. No UI component library; the interface is plain CSS.</p>
       </div>
       <div class="card">
         <h3><span class="ic">◆</span>backend</h3>
-        <p>Rust + Tauri 2: git2, notify (fs watching), portable-pty, sysinfo, zip/tar handling — ~65 IPC commands.</p>
+        <p>Rust and Tauri 2, with git2, notify (file watching), portable-pty, sysinfo and zip. About 70 commands are exposed to the frontend.</p>
       </div>
     </div>
   </section>
