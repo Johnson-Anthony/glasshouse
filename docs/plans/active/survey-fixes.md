@@ -22,15 +22,15 @@ Line numbers are from commit `14c68bd` and drift, so search by name. Items marke
 | command-security | Rust + config | **merged** (885bd2a) |
 | local-fonts | frontend, small | **merged** (ff0327c) |
 | font-licenses | assets, small | **merged** (19e7dd0) |
-| notices-screen | frontend, small | queued (found by font-licenses) |
-| script-kill-tree | Rust, small | queued (found by command-security) |
+| notices-screen | frontend, small | running (backend-bugs session) |
+| script-kill-tree | Rust, small | running (command-security session) |
 | async-commands | Rust | **merged** (9c3eefe) |
 | pty-writer | Rust, small | **merged** (16293b0) |
 | pty-drain | Rust, small, low priority | queued (found by pty-writer) |
 | op-progress | both | queued; after dead-code's Rust part and split-big-files (found by async-commands) |
 | dead-code | both | **merged** (frontend d61379a, Rust 27340c6) |
 | unsent-labels | frontend | **merged** (8828d97) |
-| test-coverage | both | queued |
+| test-coverage | both | running |
 | presentation | docs + small code | **merged**; GitHub text awaits the user |
 | pages-site | site (big project) | **merged** (6f72fd7); live on the next push |
 | split-big-files | both | **wait until all the others are merged** |
@@ -213,6 +213,7 @@ The frontend now checks names before creating or renaming, but a few millisecond
 - This edits App.tsx's switches, so keep each change line-local.
 
 ## test-coverage (both)
+*Scope written at survey time; by 2026-11-08 evening the merged tasks had added many tests (183 vitest, 63 cargo). Measure what's still uncovered before writing tests.*
 - **Frontend:** only `fuzzy`, `paths` (without `basename`) and `shellCd` are tested. Add tests for:
   - command routing through the handler chain;
   - `stripWinOnly`, `splitBreadcrumb`, `canExtractArchive`, `winToUnc`;
