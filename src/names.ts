@@ -1,7 +1,7 @@
-// Name checks for creating and renaming inside a folder. The backend's
-// write_text (fs::write), make_dir (create_dir_all) and rename_entry
-// (fs::rename) all overwrite or reuse whatever already has the name, so every
-// create/rename site checks here first.
+// Name checks for creating and renaming inside a folder, run before the
+// prompt closes so a taken name is refused inline. The backend's make_dir,
+// rename_entry and creating write_text refuse a taken name too, which covers
+// a name taken after this check (see `unlessTaken` in transferUi.ts).
 // Policy notes: docs/decisions/2026-11-08-create-rename-conflicts-policy.md
 import { splitExt } from "./transfer";
 
@@ -28,6 +28,9 @@ export class NameSet {
   }
 }
 
+/** The problem `nameProblem` reports for a name that's taken. */
+export const takenProblem = (name: string): string => `"${name}" already exists here`;
+
 /** Why `name` can't be given to a new or renamed entry in a folder holding
  *  `taken`, or null if it can. `self` is the current name of the entry being
  *  renamed: keeping it in another case is fine where names ignore case. */
@@ -38,7 +41,7 @@ export function nameProblem(name: string, taken: NameSet, self?: string): string
     return taken.windows ? "a name can't contain / or \\" : "a name can't contain /";
   }
   if (taken.has(name) && !(self !== undefined && taken.key(self) === taken.key(name))) {
-    return `"${name}" already exists here`;
+    return takenProblem(name);
   }
   return null;
 }

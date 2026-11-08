@@ -1549,6 +1549,7 @@ dependencies = [
  "grep-regex",
  "grep-searcher",
  "ignore",
+ "libc",
  "md-5",
  "notify",
  "notify-debouncer-full",

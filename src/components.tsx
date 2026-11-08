@@ -5326,6 +5326,12 @@ interface PromptOptions {
   okLabel?: string;
   cancelLabel?: string;
   validate?: (value: string) => string | null;
+  /** Runs on OK once `validate` passes, with the prompt still open: the
+   *  write itself, so a refusal shows inline instead of after the prompt
+   *  closes. Resolve null to close (showPrompt resolves with the value), or
+   *  an error string to stay open with it; a rejection's message shows the
+   *  same way. The prompt can't be cancelled while it runs. */
+  submit?: (value: string) => Promise<string | null>;
 }
 
 interface AlertOptions {
@@ -5419,6 +5425,7 @@ export function DialogHost() {
   const [state, setState] = useState<DialogState>(null);
   const [promptValue, setPromptValue] = useState("");
   const [promptError, setPromptError] = useState<string | null>(null);
+  const promptBusy = useRef(false);
   const [toasts, setToasts] = useState<ToastState[]>([]);
   const toastIdRef = useRef(0);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -5474,7 +5481,7 @@ export function DialogHost() {
   }, [state?.kind]);
 
   const close = () => {
-    if (!state) return;
+    if (!state || promptBusy.current) return;
     if (state.kind === "prompt") state.resolve(null);
     else if (state.kind === "alert") state.resolve();
     else if (state.kind === "choice") state.resolve(null);
@@ -5483,7 +5490,7 @@ export function DialogHost() {
   };
 
   const submitPrompt = () => {
-    if (state?.kind !== "prompt") return;
+    if (state?.kind !== "prompt" || promptBusy.current) return;
     const v = promptValue;
     if (state.opts.validate) {
       const err = state.opts.validate(v);
@@ -5492,8 +5499,25 @@ export function DialogHost() {
         return;
       }
     }
-    state.resolve(v);
-    setState(null);
+    const { submit } = state.opts;
+    if (!submit) {
+      state.resolve(v);
+      setState(null);
+      return;
+    }
+    const current = state;
+    promptBusy.current = true;
+    submit(v)
+      .catch((err: unknown) => (err instanceof Error ? err.message : String(err)) || "failed")
+      .then((err) => {
+        promptBusy.current = false;
+        if (err) {
+          setPromptError(err);
+          return;
+        }
+        current.resolve(v);
+        setState((s) => (s === current ? null : s));
+      });
   };
 
   const confirmOk = () => {

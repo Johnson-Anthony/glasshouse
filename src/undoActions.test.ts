@@ -3,9 +3,10 @@ import type { FileEntry } from "./api";
 import { pushUndo, redoLast, redoStack, undoLast, undoStack, type UndoEntry } from "./state";
 import { copyUndo, createUndo, moveUndo, type UndoFs } from "./undoActions";
 
-// In-memory POSIX file system. Like the real backend, rename/move and write
-// replace whatever is at the destination; the builders' guards are what keep
-// undo and redo from clobbering things. Every write, mkdir and copy gets a
+// In-memory POSIX file system. Unlike the real backend, which refuses a taken
+// destination, rename/move and write here replace whatever is there, so the
+// tests show that the builders' own guards keep undo and redo from
+// clobbering things. Every write, mkdir and copy gets a
 // new mtime from a counter; rename keeps it, as on disk.
 type Node = ({ kind: "dir" } | { kind: "file"; content: string }) & { mtime: number };
 

@@ -1,9 +1,9 @@
 // The app's side of transfer.ts and names.ts: the real fs calls, the conflict
 // question, the toasts and undo entries every copy/move-into-a-folder shares,
 // and the name checks before creating or renaming.
-import { copyEntry, moveEntry, moveToTrash, readDir } from "./api";
+import { copyEntry, isAlreadyExists, moveEntry, moveToTrash, readDir } from "./api";
 import { dialogs } from "./components";
-import { NameSet, nameProblem } from "./names";
+import { NameSet, nameProblem, takenProblem } from "./names";
 import { IS_WINDOWS } from "./platform";
 import { pushUndo } from "./state";
 import {
@@ -79,4 +79,18 @@ export async function namesIn(dir: string): Promise<NameSet> {
 export async function assertFree(dir: string, name: string, self?: string): Promise<void> {
   const problem = nameProblem(name, await namesIn(dir), self);
   if (problem) throw new Error(problem);
+}
+
+/** For a name prompt's `submit`: runs `op`, the write that creates or
+ *  renames to `name`. When the backend refuses because the name was taken
+ *  after the prompt listed the folder, returns `nameProblem`'s message, so
+ *  the prompt stays open with it. Other errors propagate. */
+export async function unlessTaken(name: string, op: () => Promise<void>): Promise<string | null> {
+  try {
+    await op();
+    return null;
+  } catch (err) {
+    if (isAlreadyExists(err)) return takenProblem(name);
+    throw err;
+  }
 }

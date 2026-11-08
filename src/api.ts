@@ -190,12 +190,29 @@ export function systemInfo(): Promise<SystemInfo | null> {
   return safe(() => invoke<SystemInfo>("system_info"), null);
 }
 
+/** Create a folder. Rejects if the name is already taken (`isAlreadyExists`)
+ *  rather than reusing what's there. */
 export function makeDir(path: string): Promise<void> {
   return mustInvoke<void>("make_dir", { path });
 }
 
+/** Create a folder and any missing parents; an existing one is fine. For
+ *  folders the app keeps for itself, not for New Folder. */
+export function ensureDir(path: string): Promise<void> {
+  return mustInvoke<void>("make_dir", { path, all: true });
+}
+
+/** Rename. Rejects if `to` is taken (`isAlreadyExists`); never replaces it. */
 export function renameEntry(from: string, to: string): Promise<void> {
   return mustInvoke<void>("rename_entry", { from, to });
+}
+
+/** True for the error make_dir, rename_entry and a creating write_text give
+ *  when the target name is already taken. The backend words it
+ *  `"<name>" already exists in <folder>` (`no_clobber_err`). */
+export function isAlreadyExists(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err);
+  return /^".*" already exists in /s.test(msg);
 }
 
 export function copyEntry(from: string, to: string): Promise<void> {
@@ -329,8 +346,16 @@ export function winToWsl(path: string): Promise<string> {
   return safe(() => invoke<string>("win_to_wsl", { path }), path);
 }
 
-export function writeText(path: string, content: string): Promise<void> {
+/** Create a new file holding `content`. Rejects if the path is taken
+ *  (`isAlreadyExists`) instead of emptying what's there. */
+export function createTextFile(path: string, content: string): Promise<void> {
   return mustInvoke<void>("write_text", { path, content });
+}
+
+/** Save `content` to `path`, replacing the file if it exists. For saving on
+ *  purpose; anything new goes through `createTextFile`. */
+export function writeText(path: string, content: string): Promise<void> {
+  return mustInvoke<void>("write_text", { path, content, overwrite: true });
 }
 
 export function watchDir(path: string): Promise<void> {
