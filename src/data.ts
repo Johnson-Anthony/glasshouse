@@ -239,7 +239,6 @@ export const MENUS: MenusData = {
       children: [
         { kind: "item", label: "Extract Here", mutates: true },
         { kind: "item", label: "Extract to Folder…", mutates: true },
-        { kind: "item", label: "Browse archive in place" },
       ] },
     { kind: "sep" },
     { kind: "item", ic: "", label: "Checksum (SHA256)" },
