@@ -190,15 +190,19 @@ export function useTabState(initialPath: string, isPrivate: boolean = false): Us
       setLoading(true);
       setError(null);
     }
+    // Both start now and run in parallel, but the rows go up as soon as they
+    // arrive: git_status scans the whole repo for its dirty count, which in a
+    // big repo takes longer than the listing. gitStatus never rejects.
+    const git = gitStatus(p);
     try {
-      const [dir, git] = await Promise.all([
-        readDir(p, hidden),
-        gitStatus(p),
-      ]);
+      const dir = await readDir(p, hidden);
       if (seq !== fetchSeq.current) return;
       setError(null);
       setEntries(dir);
-      setGitInfo(git);
+      setLoading(false);
+      const info = await git;
+      if (seq !== fetchSeq.current) return;
+      setGitInfo(info);
     } catch (e) {
       if (seq !== fetchSeq.current) return;
       setError(e instanceof Error ? e.message : String(e));
