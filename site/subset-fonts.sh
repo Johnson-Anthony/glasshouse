@@ -1,6 +1,6 @@
 #!/bin/sh
 # Rebuild the demo's woff2 font subsets (site/demo/fonts) from the app's Nerd
-# Font TTFs, keeping Latin, the symbol blocks the UI and the demo shell draw,
+# Font (woff2), keeping Latin, the symbol blocks the UI and the demo shell draw,
 # and every non-ASCII character used in src/ and site/. Needs uv (uvx).
 set -e
 cd "$(dirname "$0")/.."
@@ -19,7 +19,7 @@ PY
 )
 mkdir -p site/demo/fonts
 for v in Regular Bold Italic BoldItalic; do
-  uvx --from fonttools --with brotli pyftsubset "src/assets/fonts/JetBrainsMonoNerdFont-$v.ttf" \
+  uvx --from fonttools --with brotli pyftsubset "src/assets/fonts/JetBrainsMonoNerdFont-$v.woff2" \
     --unicodes="$unicodes" --flavor=woff2 --layout-features='*' \
     --output-file="site/demo/fonts/JetBrainsMonoNerdFont-$v.woff2"
 done

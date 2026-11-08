@@ -1,6 +1,6 @@
 // Builds the project site's browser demo (site/demo) into docs/demo, which
 // GitHub Pages serves. Run with `pnpm site:build`.
-import { copyFileSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { copyFileSync, cpSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { defineConfig, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
@@ -9,7 +9,7 @@ const pkg = JSON.parse(readFileSync(new URL("./package.json", import.meta.url), 
 
 const here = (p: string) => fileURLToPath(new URL(p, import.meta.url));
 
-// The app ships four 2.2 MB Nerd Font TTFs; the demo uses woff2 subsets of
+// The app ships four ~920 KB Nerd Font woff2 files; the demo uses subsets of
 // them (site/subset-fonts.sh) with only the characters the UI shows.
 const subsetFonts: Plugin = {
   name: "glasshouse-demo-fonts",
@@ -17,7 +17,7 @@ const subsetFonts: Plugin = {
   transform(code, id) {
     if (!id.endsWith("/src/styles/app.css")) return null;
     return code.replace(
-      /url\("\.\.\/assets\/fonts\/(JetBrainsMonoNerdFont-\w+)\.ttf"\) format\("truetype"\)/g,
+      /url\("\.\.\/assets\/fonts\/(JetBrainsMonoNerdFont-\w+)\.(?:ttf|woff2)"\) format\("(?:truetype|woff2)"\)/g,
       'url("../../site/demo/fonts/$1.woff2") format("woff2")',
     );
   },
@@ -36,14 +36,15 @@ const copyThemes: Plugin = {
     const licenses = here("./docs/demo/licenses");
     mkdirSync(licenses, { recursive: true });
     const texts = readdirSync(fonts).filter(f => !/\.(ttf|otf|woff2?)$/i.test(f));
-    for (const f of texts) copyFileSync(`${fonts}/${f}`, `${licenses}/${f}`);
+    for (const f of texts) cpSync(`${fonts}/${f}`, `${licenses}/${f}`, { recursive: true });
     writeFileSync(`${licenses}/README.txt`, [
       "Fonts in this demo (assets/*.woff2) and their licenses:",
       "",
       "- JetBrainsMonoNerdFont-*.woff2: subsets of JetBrains Mono Nerd Font, keeping only",
       "  the characters the demo's interface shows (made by site/subset-fonts.sh in the",
       "  glasshouse repository). JetBrains Mono is under the SIL Open Font License 1.1",
-      "  (OFL-JetBrainsMono.txt); Nerd Fonts patched in additional glyphs.",
+      "  (OFL-JetBrainsMono.txt); Nerd Fonts patched in additional glyphs, whose license",
+      "  and glyph-set notices are in nerd-fonts/ (LICENSES.md says which covers what).",
       "- JetBrainsMono-*, IBMPlexMono-*, FiraCode-*.woff2: the app's bundled copies of",
       "  these fonts, each under the SIL Open Font License 1.1 (OFL-*.txt).",
       "",
