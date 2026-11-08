@@ -4,7 +4,9 @@ Branch: `claude/intelligent-turing-9d8036` (the dead-code session, started by th
 Backlog section: `## unsent-labels` in `docs/plans/active/survey-fixes.md`.
 
 ## Status
-Started 2026-11-08.
+**Done 2026-11-08.** Commits `7981e6f`..`e3dd7dc` on top of main `3aac0a0`. All 75 unsent cases are gone except Miller, which got its menu item back; 292 switch cases became 212. The audit now fails on unsent cases. `pnpm build` OK, `pnpm test` 151/151, `pnpm check:wiring` clean (0 in every category). Not checked in the running app: Display Mode → Miller and Ctrl+7 (tsc and the audit cover the wiring; the view itself is unchanged since July).
+
+Decision record: `docs/decisions/2026-11-08-unsent-labels-cleanup.md`.
 
 ## What "never sent" covers
 `pnpm check:wiring --all` lists handled labels that no menu, palette entry, chord, inline menu item or `dispatch("…")` literal sends. Checked by hand that nothing else sends them either:
@@ -18,10 +20,12 @@ Started 2026-11-08.
 - Delete the dead case labels. Where a label is stacked with live ones, only its `case` line goes; where every label of a case is dead, the case and its body go. Edits stay line-local in App.tsx's switches.
 - **Exception: "Miller Columns (ranger)".** The miller view is implemented (`Miller.tsx`, July) and in the spec, but its menu item was dropped from View in April and never came back, so nothing can turn it on. Add it to View → Display Mode instead of deleting the case.
 - Commits by area: App.tsx right-click-target switches, global switch, `doFileOp`, handler aliases, handler submenu-parent no-ops, the Miller item.
-- After: `pnpm check:wiring --all` should list nothing, so the note line can become a failure too (decide once the list is empty).
+- After: the list is empty, so unsent cases became a failure (`3623e5e`), with no allowlist.
 
 ## Checks
 `pnpm build`, `pnpm test`, `pnpm check:wiring`.
 
 ## For review
-- (filled in at the end)
+- **Miller Columns restored, not deleted**, with a new Ctrl+7 shortcut. If the miller view was hidden on purpose, revert `434ca51` and delete the view.ts case instead.
+- **Unsent cases fail CI with no allowlist.** A case kept for a sender the audit can't see means extending the audit first.
+- The commits are grouped by switch rather than one per label, since most are single `case` lines.
