@@ -31,7 +31,10 @@ Line numbers are from commit `14c68bd` and drift, so search by name. Items marke
 | op-progress | both | queued; after dead-code's Rust part and split-big-files (found by async-commands) |
 | dead-code | both | **merged** (frontend d61379a, Rust 27340c6) |
 | unsent-labels | frontend | **merged** (8828d97) |
-| test-coverage | both | running |
+| test-coverage | both | **merged** (5a59187) |
+| copy-move-no-clobber | Rust, small; data loss | running (backend-bugs session; found by test-coverage) |
+| bulk-rename-digits | frontend, small | running (test-coverage session; found by test-coverage) |
+| parser-fixes | Rust, tiny, low priority | queued (found by test-coverage) |
 | presentation | docs + small code | **merged**; GitHub text awaits the user |
 | pages-site | site (big project) | **merged** (6f72fd7); live on the next push |
 | split-big-files | both | **wait until all the others are merged** |
@@ -167,6 +170,17 @@ The frontend now checks names before creating or renaming, but a few millisecond
 ## notices-screen (frontend, small; found 2026-11-08 by font-licenses)
 - The installed app has no third-party notices screen. The font licenses live in `src/assets/fonts` (indexed by `LICENSES.md`), and the npm and crate licenses aren't listed anywhere.
 - Add an About → Third-party notices view that shows the bundled font licenses. Consider generating the npm and Rust dependency license lists at build time.
+
+## copy-move-no-clobber (Rust, small; data loss; found 2026-11-08 by test-coverage)
+- `copy_entry` and `move_entry` still replace what's at the target: `std::fs::copy` overwrites a file, `copy_dir_recursive` merges into an existing folder, and the rename replaces a file. The paste-conflict planner checks first, so what's left is a check-then-act race, plus any caller that skips the planner.
+- Do what no-clobber-fs did for `write_text`, `make_dir` and `rename_entry`: refuse an existing target by default (`create_new` for files, `create_dir` for the top folder, `RENAME_NOREPLACE` for moves), with an explicit replace mode for the planner's Replace choice. Check every caller.
+
+## bulk-rename-digits (frontend, small; found 2026-11-08 by test-coverage)
+- Bulk Rename's "digits" field does nothing: `numberDigits` is never read, so `{n}` always pads to 1 digit, and only `{n:03}` pads. Make `{n}` use the field, or remove the field. Add a test in `bulkRename.test.ts`.
+
+## parser-fixes (Rust, tiny, low priority; found 2026-11-08 by test-coverage)
+- `parse_ssh_hosts` skips `Host=name`, which ssh_config allows.
+- `fs_type_for` keeps the first of two mounts stacked on one mount point, but the visible one is the last.
 
 ## dependency-notices (both, small; found 2026-11-08 by notices-screen)
 - Help → Third-party Notices shows only the bundled font licenses. Add the npm and Rust dependency licenses as two more groups. The view needs no other change. See `docs/decisions/2026-11-08-notices-screen-dependency-licenses.md`.

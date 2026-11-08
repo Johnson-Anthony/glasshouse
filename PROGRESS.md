@@ -1,6 +1,10 @@
 # Progress
 
 ## Done
+- 2026-11-08: Merged `test-coverage` (5a59187), bringing the totals to 231 vitest and 110 cargo tests.
+  - New tests cover command routing through the real handler chain, Windows-only menu stripping, UNC paths, the Bulk Rename preview, list_dir, delete and trash (in a private XDG_DATA_HOME), every archive format with zip-slip containment, the ssh, mount and net parsers, terminal arguments, the watcher, and pty UTF-8 carry-over.
+  - Fixed: with numbering off, Bulk Rename turned `{n}` into 0.
+  - No jsdom yet; see `docs/decisions/2026-11-08-test-coverage-component-tests.md`.
 - 2026-11-08: Merged `notices-screen` (c595720). Help → Third-party Notices, and a button in About, show every license text bundled under `src/assets/fonts`, with `LICENSES.md` as a clickable index. The texts load as a separate lazy chunk. Dependency license lists are task `dependency-notices`.
 - 2026-11-08: Merged `script-kill-tree` (1fd8435). When `run_script` times out, it kills the script's whole process tree (a process group on unix, a job object on Windows; `src-tauri/src/proc_tree.rs`). A script that exits normally leaves its background children alone. The Windows code was type-checked against the MSVC target, but its test first runs on CI.
 - 2026-11-08: Merged `pty-writer` (16293b0). `pty_write` only queues input for a writer thread per session, so a big paste into a raw-mode program that isn't reading no longer freezes the UI. Keystroke order is kept. See `docs/decisions/2026-11-08-pty-writer-queue.md`.
@@ -76,6 +80,7 @@
 5. Tag a v0.2.0 release once the pass is merged and CI is green.
 
 ## Broken / known issues
+- `copy_entry` and `move_entry` can still replace an item that appears at the destination after the paste planner's check (task `copy-move-no-clobber`).
 - Renames can still race where `renameat2(RENAME_NOREPLACE)` isn't available (non-Linux unix, NFS, older FUSE), which falls back to check-then-rename. no-clobber-fs's Windows code (`MoveFileExW`, file-id identity) is uncompiled until Windows CI.
 - Unix: if a terminal session ends while its pty input is full, its writer thread and pty stay until the app exits (task `pty-drain`). The UI isn't affected.
 - Windows is untested for the scoped git-label scan. If `list_dir_git_labels_scan_only_the_listed_folder` fails on Windows CI after the first push, the scan falls back to the whole repo there: labels stay correct, but the test needs adjusting.
