@@ -5,6 +5,7 @@ import {
   MENUS,
   PALETTE,
   TAURI_VERSION,
+  THEMES,
   type FileRow,
   type FileKind,
   type MenuItemDef,
@@ -235,12 +236,8 @@ function resolveChecked(item: MenuItemDef, toggles: MenuToggleState, parentLabel
       return !!tw?.showExtensions;
     case "Show Git Gutters":
       return !!tw?.showGitGutters;
-    case "Show Ignored (.gitignore)":
-      return !!tw?.showIgnored;
     case "Folders First":
       return !!tw?.foldersFirst;
-    case "Show Checksums":
-      return !!tw?.showChecksums;
     case "Sidebar":
       return toggles.sidebarVisible !== undefined ? toggles.sidebarVisible : !!item.check;
     case "Status Bar":
@@ -1475,8 +1472,8 @@ function tagColor(tag: string | null): string {
   return (tag && m[tag]) || "var(--fg-3)";
 }
 
-// Map single-char git status codes to CSS-safe class suffixes. "?" and "!"
-// aren't valid in class names, so we translate.
+// Map single-char git status codes to CSS-safe class suffixes. "?" isn't
+// valid in a class name, so we translate.
 function gitDotClass(code: string): string {
   switch (code) {
     case "M": return "gm";
@@ -1484,7 +1481,6 @@ function gitDotClass(code: string): string {
     case "D": return "gd";
     case "U": return "gu";
     case "?": return "gq";
-    case "!": return "gb";
     default: return "gb";
   }
 }
@@ -1570,7 +1566,6 @@ const PaneRow = React.memo(function PaneRow({
   return (
     <div data-orig={i}
          className={"row" + (isSel ? " selected" : "") + (isFocus ? " focused" : "") + (isDragOver ? " drop-target" : "") + (isCut ? " clip-cut" : "")}
-         style={{opacity: f.dimmed ? 0.55 : 1}}
          onPointerDown={(e) => h.pointerDown(i, isSel, e)}
          onClick={(e) => h.click(i, e)}
          onDoubleClick={() => h.dblClick(i)}
@@ -1593,7 +1588,6 @@ const PaneRow = React.memo(function PaneRow({
          : f.git === "D" ? <span style={{color:"var(--red)"}}>D</span>
          : f.git === "U" ? <span style={{color:"var(--red)"}}>U</span>
          : f.git === "?" ? <span style={{color:"var(--fg-2)"}}>?</span>
-         : f.git === "!" ? <span style={{color:"var(--fg-3)"}}>!</span>
          : <span style={{color:"var(--fg-3)"}}>—</span>}
       </span>
     </div>
@@ -3311,9 +3305,7 @@ export interface TweakState {
   hidden: boolean;
   showExtensions: boolean;
   showGitGutters: boolean;
-  showIgnored: boolean;
   foldersFirst: boolean;
-  showChecksums?: boolean;
 }
 
 export interface TweaksProps {
@@ -3323,10 +3315,6 @@ export interface TweaksProps {
 }
 
 export function Tweaks({ state, setState, onClose }: TweaksProps) {
-  const themes = [
-    "tokyo-night", "catppuccin-mocha", "gruvbox-dark", "rose-pine",
-    "everforest", "solarized-dark", "green-crt", "synthwave",
-  ];
   const fonts = [
     '"JetBrainsMono Nerd Font", "JetBrains Mono", ui-monospace, monospace',
     '"JetBrains Mono", ui-monospace, monospace',
@@ -3348,7 +3336,7 @@ export function Tweaks({ state, setState, onClose }: TweaksProps) {
         <div className="tweak">
           <label>theme</label>
           <select value={state.theme} onChange={(e) => setState({...state, theme: e.target.value})}>
-            {themes.map(t => <option key={t} value={t}>{t}</option>)}
+            {THEMES.map(t => <option key={t} value={t}>{t}</option>)}
           </select>
         </div>
         <div className="tweak">
@@ -3391,13 +3379,6 @@ export function Tweaks({ state, setState, onClose }: TweaksProps) {
           <div className="segmented">
             <button className={state.showGitGutters ? "" : "active"} onClick={() => setState({...state, showGitGutters: false})}>hide</button>
             <button className={state.showGitGutters ? "active" : ""} onClick={() => setState({...state, showGitGutters: true})}>show</button>
-          </div>
-        </div>
-        <div className="tweak">
-          <label>ignored (.gitignore)</label>
-          <div className="segmented">
-            <button className={state.showIgnored ? "" : "active"} onClick={() => setState({...state, showIgnored: false})}>hide</button>
-            <button className={state.showIgnored ? "active" : ""} onClick={() => setState({...state, showIgnored: true})}>show</button>
           </div>
         </div>
         <div className="tweak">
@@ -4392,60 +4373,6 @@ export function GitOutputDialog({ state, onClose }: GitOutputDialogProps) {
             }}
           >{state.stderr}</pre>
         )}
-      </div>
-    </div>
-  );
-}
-
-// ============= HexDialog =============
-export interface HexDialogProps {
-  path: string;
-  hex: string;
-  onClose: () => void;
-}
-
-export function HexDialog({ path, hex, onClose }: HexDialogProps) {
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape") { e.preventDefault(); onClose(); }
-    };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, [onClose]);
-
-  const shortName = (() => {
-    const t = path.replace(/[\\/]+$/, "");
-    const i = Math.max(t.lastIndexOf("\\"), t.lastIndexOf("/"));
-    return i < 0 ? t : t.slice(i + 1);
-  })();
-
-  return (
-    <div onClick={onClose} style={{
-      position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)",
-      zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center",
-    }}>
-      <div onClick={(e) => e.stopPropagation()} style={{
-        width: "90ch", maxWidth: "95vw", maxHeight: "90vh",
-        background: "var(--bg-1, #1a1b26)", border: "1px solid var(--fg-3)",
-        borderRadius: 4, display: "flex", flexDirection: "column",
-        fontFamily: "var(--font-mono)", color: "var(--fg-1)",
-      }}>
-        <div style={{
-          display: "flex", alignItems: "center", justifyContent: "space-between",
-          padding: "8px 12px", borderBottom: "1px solid var(--fg-3)",
-          background: "var(--bg-2, #16161e)",
-        }}>
-          <span style={{ color: "var(--accent)" }}>⎙ hex — {shortName}</span>
-          <span style={{ color: "var(--fg-3)", fontSize: 12 }}>esc/click to close</span>
-          <button onClick={onClose} style={{
-            background: "transparent", border: "1px solid var(--fg-3)", color: "var(--fg-1)",
-            padding: "2px 8px", cursor: "pointer", borderRadius: 2,
-          }} aria-label="close">×</button>
-        </div>
-        <pre style={{
-          overflow: "auto", flex: 1, margin: 0, padding: "8px 12px",
-          fontSize: 12, lineHeight: 1.45, whiteSpace: "pre", color: "var(--fg-1)",
-        }}>{hex || "(empty)"}</pre>
       </div>
     </div>
   );

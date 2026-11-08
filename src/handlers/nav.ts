@@ -3,8 +3,6 @@ import { dialogs } from "../components";
 import { IS_WINDOWS } from "../platform";
 import { joinPath } from "../paths";
 import {
-  spawnTerminal,
-  spawnVscode,
   spawnNewWindow,
   readPins,
   readRecent,
@@ -106,10 +104,6 @@ export const navHandler: Handler = async (label, ctx) => {
       void spawnNewWindow();
       return true;
 
-    case "New Tab":
-      ctx.newTab?.(ctx.cwd);
-      return true;
-
     case "New Private Session":
       ctx.newTab?.(ctx.cwd, { private: true });
       return true;
@@ -126,17 +120,6 @@ export const navHandler: Handler = async (label, ctx) => {
       if (path != null && path.trim() !== "") {
         ctx.activeHandle?.actions.goTo(path.trim());
       }
-      return true;
-    }
-
-    case "Open in Terminal": {
-      const target = ctx.firstPath ?? ctx.cwd;
-      if (target) void spawnTerminal(target);
-      return true;
-    }
-    case "Open in VS Code": {
-      const target = ctx.firstPath ?? ctx.cwd;
-      if (target) void spawnVscode(target);
       return true;
     }
 
@@ -194,17 +177,6 @@ export const navHandler: Handler = async (label, ctx) => {
 
     case "Root  /":
       ctx.activeHandle?.actions.goTo("/");
-      return true;
-
-    case "Home":
-      void (async () => {
-        const home = await homeDir();
-        if (!home) {
-          await dialogs.showAlert({ title: "Navigation", message: "home directory unavailable" });
-          return;
-        }
-        ctx.activeHandle?.actions.goTo(home);
-      })();
       return true;
 
     case "Desktop":

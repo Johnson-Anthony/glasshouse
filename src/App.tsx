@@ -35,7 +35,7 @@ import {
   type SidebarRowKind,
   setDynamicGitCwd,
 } from "./components";
-import { CONTEXT_FILE, CONTEXT_EMPTY, CONTEXT_SIDEBAR, CONTEXT_SIDEBAR_FOLDER, CONTEXT_SIDEBAR_DRIVE, CONTEXT_SIDEBAR_REMOTE, CONTEXT_TAB, CONTEXT_BREADCRUMB, GIT_CHORDS, MUTATING_LABELS, type MenuItemDef, type DynamicPayload, type FileRow, type FileKind, type GitStatus } from "./data";
+import { CONTEXT_FILE, CONTEXT_EMPTY, CONTEXT_SIDEBAR, CONTEXT_SIDEBAR_FOLDER, CONTEXT_SIDEBAR_DRIVE, CONTEXT_SIDEBAR_REMOTE, CONTEXT_TAB, CONTEXT_BREADCRUMB, GIT_CHORDS, MUTATING_LABELS, THEMES, type MenuItemDef, type DynamicPayload, type FileRow, type FileKind, type GitStatus } from "./data";
 import {
   useTabState,
   pushUndo,
@@ -104,7 +104,6 @@ const TWEAK_DEFAULTS: TweakState = {
   hidden: false,
   showExtensions: true,
   showGitGutters: true,
-  showIgnored: false,
   foldersFirst: true,
 };
 
@@ -334,7 +333,7 @@ function formatDate(ms: number): string {
 
 function normalizeGit(flag: string | null | undefined): GitStatus | null {
   if (!flag) return null;
-  if (flag === "M" || flag === "A" || flag === "D" || flag === "U" || flag === "?" || flag === "!") {
+  if (flag === "M" || flag === "A" || flag === "D" || flag === "U" || flag === "?") {
     return flag;
   }
   return null;
@@ -857,8 +856,6 @@ export function App() {
   const closeTabAt = (i: number) => {
     applyTabList(closeTab({ tabs, active: activeTab }, i, homePath ?? FALLBACK_PATH));
   };
-
-  const THEMES = ["tokyo-night","catppuccin-mocha","gruvbox-dark","rose-pine","everforest","solarized-dark","green-crt","synthwave"];
 
   const duplicateTabAt = (i: number) => {
     const t = tabs[i];
@@ -1649,8 +1646,6 @@ export function App() {
           }
           return;
         }
-        // "Show Checksums" is a View-menu column toggle handled by the view
-        // handler — grouping it here hijacked it into a one-shot hash+copy.
         case "Checksum SHA256":
         case "Checksum (SHA256)": {
           if (!firstPath) return;
@@ -1759,8 +1754,6 @@ export function App() {
             firstPath,
             firstEntry,
             dispatch: (l: string) => handleMenuCommandRef.current(l),
-            openPalette: () => setPalOpen(true),
-            openTweaks: () => setTweaksOpen(true),
             openAbout: () => setAboutOpen(true),
             toggleSidebar: () => setShowSidebar(v => !v),
             toggleStatusBar: () => setShowStatusBar(v => !v),
