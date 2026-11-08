@@ -1346,7 +1346,7 @@ export function Sidebar({ activePath, onGoTo, onRowContext, pins, onAddPin, tags
                  title={d.letter}>
               <span className="ic"></span>
               <div>
-                <div>{letter} {label}</div>
+                <div>{label === letter ? letter : letter + " " + label}</div>
                 <div style={{color:"var(--fg-3)", fontSize:10}}>{formatSidebarBytes(used)} / {formatSidebarBytes(d.total)}{d.fs ? " · " + d.fs : ""}</div>
               </div>
             </div>

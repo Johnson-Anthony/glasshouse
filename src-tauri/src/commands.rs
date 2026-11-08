@@ -41,9 +41,22 @@ pub fn ping() -> &'static str {
 
 #[tauri::command]
 pub fn home_dir() -> Option<String> {
-    std::env::var("USERPROFILE")
-        .ok()
-        .or_else(|| std::env::var("HOME").ok())
+    home_dir_path().map(|p| p.to_string_lossy().into_owned())
+}
+
+fn home_dir_path() -> Option<PathBuf> {
+    home_from(|k| std::env::var(k).ok()).map(PathBuf::from)
+}
+
+/// Windows reads USERPROFILE first; HOME there is only set by unix-style
+/// tools and may point elsewhere. Unix trusts HOME alone, since under WSL a
+/// USERPROFILE forwarded via WSLENV is a Windows path. Empty means unset.
+fn home_from(get: impl Fn(&str) -> Option<String>) -> Option<String> {
+    #[cfg(windows)]
+    const VARS: &[&str] = &["USERPROFILE", "HOME"];
+    #[cfg(not(windows))]
+    const VARS: &[&str] = &["HOME"];
+    VARS.iter().filter_map(|k| get(k)).find(|v| !v.is_empty())
 }
 
 fn kind_from_ext(ext: &str, is_dir: bool) -> &'static str {
@@ -71,17 +84,25 @@ pub fn list_dir(path: String, show_hidden: bool) -> Result<Vec<FileEntry>, Strin
     let mut out = Vec::new();
     let rd = std::fs::read_dir(&p).map_err(|e| format!("read_dir({}): {}", p.display(), e))?;
     for entry in rd.flatten() {
-        let meta = match entry.metadata() {
+        // DirEntry::metadata doesn't follow links. Hidden-ness belongs to the
+        // link itself, but kind/size/mtime describe what it points at, so a
+        // linked folder opens like a folder. A dangling link keeps its own.
+        let link_meta = match entry.metadata() {
             Ok(m) => m,
             Err(_) => continue,
         };
         let name = entry.file_name().to_string_lossy().to_string();
-        let hidden = is_hidden(&entry.path(), &name, &meta);
+        let hidden = is_hidden(&entry.path(), &name, &link_meta);
         if hidden && !show_hidden {
             continue;
         }
+        let is_symlink = link_meta.file_type().is_symlink();
+        let meta = if is_symlink {
+            std::fs::metadata(entry.path()).unwrap_or(link_meta)
+        } else {
+            link_meta
+        };
         let is_dir = meta.is_dir();
-        let is_symlink = meta.file_type().is_symlink();
         let ext = entry
             .path()
             .extension()
@@ -279,15 +300,26 @@ pub fn drives() -> Vec<Drive> {
         // filters to real block-device mounts, so no /proc pseudo-fs noise.
         use sysinfo::Disks;
         let disks = Disks::new_with_refreshed_list();
+        #[cfg(target_os = "linux")]
+        let labels = labels_by_device(Path::new("/dev/disk/by-label"));
         let mut seen = std::collections::HashSet::new();
         for d in disks.list() {
             let mount = d.mount_point().to_string_lossy().into_owned();
             if !seen.insert(mount.clone()) {
                 continue;
             }
+            // On Linux sysinfo's name() is the device ("/dev/nvme0n1p6"), not
+            // a label. Unlabeled filesystems get "" and the UI shows the mount.
+            #[cfg(target_os = "linux")]
+            let label = dunce::canonicalize(d.name())
+                .ok()
+                .and_then(|dev| labels.get(&dev).cloned())
+                .unwrap_or_default();
+            #[cfg(not(target_os = "linux"))]
+            let label = d.name().to_string_lossy().into_owned();
             out.push(Drive {
                 letter: mount,
-                label: d.name().to_string_lossy().into_owned(),
+                label,
                 total: d.total_space(),
                 free: d.available_space(),
                 fs: d.file_system().to_string_lossy().into_owned(),
@@ -296,6 +328,47 @@ pub fn drives() -> Vec<Drive> {
         out.sort_by(|a, b| a.letter.cmp(&b.letter));
     }
     out
+}
+
+/// Filesystem labels keyed by canonical device path, read from udev's
+/// `/dev/disk/by-label` links (e.g. `parrot-root -> ../../nvme0n1p6`).
+#[cfg(target_os = "linux")]
+fn labels_by_device(dir: &Path) -> HashMap<PathBuf, String> {
+    let mut out = HashMap::new();
+    let Ok(rd) = std::fs::read_dir(dir) else {
+        return out;
+    };
+    for entry in rd.flatten() {
+        if let Ok(dev) = dunce::canonicalize(entry.path()) {
+            out.insert(dev, unescape_udev(&entry.file_name().to_string_lossy()));
+        }
+    }
+    out
+}
+
+/// udev link names escape spaces and other unsafe bytes as `\xNN`
+/// ("Local\x20Disk").
+#[cfg(target_os = "linux")]
+fn unescape_udev(name: &str) -> String {
+    let b = name.as_bytes();
+    let mut out = Vec::with_capacity(b.len());
+    let mut i = 0;
+    while i < b.len() {
+        if b[i] == b'\\' && b.get(i + 1) == Some(&b'x') {
+            let byte = b
+                .get(i + 2..i + 4)
+                .filter(|h| h.iter().all(u8::is_ascii_hexdigit))
+                .and_then(|h| u8::from_str_radix(std::str::from_utf8(h).ok()?, 16).ok());
+            if let Some(v) = byte {
+                out.push(v);
+                i += 4;
+                continue;
+            }
+        }
+        out.push(b[i]);
+        i += 1;
+    }
+    String::from_utf8_lossy(&out).into_owned()
 }
 
 #[derive(Debug, Serialize)]
@@ -580,6 +653,36 @@ pub fn move_to_trash(path: String) -> Result<(), String> {
     trash::delete(&path).map_err(|e| format!("move_to_trash({}): {}", path, e))
 }
 
+/// The folder holding trashed files: the XDG home trash on unix, `None` on
+/// Windows (the Recycle Bin isn't a browsable directory).
+#[tauri::command]
+pub fn trash_dir() -> Option<String> {
+    #[cfg(windows)]
+    {
+        None
+    }
+    #[cfg(not(windows))]
+    {
+        let dir = xdg_trash_files(std::env::var("XDG_DATA_HOME").ok(), home_dir_path())?;
+        // The trash is created on first use, so an account that has never
+        // trashed anything has none; make it so browsing shows an empty
+        // folder instead of a read error.
+        let _ = std::fs::create_dir_all(&dir);
+        Some(dir.to_string_lossy().into_owned())
+    }
+}
+
+/// `$XDG_DATA_HOME/Trash/files`. The XDG spec ignores an empty or relative
+/// XDG_DATA_HOME and falls back to `~/.local/share`.
+#[cfg(not(windows))]
+fn xdg_trash_files(xdg_data_home: Option<String>, home: Option<PathBuf>) -> Option<PathBuf> {
+    let data = xdg_data_home
+        .map(PathBuf::from)
+        .filter(|p| p.is_absolute())
+        .or_else(|| home.map(|h| h.join(".local/share")))?;
+    Some(data.join("Trash/files"))
+}
+
 #[tauri::command]
 pub fn read_text(path: String, max_bytes: usize) -> Result<String, String> {
     use std::io::Read;
@@ -777,18 +880,54 @@ pub fn reveal_in_explorer(path: String) -> Result<(), String> {
             .map(reap)
             .map_err(|e| e.to_string())
     }
-    #[cfg(not(windows))]
+    #[cfg(target_os = "linux")]
     {
-        // "Reveal" = show in containing folder. No portable selection API,
-        // so open the parent in the default file manager.
-        let p = std::path::Path::new(&path);
-        let target = p.parent().filter(|d| !d.as_os_str().is_empty()).unwrap_or(p);
-        std::process::Command::new("xdg-open")
-            .arg(target)
-            .spawn()
-            .map(reap)
-            .map_err(|e| e.to_string())
+        // D-Bus activation of a cold file manager can take seconds, and
+        // commands run on the main thread, so don't wait for it here.
+        std::thread::spawn(move || {
+            let p = Path::new(&path);
+            if let Err(e) = show_items_dbus(p) {
+                eprintln!("reveal: FileManager1.ShowItems failed ({e}); opening the parent");
+                let _ = open_parent(p);
+            }
+        });
+        Ok(())
     }
+    #[cfg(all(not(windows), not(target_os = "linux")))]
+    {
+        open_parent(Path::new(&path))
+    }
+}
+
+/// Ask the desktop's file manager (Nautilus, Dolphin, Caja, Nemo, Thunar…) to
+/// open the item's folder with the item selected. The path is deliberately
+/// not canonicalized, so a symlink is shown as itself rather than its target
+/// (the opener plugin's reveal resolves links first).
+#[cfg(target_os = "linux")]
+fn show_items_dbus(path: &Path) -> Result<(), String> {
+    let uri = url::Url::from_file_path(path)
+        .map_err(|_| format!("not an absolute path: {}", path.display()))?;
+    let conn = zbus::blocking::Connection::session().map_err(|e| e.to_string())?;
+    conn.call_method(
+        Some("org.freedesktop.FileManager1"),
+        "/org/freedesktop/FileManager1",
+        Some("org.freedesktop.FileManager1"),
+        "ShowItems",
+        &(vec![uri.as_str()], ""),
+    )
+    .map(|_| ())
+    .map_err(|e| e.to_string())
+}
+
+/// Fallback reveal without selection: open the containing folder.
+#[cfg(not(windows))]
+fn open_parent(p: &Path) -> Result<(), String> {
+    let target = p.parent().filter(|d| !d.as_os_str().is_empty()).unwrap_or(p);
+    std::process::Command::new("xdg-open")
+        .arg(target)
+        .spawn()
+        .map(reap)
+        .map_err(|e| e.to_string())
 }
 
 // ---------- spawn external apps ----------
@@ -964,20 +1103,33 @@ pub fn spawn_terminal(path: String) -> Result<(), String> {
     }
 }
 
+/// First of `names` found on PATH, in order.
+fn find_tool(names: &[&str]) -> Option<PathBuf> {
+    find_tool_in(names, std::env::var_os("PATH"))
+}
+
+fn find_tool_in(names: &[&str], path: Option<std::ffi::OsString>) -> Option<PathBuf> {
+    let cwd = std::env::current_dir().unwrap_or_default();
+    names
+        .iter()
+        .find_map(|n| which::which_in(n, path.as_ref(), &cwd).ok())
+}
+
+/// VS Code launchers in preference order: Microsoft's build, then VSCodium,
+/// then the distro OSS build (Arch, Fedora).
+#[cfg(windows)]
+const VSCODE_NAMES: &[&str] = &["code.cmd", "code.exe", "code", "codium.cmd", "codium.exe", "codium"];
+#[cfg(not(windows))]
+const VSCODE_NAMES: &[&str] = &["code", "codium", "code-oss"];
+
 /// Open VS Code at `path` (file or folder).
 #[tauri::command]
 pub fn spawn_vscode(path: String) -> Result<(), String> {
     use std::process::{Command, Stdio};
 
-    // Resolve a code launcher: try code.cmd, code.exe, then bare `code`.
-    let resolved = which::which("code.cmd")
-        .or_else(|_| which::which("code.exe"))
-        .or_else(|_| which::which("code"));
-
-    let program: std::ffi::OsString = match resolved {
-        Ok(p) => p.into_os_string(),
-        Err(_) => std::ffi::OsString::from("code"),
-    };
+    let program = find_tool(VSCODE_NAMES)
+        .ok_or_else(|| format!("VS Code not found on PATH (tried {})", VSCODE_NAMES.join(", ")))?
+        .into_os_string();
 
     #[cfg(windows)]
     {
@@ -1673,6 +1825,16 @@ fn tar_zst_extract(archive: &str, dest_dir: &str) -> Result<(), String> {
     tar.finish(archive, streamed)
 }
 
+/// 7-Zip goes by several names: `7z` (p7zip, Windows), `7zz` (7-Zip's own
+/// Linux build, Debian's `7zip` package) and `7za` (standalone p7zip).
+const SEVEN_ZIP_NAMES: &[&str] = &["7z", "7zz", "7za", "7z.exe"];
+
+fn find_7z() -> Result<String, String> {
+    find_tool(SEVEN_ZIP_NAMES)
+        .map(|p| p.to_string_lossy().into_owned())
+        .ok_or_else(|| format!("7-Zip not found on PATH (tried {})", SEVEN_ZIP_NAMES.join(", ")))
+}
+
 /// Return whether the local machine has the tooling required to handle the
 /// given archive format. Values: "zip" | "tar.gz" | "tar.zst" | "7z".
 #[tauri::command]
@@ -1683,7 +1845,7 @@ pub fn archive_can_handle(format: String) -> bool {
         // tar alone suffices: the zstd step runs in-process (tar_zst_create),
         // so neither tar's --zstd nor a zstd binary is needed.
         "tar.zst" => which::which("tar").is_ok() || which::which("tar.exe").is_ok(),
-        "7z" => which::which("7z").is_ok() || which::which("7z.exe").is_ok(),
+        "7z" => find_7z().is_ok(),
         _ => false,
     }
 }
@@ -1743,13 +1905,7 @@ pub fn archive_create(
         }
         "tar.zst" => tar_zst_create(&dest, &parent_str, &members),
         "7z" => {
-            let program = if which::which("7z").is_ok() {
-                "7z"
-            } else if which::which("7z.exe").is_ok() {
-                "7z.exe"
-            } else {
-                return Err("7z.exe not found on PATH".to_string());
-            };
+            let program = find_7z()?;
             // 7z a <dest> <members...>; cd into parent first by using -w
             // (working dir) is not supported, so pass absolute paths instead.
             let mut args: Vec<&str> = vec!["a", "-y", &dest];
@@ -1764,7 +1920,7 @@ pub fn archive_create(
             for m in &abs_members {
                 args.push(m);
             }
-            run_archive_tool(program, &args)
+            run_archive_tool(&program, &args)
         }
         other => Err(format!("archive_create: unsupported format '{}'", other)),
     }
@@ -1808,16 +1964,10 @@ pub fn archive_extract(archive: String, dest_dir: String) -> Result<(), String> 
         || is_tar_zst;
 
     if is_7z {
-        let program = if which::which("7z").is_ok() {
-            "7z"
-        } else if which::which("7z.exe").is_ok() {
-            "7z.exe"
-        } else {
-            return Err("7z.exe not found on PATH".to_string());
-        };
+        let program = find_7z()?;
         let out_flag = format!("-o{}", dest_dir);
         let args = ["x", &archive, &out_flag, "-y"];
-        return run_archive_tool(program, &args);
+        return run_archive_tool(&program, &args);
     }
 
     if is_tar_family {
@@ -2398,12 +2548,33 @@ pub fn spawn_new_window() -> Result<(), String> {
 
 // ---------- window always-on-top ----------
 
-/// Toggle the always-on-top flag on the invoking window.
+/// Toggle the always-on-top flag on the invoking window. Errors on Wayland:
+/// no protocol lets a client keep itself above others, so GTK drops the
+/// keep-above request and tao would report a success that did nothing.
 #[tauri::command]
 pub fn set_always_on_top(window: tauri::Window, enabled: bool) -> Result<(), String> {
+    #[cfg(target_os = "linux")]
+    if gtk_uses_wayland(
+        std::env::var("GDK_BACKEND").ok().as_deref(),
+        std::env::var_os("WAYLAND_DISPLAY").is_some_and(|v| !v.is_empty()),
+    ) {
+        return Err("always-on-top isn't supported on Wayland".to_string());
+    }
     window
         .set_always_on_top(enabled)
         .map_err(|e| format!("set_always_on_top: {}", e))
+}
+
+/// Whether GTK opens its Wayland backend. GDK_BACKEND is a comma list tried
+/// in order; unset or "*" means GTK's default, which tries Wayland first.
+#[cfg(target_os = "linux")]
+fn gtk_uses_wayland(gdk_backend: Option<&str>, wayland_display_set: bool) -> bool {
+    let first = gdk_backend.and_then(|b| b.split(',').map(str::trim).find(|s| !s.is_empty()));
+    match first {
+        Some("wayland") => true,
+        Some("*") | None => wayland_display_set,
+        Some(_) => false,
+    }
 }
 
 // ---------- shell profile detection ----------
@@ -2415,13 +2586,6 @@ pub struct ShellProfile {
     pub kind: String,
     pub exec: String,
     pub args: Vec<String>,
-}
-
-fn home_dir_path() -> Option<PathBuf> {
-    std::env::var("USERPROFILE")
-        .ok()
-        .or_else(|| std::env::var("HOME").ok())
-        .map(PathBuf::from)
 }
 
 /// Decode UTF-16LE byte buffer into String. Returns lossy UTF-8 on failure.
@@ -2518,6 +2682,59 @@ fn wsl_distros() -> Vec<String> {
     }
 }
 
+/// The user's login shell from `$SHELL`, if it names a real program. The
+/// terminal drawer opens `profiles[0]` by default, so this goes first.
+#[cfg(not(windows))]
+fn login_shell(var: Option<String>) -> Option<PathBuf> {
+    let p = PathBuf::from(var?);
+    let name = p.file_name()?.to_string_lossy();
+    if name == "nologin" || name == "false" {
+        return None;
+    }
+    (p.is_absolute() && p.is_file()).then_some(p)
+}
+
+/// The login shell (if any), then each probe that `resolve` finds. A probe
+/// whose id is already listed is skipped, so `$SHELL=/usr/bin/zsh` replaces
+/// the zsh probe rather than doubling it, and the two PowerShell variants
+/// share one entry.
+fn shell_profiles(
+    login: Option<PathBuf>,
+    probes: &[(&str, &str, &str)],
+    resolve: impl Fn(&str) -> Option<PathBuf>,
+) -> Vec<ShellProfile> {
+    let mut out: Vec<ShellProfile> = Vec::new();
+    let shell = |id: String, label: String, exec: PathBuf| ShellProfile {
+        id,
+        label,
+        kind: "shell".to_string(),
+        exec: exec.to_string_lossy().to_string(),
+        args: Vec::new(),
+    };
+    if let Some(path) = login {
+        let name = path.file_name().unwrap_or_default().to_string_lossy().into_owned();
+        // Reuse a probe's id and label when there is one, so a profile the
+        // frontend remembered by id still matches.
+        let (id, label) = match probes.iter().find(|(exe, _, _)| *exe == name) {
+            Some((_, label, id)) => ((*id).to_string(), (*label).to_string()),
+            None => (format!("shell:{}", name), name),
+        };
+        out.push(shell(id, label, path));
+    }
+    for (exe, label, id) in probes {
+        let dup = out
+            .iter()
+            .any(|p| p.id == *id || (*label == "PowerShell" && p.label == "PowerShell"));
+        if dup {
+            continue;
+        }
+        if let Some(resolved) = resolve(exe) {
+            out.push(shell((*id).to_string(), (*label).to_string(), resolved));
+        }
+    }
+    out
+}
+
 /// Probe the system for available shells, WSL distros, and SSH hosts.
 /// Emits only what actually exists: shells first, then WSL, then SSH.
 #[tauri::command]
@@ -2541,25 +2758,11 @@ pub fn list_shell_profiles() -> Vec<ShellProfile> {
         ("pwsh", "PowerShell", "shell:pwsh"),
         ("powershell", "PowerShell", "shell:powershell"),
     ];
-    let mut have_pwsh_label = false;
-    for (exe, label, id) in shell_probes.iter() {
-        if let Ok(resolved) = which::which(exe) {
-            // De-duplicate the two PowerShell variants under one label.
-            if *label == "PowerShell" {
-                if have_pwsh_label {
-                    continue;
-                }
-                have_pwsh_label = true;
-            }
-            out.push(ShellProfile {
-                id: (*id).to_string(),
-                label: (*label).to_string(),
-                kind: "shell".to_string(),
-                exec: resolved.to_string_lossy().to_string(),
-                args: Vec::new(),
-            });
-        }
-    }
+    #[cfg(windows)]
+    let login = None;
+    #[cfg(not(windows))]
+    let login = login_shell(std::env::var("SHELL").ok());
+    out.extend(shell_profiles(login, &shell_probes, |exe| which::which(exe).ok()));
 
     // WSL distros.
     for distro in wsl_distros() {
@@ -3782,5 +3985,166 @@ mod tests {
         assert!(err.starts_with("tar exited"), "{}", err);
         assert!(!failed.exists());
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn list_dir_follows_links_for_kind_but_marks_them() {
+        let dir = temp_dir("listlinks");
+        std::fs::create_dir(dir.join("real")).unwrap();
+        std::fs::write(dir.join("f.txt"), "hello").unwrap();
+        std::os::unix::fs::symlink("real", dir.join("dirlink")).unwrap();
+        std::os::unix::fs::symlink("f.txt", dir.join("filelink")).unwrap();
+        std::os::unix::fs::symlink("missing", dir.join("broken")).unwrap();
+
+        let entries = list_dir(s(&dir), true).unwrap();
+        let get = |n: &str| entries.iter().find(|e| e.name == n).unwrap();
+        assert_eq!(get("dirlink").kind, "folder");
+        assert!(get("dirlink").is_symlink);
+        assert_ne!(get("filelink").kind, "folder");
+        assert_eq!(get("filelink").size, 5); // the target's size, not the link's
+        assert!(get("filelink").is_symlink);
+        assert_ne!(get("broken").kind, "folder");
+        assert!(get("broken").is_symlink);
+        assert!(!get("real").is_symlink);
+        // Linked folders sort with the folders.
+        let names: Vec<&str> = entries.iter().map(|e| e.name.as_str()).collect();
+        assert_eq!(&names[..2], ["dirlink", "real"]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn home_from_uses_home_only_on_unix() {
+        let env = |pairs: &'static [(&'static str, &'static str)]| {
+            move |k: &str| pairs.iter().find(|(n, _)| *n == k).map(|(_, v)| v.to_string())
+        };
+        let both = env(&[("USERPROFILE", "C:\\Users\\me"), ("HOME", "/home/me")]);
+        assert_eq!(home_from(both).as_deref(), Some("/home/me"));
+        assert_eq!(home_from(env(&[("USERPROFILE", "C:\\Users\\me")])), None);
+        assert_eq!(home_from(env(&[("HOME", "")])), None);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn unescape_udev_decodes_hex_escapes() {
+        assert_eq!(unescape_udev("Local\\x20Disk"), "Local Disk");
+        assert_eq!(unescape_udev("parrot-root"), "parrot-root");
+        assert_eq!(unescape_udev("a\\x2fb"), "a/b");
+        // Malformed escapes pass through untouched.
+        assert_eq!(unescape_udev("x\\x2"), "x\\x2");
+        assert_eq!(unescape_udev("x\\xzz"), "x\\xzz");
+        assert_eq!(unescape_udev("x\\x+1"), "x\\x+1");
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn labels_by_device_maps_canonical_devices() {
+        let dir = temp_dir("bylabel");
+        std::fs::create_dir_all(dir.join("dev")).unwrap();
+        std::fs::create_dir_all(dir.join("by-label")).unwrap();
+        std::fs::write(dir.join("dev/sda1"), "").unwrap();
+        std::os::unix::fs::symlink("../dev/sda1", dir.join("by-label/My\\x20Disk")).unwrap();
+        std::os::unix::fs::symlink("../dev/gone", dir.join("by-label/stale")).unwrap();
+
+        let labels = labels_by_device(&dir.join("by-label"));
+        let dev = dunce::canonicalize(dir.join("dev/sda1")).unwrap();
+        assert_eq!(labels.get(&dev).map(String::as_str), Some("My Disk"));
+        assert_eq!(labels.len(), 1); // the dangling link is skipped
+        assert!(labels_by_device(&dir.join("nope")).is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn find_tool_in_takes_the_first_name_present() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = temp_dir("findtool");
+        for name in ["7zz", "7za"] {
+            let p = dir.join(name);
+            std::fs::write(&p, "#!/bin/sh\n").unwrap();
+            std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        let path = Some(dir.clone().into_os_string());
+        assert_eq!(find_tool_in(SEVEN_ZIP_NAMES, path.clone()), Some(dir.join("7zz")));
+        assert_eq!(find_tool_in(&["codium"], path), None);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    const PROBES: &[(&str, &str, &str)] = &[
+        ("bash", "bash", "shell:bash"),
+        ("zsh", "zsh", "shell:zsh"),
+        ("pwsh", "PowerShell", "shell:pwsh"),
+        ("powershell", "PowerShell", "shell:powershell"),
+    ];
+
+    fn ids(profiles: &[ShellProfile]) -> Vec<&str> {
+        profiles.iter().map(|p| p.id.as_str()).collect()
+    }
+
+    #[test]
+    fn shell_profiles_put_the_login_shell_first() {
+        let all = |exe: &str| Some(PathBuf::from(format!("/usr/bin/{}", exe)));
+        let got = shell_profiles(Some(PathBuf::from("/usr/bin/zsh")), PROBES, all);
+        assert_eq!(ids(&got), ["shell:zsh", "shell:bash", "shell:pwsh"]);
+        assert_eq!(got[0].label, "zsh");
+        assert_eq!(got[0].exec, "/usr/bin/zsh");
+
+        // A login shell that isn't probed gets its own profile.
+        let got = shell_profiles(Some(PathBuf::from("/opt/nu/bin/nu")), PROBES, all);
+        assert_eq!(ids(&got), ["shell:nu", "shell:bash", "shell:zsh", "shell:pwsh"]);
+        assert_eq!(got[0].label, "nu");
+    }
+
+    #[test]
+    fn shell_profiles_keep_one_powershell_and_skip_missing() {
+        let some = |exe: &str| (exe != "zsh").then(|| PathBuf::from(format!("/bin/{}", exe)));
+        let got = shell_profiles(None, PROBES, some);
+        assert_eq!(ids(&got), ["shell:bash", "shell:pwsh"]);
+        let got = shell_profiles(Some(PathBuf::from("/bin/pwsh")), PROBES, some);
+        assert_eq!(ids(&got), ["shell:pwsh", "shell:bash"]);
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn login_shell_rejects_unusable_values() {
+        let dir = temp_dir("loginshell");
+        let sh = dir.join("myshell");
+        std::fs::write(&sh, "").unwrap();
+        assert_eq!(login_shell(Some(s(&sh))), Some(sh.clone()));
+        assert_eq!(login_shell(Some("myshell".into())), None); // relative
+        assert_eq!(login_shell(Some(s(&dir.join("absent")))), None);
+        assert_eq!(login_shell(Some("/usr/sbin/nologin".into())), None);
+        assert_eq!(login_shell(Some(String::new())), None);
+        assert_eq!(login_shell(None), None);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn gtk_uses_wayland_follows_gdk_backend() {
+        assert!(gtk_uses_wayland(None, true));
+        assert!(!gtk_uses_wayland(None, false));
+        assert!(gtk_uses_wayland(Some("wayland"), true));
+        assert!(gtk_uses_wayland(Some("wayland,x11"), true));
+        assert!(!gtk_uses_wayland(Some("x11"), true));
+        assert!(!gtk_uses_wayland(Some(" x11 , wayland"), true));
+        assert!(gtk_uses_wayland(Some("*"), true));
+        assert!(gtk_uses_wayland(Some(""), true));
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn xdg_trash_files_respects_xdg_data_home() {
+        let home = Some(PathBuf::from("/home/me"));
+        assert_eq!(
+            xdg_trash_files(Some("/data".into()), home.clone()),
+            Some(PathBuf::from("/data/Trash/files"))
+        );
+        let fallback = Some(PathBuf::from("/home/me/.local/share/Trash/files"));
+        assert_eq!(xdg_trash_files(None, home.clone()), fallback);
+        assert_eq!(xdg_trash_files(Some(String::new()), home.clone()), fallback);
+        assert_eq!(xdg_trash_files(Some("rel/data".into()), home), fallback);
+        assert_eq!(xdg_trash_files(None, None), None);
     }
 }

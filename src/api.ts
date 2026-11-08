@@ -330,6 +330,11 @@ export function moveToTrash(path: string): Promise<void> {
   return mustInvoke<void>("move_to_trash", { path });
 }
 
+/** The browsable trash folder (`$XDG_DATA_HOME/Trash/files`); null on Windows. */
+export function trashDir(): Promise<string | null> {
+  return safe(() => invoke<string | null>("trash_dir"), null);
+}
+
 export function winToWsl(path: string): Promise<string> {
   return safe(() => invoke<string>("win_to_wsl", { path }), path);
 }
