@@ -78,7 +78,7 @@ Not changed: commands the user starts from the git menu (`git_run`) keep git's n
 - **CSP additions:**
   - `media-src 'self' data:`: the audio preview's `data:` URL was blocked, because media fell back to `default-src 'self'`.
   - `object-src 'none'` and `base-uri 'self'`, as cheap hardening; nothing uses `<object>`, `<embed>` or `<base>`.
-- **Google Fonts stay allowed.** The default font, JetBrainsMono Nerd Font, is bundled, but the font picker's JetBrains Mono, IBM Plex Mono and Fira Code are loaded from Google by `index.html`. Removing the origins would quietly drop three picker options to fallbacks. The cost is one request to Google at every startup; bundling or lazy-loading those fonts is suggested as a follow-up.
+- **Google Fonts stay allowed.** The default font, JetBrainsMono Nerd Font, is bundled, but the font picker's JetBrains Mono, IBM Plex Mono and Fira Code are loaded from Google by `index.html`. Removing the origins would quietly drop three picker options to fallbacks. The cost is one request to Google at every startup; bundling or lazy-loading those fonts is suggested as a follow-up. *Superseded by `2026-11-08-local-fonts-bundled.md`: the fonts are now bundled and the Google origins are gone.*
 
 ## Not verified locally
 The Windows-only code (sections 3 and 4 on Windows, plus `verify_signature` and `create_shortcut`) can't be compiled or run on this Linux machine. Its first compile is the `windows-latest` CI job (`cargo clippy -D warnings` and `cargo test`). The pure helpers it relies on (`wt_escape`, `is_cmd_inert`, the PowerShell constants) are unit-tested on every platform.
