@@ -629,7 +629,7 @@ html, body {
  * long names don't push the trailing extension chip out of the .name cell and
  * under the tag column. Without this, flex children keep their content width
  * and the overflow:hidden on .name only hides the tail without ellipsis. */
-.row .name > span:not(.git-dot):not(.ext) {
+.row .name > span:not(.git-dot):not(.ext):not(.link) {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -647,6 +647,7 @@ html, body {
 .row .git-dot.gb { background: var(--fg-3); }
 .row .meta { color: var(--fg-3); font-size: 11px; }
 .row .ext { color: var(--fg-3); font-size: 11px; }
+.row .link, .miller .link { color: var(--cyan); font-size: 11px; flex: none; }
 .row .size {
   text-align: right;
   color: var(--fg-2);

@@ -1546,6 +1546,11 @@ interface RowHandlers {
   ctxMenu: (i: number, isSel: boolean, e: React.MouseEvent) => void;
 }
 
+/** Marks a symlink row; its kind, size and date describe the target. */
+export function LinkMark() {
+  return <span className="link" title="symbolic link" aria-label="symbolic link">↪</span>;
+}
+
 /** One file row. Memoized: with thousands of entries, re-rendering every row
  *  on each selection/focus change is what made large directories crawl —
  *  only rows whose flags flip re-render now. */
@@ -1575,6 +1580,7 @@ const PaneRow = React.memo(function PaneRow({
         {showGitGutters && f.git && <span className={"git-dot " + gitDotClass(f.git)}></span>}
         <span style={{color: f.hidden ? "var(--fg-3)" : "inherit"}}>{f.name}</span>
         {showExtensions && f.ext && !f.hidden && f.kind !== "folder" && <span className="ext">.{f.ext}</span>}
+        {f.link && <LinkMark />}
       </span>
       <span className="tag c-tag">
         {f.tag ? <><span className="dot" style={{background: tagColor(f.tag)}}></span>{f.tag}</> : <span style={{color:"var(--fg-3)"}}>—</span>}

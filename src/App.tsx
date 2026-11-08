@@ -364,6 +364,7 @@ function entryToRow(
     git: normalizeGit(e.git),
     hidden: e.hidden,
     ext: e.ext,
+    link: e.is_symlink,
     entry: e,
   };
 }
