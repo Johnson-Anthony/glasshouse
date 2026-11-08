@@ -24,7 +24,7 @@ Line numbers are from commit `14c68bd` and drift, so search by name. Items marke
 | pty-writer | Rust, small | queued; after command-security merges (found by async-commands) |
 | op-progress | both | queued; after dead-code's Rust part and split-big-files (found by async-commands) |
 | dead-code | both | frontend part **merged** (d61379a); Rust part starts after command-security merges (both edit the command list) |
-| unsent-labels | frontend | running (dead-code session, while it waits for a Rust slot) |
+| unsent-labels | frontend | **merged** (8828d97) |
 | test-coverage | both | queued |
 | presentation | docs + small code | **merged**; GitHub text awaits the user |
 | pages-site | site (big project) | running (presentation session; added by the user) |

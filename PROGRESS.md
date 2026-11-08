@@ -1,6 +1,10 @@
 # Progress
 
 ## Done
+- 2026-11-08: Merged `unsent-labels` (8828d97).
+  - Removed 75 command cases that nothing sends (aliases, and no-op cases for submenu parents). App.tsx and the handlers went from 292 switch cases to 212.
+  - View → Display Mode → Miller Columns (ranger) is back, on Ctrl+7. The view worked, but its menu item had been dropped in April.
+  - `pnpm check:wiring` now also fails on cases for labels nothing sends.
 - 2026-11-08: Merged `async-commands` (9c3eefe).
   - 54 commands and `pty_spawn` run off the main thread (`#[tauri::command(async)]`). A 25 s hash no longer freezes the UI; a main-thread ping answered in a 1 ms median during one.
   - Commands that rely on call order stay on the main thread: pins, tags and recents config, watch_dir and unwatch_dir, and pty_write, pty_resize and pty_kill.
