@@ -146,8 +146,8 @@ pub fn list_dir(path: String, show_hidden: bool) -> Result<Vec<FileEntry>, Strin
     Ok(out)
 }
 
-/// Single-char code for one status entry, shared by `list_dir`, `git_status`
-/// and `git_dirty_count` so they agree. Priority: conflict > staged new >
+/// Single-char code for one status entry, shared by `list_dir` and
+/// `git_status` so they agree. Priority: conflict > staged new >
 /// untracked > delete > modify (renames and type changes count as "M").
 /// `None` for anything else; ignored entries never reach here because no
 /// caller asks libgit2 for them.
@@ -788,17 +788,6 @@ pub struct GitInfo {
     pub status: std::collections::HashMap<String, String>, // repo-relative path -> code, as in FileEntry.git
 }
 
-/// Open the repo containing `path`. `Ok(None)` when `path` isn't inside one
-/// (libgit2 says the same for a path that doesn't exist); `Err` when there is
-/// one but it can't be opened (unreadable, dubious ownership).
-fn discover_repo(path: &str) -> Result<Option<git2::Repository>, String> {
-    match git2::Repository::discover(path) {
-        Ok(repo) => Ok(Some(repo)),
-        Err(e) if e.code() == git2::ErrorCode::NotFound => Ok(None),
-        Err(e) => Err(format!("open repo at {}: {}", path, e.message())),
-    }
-}
-
 /// Commits HEAD is ahead of and behind its upstream. `Ok(None)` when there's
 /// nothing to compare: detached or unborn HEAD, no upstream configured, or
 /// an upstream ref that's gone (deleted on the remote and pruned).
@@ -841,8 +830,7 @@ pub fn git_status(path: String) -> Option<GitInfo> {
         .and_then(|h| h.shorthand().map(|s| s.to_string()))
         .unwrap_or_else(|| "(detached)".to_string());
 
-    // The toolbar just hides zero counts, so a failure here shows nothing;
-    // git_ahead_behind reports the error.
+    // The toolbar just hides zero counts, so a failure here shows nothing.
     let (ahead, behind) = upstream_ahead_behind(&repo)
         .ok()
         .flatten()
@@ -3537,32 +3525,6 @@ fn sample_net_octets() -> Result<(u64, u64), String> {
     Ok((total_in, total_out))
 }
 
-// ---------- per-repo dirty count ----------
-
-/// Changed and untracked entries in the repo containing `path`, counted as
-/// `git_status`'s `dirty` is. `Ok(None)` when `path` isn't in a repo with a
-/// working tree; `Err` when the repo can't be opened or its status read.
-#[tauri::command(async)]
-pub fn git_dirty_count(path: String) -> Result<Option<u32>, String> {
-    use git2::StatusOptions;
-    let Some(repo) = discover_repo(&path)? else {
-        return Ok(None);
-    };
-    if repo.is_bare() {
-        return Ok(None);
-    }
-    let mut opts = StatusOptions::new();
-    opts.include_untracked(true).recurse_untracked_dirs(false);
-    let statuses = repo
-        .statuses(Some(&mut opts))
-        .map_err(|e| format!("git status: {}", e.message()))?;
-    let n = statuses
-        .iter()
-        .filter(|s| git_status_code(s.status()).is_some())
-        .count();
-    Ok(Some(n as u32))
-}
-
 // ---------- real git shell-outs ----------
 
 #[derive(Debug, Serialize)]
@@ -3750,20 +3712,6 @@ fn parse_upstream_track(track: &str) -> (u32, u32, bool) {
         }
     }
     (ahead, behind, false)
-}
-
-/// Commits the current branch is ahead of and behind its upstream. `Ok(None)`
-/// when there's nothing to compare: not in a repo, detached or unborn HEAD,
-/// no upstream, or the upstream ref is gone. `Err` is a real failure, such as
-/// an unreadable repo, dubious ownership or a missing object.
-#[tauri::command(async)]
-pub fn git_ahead_behind(cwd: String) -> Result<Option<(u32, u32)>, String> {
-    let Some(repo) = discover_repo(&cwd)? else {
-        return Ok(None);
-    };
-    let counts =
-        upstream_ahead_behind(&repo).map_err(|e| format!("git ahead/behind: {}", e.message()))?;
-    Ok(counts.map(|(a, b)| (a as u32, b as u32)))
 }
 
 // ---------- tests ----------
@@ -4134,8 +4082,7 @@ mod tests {
             ("untracked.txt", "?"),
             ("staged.txt", "A"),
         ];
-        let path = dir.to_string_lossy().into_owned();
-        let info = git_status(path.clone()).unwrap();
+        let info = git_status(dir.to_string_lossy().into_owned()).unwrap();
         let listed: HashMap<String, String> = scan_repo_statuses(&dir)
             .unwrap()
             .into_iter()
@@ -4157,7 +4104,6 @@ mod tests {
         }
         assert_eq!(info.status.len(), expected.len());
         assert_eq!(info.dirty, expected.len());
-        assert_eq!(git_dirty_count(path), Ok(Some(expected.len() as u32)));
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -4290,13 +4236,13 @@ mod tests {
     }
 
     #[test]
-    fn git_ahead_behind_counts_and_nothing_to_compare() {
+    fn upstream_ahead_behind_counts_and_nothing_to_compare() {
         let (dir, repo) = test_repo("aheadbehind");
         let cwd = dir.to_string_lossy().into_owned();
-        assert_eq!(git_ahead_behind(cwd.clone()), Ok(None), "unborn HEAD");
+        assert_eq!(upstream_ahead_behind(&repo).unwrap(), None, "unborn HEAD");
         std::fs::write(dir.join("a.txt"), "1").unwrap();
         let base = commit_all(&repo, "one");
-        assert_eq!(git_ahead_behind(cwd.clone()), Ok(None), "no upstream");
+        assert_eq!(upstream_ahead_behind(&repo).unwrap(), None, "no upstream");
 
         // A fake origin/main at the first commit, then two local commits.
         repo.remote("origin", "https://example.invalid/repo.git")
@@ -4311,8 +4257,8 @@ mod tests {
         commit_all(&repo, "two");
         std::fs::write(dir.join("a.txt"), "3").unwrap();
         let tip = commit_all(&repo, "three");
-        assert_eq!(git_ahead_behind(cwd.clone()), Ok(Some((2, 0))));
-        let info = git_status(cwd.clone()).unwrap();
+        assert_eq!(upstream_ahead_behind(&repo).unwrap(), Some((2, 0)));
+        let info = git_status(cwd).unwrap();
         assert_eq!((info.ahead, info.behind), (2, 0));
 
         // Swap them: local main at the first commit, origin/main at the tip.
@@ -4320,31 +4266,27 @@ mod tests {
             .unwrap();
         repo.reference("refs/heads/main", base, true, "test")
             .unwrap();
-        assert_eq!(git_ahead_behind(cwd.clone()), Ok(Some((0, 2))));
+        assert_eq!(upstream_ahead_behind(&repo).unwrap(), Some((0, 2)));
 
         repo.set_head_detached(base).unwrap();
-        assert_eq!(git_ahead_behind(cwd.clone()), Ok(None), "detached HEAD");
+        assert_eq!(upstream_ahead_behind(&repo).unwrap(), None, "detached HEAD");
         repo.set_head("refs/heads/main").unwrap();
         repo.find_reference("refs/remotes/origin/main")
             .unwrap()
             .delete()
             .unwrap();
-        assert_eq!(git_ahead_behind(cwd.clone()), Ok(None), "upstream gone");
+        assert_eq!(upstream_ahead_behind(&repo).unwrap(), None, "upstream gone");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
-    fn git_counts_outside_a_repo_are_none() {
+    fn git_status_outside_a_repo_is_none() {
         let dir = temp_dir("norepo");
         // Only meaningful when the temp dir isn't itself inside a repo.
         if git2::Repository::discover(&dir).is_err() {
-            let path = dir.to_string_lossy().into_owned();
-            assert_eq!(git_ahead_behind(path.clone()), Ok(None));
-            assert_eq!(git_dirty_count(path), Ok(None));
+            assert!(git_status(s(&dir)).is_none());
             // libgit2 reports a path that doesn't exist as NotFound too.
-            let missing = s(&dir.join("missing"));
-            assert_eq!(git_ahead_behind(missing.clone()), Ok(None));
-            assert_eq!(git_dirty_count(missing), Ok(None));
+            assert!(git_status(s(&dir.join("missing"))).is_none());
         }
         let _ = std::fs::remove_dir_all(&dir);
     }
