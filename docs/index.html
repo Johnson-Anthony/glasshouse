@@ -61,6 +61,43 @@
     </div>
   </section>
 
+  <section id="tour">
+    <h2>see it work</h2>
+    <p class="lead">Each clip is recorded from the demo below, and the same steps can run there live.</p>
+    <div class="tour">
+      <div class="tour-tabs" role="tablist" aria-label="Features">
+        <button class="tour-tab" role="tab" aria-selected="true" aria-controls="tour-stage" data-scene="terminal">terminal</button>
+        <button class="tour-tab" role="tab" aria-selected="false" aria-controls="tour-stage" data-scene="tabs" tabindex="-1">tabs</button>
+        <button class="tour-tab" role="tab" aria-selected="false" aria-controls="tour-stage" data-scene="git" tabindex="-1">git</button>
+        <button class="tour-tab" role="tab" aria-selected="false" aria-controls="tour-stage" data-scene="quicklook" tabindex="-1">Quick Look</button>
+        <button class="tour-tab" role="tab" aria-selected="false" aria-controls="tour-stage" data-scene="paste" tabindex="-1">paste conflicts</button>
+        <button class="tour-tab" role="tab" aria-selected="false" aria-controls="tour-stage" data-scene="palette" tabindex="-1">command palette</button>
+      </div>
+      <div class="tour-stage" id="tour-stage" role="tabpanel">
+        <video controls muted playsinline preload="none" width="1600" height="1000" poster="media/tour-terminal.webp"
+               aria-label="Recording of the terminal drawer">
+          <source src="media/tour-terminal.webm" type="video/webm">
+          <source src="media/tour-terminal.mp4" type="video/mp4">
+        </video>
+        <div class="tour-progress" aria-hidden="true"><i></i></div>
+      </div>
+      <div class="tour-caption">
+        <div class="tour-texts">
+          <p data-scene="terminal"><kbd>Ctrl</kbd>+<kbd>`</kbd> opens a terminal under the file list. It starts in the current folder and follows you as you browse.</p>
+          <p data-scene="tabs" hidden><kbd>Ctrl</kbd>+<kbd>T</kbd> opens a tab, and <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>N</kbd> a private one that stays out of recent folders. Each tab keeps its own history.</p>
+          <p data-scene="git" hidden>The status column shows what changed. Stage, commit and blame from the Git menu without leaving the folder.</p>
+          <p data-scene="quicklook" hidden><kbd>Space</kbd> previews the selected file: photos, text and code. <kbd>Esc</kbd> closes it.</p>
+          <p data-scene="paste" hidden>Pasting onto a name that's already taken asks first: replace, keep both or skip.</p>
+          <p data-scene="palette" hidden><kbd>Ctrl</kbd>+<kbd>P</kbd> finds any command from a few letters. Here it shows hidden files, then searches the text of every file in the repo.</p>
+        </div>
+        <div class="tour-actions">
+          <button class="btn" type="button" id="tour-pause" hidden>Pause</button>
+          <button class="btn" type="button" id="tour-run">Run it in the live demo</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
   <section id="demo">
     <h2>try it</h2>
     <p class="lead">This is the app's real interface, running in your browser. The files, the git repository and the shell are simulated, so nothing on your computer is read or changed.</p>
@@ -73,6 +110,15 @@
     <div class="demo-bar">
       <p class="keys"><kbd>Ctrl</kbd>+<kbd>`</kbd> terminal · <kbd>Space</kbd> Quick Look · <kbd>Ctrl</kbd>+<kbd>P</kbd> command palette · right-click for menus</p>
       <button class="btn" type="button" id="demo-fullscreen" hidden>Full screen</button>
+    </div>
+    <div class="demo-scenes" hidden>
+      <span>walkthroughs:</span>
+      <button class="link" type="button" data-scene="terminal">terminal</button>
+      <button class="link" type="button" data-scene="tabs">tabs</button>
+      <button class="link" type="button" data-scene="git">git</button>
+      <button class="link" type="button" data-scene="quicklook">Quick Look</button>
+      <button class="link" type="button" data-scene="paste">paste conflicts</button>
+      <button class="link" type="button" data-scene="palette">command palette</button>
     </div>
     <p class="demo-small note">The demo needs a desktop-size screen. <a href="demo/">Open it anyway</a>, or come back on a computer.</p>
   </section>

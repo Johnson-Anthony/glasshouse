@@ -32,6 +32,15 @@ window.addEventListener("message", (ev: MessageEvent) => {
   }
 });
 
+// Tell the page when the app's theme changes (the palette, the tweaks
+// panel), so the site follows the demo as well as the other way round.
+if (window.parent !== window) {
+  new MutationObserver(() => {
+    const theme = document.documentElement.getAttribute("data-theme");
+    window.parent.postMessage({ type: "glasshouse-demo", themeChanged: theme }, location.origin);
+  }).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+}
+
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
     <App />

@@ -5,8 +5,10 @@
 //
 //   pnpm site:capture            all stills
 //   pnpm site:capture hero       only the jobs whose name starts with "hero"
+//   pnpm site:capture clip-git   one tour clip
 //   pnpm site:capture page <dir> screenshots of the landing page itself, for
 //                                review (desktop and phone), saved to <dir>
+//   pnpm site:capture check      behavior checks of the landing page
 import { spawn, execFileSync } from "node:child_process";
 import { createReadStream, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
@@ -24,6 +26,12 @@ const THEMES = ["tokyo-night", "catppuccin-mocha", "gruvbox-dark", "rose-pine", 
 // ---- jobs ----
 /** @type {Array<{ name: string, theme: string, scene: string, out: string, og?: boolean }>} */
 const JOBS = THEMES.map(theme => ({ name: `hero-${theme}`, theme, scene: "hero", out: `hero-${theme}`, og: theme === "tokyo-night" }));
+
+/** Tour clips: one scene each, recorded in the default theme. */
+const CLIPS = ["terminal", "tabs", "git", "quicklook", "paste", "palette"]
+  .map(scene => ({ name: `clip-${scene}`, scene, out: `tour-${scene}` }));
+const CLIP_W = 1600; // encoded width; captured at 2x and scaled down
+const FPS = 30;
 
 /** Landing-page review shots; not part of the site. */
 const PAGE_JOBS = [
@@ -91,8 +99,13 @@ async function launchChromium() {
     if (!listeners.has(method)) listeners.set(method, new Set());
     listeners.get(method).add(fn);
   });
+  const on = (method, fn) => {
+    if (!listeners.has(method)) listeners.set(method, new Set());
+    listeners.get(method).add(fn);
+    return () => listeners.get(method).delete(fn);
+  };
   const close = () => { ws.close(); proc.kill(); setTimeout(() => rmSync(profile, { recursive: true, force: true }), 500); };
-  return { send, once, close };
+  return { send, once, on, close };
 }
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -145,8 +158,145 @@ async function shootPages(cdp, base, outDir) {
   }
 }
 
+/** Record one scene with the DevTools screencast and encode it with ffmpeg:
+ *  WebM (VP9) and MP4 (H.264, for Safari) plus a WebP poster. */
+async function recordClip(cdp, base, job, tmp) {
+  await load(cdp, `${base}demo/?theme=tokyo-night`);
+  await evaluate(cdp, `document.fonts.ready.then(() => true)`);
+  const dir = mkdtempSync(join(tmp, `${job.out}-`));
+  const frames = [];
+  const off = cdp.on("Page.screencastFrame", p => {
+    const file = join(dir, `f${String(frames.length).padStart(5, "0")}.jpg`);
+    writeFileSync(file, Buffer.from(p.data, "base64"));
+    frames.push({ file, t: p.metadata.timestamp ?? Date.now() / 1000 });
+    void cdp.send("Page.screencastFrameAck", { sessionId: p.sessionId });
+  });
+  await cdp.send("Page.startScreencast", { format: "jpeg", quality: 92, maxWidth: W * 2, maxHeight: H * 2, everyNthFrame: 1 });
+  await sleep(700);
+  const ok = await evaluate(cdp, `window.glasshouseDemo.runScene(${JSON.stringify(job.scene)}, { speed: 1 })`);
+  if (!ok) throw new Error(`scene ${job.scene} did not finish`);
+  await sleep(1600);
+  const end = Date.now() / 1000;
+  await cdp.send("Page.stopScreencast");
+  off();
+  if (frames.length < 2) throw new Error(`${job.name}: no frames recorded`);
+  // Frames arrive only when the page changes: each lasts until the next one.
+  const lines = ["ffconcat version 1.0"];
+  frames.forEach((f, i) => {
+    const next = i + 1 < frames.length ? frames[i + 1].t : Math.max(end, f.t + 1);
+    lines.push(`file '${f.file}'`, `duration ${Math.max(0.001, next - f.t).toFixed(4)}`);
+  });
+  lines.push(`file '${frames[frames.length - 1].file}'`);
+  const list = join(dir, "list.txt");
+  writeFileSync(list, lines.join("\n") + "\n");
+  const vf = `fps=${FPS},scale=${CLIP_W}:-2:flags=lanczos,format=yuv420p`;
+  const ff = args => execFileSync("ffmpeg", ["-hide_banner", "-loglevel", "error", "-y", "-f", "concat", "-safe", "0", "-i", list, ...args]);
+  const webm = join(MEDIA, `${job.out}.webm`);
+  const mp4 = join(MEDIA, `${job.out}.mp4`);
+  ff(["-vf", vf, "-c:v", "libvpx-vp9", "-crf", "38", "-b:v", "0", "-row-mt", "1", "-deadline", "good", "-cpu-used", "2", "-an", webm]);
+  ff(["-vf", vf, "-c:v", "libx264", "-crf", "26", "-preset", "slow", "-tune", "animation", "-movflags", "+faststart", "-an", mp4]);
+  // Poster: the clip's last frame, which shows the scene's result.
+  toWebp(frames[frames.length - 1].file, join(MEDIA, `${job.out}.webp`), 80);
+  rmSync(dir, { recursive: true, force: true });
+  const kb = f => Math.round(statSync(f).size / 1024);
+  console.log(`${job.name}: ${frames.length} frames, ${(end - frames[0].t).toFixed(1)} s, webm ${kb(webm)} KB, mp4 ${kb(mp4)} KB`);
+}
+
+/** Behavior checks of the landing page in a real (headless) browser. */
+async function checkPage(cdp, base) {
+  const results = [];
+  const errors = [];
+  const ok = (name, pass, detail = "") => { results.push({ name, pass, detail }); };
+  cdp.on("Runtime.exceptionThrown", p => errors.push(p.exceptionDetails?.exception?.description ?? p.exceptionDetails?.text));
+  cdp.on("Runtime.consoleAPICalled", p => { if (p.type === "error") errors.push(p.args.map(a => a.value ?? a.description).join(" ")); });
+  cdp.on("Log.entryAdded", p => { if (p.entry.level === "error") errors.push(`${p.entry.text} ${p.entry.url ?? ""}`); });
+  await cdp.send("Log.enable");
+  const open = async (opts) => {
+    await cdp.send("Emulation.setDeviceMetricsOverride", { width: opts.width, height: opts.height, deviceScaleFactor: 1, mobile: !!opts.mobile });
+    await cdp.send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-reduced-motion", value: opts.reduce ? "reduce" : "no-preference" }] });
+    const loaded = cdp.once("Page.loadEventFired");
+    await cdp.send("Page.navigate", { url: `${base}?check=${Date.now()}` });
+    await loaded;
+    await evaluate(cdp, `localStorage.clear(), true`);
+  };
+  const js = expr => evaluate(cdp, expr);
+  const video = `document.querySelector("#tour-stage video")`;
+
+  // Desktop: tour plays when on screen, tabs switch clips.
+  await open({ width: 1440, height: 900 });
+  await js(`document.getElementById("tour-stage").scrollIntoView({ block: "center" }), true`);
+  await sleep(3000);
+  const t1 = await js(`${video}.currentTime`);
+  ok("tour clip plays when on screen", t1 > 0.5 && !(await js(`${video}.paused`)), `t=${t1.toFixed(1)}`);
+  await js(`document.querySelector('.tour-tab[data-scene="git"]').click(), true`);
+  await sleep(2000);
+  const src = await js(`${video}.currentSrc`);
+  ok("tour tab switches the clip", src.includes("tour-git") && (await js(`${video}.currentTime`)) > 0.3, src);
+  await js(`document.getElementById("tour-pause").click(), true`);
+  await sleep(300);
+  ok("tour pause button pauses", await js(`${video}.paused && document.getElementById("tour-pause").textContent === "Play"`));
+  await js(`window.scrollTo(0, 0), true`);
+  await sleep(500);
+
+  // Theme picker.
+  await js(`document.querySelector('[data-choice="everforest"]').click(), true`);
+  ok("theme chip recolors page and hero",
+    await js(`document.documentElement.dataset.theme === "everforest" && document.getElementById("hero-shot").getAttribute("src") === "media/hero-everforest.webp" && localStorage.getItem("glasshouse-site.theme") === "everforest"`));
+
+  // "Run it in the live demo" starts the demo and runs the scene.
+  await js(`document.querySelector('.tour-tab[data-scene="terminal"]').click(), document.getElementById("tour-run").click(), true`);
+  let running = false;
+  for (let i = 0; i < 80 && !running; i++) {
+    await sleep(100);
+    running = await js(`document.querySelector(".demo-frame").dataset.state === "running" && !!document.querySelector(".demo-frame iframe").contentDocument.querySelector(".row")`);
+  }
+  ok("live demo starts on demand", running);
+  ok("live demo gets the page's theme", await js(`document.querySelector(".demo-frame iframe").contentDocument.documentElement.dataset.theme === "everforest"`));
+  for (let i = 0; i < 150; i++) {
+    await sleep(100);
+    if (await js(`(document.querySelector(".demo-frame iframe").contentDocument.querySelector(".xterm-rows")?.textContent ?? "").includes("git log")`)) break;
+  }
+  const walk = await js(`(() => { const d = document.querySelector(".demo-frame iframe").contentDocument; return { xterm: !!d.querySelector(".xterm"), text: (d.querySelector(".xterm-rows")?.textContent ?? "").slice(0, 300), tab: d.querySelector(".tab.active")?.textContent ?? "" }; })()`);
+  ok("walkthrough runs in the live demo", walk.xterm && walk.text.includes("git log"), JSON.stringify(walk));
+  await js(`document.querySelector('[data-choice="green-crt"]').click(), true`);
+  await sleep(300);
+  ok("theme chip recolors the running demo", await js(`document.querySelector(".demo-frame iframe").contentDocument.documentElement.dataset.theme === "green-crt"`));
+
+  // Reduced motion: nothing plays by itself.
+  await open({ width: 1440, height: 900, reduce: true });
+  await js(`document.getElementById("tour-stage").scrollIntoView({ block: "center" }), true`);
+  await sleep(2000);
+  ok("reduced motion: tour doesn't autoplay", await js(`${video}.paused && ${video}.currentTime === 0 && document.getElementById("tour-pause").textContent === "Play"`));
+  ok("reduced motion: no transitions", await js(`getComputedStyle(document.body).transitionDuration.split(",").every(d => parseFloat(d) === 0)`));
+
+  // Phones: no sideways scrolling, demo replaced by a link.
+  for (const width of [320, 375, 414]) {
+    await open({ width, height: 800, mobile: true });
+    const over = await js(`document.documentElement.scrollWidth - document.documentElement.clientWidth`);
+    ok(`phone ${width}px: no horizontal scroll`, over <= 0, `overflow=${over}`);
+  }
+  ok("phone: live demo frame hidden, link shown", await js(`getComputedStyle(document.querySelector(".demo-frame")).display === "none" && getComputedStyle(document.querySelector(".demo-small")).display !== "none"`));
+
+  ok("no console errors", errors.length === 0, errors.slice(0, 5).join(" | "));
+  for (const r of results) console.log(`${r.pass ? "PASS" : "FAIL"}  ${r.name}${r.detail ? `  (${r.detail})` : ""}`);
+  if (results.some(r => !r.pass)) process.exitCode = 1;
+}
+
 async function main() {
   const only = process.argv[2];
+  if (only === "check") {
+    const server = await serve();
+    const cdp = await launchChromium();
+    try {
+      await cdp.send("Page.enable");
+      await cdp.send("Runtime.enable");
+      await checkPage(cdp, `http://127.0.0.1:${server.address().port}/glasshouse/`);
+    } finally {
+      cdp.close();
+      server.close();
+    }
+    return;
+  }
   if (only === "page") {
     const server = await serve();
     const cdp = await launchChromium();
@@ -171,6 +321,9 @@ async function main() {
     await cdp.send("Runtime.enable");
     await cdp.send("Emulation.setDeviceMetricsOverride", { width: W, height: H, deviceScaleFactor: 2, mobile: false });
     const tmp = mkdtempSync(join(tmpdir(), "glasshouse-shots-"));
+    for (const job of CLIPS.filter(j => !only || j.name.startsWith(only))) {
+      await recordClip(cdp, base, job, tmp);
+    }
     for (const job of jobs) {
       await load(cdp, `${base}demo/?theme=${job.theme}`);
       await evaluate(cdp, `document.fonts.ready.then(() => true)`);

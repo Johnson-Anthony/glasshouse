@@ -149,6 +149,38 @@ function row(name: string): HTMLElement | null {
 
 const terminalOpen = () => !!document.querySelector(".xterm");
 
+/** First element matching `selector` whose text (spaces squeezed) equals or
+ *  starts with `text`. */
+function byText(selector: string, text: string, prefix = false): HTMLElement | null {
+  const want = text.replace(/\s+/g, " ").trim();
+  for (const el of document.querySelectorAll<HTMLElement>(selector)) {
+    const got = (el.textContent ?? "").replace(/\s+/g, " ").trim();
+    if (got === want || (prefix && got.startsWith(want))) return el;
+  }
+  return null;
+}
+
+async function menu(t: number, name: string, item: string): Promise<void> {
+  await click(t, await waitFor(t, () => byText(".menubar-item", name, true)));
+  await sleep(t, 450);
+  const mi = await waitFor(t, () => byText(".mi", item, true));
+  await moveTo(t, mi);
+  mi.dispatchEvent(new MouseEvent("mouseenter", { bubbles: false }));
+  await sleep(t, 250);
+  await click(t, mi);
+}
+
+async function select(t: number, name: string): Promise<HTMLElement> {
+  const r = await waitFor(t, () => row(name));
+  await click(t, r);
+  return r;
+}
+
+/** Keyboard focus on the file list, as after clicking a row. */
+function focusFiles(): void {
+  document.querySelector<HTMLElement>(".pane")?.focus();
+}
+
 async function goTo(t: number, path: string): Promise<void> {
   const item = await waitFor(t, () => sidebarItem(path));
   await click(t, item);
@@ -182,6 +214,104 @@ export const SCENES: Record<string, Scene> = {
 
   async home(t) {
     await goTo(t, HOME);
+  },
+
+  /** Terminal drawer: run a command, then browse and watch the shell follow. */
+  async terminal(t) {
+    await goTo(t, REPO);
+    await openTerminal(t);
+    await typeShell(t, "git log --oneline\r");
+    await sleep(t, 900);
+    await goTo(t, `${HOME}/Downloads`);
+    await sleep(t, 500);
+    await typeShell(t, "ls\r");
+    await sleep(t, 1200);
+  },
+
+  /** Tabs: open a second tab, a private one, and switch between them. */
+  async tabs(t) {
+    await goTo(t, REPO);
+    focusFiles();
+    await click(t, await waitFor(t, () => document.querySelector(".tab-btn[title='New tab']")));
+    await sleep(t, 500);
+    await goTo(t, `${HOME}/Pictures/wallpapers`);
+    focusFiles();
+    await key(t, "ctrl+shift+N");
+    await sleep(t, 500);
+    await goTo(t, `${HOME}/Downloads`);
+    await sleep(t, 600);
+    const first = await waitFor(t, () => document.querySelectorAll<HTMLElement>(".tabs .tab")[0]);
+    await click(t, first);
+    await sleep(t, 1200);
+  },
+
+  /** Git: the status column, staging a file, and blame. */
+  async git(t) {
+    await goTo(t, REPO);
+    await select(t, "notes.md");
+    await sleep(t, 400);
+    await menu(t, "Git", "Stage Selected");
+    await sleep(t, 900);
+    await select(t, "README.md");
+    await sleep(t, 300);
+    await menu(t, "Git", "Blame Selected");
+    await sleep(t, 2200);
+    await key(t, "escape");
+  },
+
+  /** Quick Look: Space on a photo, then on a text file. */
+  async quicklook(t) {
+    await goTo(t, `${HOME}/Pictures/wallpapers`);
+    await select(t, "moraine-lake.jpg");
+    await key(t, "space");
+    await sleep(t, 1800);
+    await key(t, "escape");
+    await select(t, "matterhorn.jpg");
+    await key(t, "space");
+    await sleep(t, 1800);
+    await key(t, "escape");
+  },
+
+  /** Paste onto an existing name: the app asks instead of overwriting. */
+  async paste(t) {
+    await goTo(t, `${HOME}/Downloads`);
+    await select(t, "aurora.jpg");
+    await key(t, "ctrl+c");
+    await sleep(t, 300);
+    await goTo(t, `${HOME}/Pictures/wallpapers`);
+    focusFiles();
+    await key(t, "ctrl+v");
+    const keep = await waitFor(t, () => byText("button", "keep both"));
+    await sleep(t, 1400);
+    await click(t, keep);
+    await sleep(t, 300);
+    await waitFor(t, () => row("aurora (copy).jpg") ?? row("aurora(copy).jpg"), 3000).catch(() => null);
+    await sleep(t, 1200);
+  },
+
+  /** Command palette: fuzzy-find a command and run it. */
+  async palette(t) {
+    await goTo(t, REPO);
+    focusFiles();
+    await key(t, "ctrl+p");
+    await waitFor(t, () => document.querySelector(".palette-head input"));
+    await sleep(t, 300);
+    await typeText(t, "hidden");
+    await sleep(t, 700);
+    await key(t, "enter");
+    await sleep(t, 900);
+    focusFiles();
+    await key(t, "ctrl+p");
+    await waitFor(t, () => document.querySelector(".palette-head input"));
+    await typeText(t, "find in");
+    await sleep(t, 700);
+    await key(t, "enter");
+    await waitFor(t, () => document.activeElement?.getAttribute("placeholder") === "search text…" && document.activeElement);
+    await sleep(t, 300);
+    await typeText(t, "tauri");
+    await sleep(t, 2600);
+    await key(t, "escape");
+    await sleep(t, 400);
   },
 };
 
