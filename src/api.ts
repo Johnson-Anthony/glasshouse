@@ -256,6 +256,8 @@ export interface GitBranch {
   upstream: string | null;
   ahead: number;
   behind: number;
+  /** Upstream is set but its ref is gone; ahead/behind are 0 but not "in sync". */
+  upstream_gone: boolean;
 }
 
 export function gitRun(cwd: string, args: string[]): Promise<GitRunResult> {

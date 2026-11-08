@@ -78,7 +78,7 @@ fn canonicalize_soft(p: &str) -> PathBuf {
     dunce::canonicalize(p).unwrap_or_else(|_| PathBuf::from(p))
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn list_dir(path: String, show_hidden: bool) -> Result<Vec<FileEntry>, String> {
     let p = canonicalize_soft(&path);
     let mut out = Vec::new();
@@ -191,6 +191,11 @@ fn scan_repo_statuses(dir: &Path) -> Option<HashMap<PathBuf, String>> {
     opts.include_untracked(true)
         .include_ignored(false)
         .recurse_untracked_dirs(false);
+    // Only the listed folder's children get a label, so scan just its subtree
+    // instead of the whole repo.
+    if let Some(spec) = status_pathspec(&workdir, dir) {
+        opts.pathspec(spec);
+    }
     let statuses = repo.statuses(Some(&mut opts)).ok()?;
     let mut out: HashMap<PathBuf, String> = HashMap::new();
     for s in statuses.iter() {
@@ -210,6 +215,30 @@ fn scan_repo_statuses(dir: &Path) -> Option<HashMap<PathBuf, String>> {
         out.insert(key, code.to_string());
     }
     Some(out)
+}
+
+/// The workdir-relative pathspec that limits a status scan to `dir`, or
+/// `None` to scan the whole repo: at the repo root, when `dir` isn't under the
+/// workdir or isn't UTF-8, and when libgit2 would read the path as a pattern
+/// (glob characters, a leading `!` or `#`, trailing whitespace) rather than
+/// as a plain folder prefix.
+fn status_pathspec(workdir: &Path, dir: &Path) -> Option<String> {
+    let rel = dir.strip_prefix(workdir).ok()?;
+    let parts = rel
+        .components()
+        .map(|c| match c {
+            std::path::Component::Normal(s) => s.to_str(),
+            _ => None,
+        })
+        .collect::<Option<Vec<_>>>()?;
+    if parts.is_empty() {
+        return None;
+    }
+    let spec = parts.join("/");
+    let literal = !spec.contains(['*', '?', '[', ']', '\\'])
+        && !spec.starts_with(['!', '#'])
+        && !spec.ends_with(char::is_whitespace);
+    literal.then_some(spec)
 }
 
 #[cfg(windows)]
@@ -238,7 +267,7 @@ pub struct Drive {
     pub fs: String,
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn drives() -> Vec<Drive> {
     let mut out = Vec::new();
     #[cfg(windows)]
@@ -377,7 +406,7 @@ pub struct WslDistro {
     pub path: String,
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn list_wsl_distros() -> Vec<WslDistro> {
     #[cfg_attr(not(windows), allow(unused_mut))]
     let mut out = Vec::new();
@@ -423,7 +452,7 @@ pub fn list_wsl_distros() -> Vec<WslDistro> {
 static SYSINFO: std::sync::OnceLock<std::sync::Mutex<sysinfo::System>> =
     std::sync::OnceLock::new();
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn system_info() -> SystemInfo {
     use sysinfo::System;
     // Keep a process-lifetime System instance; System::new_all() is very
@@ -455,19 +484,19 @@ pub fn system_info() -> SystemInfo {
 
 // ---------- file operations ----------
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn make_dir(path: String) -> Result<(), String> {
     std::fs::create_dir_all(&path).map_err(|e| e.to_string())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn rename_entry(from: String, to: String) -> Result<(), String> {
     std::fs::rename(&from, &to).map_err(|e| e.to_string())
 }
 
 /// Copy a file, folder or symlink. Symlinks are recreated as links, never
 /// followed, whether selected directly or found inside a folder.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn copy_entry(from: String, to: String) -> Result<(), String> {
     let src = Path::new(&from);
     let dst = Path::new(&to);
@@ -606,7 +635,7 @@ fn is_cross_device(e: &std::io::Error) -> bool {
     e.raw_os_error() == Some(CODE)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn move_entry(from: String, to: String) -> Result<(), String> {
     let src = Path::new(&from);
     let dst = Path::new(&to);
@@ -630,7 +659,7 @@ pub fn move_entry(from: String, to: String) -> Result<(), String> {
     }
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn delete_entry(path: String, recursive: bool) -> Result<(), String> {
     let p = Path::new(&path);
     let meta = std::fs::symlink_metadata(p).map_err(|e| e.to_string())?;
@@ -648,14 +677,14 @@ pub fn delete_entry(path: String, recursive: bool) -> Result<(), String> {
 /// Move a file or directory to the system recycle bin. Uses the `trash`
 /// crate, which dispatches to `IFileOperation` with `FOFX_RECYCLEONDELETE`
 /// on Windows — items land in the recycle bin and can be restored.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn move_to_trash(path: String) -> Result<(), String> {
     trash::delete(&path).map_err(|e| format!("move_to_trash({}): {}", path, e))
 }
 
 /// The folder holding trashed files: the XDG home trash on unix, `None` on
 /// Windows (the Recycle Bin isn't a browsable directory).
-#[tauri::command]
+#[tauri::command(async)]
 pub fn trash_dir() -> Option<String> {
     #[cfg(windows)]
     {
@@ -683,7 +712,7 @@ fn xdg_trash_files(xdg_data_home: Option<String>, home: Option<PathBuf>) -> Opti
     Some(data.join("Trash/files"))
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn read_text(path: String, max_bytes: usize) -> Result<String, String> {
     use std::io::Read;
     let f = std::fs::File::open(&path).map_err(|e| e.to_string())?;
@@ -697,20 +726,35 @@ pub fn read_text(path: String, max_bytes: usize) -> Result<String, String> {
     Ok(String::from_utf8_lossy(&buf).into_owned())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn write_text(path: String, content: String) -> Result<(), String> {
     std::fs::write(&path, content).map_err(|e| e.to_string())
 }
 
-#[tauri::command]
+/// Server-side ceiling for `read_image_b64`, whatever the frontend asks for.
+/// The largest request today is the 64 MiB image preview; base64 makes the
+/// IPC string a third bigger again.
+const READ_IMAGE_MAX: usize = 64 * 1024 * 1024;
+
+#[tauri::command(async)]
 pub fn read_image_b64(path: String, max_bytes: usize) -> Result<String, String> {
     use base64::{engine::general_purpose::STANDARD, Engine as _};
-    let cap = if max_bytes == 0 { 8 * 1024 * 1024 } else { max_bytes };
-    let meta = std::fs::metadata(&path).map_err(|e| e.to_string())?;
-    if meta.len() > cap as u64 {
-        return Err(format!("image too large: {} bytes (cap {})", meta.len(), cap));
+    use std::io::Read;
+    let cap = if max_bytes == 0 { 8 * 1024 * 1024 } else { max_bytes }.min(READ_IMAGE_MAX);
+    let f = std::fs::File::open(&path).map_err(|e| e.to_string())?;
+    let len = f.metadata().map_err(|e| e.to_string())?.len();
+    if len > cap as u64 {
+        return Err(format!("image too large: {} bytes (cap {})", len, cap));
     }
-    let bytes = std::fs::read(&path).map_err(|e| e.to_string())?;
+    // Read at most cap + 1 bytes, so a file that grew after the size check
+    // is still refused instead of read whole.
+    let mut bytes = Vec::with_capacity(len as usize);
+    f.take(cap as u64 + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|e| e.to_string())?;
+    if bytes.len() > cap {
+        return Err(format!("image too large: over {} bytes", cap));
+    }
     let ext = Path::new(&path)
         .extension()
         .and_then(|s| s.to_str())
@@ -791,7 +835,7 @@ fn upstream_ahead_behind(repo: &git2::Repository) -> Result<Option<(usize, usize
     repo.graph_ahead_behind(local, upstream_oid).map(Some)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn git_status(path: String) -> Option<GitInfo> {
     use git2::{Repository, StatusOptions};
     let repo = Repository::discover(&path).ok()?;
@@ -847,17 +891,13 @@ fn reap(mut child: std::process::Child) {
     });
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn open_with_default(path: String) -> Result<(), String> {
     #[cfg(windows)]
     {
-        use std::os::windows::process::CommandExt;
-        std::process::Command::new("cmd")
-            .args(["/C", "start", "", &path])
-            .creation_flags(CREATE_NO_WINDOW)
-            .spawn()
-            .map(reap)
-            .map_err(|e| e.to_string())
+        // ShellExecuteExW, not `cmd /C start`: cmd parses its command line, so
+        // `&`, `|` or `^` in a filename ran the rest as a command.
+        tauri_plugin_opener::open_path(&path, None::<&str>).map_err(|e| e.to_string())
     }
     #[cfg(not(windows))]
     {
@@ -869,7 +909,7 @@ pub fn open_with_default(path: String) -> Result<(), String> {
     }
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn reveal_in_explorer(path: String) -> Result<(), String> {
     #[cfg(windows)]
     {
@@ -1019,8 +1059,18 @@ fn linux_terminal_command(
     Ok(cmd)
 }
 
+/// Carries the folder to a PowerShell started via `cmd /C start` (see
+/// `spawn_terminal`), so the path never appears on cmd's command line.
+#[cfg(any(windows, test))]
+const PS_CWD_ENV: &str = "GLASSHOUSE_CWD";
+/// The `-Command` for that PowerShell: cd there, then drop the variable.
+/// `-LiteralPath` keeps `[` `]` in folder names from being read as wildcards.
+#[cfg(any(windows, test))]
+const PS_CD_FROM_ENV: &str =
+    "Set-Location -LiteralPath $env:GLASSHOUSE_CWD; Remove-Item Env:GLASSHOUSE_CWD";
+
 /// Open a terminal window at `path`. Prefers Windows Terminal, then pwsh, then powershell.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn spawn_terminal(path: String) -> Result<(), String> {
     #[cfg(windows)]
     {
@@ -1030,7 +1080,8 @@ pub fn spawn_terminal(path: String) -> Result<(), String> {
         // 1) Windows Terminal — spawns its own visible window, no creation_flags.
         if which::which("wt.exe").is_ok() || which::which("wt").is_ok() {
             let child = Command::new("wt.exe")
-                .args(["-d", &path])
+                .arg("-d")
+                .arg(wt_escape(&path))
                 .stdin(Stdio::null())
                 .stdout(Stdio::null())
                 .stderr(Stdio::null())
@@ -1049,9 +1100,12 @@ pub fn spawn_terminal(path: String) -> Result<(), String> {
 
         // 2) pwsh.exe (PowerShell 7+) — needs a visible console since it has no
         //    window chrome of its own. Use `cmd /C start` to give it a console.
+        //    The folder goes in through PS_CWD_ENV, never on cmd's command
+        //    line, where `&` or `^` in a folder name would run commands.
         if which::which("pwsh.exe").is_ok() || which::which("pwsh").is_ok() {
             let child = Command::new("cmd")
-                .args(["/C", "start", "", "pwsh.exe", "-NoExit", "-WorkingDirectory", &path])
+                .args(["/C", "start", "", "pwsh.exe", "-NoExit", "-Command", PS_CD_FROM_ENV])
+                .env(PS_CWD_ENV, &path)
                 .creation_flags(CREATE_NO_WINDOW)
                 .stdin(Stdio::null())
                 .stdout(Stdio::null())
@@ -1068,17 +1122,11 @@ pub fn spawn_terminal(path: String) -> Result<(), String> {
             }
         }
 
-        // 3) powershell.exe — always present on Windows.
+        // 3) powershell.exe — always present on Windows. Same env-var cd as
+        //    pwsh (Windows PowerShell 5.1 has no -WorkingDirectory anyway).
         let child = Command::new("cmd")
-            .args([
-                "/C",
-                "start",
-                "",
-                "powershell.exe",
-                "-NoExit",
-                "-WorkingDirectory",
-                &path,
-            ])
+            .args(["/C", "start", "", "powershell.exe", "-NoExit", "-Command", PS_CD_FROM_ENV])
+            .env(PS_CWD_ENV, &path)
             .creation_flags(CREATE_NO_WINDOW)
             .stdin(Stdio::null())
             .stdout(Stdio::null())
@@ -1123,7 +1171,7 @@ const VSCODE_NAMES: &[&str] = &["code.cmd", "code.exe", "code", "codium.cmd", "c
 const VSCODE_NAMES: &[&str] = &["code", "codium", "code-oss"];
 
 /// Open VS Code at `path` (file or folder).
-#[tauri::command]
+#[tauri::command(async)]
 pub fn spawn_vscode(path: String) -> Result<(), String> {
     use std::process::{Command, Stdio};
 
@@ -1134,12 +1182,12 @@ pub fn spawn_vscode(path: String) -> Result<(), String> {
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
-        // `code.cmd` is a batch file; spawning it via cmd /C ensures it runs
-        // correctly regardless of extension, and CREATE_NO_WINDOW hides the
-        // transient launcher console.
-        let program_str = program.to_string_lossy().to_string();
-        let child = Command::new("cmd")
-            .args(["/C", &program_str, &path])
+        // `code.cmd` is a batch file. Spawn it directly: std runs batch files
+        // through cmd.exe itself and escapes the arguments for cmd's parser.
+        // A hand-built `cmd /C code.cmd <path>` didn't, so `&` in a path ran
+        // commands. CREATE_NO_WINDOW hides the transient launcher console.
+        let child = Command::new(&program)
+            .arg(&path)
             .creation_flags(CREATE_NO_WINDOW)
             .stdin(Stdio::null())
             .stdout(Stdio::null())
@@ -1257,7 +1305,7 @@ pub struct BlameLine {
 
 const BLAME_MAX_CAP: u32 = 2000;
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn git_blame(path: String, max_lines: u32) -> Result<Vec<BlameLine>, String> {
     use git2::{BlameOptions, Repository};
     let abs = canonicalize_soft(&path);
@@ -1349,7 +1397,7 @@ fn open_repo_and_relpaths(
     Ok((repo, rels))
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn git_stage(paths: Vec<String>) -> Result<(), String> {
     let (repo, rels) = open_repo_and_relpaths(&paths)?;
     let workdir = repo.workdir().unwrap().to_path_buf();
@@ -1369,7 +1417,7 @@ pub fn git_stage(paths: Vec<String>) -> Result<(), String> {
     Ok(())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn git_unstage(paths: Vec<String>) -> Result<(), String> {
     let (repo, rels) = open_repo_and_relpaths(&paths)?;
     // Equivalent of `git reset HEAD -- path`: reset the index entries for
@@ -1392,7 +1440,7 @@ pub fn git_unstage(paths: Vec<String>) -> Result<(), String> {
     Ok(())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn git_discard(paths: Vec<String>) -> Result<(), String> {
     use git2::build::CheckoutBuilder;
     let (repo, rels) = open_repo_and_relpaths(&paths)?;
@@ -1456,7 +1504,7 @@ pub struct FindMatch {
 const FIND_MAX_FILE_BYTES: u64 = 1 << 20; // 1 MiB per task spec
 const FIND_HARD_CAP: u32 = 10_000;
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn find_in_files(
     root: String,
     query: String,
@@ -1593,7 +1641,7 @@ pub fn find_in_files(
 /// are added at their basename; directories are walked recursively and their
 /// children stored with paths rooted at the directory's basename so the
 /// archive keeps a recognisable structure.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn compress(paths: Vec<String>, output: String) -> Result<(), String> {
     use std::io::{BufWriter, Read, Write};
 
@@ -1800,7 +1848,9 @@ impl PipedTar {
 fn tar_zst_create(dest: &str, parent: &str, members: &[String]) -> Result<(), String> {
     use std::process::Stdio;
     let file = std::fs::File::create(dest).map_err(|e| format!("create {}: {}", dest, e))?;
-    let mut args = vec!["-cf", "-", "-C", parent];
+    // `--`: a member named like an option (`--checkpoint-action=exec=…`)
+    // must stay a file name.
+    let mut args = vec!["-cf", "-", "-C", parent, "--"];
     args.extend(members.iter().map(String::as_str));
     let res = PipedTar::spawn(&args, Stdio::null(), Stdio::piped()).and_then(|mut tar| {
         let tar_out = tar.child.stdout.take().expect("stdout is piped");
@@ -1837,7 +1887,7 @@ fn find_7z() -> Result<String, String> {
 
 /// Return whether the local machine has the tooling required to handle the
 /// given archive format. Values: "zip" | "tar.gz" | "tar.zst" | "7z".
-#[tauri::command]
+#[tauri::command(async)]
 pub fn archive_can_handle(format: String) -> bool {
     match format.as_str() {
         "zip" => true, // in-process zip crate
@@ -1854,7 +1904,7 @@ pub fn archive_can_handle(format: String) -> bool {
 /// "zip" | "tar.gz" | "tar.zst" | "7z". Relative entries are archived using
 /// each input's basename (`tar -C <parent> <basename>`) so the resulting
 /// archive mirrors the structure produced by the existing zip path.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn archive_create(
     paths: Vec<String>,
     dest: String,
@@ -1897,7 +1947,8 @@ pub fn archive_create(
 
     match format.as_str() {
         "tar.gz" => {
-            let mut args: Vec<&str> = vec!["-czf", &dest, "-C", &parent_str];
+            // `--` keeps a member named like an option a file name.
+            let mut args: Vec<&str> = vec!["-czf", &dest, "-C", &parent_str, "--"];
             for m in &members {
                 args.push(m);
             }
@@ -1908,7 +1959,8 @@ pub fn archive_create(
             let program = find_7z()?;
             // 7z a <dest> <members...>; cd into parent first by using -w
             // (working dir) is not supported, so pass absolute paths instead.
-            let mut args: Vec<&str> = vec!["a", "-y", &dest];
+            // `--` ends 7z's switch and @listfile parsing.
+            let mut args: Vec<&str> = vec!["a", "-y", "--", &dest];
             let abs_members: Vec<String> = members
                 .iter()
                 .map(|m| {
@@ -1932,7 +1984,7 @@ pub fn archive_create(
 ///   .tar/.tar.gz/.tgz/.tar.bz2 → `tar -xf ...`
 ///   .tar.zst/.tzst → in-process zstd piped into `tar -xf -`
 ///   .7z → `7z.exe x archive -o<dest_dir> -y`
-#[tauri::command]
+#[tauri::command(async)]
 pub fn archive_extract(archive: String, dest_dir: String) -> Result<(), String> {
     // Ensure destination exists.
     if let Err(e) = std::fs::create_dir_all(&dest_dir) {
@@ -1966,7 +2018,7 @@ pub fn archive_extract(archive: String, dest_dir: String) -> Result<(), String> 
     if is_7z {
         let program = find_7z()?;
         let out_flag = format!("-o{}", dest_dir);
-        let args = ["x", &archive, &out_flag, "-y"];
+        let args = ["x", &out_flag, "-y", "--", &archive];
         return run_archive_tool(&program, &args);
     }
 
@@ -2020,7 +2072,7 @@ fn digest_file<D: sha2::Digest>(path: &str) -> Result<String, String> {
 }
 
 /// Lowercase hex SHA-256 digest of the file at `path`.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn hash_sha256(path: String) -> Result<String, String> {
     digest_file::<sha2::Sha256>(&path)
 }
@@ -2031,7 +2083,7 @@ pub fn hash_sha256(path: String) -> Result<String, String> {
 /// `PermissionsExt::from_mode`. On windows it only toggles the read-only
 /// attribute based on the owner-write bit (`mode & 0o200`); richer ACL
 /// manipulation is out of scope for v1.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn set_permissions(path: String, mode: u32) -> Result<(), String> {
     #[cfg(unix)]
     {
@@ -2064,7 +2116,7 @@ pub fn set_permissions(path: String, mode: u32) -> Result<(), String> {
 /// Read up to `length` bytes starting at `offset` from `path` and return a
 /// human-readable hex dump (16 bytes/row, offset + hex + ascii). `length` is
 /// capped at 64 KiB; `0` becomes the default of 4096 bytes.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn read_hex_dump(path: String, offset: u64, length: usize) -> Result<String, String> {
     use std::fmt::Write as FmtWrite;
     use std::io::{Read, Seek, SeekFrom};
@@ -2116,7 +2168,7 @@ pub fn read_hex_dump(path: String, offset: u64, length: usize) -> Result<String,
 /// Return a unified diff between two utf-8 text files. Errors with
 /// "binary or non-utf8" if either file cannot be decoded. An empty diff
 /// (identical content) returns an empty string.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn diff_files(a: String, b: String) -> Result<String, String> {
     let a_bytes = std::fs::read(&a).map_err(|e| format!("read {}: {}", a, e))?;
     let b_bytes = std::fs::read(&b).map_err(|e| format!("read {}: {}", b, e))?;
@@ -2143,7 +2195,7 @@ pub fn diff_files(a: String, b: String) -> Result<String, String> {
 /// Walk `root` recursively via ignore::WalkBuilder honoring .gitignore/hidden,
 /// and return up to `max_results` paths whose filename contains `pattern`
 /// (case-insensitive substring match). Empty pattern → empty result.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn find_file_by_name(
     root: String,
     pattern: String,
@@ -2209,7 +2261,7 @@ pub fn find_file_by_name(
 /// Create a symbolic link at `link_path` pointing at `target`. On windows,
 /// chooses symlink_dir when the target is an existing directory, else
 /// symlink_file. Requires developer mode or admin on pre-1703 Windows.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn create_symlink(target: String, link_path: String) -> Result<(), String> {
     #[cfg(unix)]
     {
@@ -2235,7 +2287,7 @@ pub fn create_symlink(target: String, link_path: String) -> Result<(), String> {
 
 /// Create a hard link at `link_path` pointing at `target`. Requires both on
 /// the same volume; errors otherwise.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn create_hard_link(target: String, link_path: String) -> Result<(), String> {
     std::fs::hard_link(&target, &link_path)
         .map_err(|e| format!("hard_link {} -> {}: {}", link_path, target, e))
@@ -2246,7 +2298,7 @@ pub fn create_hard_link(target: String, link_path: String) -> Result<(), String>
 /// Create a Windows .lnk shortcut at `link_path` pointing at `target`. Shells
 /// out to PowerShell's WScript.Shell COM object — no extra Cargo deps. Errors
 /// when `link_path` does not end in `.lnk`, or on non-Windows platforms.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn create_shortcut(target: String, link_path: String) -> Result<(), String> {
     if !link_path.to_ascii_lowercase().ends_with(".lnk") {
         return Err("link path must end with .lnk".into());
@@ -2256,13 +2308,15 @@ pub fn create_shortcut(target: String, link_path: String) -> Result<(), String> 
         use std::os::windows::process::CommandExt;
         use std::process::Command;
 
-        let script = format!(
-            "$s = (New-Object -ComObject WScript.Shell).CreateShortcut('{}'); $s.TargetPath='{}'; $s.Save()",
-            link_path.replace('\'', "''"),
-            target.replace('\'', "''"),
-        );
+        // The paths go in through environment variables, never into the
+        // script text: PowerShell also reads ‘ ’ ‚ ‛ as quotes, so doubling
+        // ASCII `'` still let a filename close the string and run code.
+        let script = "$s = (New-Object -ComObject WScript.Shell).CreateShortcut($env:GLASSHOUSE_LINK); \
+                      $s.TargetPath = $env:GLASSHOUSE_TARGET; $s.Save()";
         let out = Command::new("powershell.exe")
-            .args(["-NoProfile", "-NonInteractive", "-Command", &script])
+            .args(["-NoProfile", "-NonInteractive", "-Command", script])
+            .env("GLASSHOUSE_LINK", &link_path)
+            .env("GLASSHOUSE_TARGET", &target)
             .creation_flags(CREATE_NO_WINDOW)
             .output()
             .map_err(|e| format!("powershell: {}", e))?;
@@ -2284,7 +2338,7 @@ pub fn create_shortcut(target: String, link_path: String) -> Result<(), String> 
 /// Overwrite `path` with fixed-pattern passes (cycling 0xFF, 0x00, 0xAA) then
 /// delete it. Regular files only: rejects directories, special files and
 /// symlinks, and never opens a link's target. `passes` is clamped to 1..=10.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn shred(path: String, passes: u32) -> Result<(), String> {
     use std::fs::OpenOptions;
     use std::io::{Seek, SeekFrom, Write};
@@ -2362,19 +2416,19 @@ pub fn shred(path: String, passes: u32) -> Result<(), String> {
 /// Verify the Authenticode signature on `path`. Returns "valid", "invalid",
 /// or "unsigned". Windows only; shells out to PowerShell Get-AuthenticodeSignature
 /// to avoid hand-rolling WinVerifyTrust bindings.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn verify_signature(path: String) -> Result<String, String> {
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
         use std::process::Command;
 
-        let script = format!(
-            "(Get-AuthenticodeSignature -FilePath '{}').Status",
-            path.replace('\'', "''")
-        );
+        // The path goes in through an environment variable, never into the
+        // script text (see create_shortcut). -LiteralPath: no wildcards.
+        let script = "(Get-AuthenticodeSignature -LiteralPath $env:GLASSHOUSE_PATH).Status";
         let out = Command::new("powershell.exe")
-            .args(["-NoProfile", "-NonInteractive", "-Command", &script])
+            .args(["-NoProfile", "-NonInteractive", "-Command", script])
+            .env("GLASSHOUSE_PATH", &path)
             .creation_flags(CREATE_NO_WINDOW)
             .output()
             .map_err(|e| format!("powershell: {}", e))?;
@@ -2402,7 +2456,7 @@ pub fn verify_signature(path: String) -> Result<String, String> {
 /// Change ownership of `path`. On unix accepts "uid:gid" with numeric ids
 /// (either side may be omitted: "uid:", ":gid"). On windows returns an
 /// unsupported error.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn change_owner(path: String, owner: String) -> Result<(), String> {
     #[cfg(unix)]
     {
@@ -2436,11 +2490,116 @@ pub fn change_owner(path: String, owner: String) -> Result<(), String> {
 
 // ---------- run script ----------
 
+/// How long `run_script` lets a script run before killing it. Commands are
+/// synchronous, so the UI waits all that time; long jobs belong in the
+/// terminal.
+const RUN_SCRIPT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
+/// Output kept per stream. The rest is still read (and dropped), so a chatty
+/// script never blocks on a full pipe.
+const RUN_SCRIPT_OUTPUT_CAP: usize = 1024 * 1024;
+/// How long to keep reading after the script exits. A process it started in
+/// the background can hold the pipes open indefinitely.
+const RUN_SCRIPT_DRAIN_GRACE: std::time::Duration = std::time::Duration::from_secs(2);
+
+/// What `run_capped` collected.
+struct CappedRun {
+    stdout: Vec<u8>,
+    stderr: Vec<u8>,
+    /// None if the process was killed at the timeout.
+    status: Option<std::process::ExitStatus>,
+    /// Some stream went over the cap.
+    truncated: bool,
+    /// A stream was still open when the drain grace ran out.
+    incomplete: bool,
+}
+
+/// Run `cmd` with stdin closed, killing it after `timeout`, keeping at most
+/// `cap` bytes of each output stream.
+fn run_capped(
+    mut cmd: std::process::Command,
+    timeout: std::time::Duration,
+    cap: usize,
+    grace: std::time::Duration,
+) -> std::io::Result<CappedRun> {
+    use std::io::Read;
+    use std::process::Stdio;
+    use std::sync::{mpsc, Arc, Mutex};
+    use std::time::Instant;
+
+    type Sink = Arc<Mutex<(Vec<u8>, bool)>>;
+    // Readers append as they go, so whatever arrived before the grace ran
+    // out is kept even if the stream never reaches EOF.
+    fn reader(mut r: impl Read + Send + 'static, cap: usize, done: mpsc::Sender<()>) -> Sink {
+        let sink: Sink = Arc::default();
+        let out = sink.clone();
+        std::thread::spawn(move || {
+            let mut buf = [0u8; 8192];
+            loop {
+                match r.read(&mut buf) {
+                    Ok(0) => break,
+                    Ok(n) => {
+                        let mut s = out.lock().unwrap_or_else(|e| e.into_inner());
+                        let room = cap.saturating_sub(s.0.len());
+                        s.0.extend_from_slice(&buf[..n.min(room)]);
+                        s.1 |= n > room;
+                    }
+                    Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
+                    Err(_) => break,
+                }
+            }
+            let _ = done.send(());
+        });
+        sink
+    }
+
+    let mut child = cmd
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()?;
+    let (done_tx, done_rx) = mpsc::channel();
+    let out = reader(child.stdout.take().expect("stdout is piped"), cap, done_tx.clone());
+    let err = reader(child.stderr.take().expect("stderr is piped"), cap, done_tx);
+
+    let deadline = Instant::now() + timeout;
+    let status = loop {
+        if let Some(s) = child.try_wait()? {
+            break Some(s);
+        }
+        if Instant::now() >= deadline {
+            let _ = child.kill();
+            let _ = child.wait();
+            break None;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    };
+
+    let drain_until = Instant::now() + grace;
+    let mut finished = 0;
+    while finished < 2 {
+        let left = drain_until.saturating_duration_since(Instant::now());
+        match done_rx.recv_timeout(left) {
+            Ok(()) => finished += 1,
+            Err(_) => break,
+        }
+    }
+    let take = |s: &Sink| std::mem::take(&mut *s.lock().unwrap_or_else(|e| e.into_inner()));
+    let (stdout, out_cut) = take(&out);
+    let (stderr, err_cut) = take(&err);
+    Ok(CappedRun {
+        stdout,
+        stderr,
+        status,
+        truncated: out_cut || err_cut,
+        incomplete: finished < 2,
+    })
+}
+
 /// Execute `script` with `targets` as positional arguments, blocking until it
-/// exits, and return combined output as "stdout\n---STDERR---\nstderr". On
-/// windows, `.ps1` is run via `powershell -File`, `.bat`/`.cmd` via `cmd /c`,
-/// otherwise executed directly.
-#[tauri::command]
+/// exits (at most RUN_SCRIPT_TIMEOUT), and return combined output as
+/// "stdout\n---STDERR---\nstderr" plus status notes. On windows, `.ps1` is run
+/// via `powershell -File`, anything else (`.bat`/`.cmd` included) directly.
+#[tauri::command(async)]
 pub fn run_script(script: String, targets: Vec<String>) -> Result<String, String> {
     use std::process::Command;
 
@@ -2452,10 +2611,10 @@ pub fn run_script(script: String, targets: Vec<String>) -> Result<String, String
         if lower.ends_with(".ps1") {
             cmd = Command::new("powershell.exe");
             cmd.args(["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", &script]);
-        } else if lower.ends_with(".bat") || lower.ends_with(".cmd") {
-            cmd = Command::new("cmd");
-            cmd.args(["/C", &script]);
         } else {
+            // Batch files too: std runs them through cmd.exe and escapes the
+            // targets for cmd's parser. `cmd /C <script> <targets>` didn't,
+            // so `&` in a selected file's name ran commands.
             cmd = Command::new(&script);
         }
         cmd.creation_flags(CREATE_NO_WINDOW);
@@ -2469,39 +2628,66 @@ pub fn run_script(script: String, targets: Vec<String>) -> Result<String, String
         cmd.arg(t);
     }
 
-    let output = cmd
-        .output()
+    let run = run_capped(cmd, RUN_SCRIPT_TIMEOUT, RUN_SCRIPT_OUTPUT_CAP, RUN_SCRIPT_DRAIN_GRACE)
         .map_err(|e| format!("run_script {}: {}", script, e))?;
-    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+    Ok(format_script_output(&run, RUN_SCRIPT_TIMEOUT))
+}
+
+fn format_script_output(run: &CappedRun, timeout: std::time::Duration) -> String {
+    let stdout = String::from_utf8_lossy(&run.stdout);
+    let stderr = String::from_utf8_lossy(&run.stderr);
     let mut combined = format!("{}\n---STDERR---\n{}", stdout, stderr);
     // Surface failure in the output; a bare Ok on a non-zero exit made
     // failed scripts indistinguishable from successful ones.
-    if !output.status.success() {
-        let code = output
-            .status
-            .code()
-            .map(|c| c.to_string())
-            .unwrap_or_else(|| "killed by signal".to_string());
-        combined.push_str(&format!("\n[exit: {}]", code));
+    match run.status {
+        None => combined.push_str(&format!(
+            "\n[timed out after {} s: killed. Run long jobs in the terminal.]",
+            timeout.as_secs()
+        )),
+        Some(s) if !s.success() => {
+            let code = s
+                .code()
+                .map(|c| c.to_string())
+                .unwrap_or_else(|| "killed by signal".to_string());
+            combined.push_str(&format!("\n[exit: {}]", code));
+        }
+        Some(_) => {}
     }
-    Ok(combined)
+    if run.truncated {
+        combined.push_str(&format!(
+            "\n[output truncated: kept the first {} KiB of each stream]",
+            RUN_SCRIPT_OUTPUT_CAP / 1024
+        ));
+    }
+    if run.incomplete {
+        combined.push_str("\n[output may be incomplete: a process the script started still holds its output open]");
+    }
+    combined
 }
 
 // ---------- open url ----------
 
+/// Only web and mail links. Any other scheme hands the string to whatever
+/// protocol handler claims it (`file:`, `ms-msdt:`, `search-ms:`…), and a
+/// leading `-` would reach xdg-open as an option.
+fn check_open_url(url: &str) -> Result<(), String> {
+    let scheme = url.split_once(':').map(|(s, _)| s.to_ascii_lowercase());
+    let ok_scheme = matches!(scheme.as_deref(), Some("http" | "https" | "mailto"));
+    if !ok_scheme || url.chars().any(char::is_control) {
+        return Err(format!("open_url: only http, https and mailto links can be opened: {}", url));
+    }
+    Ok(())
+}
+
 /// Open `url` in the system default browser.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn open_url(url: String) -> Result<(), String> {
+    check_open_url(&url)?;
     #[cfg(windows)]
     {
-        use std::os::windows::process::CommandExt;
-        std::process::Command::new("cmd")
-            .args(["/C", "start", "", &url])
-            .creation_flags(CREATE_NO_WINDOW)
-            .spawn()
-            .map(reap)
-            .map_err(|e| format!("open_url: {}", e))
+        // ShellExecuteExW, not `cmd /C start`: cmd split the URL at every `&`
+        // (so query strings broke) and ran what followed as a command.
+        tauri_plugin_opener::open_url(&url, None::<&str>).map_err(|e| format!("open_url: {}", e))
     }
     #[cfg(target_os = "macos")]
     {
@@ -2524,7 +2710,7 @@ pub fn open_url(url: String) -> Result<(), String> {
 // ---------- spawn new window ----------
 
 /// Launch a detached copy of the current executable (new app window).
-#[tauri::command]
+#[tauri::command(async)]
 pub fn spawn_new_window() -> Result<(), String> {
     use std::process::{Command, Stdio};
     let exe = std::env::current_exe()
@@ -2747,32 +2933,9 @@ fn shell_profiles(
 
 /// Probe the system for available shells, WSL distros, and SSH hosts.
 /// Emits only what actually exists: shells first, then WSL, then SSH.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn list_shell_profiles() -> Vec<ShellProfile> {
-    let mut out: Vec<ShellProfile> = Vec::new();
-
-    // Shell probes, in preferred order.
-    #[cfg(windows)]
-    let shell_probes: [(&str, &str, &str); 5] = [
-        ("bash.exe", "bash", "shell:bash"),
-        ("zsh.exe", "zsh", "shell:zsh"),
-        ("fish.exe", "fish", "shell:fish"),
-        ("pwsh.exe", "PowerShell", "shell:pwsh"),
-        ("powershell.exe", "PowerShell", "shell:powershell"),
-    ];
-    #[cfg(not(windows))]
-    let shell_probes: [(&str, &str, &str); 5] = [
-        ("bash", "bash", "shell:bash"),
-        ("zsh", "zsh", "shell:zsh"),
-        ("fish", "fish", "shell:fish"),
-        ("pwsh", "PowerShell", "shell:pwsh"),
-        ("powershell", "PowerShell", "shell:powershell"),
-    ];
-    #[cfg(windows)]
-    let login = None;
-    #[cfg(not(windows))]
-    let login = login_shell(std::env::var("SHELL").ok());
-    out.extend(shell_profiles(login, &shell_probes, |exe| which::which(exe).ok()));
+    let mut out = detect_shells();
 
     // WSL distros.
     for distro in wsl_distros() {
@@ -2799,10 +2962,115 @@ pub fn list_shell_profiles() -> Vec<ShellProfile> {
     out
 }
 
+/// The `kind: "shell"` profiles: shells found on PATH, in preferred order.
+/// Also the allowlist `check_profile` holds a shell profile's `exec` to.
+pub(crate) fn detect_shells() -> Vec<ShellProfile> {
+    let mut out: Vec<ShellProfile> = Vec::new();
+
+    // Shell probes, in preferred order.
+    #[cfg(windows)]
+    let shell_probes: [(&str, &str, &str); 5] = [
+        ("bash.exe", "bash", "shell:bash"),
+        ("zsh.exe", "zsh", "shell:zsh"),
+        ("fish.exe", "fish", "shell:fish"),
+        ("pwsh.exe", "PowerShell", "shell:pwsh"),
+        ("powershell.exe", "PowerShell", "shell:powershell"),
+    ];
+    #[cfg(not(windows))]
+    let shell_probes: [(&str, &str, &str); 5] = [
+        ("bash", "bash", "shell:bash"),
+        ("zsh", "zsh", "shell:zsh"),
+        ("fish", "fish", "shell:fish"),
+        ("pwsh", "PowerShell", "shell:pwsh"),
+        ("powershell", "PowerShell", "shell:powershell"),
+    ];
+    #[cfg(windows)]
+    let login = None;
+    #[cfg(not(windows))]
+    let login = login_shell(std::env::var("SHELL").ok());
+    out.extend(shell_profiles(login, &shell_probes, |exe| which::which(exe).ok()));
+    out
+}
+
+/// Check a terminal profile from the frontend before `pty_spawn` or
+/// `spawn_terminal_profile` runs it. The frontend only sends the shapes
+/// `list_shell_profiles` and saved ssh remotes (`sshProfileFor` in App.tsx)
+/// build, so anything else is refused: a `shell` whose exec isn't a detected
+/// shell (`shells`), extra args, a WSL distro or ssh host that the program
+/// would read as an option (`-oProxyCommand=…`), or an unknown kind.
+pub(crate) fn check_profile(profile: &ShellProfile, shells: &[ShellProfile]) -> Result<(), String> {
+    let bad = |why: &str| Err(format!("refusing terminal profile {:?}: {}", profile.id, why));
+    match profile.kind.as_str() {
+        "shell" => {
+            if !profile.args.is_empty() {
+                return bad("shell profiles take no arguments");
+            }
+            if !shells.iter().any(|s| s.exec == profile.exec) {
+                return bad("not a detected shell");
+            }
+        }
+        "wsl" => match profile.args.as_slice() {
+            [d, distro] if d == "-d" && is_plain_name(distro) => {}
+            _ => return bad("expected -d <distro>"),
+        },
+        "ssh" => {
+            let host = match profile.args.as_slice() {
+                [host] => host,
+                [p, port, host] if p == "-p" && is_port(port) => host,
+                _ => return bad("expected <host> or -p <port> <host>"),
+            };
+            if !is_ssh_host(host) {
+                return bad("not a plain ssh host");
+            }
+        }
+        _ => return bad("unknown kind"),
+    }
+    Ok(())
+}
+
+/// A WSL distro name: letters, digits, `.`, `_`, `-`, not starting with `-`.
+fn is_plain_name(s: &str) -> bool {
+    !s.is_empty()
+        && !s.starts_with('-')
+        && s.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
+}
+
+fn is_port(s: &str) -> bool {
+    !s.is_empty() && s.len() <= 5 && s.bytes().all(|b| b.is_ascii_digit())
+        && s.parse::<u32>().is_ok_and(|n| (1..=65535).contains(&n))
+}
+
+/// An ssh destination: `host`, `user@host`, an IP (`[::1]`, `fe80::1%eth0`)
+/// or `ssh://user@host:port`. No leading `-` (ssh would read an option) and
+/// nothing a shell or wt.exe would interpret.
+fn is_ssh_host(s: &str) -> bool {
+    !s.is_empty()
+        && !s.starts_with('-')
+        && s.chars().all(|c| {
+            c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-' | '@' | ':' | '%' | '[' | ']' | '/')
+        })
+}
+
+/// Whether `s` can sit on a `cmd /C` command line without cmd interpreting
+/// any of it (Windows paths can't contain `"`, `<`, `>` or `|` anyway).
+#[cfg(any(windows, test))]
+fn is_cmd_inert(s: &str) -> bool {
+    !s.chars().any(|c| matches!(c, '&' | '|' | '<' | '>' | '^' | '%' | '!' | '"') || c.is_control())
+}
+
+/// Escape `s` for a wt.exe argument. wt splits its command line into
+/// subcommands at every `;`, even inside an argument (so `-d C:\a;calc`
+/// would run calc), and turns `\;` back into `;`.
+#[cfg(any(windows, test))]
+fn wt_escape(s: &str) -> String {
+    s.replace(';', "\\;")
+}
+
 /// Launch a terminal profile in `cwd`. Prefers Windows Terminal (`wt.exe`);
 /// falls back to `cmd /C start`. Never flashes a console window.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn spawn_terminal_profile(profile: ShellProfile, cwd: String) -> Result<(), String> {
+    check_profile(&profile, &detect_shells())?;
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
@@ -2812,24 +3080,24 @@ pub fn spawn_terminal_profile(profile: ShellProfile, cwd: String) -> Result<(), 
 
         if have_wt {
             let mut cmd = Command::new("wt.exe");
-            cmd.args(["-d", &cwd]);
+            cmd.arg("-d").arg(wt_escape(&cwd));
             match profile.kind.as_str() {
                 "wsl" => {
                     cmd.arg("wsl.exe");
                     for a in &profile.args {
-                        cmd.arg(a);
+                        cmd.arg(wt_escape(a));
                     }
                 }
                 "ssh" => {
                     cmd.arg("ssh");
                     for a in &profile.args {
-                        cmd.arg(a);
+                        cmd.arg(wt_escape(a));
                     }
                 }
                 _ => {
-                    cmd.arg(&profile.exec);
+                    cmd.arg(wt_escape(&profile.exec));
                     for a in &profile.args {
-                        cmd.arg(a);
+                        cmd.arg(wt_escape(a));
                     }
                 }
             }
@@ -2849,7 +3117,14 @@ pub fn spawn_terminal_profile(profile: ShellProfile, cwd: String) -> Result<(), 
             }
         }
 
-        // Fallback: cmd /C start "" <exec> <args>
+        // Fallback: cmd /C start "" <exec> <args>. cmd parses this line, so
+        // refuse anything it would interpret (check_profile already limits
+        // hosts and distro names; this covers a shell's exec path).
+        let mut on_cmd_line =
+            profile.args.iter().chain((profile.kind == "shell").then_some(&profile.exec));
+        if !on_cmd_line.all(|a| is_cmd_inert(a)) {
+            return Err("spawn_terminal_profile: without Windows Terminal, this profile can't be launched safely (cmd.exe would interpret its path)".into());
+        }
         let mut cmd = Command::new("cmd");
         cmd.arg("/C").arg("start").arg("");
         match profile.kind.as_str() {
@@ -2954,7 +3229,7 @@ fn system_time_to_ms(t: std::time::SystemTime) -> Option<i64> {
         .map(|d| d.as_millis() as i64)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn file_stat_extended(path: String) -> Result<FileStatExt, String> {
     let md = std::fs::symlink_metadata(&path).map_err(|e| format!("stat {}: {}", path, e))?;
     let mut out = FileStatExt {
@@ -3074,12 +3349,12 @@ fn win_file_owner(path: &str) -> Option<String> {
 
 // ---------- additional checksums ----------
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn hash_md5(path: String) -> Result<String, String> {
     digest_file::<md5::Md5>(&path)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn hash_crc32(path: String) -> Result<String, String> {
     let mut hasher = crc32fast::Hasher::new();
     read_chunks(&path, |chunk| hasher.update(chunk))?;
@@ -3097,22 +3372,27 @@ pub struct GitFileInfo {
     pub removed: u32,
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn git_file_info(cwd: String, path: String) -> Result<GitFileInfo, String> {
     let mut out = GitFileInfo::default();
 
-    // Cheap repo check first — two subprocess spawns per selection is too
+    // Cheap repo check first — a subprocess spawn per selection is too
     // expensive when the file isn't in a git repo at all.
-    if git2::Repository::discover(&cwd).is_err() {
+    let Ok(repo) = git2::Repository::discover(&cwd) else {
         return Ok(out);
-    }
+    };
 
+    // This runs whenever the selection changes, so it must not run anything
+    // the repo's own config names: a cloned or unzipped repo is untrusted.
+    // `--no-show-signature`: with log.showSignature set, a forged signature
+    // on a commit made git run the repo's gpg.program.
+    //
     // log -1 --format=%cr%n%an%n%h -- <path>
     // Must go through build_git_command so CREATE_NO_WINDOW is applied — this
     // runs on every file-selection change; without the flag every click
     // flashes a cmd.exe console on Windows.
     if let Ok(o) = build_git_command(&cwd)
-        .args(["log", "-1", "--format=%cr%n%an%n%h", "--"])
+        .args(["log", "-1", "--no-show-signature", "--format=%cr%n%an%n%h", "--"])
         .arg(&path)
         .output()
     {
@@ -3125,30 +3405,50 @@ pub fn git_file_info(cwd: String, path: String) -> Result<GitFileInfo, String> {
         }
     }
 
-    // diff --numstat HEAD -- <path>
-    if let Ok(o) = build_git_command(&cwd)
-        .args(["diff", "--numstat", "HEAD", "--"])
-        .arg(&path)
-        .output()
-    {
-        if o.status.success() {
-            let s = String::from_utf8_lossy(&o.stdout);
-            if let Some(line) = s.lines().next() {
-                let mut parts = line.split_whitespace();
-                if let (Some(a), Some(d)) = (parts.next(), parts.next()) {
-                    out.added = a.parse().unwrap_or(0);
-                    out.removed = d.parse().unwrap_or(0);
-                }
-            }
-        }
+    // Lines added/removed vs HEAD (`git diff --numstat HEAD -- <path>`), via
+    // libgit2: the git CLI runs the repo's core.fsmonitor and filter clean
+    // commands when it compares the working tree; libgit2 runs neither.
+    if let Some((added, removed)) = numstat_vs_head(&repo, Path::new(&cwd), Path::new(&path)) {
+        out.added = added;
+        out.removed = removed;
     }
 
     Ok(out)
 }
 
+/// Insertions and deletions in `path` between HEAD and the working tree.
+/// None if there's no HEAD or `path` isn't inside the repo's working tree.
+fn numstat_vs_head(repo: &git2::Repository, cwd: &Path, path: &Path) -> Option<(u32, u32)> {
+    let workdir = repo.workdir()?;
+    let abs = cwd.join(path);
+    let rel = abs.strip_prefix(workdir).map(Path::to_path_buf).or_else(|_| {
+        // Fall back to canonical forms (symlinked folders, `\\?\` prefixes).
+        let abs = dunce::canonicalize(&abs).map_err(|_| ())?;
+        let workdir = dunce::canonicalize(workdir).map_err(|_| ())?;
+        abs.strip_prefix(&workdir).map(Path::to_path_buf).map_err(|_| ())
+    });
+    let rel = rel.ok()?;
+    // libgit2 pathspecs use `/` on every platform.
+    let spec: Vec<String> = rel
+        .components()
+        .map(|c| c.as_os_str().to_string_lossy().into_owned())
+        .collect();
+    if spec.is_empty() {
+        return None;
+    }
+    let head = repo.head().ok()?.peel_to_tree().ok()?;
+    let mut opts = git2::DiffOptions::new();
+    opts.pathspec(spec.join("/")).disable_pathspec_match(true);
+    let diff = repo
+        .diff_tree_to_workdir_with_index(Some(&head), Some(&mut opts))
+        .ok()?;
+    let stats = diff.stats().ok()?;
+    Some((stats.insertions() as u32, stats.deletions() as u32))
+}
+
 // ---------- filesystem type for arbitrary path ----------
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn path_fs_type(path: String) -> Result<String, String> {
     #[cfg(windows)]
     {
@@ -3213,7 +3513,7 @@ pub struct NetRate {
 static NET_LAST: std::sync::Mutex<Option<(std::time::Instant, u64, u64)>> =
     std::sync::Mutex::new(None);
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn net_rate() -> Result<NetRate, String> {
     let (total_in, total_out) = sample_net_octets()?;
     let now = std::time::Instant::now();
@@ -3292,7 +3592,7 @@ fn sample_net_octets() -> Result<(u64, u64), String> {
 /// Changed and untracked entries in the repo containing `path`, counted as
 /// `git_status`'s `dirty` is. `Ok(None)` when `path` isn't in a repo with a
 /// working tree; `Err` when the repo can't be opened or its status read.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn git_dirty_count(path: String) -> Result<Option<u32>, String> {
     use git2::StatusOptions;
     let Some(repo) = discover_repo(&path)? else {
@@ -3330,6 +3630,9 @@ pub struct GitBranch {
     pub upstream: Option<String>,
     pub ahead: u32,
     pub behind: u32,
+    /// The upstream is configured but its ref no longer exists (deleted on
+    /// the remote and pruned), so ahead/behind are 0 without meaning "in sync".
+    pub upstream_gone: bool,
 }
 
 fn build_git_command(cwd: &str) -> std::process::Command {
@@ -3351,8 +3654,75 @@ fn classify_spawn_err(e: &std::io::Error) -> String {
     }
 }
 
-#[tauri::command]
+/// One subcommand `git_run` may run, with the arguments it may take.
+struct GitRunSpec {
+    name: &'static str,
+    /// Options allowed as-is.
+    flags: &'static [&'static str],
+    /// Options whose value is the next argument, taken as-is (a commit
+    /// message may start with `-`), just as git itself parses them.
+    valued: &'static [&'static str],
+    /// How many plain arguments (branch names…) may follow.
+    positionals: usize,
+}
+
+/// The commands the git menu sends (src/handlers/git.ts). A new menu item
+/// that runs something else needs an entry here.
+const GIT_RUN_ALLOWED: &[GitRunSpec] = &[
+    GitRunSpec { name: "status", flags: &["--short"], valued: &[], positionals: 0 },
+    GitRunSpec { name: "commit", flags: &["--amend"], valued: &["-m"], positionals: 0 },
+    GitRunSpec { name: "pull", flags: &["--ff-only"], valued: &[], positionals: 0 },
+    GitRunSpec { name: "push", flags: &[], valued: &[], positionals: 0 },
+    GitRunSpec { name: "fetch", flags: &["--all", "--prune"], valued: &[], positionals: 0 },
+    GitRunSpec { name: "stash", flags: &["-u"], valued: &[], positionals: 1 },
+    GitRunSpec {
+        name: "log",
+        flags: &["--oneline", "--graph", "--decorate", "--all"],
+        valued: &["-n"],
+        positionals: 0,
+    },
+    GitRunSpec { name: "clean", flags: &["-fd"], valued: &[], positionals: 0 },
+    GitRunSpec { name: "checkout", flags: &[], valued: &["-b"], positionals: 1 },
+    GitRunSpec { name: "merge", flags: &["--no-edit"], valued: &[], positionals: 1 },
+    GitRunSpec { name: "rebase", flags: &[], valued: &[], positionals: 1 },
+];
+
+/// Check `git_run` arguments against GIT_RUN_ALLOWED. The subcommand must
+/// come first, so no global option gets in (`-c core.sshCommand=…`, `-C`,
+/// `--exec-path`), and a plain argument can't start with `-`, so neither can
+/// an option that runs a command (`fetch --upload-pack=…`, `rebase --exec`).
+fn check_git_args(args: &[String]) -> Result<(), String> {
+    let (sub, rest) = args.split_first().ok_or("git_run: no git subcommand")?;
+    let spec = GIT_RUN_ALLOWED
+        .iter()
+        .find(|s| s.name == sub)
+        .ok_or_else(|| format!("git_run: `git {}` isn't one of the git menu's commands", sub))?;
+    let mut positionals = 0;
+    let mut it = rest.iter();
+    while let Some(a) = it.next() {
+        if spec.flags.contains(&a.as_str()) {
+            continue;
+        }
+        if spec.valued.contains(&a.as_str()) {
+            it.next()
+                .ok_or_else(|| format!("git_run: `{}` needs a value", a))?;
+            continue;
+        }
+        // A lone `-` is git's "previous branch", not an option.
+        if a.starts_with('-') && a != "-" {
+            return Err(format!("git_run: `git {}` doesn't take `{}` here", sub, a));
+        }
+        positionals += 1;
+        if positionals > spec.positionals {
+            return Err(format!("git_run: too many arguments for `git {}`", sub));
+        }
+    }
+    Ok(())
+}
+
+#[tauri::command(async)]
 pub fn git_run(cwd: String, args: Vec<String>) -> Result<GitRunResult, String> {
+    check_git_args(&args)?;
     let mut cmd = build_git_command(&cwd);
     cmd.args(&args);
     let out = cmd.output().map_err(|e| classify_spawn_err(&e))?;
@@ -3367,12 +3737,16 @@ pub fn git_run(cwd: String, args: Vec<String>) -> Result<GitRunResult, String> {
     })
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn git_branch_list(cwd: String) -> Result<Vec<GitBranch>, String> {
+    // One for-each-ref gives every branch's ahead/behind via upstream:track,
+    // instead of a rev-list per branch. Its words ("ahead", "behind", "gone")
+    // are translated, so ask for the untranslated ones.
     let mut cmd = build_git_command(&cwd);
+    cmd.env("LC_ALL", "C");
     cmd.args([
         "for-each-ref",
-        "--format=%(refname:short)\t%(HEAD)\t%(upstream:short)",
+        "--format=%(refname:short)\t%(HEAD)\t%(upstream:short)\t%(upstream:track,nobracket)",
         "refs/heads/",
     ]);
     let out = cmd.output().map_err(|e| classify_spawn_err(&e))?;
@@ -3382,7 +3756,7 @@ pub fn git_branch_list(cwd: String) -> Result<Vec<GitBranch>, String> {
     let text = String::from_utf8_lossy(&out.stdout);
     let mut branches = Vec::new();
     for line in text.lines() {
-        let mut it = line.splitn(3, '\t');
+        let mut it = line.splitn(4, '\t');
         let name = match it.next() {
             Some(s) if !s.is_empty() => s.to_string(),
             _ => continue,
@@ -3395,28 +3769,7 @@ pub fn git_branch_list(cwd: String) -> Result<Vec<GitBranch>, String> {
         } else {
             Some(upstream_raw.to_string())
         };
-
-        let (ahead, behind) = if let Some(up) = &upstream {
-            let mut rl = build_git_command(&cwd);
-            rl.args([
-                "rev-list",
-                "--left-right",
-                "--count",
-                &format!("{}...{}", name, up),
-            ]);
-            match rl.output() {
-                Ok(o) if o.status.success() => {
-                    let s = String::from_utf8_lossy(&o.stdout);
-                    let parts: Vec<&str> = s.split_whitespace().collect();
-                    let a: u32 = parts.first().and_then(|x| x.parse().ok()).unwrap_or(0);
-                    let b: u32 = parts.get(1).and_then(|x| x.parse().ok()).unwrap_or(0);
-                    (a, b)
-                }
-                _ => (0, 0),
-            }
-        } else {
-            (0, 0)
-        };
+        let (ahead, behind, upstream_gone) = parse_upstream_track(it.next().unwrap_or(""));
 
         branches.push(GitBranch {
             name,
@@ -3424,16 +3777,36 @@ pub fn git_branch_list(cwd: String) -> Result<Vec<GitBranch>, String> {
             upstream,
             ahead,
             behind,
+            upstream_gone,
         });
     }
     Ok(branches)
+}
+
+/// Parse `%(upstream:track,nobracket)` as git prints it under LC_ALL=C: ""
+/// (in sync, or no upstream), "gone", "ahead 3", "behind 2" or
+/// "ahead 3, behind 2". Returns (ahead, behind, gone).
+fn parse_upstream_track(track: &str) -> (u32, u32, bool) {
+    let track = track.trim();
+    if track == "gone" {
+        return (0, 0, true);
+    }
+    let (mut ahead, mut behind) = (0, 0);
+    for part in track.split(", ") {
+        match part.split_once(' ') {
+            Some(("ahead", n)) => ahead = n.parse().unwrap_or(0),
+            Some(("behind", n)) => behind = n.parse().unwrap_or(0),
+            _ => {}
+        }
+    }
+    (ahead, behind, false)
 }
 
 /// Commits the current branch is ahead of and behind its upstream. `Ok(None)`
 /// when there's nothing to compare: not in a repo, detached or unborn HEAD,
 /// no upstream, or the upstream ref is gone. `Err` is a real failure, such as
 /// an unreadable repo, dubious ownership or a missing object.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn git_ahead_behind(cwd: String) -> Result<Option<(u32, u32)>, String> {
     let Some(repo) = discover_repo(&cwd)? else {
         return Ok(None);
@@ -3861,6 +4234,134 @@ mod tests {
     }
 
     #[test]
+    fn list_dir_git_labels_scan_only_the_listed_folder() {
+        let (dir, repo) = test_repo("gitscope");
+        let weird = "we[ir]d";
+        for sub in ["sub/inner/!bang", weird] {
+            std::fs::create_dir_all(dir.join(sub)).unwrap();
+        }
+        let files = [
+            "root.txt",
+            "sub/a.txt",
+            "sub/b.txt",
+            "sub/inner/c.txt",
+            "sub/inner/!bang/z.txt",
+            "we[ir]d/w.txt",
+        ];
+        for f in files {
+            std::fs::write(dir.join(f), "v1").unwrap();
+        }
+        commit_all(&repo, "init");
+        for f in files.iter().filter(|f| **f != "sub/b.txt") {
+            std::fs::write(dir.join(f), "v2").unwrap();
+        }
+        std::fs::write(dir.join("sub/new.txt"), "new").unwrap();
+
+        let labels = |rel: &str| -> HashMap<String, Option<String>> {
+            list_dir(dir.join(rel).to_string_lossy().into_owned(), true)
+                .unwrap()
+                .into_iter()
+                .map(|e| (e.name, e.git))
+                .collect()
+        };
+        let code = |c: &str| Some(c.to_string());
+        let root = labels("");
+        assert_eq!(root["root.txt"], code("M"));
+        assert_eq!(root["sub"], None);
+        let sub = labels("sub");
+        assert_eq!(sub["a.txt"], code("M"));
+        assert_eq!(sub["b.txt"], None);
+        assert_eq!(sub["new.txt"], code("?"));
+        assert_eq!(sub["inner"], None);
+        assert_eq!(labels("sub/inner")["c.txt"], code("M"));
+        // A `!` past the first character is literal, so this scan is scoped.
+        assert_eq!(labels("sub/inner/!bang")["z.txt"], code("M"));
+        // `[` makes the path a pattern to libgit2, so this one scans the whole
+        // repo; the label must still be right.
+        assert_eq!(labels(weird)["w.txt"], code("M"));
+
+        // The scan for `sub` saw nothing outside it.
+        let sub_dir = dunce::canonicalize(dir.join("sub")).unwrap();
+        let scanned = scan_repo_statuses(&sub_dir).unwrap();
+        assert_eq!(scanned.len(), 4, "{:?}", scanned);
+        assert!(scanned.keys().all(|p| p.starts_with(&sub_dir)), "{:?}", scanned);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn status_pathspec_scopes_plain_folders_only() {
+        let wd = Path::new("/repo");
+        assert_eq!(status_pathspec(wd, wd), None);
+        assert_eq!(status_pathspec(wd, &wd.join("src")), Some("src".into()));
+        assert_eq!(
+            status_pathspec(wd, &wd.join("src").join("deep dir")),
+            Some("src/deep dir".into())
+        );
+        assert_eq!(status_pathspec(wd, Path::new("/elsewhere/src")), None);
+        for odd in ["a*b", "a?b", "a[b]", "trail "] {
+            assert_eq!(status_pathspec(wd, &wd.join("src").join(odd)), None, "{}", odd);
+        }
+        // `!` and `#` only mean something at the start of the pathspec.
+        assert_eq!(status_pathspec(wd, &wd.join("!neg")), None);
+        assert_eq!(status_pathspec(wd, &wd.join("#hash")), None);
+        assert_eq!(
+            status_pathspec(wd, &wd.join("src").join("!x")),
+            Some("src/!x".into())
+        );
+        #[cfg(not(windows))]
+        assert_eq!(status_pathspec(wd, &wd.join("back\\slash")), None);
+    }
+
+    #[test]
+    fn parse_upstream_track_reads_counts_and_gone() {
+        assert_eq!(parse_upstream_track(""), (0, 0, false));
+        assert_eq!(parse_upstream_track("gone"), (0, 0, true));
+        assert_eq!(parse_upstream_track("ahead 3"), (3, 0, false));
+        assert_eq!(parse_upstream_track("behind 2"), (0, 2, false));
+        assert_eq!(parse_upstream_track("ahead 3, behind 12"), (3, 12, false));
+    }
+
+    #[test]
+    fn git_branch_list_reads_tracking_from_one_call() {
+        if which::which("git").is_err() {
+            return;
+        }
+        let (dir, repo) = test_repo("gitbranches");
+        std::fs::write(dir.join("f.txt"), "v1").unwrap();
+        let base = repo.find_commit(commit_all(&repo, "init")).unwrap();
+        let tree = base.tree().unwrap();
+        let sig = git2::Signature::now("test", "test@example.com").unwrap();
+        let one = repo.commit(None, &sig, &sig, "one", &tree, &[&base]).unwrap();
+        let one = repo.find_commit(one).unwrap();
+        let two = repo.commit(None, &sig, &sig, "two", &tree, &[&one]).unwrap();
+        let two = repo.find_commit(two).unwrap();
+        // feature: two commits ahead of its upstream, main.
+        let mut feature = repo.branch("feature", &two, false).unwrap();
+        feature.set_upstream(Some("main")).unwrap();
+        // stale: its upstream branch was deleted afterwards.
+        repo.branch("doomed", &base, false).unwrap();
+        let mut stale = repo.branch("stale", &base, false).unwrap();
+        stale.set_upstream(Some("doomed")).unwrap();
+        repo.find_branch("doomed", git2::BranchType::Local)
+            .unwrap()
+            .delete()
+            .unwrap();
+
+        let branches = git_branch_list(dir.to_string_lossy().into_owned()).unwrap();
+        let get = |n: &str| branches.iter().find(|b| b.name == n).unwrap();
+        let main = get("main");
+        assert!(main.current);
+        assert_eq!(main.upstream, None);
+        assert_eq!((main.ahead, main.behind, main.upstream_gone), (0, 0, false));
+        let feature = get("feature");
+        assert_eq!(feature.upstream.as_deref(), Some("main"));
+        assert_eq!((feature.ahead, feature.behind, feature.upstream_gone), (2, 0, false));
+        let stale = get("stale");
+        assert_eq!((stale.ahead, stale.behind, stale.upstream_gone), (0, 0, true));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn git_ahead_behind_counts_and_nothing_to_compare() {
         let (dir, repo) = test_repo("aheadbehind");
         let cwd = dir.to_string_lossy().into_owned();
@@ -4160,5 +4661,366 @@ mod tests {
         assert_eq!(xdg_trash_files(Some(String::new()), home.clone()), fallback);
         assert_eq!(xdg_trash_files(Some("rel/data".into()), home), fallback);
         assert_eq!(xdg_trash_files(None, None), None);
+    }
+
+    // ---------- command-security ----------
+
+    fn profile(kind: &str, exec: &str, args: &[&str]) -> ShellProfile {
+        ShellProfile {
+            id: format!("{}:test", kind),
+            label: "test".into(),
+            kind: kind.into(),
+            exec: exec.into(),
+            args: args.iter().map(|a| a.to_string()).collect(),
+        }
+    }
+
+    #[test]
+    fn check_profile_accepts_what_the_frontend_builds() {
+        let shells = vec![profile("shell", "/usr/bin/bash", &[])];
+        let ok = [
+            profile("shell", "/usr/bin/bash", &[]),
+            profile("wsl", "wsl.exe", &["-d", "Ubuntu-24.04"]),
+            profile("wsl", "wsl.exe", &["-d", "OracleLinux_9_1"]),
+            profile("ssh", "ssh", &["box"]),
+            profile("ssh", "ssh", &["me@example.com"]),
+            profile("ssh", "ssh", &["-p", "2222", "example.com"]),
+            profile("ssh", "ssh", &["[::1]"]),
+            profile("ssh", "ssh", &["fe80::1%eth0"]),
+            profile("ssh", "ssh", &["ssh://me@example.com:22"]),
+        ];
+        for p in &ok {
+            assert!(check_profile(p, &shells).is_ok(), "{:?}", p.args);
+        }
+    }
+
+    #[test]
+    fn check_profile_refuses_everything_else() {
+        let shells = vec![profile("shell", "/usr/bin/bash", &[])];
+        let bad = [
+            // any executable, or a shell with arguments
+            profile("shell", "/tmp/evil", &[]),
+            profile("shell", "/usr/bin/bash", &["-c", "id"]),
+            profile("", "/usr/bin/python3", &[]),
+            profile("other", "/usr/bin/bash", &[]),
+            // wsl: only `-d <name>`
+            profile("wsl", "wsl.exe", &[]),
+            profile("wsl", "wsl.exe", &["-e", "sh"]),
+            profile("wsl", "wsl.exe", &["-d", "--exec"]),
+            profile("wsl", "wsl.exe", &["-d", "Ubuntu", "--", "sh"]),
+            profile("wsl", "wsl.exe", &["-d", "a&calc"]),
+            // ssh: no options smuggled in as the host, no extra args
+            profile("ssh", "ssh", &["-oProxyCommand=calc"]),
+            profile("ssh", "ssh", &["-p", "22", "-oProxyCommand=calc"]),
+            profile("ssh", "ssh", &["-p", "0", "host"]),
+            profile("ssh", "ssh", &["-p", "70000", "host"]),
+            profile("ssh", "ssh", &["-p", "22x", "host"]),
+            profile("ssh", "ssh", &["host", "id"]),
+            profile("ssh", "ssh", &[]),
+            profile("ssh", "ssh", &["a b"]),
+            profile("ssh", "ssh", &["host;calc"]),
+            profile("ssh", "ssh", &["host&calc"]),
+            profile("ssh", "ssh", &["host\ncalc"]),
+        ];
+        for p in &bad {
+            assert!(check_profile(p, &shells).is_err(), "{} {:?}", p.kind, p.args);
+        }
+    }
+
+    #[test]
+    fn detected_shells_pass_check_profile() {
+        let shells = detect_shells();
+        for p in &shells {
+            assert!(check_profile(p, &shells).is_ok(), "{:?}", p);
+        }
+    }
+
+    #[test]
+    fn cmd_and_wt_quoting_helpers() {
+        assert!(is_cmd_inert(r"C:\Program Files (x86)\Git\bin\bash.exe"));
+        assert!(is_cmd_inert("Ubuntu-24.04"));
+        for bad in ["a&b", "a|b", "a^b", "%PATH%", "a!b", "a\"b", "a<b", "a\nb"] {
+            assert!(!is_cmd_inert(bad), "{}", bad);
+        }
+        // Inverse of wt's own unescape (`\;` -> `;`), so the path arrives intact.
+        assert_eq!(wt_escape(r"C:\a;b"), r"C:\a\;b");
+        assert_eq!(wt_escape(r"C:\x\;y"), r"C:\x\\;y");
+        assert_eq!(wt_escape(";x;;"), r"\;x\;\;");
+        assert_eq!(wt_escape(r"C:\plain"), r"C:\plain");
+        // The PowerShell cd command only ever reads the path from the env var.
+        assert!(PS_CD_FROM_ENV.contains(&format!("$env:{}", PS_CWD_ENV)));
+        assert!(!PS_CD_FROM_ENV.contains('"'));
+    }
+
+    fn args(a: &[&str]) -> Vec<String> {
+        a.iter().map(|x| x.to_string()).collect()
+    }
+
+    #[test]
+    fn git_args_accepts_the_git_menu() {
+        // Every shape src/handlers/git.ts sends.
+        let ok: &[&[&str]] = &[
+            &["status", "--short"],
+            &["commit", "-m", "fix: things"],
+            &["commit", "-m", "-starts with a dash"],
+            &["commit", "--amend", "-m", "msg"],
+            &["pull", "--ff-only"],
+            &["push"],
+            &["fetch", "--all", "--prune"],
+            &["stash", "push", "-u"],
+            &["log", "--oneline", "--graph", "--decorate", "--all", "-n", "200"],
+            &["clean", "-fd"],
+            &["checkout", "main"],
+            &["checkout", "feature/x"],
+            &["checkout", "-"],
+            &["checkout", "-b", "feature/new"],
+            &["merge", "main", "--no-edit"],
+            &["rebase", "main"],
+        ];
+        for a in ok {
+            assert!(check_git_args(&args(a)).is_ok(), "{:?}", a);
+        }
+    }
+
+    #[test]
+    fn git_args_refuses_options_that_run_commands() {
+        let bad: &[&[&str]] = &[
+            &[],
+            &["-c", "core.sshCommand=calc", "fetch"],
+            &["-C", "/tmp", "status"],
+            &["--exec-path=/tmp", "status"],
+            &["config", "core.fsmonitor", "calc"],
+            &["fetch", "--upload-pack=calc"],
+            &["pull", "--upload-pack", "calc"],
+            &["push", "--receive-pack=calc"],
+            &["rebase", "--exec", "calc", "main"],
+            &["rebase", "-x", "calc", "main"],
+            &["log", "--output=/tmp/x"],
+            &["commit", "-m"],
+            &["checkout", "a", "b"],
+            &["merge", "--no-edit", "-s", "evil", "main"],
+            &["clean", "-fdx"],
+        ];
+        for a in bad {
+            assert!(check_git_args(&args(a)).is_err(), "{:?}", a);
+        }
+    }
+
+    #[test]
+    fn open_url_allows_only_web_and_mail() {
+        for ok in [
+            "https://github.com/Johnson-Anthony/glasshouse/issues/new",
+            "http://localhost:1420/?a=1&b=2",
+            "HTTPS://EXAMPLE.COM",
+            "mailto:someone@example.com",
+        ] {
+            assert!(check_open_url(ok).is_ok(), "{}", ok);
+        }
+        for bad in [
+            "file:///C:/Windows/System32/calc.exe",
+            "ms-msdt:/id PCWDiagnostic",
+            "search-ms:query=x",
+            "javascript:alert(1)",
+            "--help",
+            "/etc/passwd",
+            "https://example.com/\nfoo",
+            "",
+        ] {
+            assert!(check_open_url(bad).is_err(), "{}", bad);
+        }
+    }
+
+    #[test]
+    fn read_image_b64_caps_on_the_server() {
+        let dir = temp_dir("imgcap");
+        let small = dir.join("a.png");
+        std::fs::write(&small, b"\x89PNG").unwrap();
+        let url = read_image_b64(s(&small), 0).unwrap();
+        assert!(url.starts_with("data:image/png;base64,"), "{}", url);
+        assert!(read_image_b64(s(&small), 3).unwrap_err().contains("too large"));
+
+        // A frontend asking for more than the ceiling still gets the ceiling.
+        let big = dir.join("big.png");
+        let f = std::fs::File::create(&big).unwrap();
+        f.set_len(READ_IMAGE_MAX as u64 + 1).unwrap(); // sparse, so this is quick
+        drop(f);
+        let err = read_image_b64(s(&big), usize::MAX).unwrap_err();
+        assert!(err.contains("too large"), "{}", err);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn tar_members_named_like_options_stay_files() {
+        if which::which("tar").is_err() {
+            return;
+        }
+        let dir = temp_dir("tardash");
+        let src = dir.join("src");
+        std::fs::create_dir_all(&src).unwrap();
+        // Without `--`, tar reads these as options: the first would run a
+        // command at every checkpoint.
+        let names = ["--checkpoint-action=exec=echo pwned", "-v"];
+        for n in names {
+            std::fs::write(src.join(n), n).unwrap();
+        }
+        let paths: Vec<String> = names.iter().map(|n| s(&src.join(n))).collect();
+        for format in ["tar.gz", "tar.zst"] {
+            let archive = dir.join(format!("a.{}", format));
+            archive_create(paths.clone(), s(&archive), format.into()).unwrap();
+            let out = dir.join(format!("out-{}", format));
+            archive_extract(s(&archive), s(&out)).unwrap();
+            for n in names {
+                assert_eq!(std::fs::read_to_string(out.join(n)).unwrap(), n, "{} {}", format, n);
+            }
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(unix)]
+    fn sh(script: &str) -> std::process::Command {
+        let mut c = std::process::Command::new("sh");
+        c.args(["-c", script]);
+        c
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn run_capped_kills_at_the_timeout() {
+        use std::time::{Duration, Instant};
+        let t = Instant::now();
+        let run = run_capped(
+            sh("echo started; sleep 10"),
+            Duration::from_millis(300),
+            1024,
+            Duration::from_millis(500),
+        )
+        .unwrap();
+        assert!(t.elapsed() < Duration::from_secs(5), "{:?}", t.elapsed());
+        assert!(run.status.is_none());
+        assert_eq!(String::from_utf8_lossy(&run.stdout), "started\n");
+        let text = format_script_output(&run, Duration::from_secs(60));
+        assert!(text.contains("[timed out after 60 s"), "{}", text);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn run_capped_caps_output_and_keeps_draining() {
+        use std::time::Duration;
+        // 3 MB on stdout: well past the cap and any pipe buffer, so a reader
+        // that stopped reading at the cap would hang the script.
+        let run = run_capped(
+            sh("head -c 3000000 /dev/zero; echo err >&2; exit 3"),
+            Duration::from_secs(20),
+            1000,
+            Duration::from_secs(2),
+        )
+        .unwrap();
+        assert_eq!(run.stdout.len(), 1000);
+        assert_eq!(String::from_utf8_lossy(&run.stderr), "err\n");
+        assert!(run.truncated && !run.incomplete);
+        let text = format_script_output(&run, Duration::from_secs(60));
+        assert!(text.contains("[exit: 3]") && text.contains("[output truncated"), "{}", text);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn run_capped_returns_when_a_background_child_holds_the_pipe() {
+        use std::time::{Duration, Instant};
+        let t = Instant::now();
+        // The script exits at once, but `sleep` inherits stdout and keeps it
+        // open; Command::output() would wait for it.
+        let run = run_capped(
+            sh("sleep 5 & echo hi"),
+            Duration::from_secs(20),
+            1024,
+            Duration::from_millis(300),
+        )
+        .unwrap();
+        assert!(t.elapsed() < Duration::from_secs(4), "{:?}", t.elapsed());
+        assert!(run.status.is_some_and(|s| s.success()));
+        assert_eq!(String::from_utf8_lossy(&run.stdout), "hi\n");
+        assert!(run.incomplete);
+    }
+
+    /// git_file_info runs on every selection change, so a hostile repo's
+    /// config must not get to run anything. Checks the setup really is
+    /// hostile to the plain git CLI first.
+    #[cfg(unix)]
+    #[test]
+    fn git_file_info_runs_nothing_from_repo_config() {
+        use std::os::unix::fs::PermissionsExt;
+        if which::which("git").is_err() {
+            return;
+        }
+        let dir = temp_dir("hostilerepo");
+        let marker = |name: &str| dir.join(format!("PWNED_{}", name));
+        let git = |a: &[&str]| {
+            let st = std::process::Command::new("git")
+                .current_dir(&dir)
+                .args(["-c", "user.email=t@t", "-c", "user.name=t"])
+                .args(a)
+                .output()
+                .unwrap();
+            assert!(st.status.success(), "git {:?}: {}", a, String::from_utf8_lossy(&st.stderr));
+        };
+        git(&["init", "-q"]);
+        std::fs::write(dir.join("a.txt"), "one\n").unwrap();
+        git(&["add", "a.txt"]);
+        git(&["commit", "-qm", "init"]);
+        // A commit with a (bogus) signature, so log.showSignature calls gpg.
+        let tree = std::process::Command::new("git")
+            .current_dir(&dir)
+            .args(["rev-parse", "HEAD^{tree}"])
+            .output()
+            .unwrap();
+        let tree = String::from_utf8_lossy(&tree.stdout).trim().to_string();
+        let raw = format!(
+            "tree {}\nauthor t <t@t> 0 +0000\ncommitter t <t@t> 0 +0000\n\
+             gpgsig -----BEGIN PGP SIGNATURE-----\n abc\n -----END PGP SIGNATURE-----\n\nsigned\n",
+            tree
+        );
+        let mut hash = std::process::Command::new("git")
+            .current_dir(&dir)
+            .args(["hash-object", "-t", "commit", "-w", "--stdin"])
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .spawn()
+            .unwrap();
+        std::io::Write::write_all(&mut hash.stdin.take().unwrap(), raw.as_bytes()).unwrap();
+        let sha = String::from_utf8_lossy(&hash.wait_with_output().unwrap().stdout).trim().to_string();
+        git(&["update-ref", "HEAD", &sha]);
+
+        let fake_gpg = dir.join("fake-gpg");
+        std::fs::write(&fake_gpg, format!("#!/bin/sh\ntouch '{}'\n", s(&marker("gpg")))).unwrap();
+        std::fs::set_permissions(&fake_gpg, std::fs::Permissions::from_mode(0o755)).unwrap();
+        git(&["config", "gpg.program", &s(&fake_gpg)]);
+        git(&["config", "log.showSignature", "true"]);
+        git(&["config", "core.fsmonitor", &format!("touch '{}'; false", s(&marker("fsmonitor")))]);
+        git(&["config", "filter.x.clean", &format!("touch '{}'; cat", s(&marker("clean")))]);
+        std::fs::write(dir.join(".gitattributes"), "*.txt filter=x\n").unwrap();
+        std::fs::write(dir.join("a.txt"), "one\ntwo\nthree\n").unwrap();
+
+        // The plain CLI calls git_file_info used to make do run them all.
+        for a in [
+            &["log", "-1", "--format=%h", "--", "a.txt"][..],
+            &["diff", "--numstat", "HEAD", "--", "a.txt"][..],
+        ] {
+            let _ = std::process::Command::new("git").current_dir(&dir).args(a).output();
+        }
+        for m in ["gpg", "fsmonitor", "clean"] {
+            assert!(marker(m).exists(), "setup: {} didn't fire", m);
+            std::fs::remove_file(marker(m)).unwrap();
+        }
+
+        let info = git_file_info(s(&dir), s(&dir.join("a.txt"))).unwrap();
+        for m in ["gpg", "fsmonitor", "clean"] {
+            assert!(!marker(m).exists(), "git_file_info ran the repo's {}", m);
+        }
+        assert_eq!((info.added, info.removed), (2, 0));
+        assert!(info.sha.is_some());
+        // A relative path, as from cwd, gives the same answer.
+        let rel = git_file_info(s(&dir), "a.txt".into()).unwrap();
+        assert_eq!((rel.added, rel.removed), (2, 0));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
