@@ -1220,20 +1220,6 @@ pub fn win_to_wsl(path: String) -> String {
     p
 }
 
-#[tauri::command]
-pub fn wsl_to_win(path: String) -> String {
-    // /mnt/c/Users/me -> C:\Users\me, /mnt/c -> C:\
-    if let Some(rest) = path.strip_prefix("/mnt/") {
-        let (letter, tail) = rest.split_once('/').unwrap_or((rest, ""));
-        if letter.len() == 1 && letter.as_bytes()[0].is_ascii_alphabetic() {
-            let mut s = format!("{}:\\", letter.to_ascii_uppercase());
-            s.push_str(&tail.replace('/', "\\"));
-            return s;
-        }
-    }
-    path.replace('/', "\\")
-}
-
 // ---------- pins / tags persistence ----------
 
 fn config_file(app: &AppHandle, name: &str) -> Result<PathBuf, String> {
@@ -3854,18 +3840,6 @@ mod tests {
     }
 
     #[test]
-    fn wsl_to_win_mnt_paths() {
-        assert_eq!(wsl_to_win("/mnt/c/Users/me".into()), "C:\\Users\\me");
-        assert_eq!(wsl_to_win("/mnt/d/".into()), "D:\\");
-    }
-
-    #[test]
-    fn win_wsl_round_trip() {
-        let orig = "C:\\Users\\me\\proj";
-        assert_eq!(wsl_to_win(win_to_wsl(orig.into())), orig);
-    }
-
-    #[test]
     fn write_config_atomic_writes_and_replaces() {
         let dir = temp_dir("atomic");
         let target = dir.join("pins.json");
@@ -4146,16 +4120,6 @@ mod tests {
         assert_eq!(std::fs::read_link(dst.join("link")).unwrap(), Path::new("sub/f.txt"));
         let _ = std::fs::remove_dir_all(&dst);
         let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    #[test]
-    fn wsl_to_win_bare_mount_and_non_letters() {
-        assert_eq!(wsl_to_win("/mnt/c".into()), "C:\\");
-        assert_eq!(wsl_to_win("/mnt/C/x".into()), "C:\\x");
-        assert_eq!(wsl_to_win(win_to_wsl("C:".into())), "C:\\");
-        // Not a drive letter: just the separator swap, as before.
-        assert_eq!(wsl_to_win("/mnt/1/x".into()), "\\mnt\\1\\x");
-        assert_eq!(wsl_to_win("/mnt/wsl/x".into()), "\\mnt\\wsl\\x");
     }
 
     fn test_repo(name: &str) -> (PathBuf, git2::Repository) {

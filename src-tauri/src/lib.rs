@@ -46,7 +46,6 @@ pub fn run() {
             commands::spawn_terminal,
             commands::spawn_vscode,
             commands::win_to_wsl,
-            commands::wsl_to_win,
             commands::read_pins,
             commands::write_pins,
             commands::read_tags,

@@ -30,7 +30,6 @@ commands.allow = [
   "trash_dir",
   "net_rate",
   "win_to_wsl",
-  "wsl_to_win",
   "archive_can_handle",
   "list_shell_profiles",
   "verify_signature",
