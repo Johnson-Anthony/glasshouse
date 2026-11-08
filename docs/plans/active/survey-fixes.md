@@ -16,7 +16,7 @@ Line numbers are from commit `14c68bd` and drift, so search by name. Items marke
 | platform-paths | frontend | **merged** (2d9fcaf) |
 | backend-bugs | Rust | **merged** (3ece93d) |
 | linux-parity | Rust + a little frontend | running |
-| command-security | Rust + config | queued |
+| command-security | Rust + config | running |
 | async-commands | Rust | queued |
 | dead-code | both | queued |
 | test-coverage | both | queued |
