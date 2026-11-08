@@ -1,17 +1,24 @@
 #!/usr/bin/env node
 // audit-wiring.mjs
 //
-// Extract every interactable label from the original design bundle, compare
-// against the live app (src/data.ts menu tree + src/handlers/*.ts case
-// strings), and emit a wired/unwired report.
+// Commands are routed by label string (see "Commands are identified by their
+// display label" in docs/ARCHITECTURE.md). This checks that routing without
+// running the app:
 //
-// No agents, no LLM — pure programmatic comparison. Run:
+//   unwired   a label something sends (the menus, palette and context menus
+//             in src/data.ts, the Ctrl+G chords, dispatch("…") calls) that no
+//             switch handles, so clicking it shows "not yet wired";
+//   shadowed  a handler case that never runs, because App.tsx's own switches
+//             or an earlier handler in src/handlers/index.ts take the label
+//             first;
+//   theater   a handled label whose case only logs, alerts, toasts or returns.
 //
-//   node scripts/audit-wiring.mjs            # writes audit-wiring.{json,md}
-//   node scripts/audit-wiring.mjs --stdout   # also dump md to stdout
+// Labels that are handled but never sent from a menu, the palette or a
+// literal in code are counted as a note. Some are aliases; others are dead.
 //
-// Exit code is non-zero iff the report finds design labels that are missing
-// from the app entirely (so this can be wired into CI).
+//   node scripts/audit-wiring.mjs          # report; exits 1 on any problem
+//   node scripts/audit-wiring.mjs --all    # also list the never-sent labels
+//   node scripts/audit-wiring.mjs --json   # all findings as JSON
 
 import fs from "node:fs";
 import path from "node:path";
@@ -23,484 +30,351 @@ const require = createRequire(import.meta.url);
 const ts = require("typescript");
 
 const ROOT = path.resolve(path.dirname(url.fileURLToPath(import.meta.url)), "..");
-const DESIGN_DATA  = path.join(ROOT, "design/project/src/data.jsx");
-const DESIGN_COMPS = path.join(ROOT, "design/project/src/components.jsx");
-const APP_DATA     = path.join(ROOT, "src/data.ts");
-const HANDLERS_DIR = path.join(ROOT, "src/handlers");
-// Files outside handlers/ that also dispatch on label strings via `case "X":`
-// (App.tsx has its own big switch + keybind dispatcher).
-const EXTRA_DISPATCH_FILES = [
-  path.join(ROOT, "src/App.tsx"),
-];
+const SRC = path.join(ROOT, "src");
+const DATA = path.join(SRC, "data.ts");
+const APP = path.join(SRC, "App.tsx");
+const HANDLERS_INDEX = path.join(SRC, "handlers", "index.ts");
 
-// ─── label normalisation ─────────────────────────────────────────────────
-// Handlers match on exact strings, but menu labels drift: some end with "…",
-// some with " →", some gain a trailing arrow or shortcut. Strip trailing
-// ellipsis/arrow/whitespace for the cross-reference; keep the raw form for
-// display.
-function canon(label) {
-  if (typeof label !== "string") return "";
-  return label
-    .replace(/\s+→\s*$/, "")
-    .replace(/\s*…\s*$/, "")
-    .replace(/\s+/g, " ")
-    .trim()
-    .toLowerCase();
+// Functions in App.tsx that switch on the label before the handler chain runs.
+const APP_ROUTERS = ["handleMenuCommand", "doFileOp"];
+
+// ─── source parsing ─────────────────────────────────────────────────────
+
+function parse(file) {
+  const text = fs.readFileSync(file, "utf8");
+  const kind = file.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS;
+  return ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true, kind);
 }
 
-// ─── walk a menu tree -> flat items ─────────────────────────────────────
-// `dynSources` is a Set<string> accumulating dynamic-node source ids found in
-// the tree (e.g. "recent", "terminal-profiles"). These represent runtime-
-// resolved submenus that cover families of design labels.
-function walkMenu(items, source, out, dynSources) {
-  if (!Array.isArray(items)) return;
-  for (const it of items) {
-    if (!it || typeof it !== "object") continue;
-    if (it.kind === "sep" || it.kind === "grouplabel") continue;
-    if (it.kind === "dynamic") {
-      if (dynSources && typeof it.source === "string") dynSources.add(it.source);
-      continue;
+function rel(file) {
+  return path.relative(ROOT, file).split(path.sep).join("/");
+}
+
+function lineOf(sf, node) {
+  return sf.getLineAndCharacterOfPosition(node.getStart(sf)).line + 1;
+}
+
+function isFunctionLike(node) {
+  return ts.isFunctionDeclaration(node) || ts.isFunctionExpression(node) ||
+    ts.isArrowFunction(node) || ts.isMethodDeclaration(node);
+}
+
+// `switch (label)` statements directly inside `fn` (not inside a nested
+// function). `conditional` is true when an `if` or a loop sits between the
+// switch and the function body, so the switch only sees some calls.
+function labelSwitches(fn) {
+  const out = [];
+  const visit = (node, conditional) => {
+    if (node !== fn && isFunctionLike(node)) return;
+    if (ts.isSwitchStatement(node) && ts.isIdentifier(node.expression) && node.expression.text === "label") {
+      out.push({ node, conditional });
     }
-    if (typeof it.label === "string") {
-      out.push({
-        label: it.label,
-        kb: it.kb || null,
-        source,
-        hasChildren: Array.isArray(it.children) && it.children.length > 0,
-        kind: it.kind || "item",
-      });
+    const nested = conditional || ts.isIfStatement(node) || ts.isConditionalExpression(node) ||
+      ts.isForStatement(node) || ts.isForOfStatement(node) || ts.isWhileStatement(node);
+    ts.forEachChild(node, (child) => visit(child, nested));
+  };
+  visit(fn, false);
+  return out;
+}
+
+// Each `case "X":` of a switch with the statements it runs. Stacked cases
+// share the body of the next clause that has statements.
+function caseClauses(sw) {
+  const clauses = sw.caseBlock.clauses;
+  const out = [];
+  clauses.forEach((clause, i) => {
+    if (!ts.isCaseClause(clause) || !ts.isStringLiteralLike(clause.expression)) return;
+    let body = null;
+    for (let j = i; j < clauses.length; j++) {
+      if (clauses[j].statements.length > 0) { body = clauses[j].statements; break; }
     }
-    if (Array.isArray(it.children)) walkMenu(it.children, source, out, dynSources);
+    out.push({ label: clause.expression.text, clause, body: body ?? [] });
+  });
+  return out;
+}
+
+function findFunction(sf, name) {
+  let found = null;
+  const visit = (node) => {
+    if (found) return;
+    if (ts.isFunctionDeclaration(node) && node.name?.text === name) found = node;
+    else if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.name.text === name &&
+      node.initializer && isFunctionLike(node.initializer)) found = node.initializer;
+    else ts.forEachChild(node, visit);
+  };
+  visit(sf);
+  return found;
+}
+
+// ─── theater detection ──────────────────────────────────────────────────
+
+const NOOP_CALLS = /^(console\.\w+|alert|window\.alert|dialogs\.showToast|dialogs\.showAlert)$/;
+
+function unwrap(expr) {
+  while (ts.isVoidExpression(expr) || ts.isAwaitExpression(expr) || ts.isParenthesizedExpression(expr)) {
+    expr = expr.expression;
   }
+  return expr;
 }
 
-// A design label is "covered by dynamic" if a dynamic source in the app
-// supplies that kind of entry at runtime. Coverage map is explicit so the
-// audit fails loudly if a new dynamic source is added without updating it.
-function isCoveredByDynamic(label, dynSources) {
-  if (!dynSources || dynSources.size === 0) return false;
-  const l = label.trim();
-  const looksLikePath =
-    l.startsWith("/") || l.startsWith("~") || /^[A-Za-z]:[\\/]/.test(l);
-  const looksLikeSsh = /^SSH:\s/i.test(l);
-  const looksLikeShell = /^(bash|zsh|fish|sh|PowerShell|pwsh|WSL[\s·]|Windows Terminal)/i.test(l);
-  if (looksLikePath && (dynSources.has("recent") || dynSources.has("bookmarks-pinned"))) return true;
-  if (looksLikeSsh   && dynSources.has("ssh-hosts"))        return true;
-  if (looksLikeShell && dynSources.has("terminal-profiles")) return true;
+// True when a statement does nothing a user would call the command: a
+// return, a log, an alert or a toast, or an `if` made only of those.
+function isNoop(st, sf) {
+  if (ts.isReturnStatement(st) || ts.isBreakStatement(st) || ts.isEmptyStatement(st)) return true;
+  if (ts.isBlock(st)) return st.statements.every((s) => isNoop(s, sf));
+  if (ts.isIfStatement(st)) {
+    return isNoop(st.thenStatement, sf) && (!st.elseStatement || isNoop(st.elseStatement, sf));
+  }
+  if (ts.isExpressionStatement(st)) {
+    const e = unwrap(st.expression);
+    return ts.isCallExpression(e) && NOOP_CALLS.test(e.expression.getText(sf));
+  }
   return false;
 }
 
-// ─── design/project/src/data.jsx via vm ─────────────────────────────────
-function loadDesignData() {
-  const src = fs.readFileSync(DESIGN_DATA, "utf8");
-  const ctx = { window: {}, console };
-  vm.createContext(ctx);
-  vm.runInContext(src, ctx, { filename: "design/data.jsx" });
-  const w = ctx.window;
-  const out = [];
-  if (w.MENUS) {
-    for (const [k, v] of Object.entries(w.MENUS)) {
-      walkMenu(v, `design:MENUS.${k}`, out, null);
-    }
-  }
-  if (Array.isArray(w.PALETTE)) {
-    for (const p of w.PALETTE) {
-      if (p?.label) {
-        out.push({
-          label: p.label,
-          kb: Array.isArray(p.kb) ? p.kb.join("+") : (p.kb || null),
-          source: `design:PALETTE.${p.g || ""}`,
-          hasChildren: false,
-          kind: "palette",
-        });
-      }
-    }
-  }
-  if (w.CONTEXT_FILE)  walkMenu(w.CONTEXT_FILE,  "design:CONTEXT_FILE",  out);
-  if (w.CONTEXT_EMPTY) walkMenu(w.CONTEXT_EMPTY, "design:CONTEXT_EMPTY", out);
-  return out;
+function isTheater(body, sf) {
+  return body.every((st) => isNoop(st, sf));
 }
 
-// ─── src/data.ts via ts.transpileModule + vm ────────────────────────────
-function loadAppData() {
-  const tsSrc = fs.readFileSync(APP_DATA, "utf8");
-  const { outputText } = ts.transpileModule(tsSrc, {
-    compilerOptions: {
-      module: ts.ModuleKind.CommonJS,
-      target: ts.ScriptTarget.ES2020,
-      esModuleInterop: true,
-    },
+// ─── senders: src/data.ts ───────────────────────────────────────────────
+
+// Run data.ts in a sandbox with IS_WINDOWS on, so the Windows-only items it
+// strips on other platforms are audited too.
+function loadData() {
+  const { outputText } = ts.transpileModule(fs.readFileSync(DATA, "utf8"), {
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 },
   });
   const mod = { exports: {} };
-  const ctx = {
-    module: mod,
-    exports: mod.exports,
-    require: () => ({}),
-    console,
-  };
+  const stubs = { "./platform": { IS_WINDOWS: true } };
+  const ctx = { module: mod, exports: mod.exports, require: (id) => stubs[id] ?? {}, console };
   vm.createContext(ctx);
-  new vm.Script(outputText, { filename: "app/data.ts.js" }).runInContext(ctx);
-  const w = mod.exports;
-  const out = [];
-  const dynSources = new Set();
-  if (w.MENUS) {
-    for (const [k, v] of Object.entries(w.MENUS)) {
-      walkMenu(v, `app:MENUS.${k}`, out, dynSources);
+  new vm.Script(outputText, { filename: rel(DATA) }).runInContext(ctx);
+  return mod.exports;
+}
+
+function isMenuTree(v) {
+  return Array.isArray(v) && v.length > 0 && v.every((it) => it && typeof it === "object" && "kind" in it);
+}
+
+function dataSenders(data) {
+  const sent = [];
+  const submenus = new Set();
+  const walk = (items, where) => {
+    for (const it of items) {
+      if (it.kind === "item") sent.push({ label: it.action ?? it.label, where });
+      else if (it.kind === "sub") { submenus.add(it.label); walk(it.children, where); }
+    }
+  };
+  for (const [name, value] of Object.entries(data)) {
+    if (name === "MENUS") {
+      for (const [menu, items] of Object.entries(value)) walk(items, `data.ts MENUS.${menu}`);
+    } else if (name === "PALETTE") {
+      for (const p of value) sent.push({ label: p.label, where: "data.ts PALETTE" });
+    } else if (name === "GIT_CHORDS") {
+      for (const label of Object.values(value)) sent.push({ label, where: "data.ts GIT_CHORDS" });
+    } else if (isMenuTree(value)) {
+      walk(value, `data.ts ${name}`);
     }
   }
-  if (Array.isArray(w.PALETTE)) {
-    for (const p of w.PALETTE) {
-      if (p?.label) {
+  return { sent, submenus };
+}
+
+// ─── senders: string literals passed to the router from code ────────────
+
+const SEND_CALLEES = /(^|\.)(dispatch|handleMenuCommand|onCommand)$|^handleMenuCommandRef\.current$/;
+
+function sourceFiles(dir) {
+  const out = [];
+  for (const ent of fs.readdirSync(dir, { withFileTypes: true })) {
+    const p = path.join(dir, ent.name);
+    if (ent.isDirectory()) out.push(...sourceFiles(p));
+    else if (/\.(ts|tsx)$/.test(ent.name) && !/\.test\.tsx?$/.test(ent.name) && !ent.name.endsWith(".d.ts")) out.push(p);
+  }
+  return out;
+}
+
+// The labels an argument can evaluate to: string literals, both arms of a
+// `?:`, and `list[i]` where `list` is an array literal declared in the file.
+// Anything else (template strings, variables) is skipped.
+function literalsIn(expr, arrays) {
+  expr = unwrap(expr);
+  if (ts.isStringLiteralLike(expr)) return [expr.text];
+  if (ts.isConditionalExpression(expr)) return [...literalsIn(expr.whenTrue, arrays), ...literalsIn(expr.whenFalse, arrays)];
+  if (ts.isElementAccessExpression(expr) && ts.isIdentifier(expr.expression)) return arrays.get(expr.expression.text) ?? [];
+  return [];
+}
+
+function codeSenders() {
+  const sent = [];
+  for (const file of sourceFiles(SRC)) {
+    const sf = parse(file);
+    const arrays = new Map();
+    const collectArrays = (node) => {
+      if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer &&
+        ts.isArrayLiteralExpression(node.initializer)) {
+        arrays.set(node.name.text, node.initializer.elements.filter(ts.isStringLiteralLike).map((e) => e.text));
+      }
+      ts.forEachChild(node, collectArrays);
+    };
+    collectArrays(sf);
+    const visit = (node) => {
+      if (ts.isCallExpression(node) && node.arguments.length > 0) {
+        const callee = node.expression.getText(sf).replace(/\?\.?/g, ".").replace(/\.\./g, ".");
+        if (SEND_CALLEES.test(callee)) {
+          for (const label of literalsIn(node.arguments[0], arrays)) {
+            sent.push({ label, where: `${rel(file)}:${lineOf(sf, node)}` });
+          }
+        }
+      }
+      ts.forEachChild(node, visit);
+    };
+    visit(sf);
+  }
+  return sent;
+}
+
+// ─── receivers: App.tsx and the handler chain ───────────────────────────
+
+function appReceivers() {
+  const sf = parse(APP);
+  const out = [];
+  for (const name of APP_ROUTERS) {
+    const fn = findFunction(sf, name);
+    if (!fn) throw new Error(`${rel(APP)}: can't find ${name}()`);
+    for (const { node, conditional } of labelSwitches(fn)) {
+      for (const c of caseClauses(node)) {
         out.push({
-          label: p.label,
-          kb: Array.isArray(p.kb) ? p.kb.join("+") : (p.kb || null),
-          source: `app:PALETTE.${p.g || ""}`,
-          hasChildren: false,
-          kind: "palette",
+          label: c.label,
+          where: `${rel(APP)}:${lineOf(sf, c.clause)}`,
+          owner: `App.tsx ${name}`,
+          conditional,
+          theater: isTheater(c.body, sf),
         });
       }
     }
   }
-  for (const name of [
-    "CONTEXT_FILE",
-    "CONTEXT_EMPTY",
-    "CONTEXT_SIDEBAR",
-    "CONTEXT_SIDEBAR_PINNED",
-    "CONTEXT_TAB",
-    "CONTEXT_BREADCRUMB",
-  ]) {
-    if (w[name]) walkMenu(w[name], `app:${name}`, out, dynSources);
-  }
-  return { labels: out, dynSources };
-}
-
-// ─── src/handlers/*.ts -> set of case "..." strings ─────────────────────
-// Heuristic: classify a case body as "theater" if the only thing it does is
-// log/alert/return, with no real api.ts call, no backend command, no state
-// mutation. Read the bytes between `case "X":` and the next `case`/`default`
-// and inspect.
-function classifyCaseBody(src, startIdx) {
-  // Find the effective body: skip past stacked `case "..":` / `default:`
-  // labels so we read the SHARED body of a stacked-case group, then cut at
-  // the next sibling case/default outside that group.
-  let cursor = startIdx;
-  // eslint-disable-next-line no-constant-condition
-  while (true) {
-    const rest = src.slice(cursor, cursor + 400);
-    const m = rest.match(/^\s*(?:case\s+(?:"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')\s*:|default\s*:)/);
-    if (!m) break;
-    cursor += m[0].length;
-  }
-  const chunk = src.slice(cursor, cursor + 3000);
-  const endRe = /\n\s*(?:case\s+["']|default\s*:)/;
-  const endMatch = chunk.match(endRe);
-  const body = endMatch ? chunk.slice(0, endMatch.index) : chunk;
-  const cleaned = body.replace(/\/\/[^\n]*/g, "").replace(/\/\*[\s\S]*?\*\//g, "");
-
-  // Check theater first — strong indicators of "label lies about what this does".
-  //   1) "intent:" string (git stubs)
-  //   2) "not implemented" / "not yet" / "not supported yet" / "not tracked"
-  //   3) "MVP no-op"/"MVP selects" pragma strings
-  //   4) Deep theater: opens a terminal but doesn't run the promised command.
-  if (/console\.log\([^)]*intent:/i.test(cleaned)) return "theater";
-  if (/not implemented|not yet|not supported yet|not tracked|MVP (no-op|selects)/i.test(cleaned)) return "theater";
-
-  // Strong real-work signals: any API call, await, state action, dispatch,
-  // or imported command invocation.
-  const REAL = [
-    /\bawait\s+(?!spawnTerminal\b)/,
-    /\bctx\.(activeHandle|setActiveTab|newTab|moveTab|refresh|setTweaks|pinPath|dispatch|openTweaks|openPalette|runProfile|openPath|toggleSidebar|undo|redo)/,
-    /\bset[A-Z]\w+\(/,
-    /\bnavigator\.clipboard\.(readText|writeText)/,
-    /\binvoke\(/,
-    /\bwindow\.open\(/,
-    /\blocalStorage\.setItem/,
-    /\bdocument\.documentElement\.classList\./,
-    /\bdocument\.documentElement\.style\./,
-  ];
-  for (const re of REAL) if (re.test(cleaned)) return "real";
-
-  // Body that only opens a terminal with no command is theater for labels
-  // promising a specific action.
-  if (/spawnTerminal\([^)]*\)/.test(cleaned) && !/\bconsole\.log\([^)]*intent:/i.test(cleaned)) {
-    // allow labels like "Open in Terminal" / "cd Here" — real purpose *is*
-    // to open a terminal. Everything else that only spawns a terminal is
-    // theater in disguise.
-    return "opens-terminal";
-  }
-
-  // Body is nothing but console.log / window.alert / no-op.
-  const theaterOnly = /^[\s\{]*(?:(?:console\.log|window\.alert|alert)\([^)]*\)\s*;?\s*)+return\s+true\s*;?\s*\}?\s*$/s;
-  if (theaterOnly.test(cleaned.trim())) return "theater";
-
-  return "real";
-}
-
-function loadHandlerLabels() {
-  const out = [];
-  const re = /case\s+(?:"((?:[^"\\]|\\.)*)"|'((?:[^'\\]|\\.)*)')\s*:/g;
-  const scan = (file, displayName) => {
-    if (!fs.existsSync(file)) return;
-    const src = fs.readFileSync(file, "utf8");
-    re.lastIndex = 0;
-    let m;
-    while ((m = re.exec(src))) {
-      const lbl = m[1] ?? m[2];
-      const kind = classifyCaseBody(src, m.index + m[0].length);
-      out.push({ label: lbl, file: displayName, kind });
-    }
-  };
-  for (const f of fs.readdirSync(HANDLERS_DIR)) {
-    if (!f.endsWith(".ts")) continue;
-    scan(path.join(HANDLERS_DIR, f), f);
-  }
-  for (const f of EXTRA_DISPATCH_FILES) {
-    scan(f, path.relative(ROOT, f));
-  }
-  // Also pick up direct dispatch calls: dispatch("X"), ctx.dispatch("X")
-  const dispatchRe = /\bdispatch\(\s*(?:"((?:[^"\\]|\\.)*)"|'((?:[^'\\]|\\.)*)')\s*[,)]/g;
-  const scanDispatch = (file, displayName) => {
-    if (!fs.existsSync(file)) return;
-    const src = fs.readFileSync(file, "utf8");
-    dispatchRe.lastIndex = 0;
-    let m;
-    while ((m = dispatchRe.exec(src))) {
-      const lbl = m[1] ?? m[2];
-      out.push({ label: lbl, file: displayName + " (dispatch)" });
-    }
-  };
-  for (const f of fs.readdirSync(HANDLERS_DIR)) {
-    if (!f.endsWith(".ts")) continue;
-    scanDispatch(path.join(HANDLERS_DIR, f), f);
-  }
-  for (const f of EXTRA_DISPATCH_FILES) {
-    scanDispatch(f, path.relative(ROOT, f));
-  }
   return out;
 }
 
-// ─── extra interactable surfaces from components.jsx ────────────────────
-// Toolbar buttons, titlebar traffic lights, inspector chips, terminal drawer
-// split/zoom icons, status bar clickables. Menu/palette items are covered
-// upstream; this pass catches the raw <button>/<span onClick> elements.
-function extractComponentButtons() {
-  const src = fs.readFileSync(DESIGN_COMPS, "utf8");
-  const out = [];
-
-  // <button ... title="…" …>
-  for (const m of src.matchAll(/<button[^>]*\btitle="([^"]+)"/g)) {
-    out.push({ label: m[1], kind: "button[title]" });
-  }
-  // <span title="…"> (terminal drawer icons, etc.)
-  for (const m of src.matchAll(/<span[^>]*\btitle="([^"]+)"[^>]*>/g)) {
-    out.push({ label: m[1], kind: "span[title]" });
-  }
-  // Chips with onClick or cursor:"pointer" → quick-action chips
-  const chipRe = /<span[^>]*className="chip"[^>]*(?:onClick|cursor:\s*"pointer")[^>]*>([^<]+)<\/span>/g;
-  for (const m of src.matchAll(chipRe)) {
-    out.push({ label: m[1].trim(), kind: "chip[clickable]" });
-  }
-  // Status-bar segments with onClick
-  const statusRe = /<div[^>]*className="sb-seg"[^>]*onClick[^>]*>([\s\S]*?)<\/div>/g;
-  for (const m of src.matchAll(statusRe)) {
-    const text = m[1].replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim();
-    if (text) out.push({ label: text, kind: "status-seg[click]" });
-  }
-  // tab-btn (new tab, tab menu) — button with class tab-btn
-  for (const m of src.matchAll(/<button\s+className="tab-btn"[^>]*\btitle="([^"]+)"/g)) {
-    out.push({ label: m[1], kind: "tab-btn" });
-  }
-  return out;
-}
-
-// ─── diff ────────────────────────────────────────────────────────────────
-function indexBy(arr, key) {
-  const m = new Map();
-  for (const x of arr) {
-    const k = canon(x[key]);
-    if (!k) continue;
-    if (!m.has(k)) m.set(k, []);
-    m.get(k).push(x);
-  }
-  return m;
-}
-
-function diff(design, app, handlers, extras, dynSources) {
-  const designByLabel   = indexBy(design,   "label");
-  const appByLabel      = indexBy(app,      "label");
-  const handlersByLabel = indexBy(handlers, "label");
-  const extrasByLabel   = indexBy(extras,   "label");
-
-  // every canonical label that matters
-  const universe = new Set([
-    ...designByLabel.keys(),
-    ...appByLabel.keys(),
-    ...handlersByLabel.keys(),
-    ...extrasByLabel.keys(),
-  ]);
-
-  const rows = [];
-  for (const k of universe) {
-    const d  = designByLabel.get(k)   || [];
-    const a  = appByLabel.get(k)      || [];
-    const h  = handlersByLabel.get(k) || [];
-    const ex = extrasByLabel.get(k)   || [];
-
-    // a "parent" item is a submenu trigger (hasChildren) — expected to be a
-    // no-op in handlers, so don't flag those as unwired.
-    const isParent =
-      d.some(x => x.hasChildren) || a.some(x => x.hasChildren);
-
-    const displayLabel =
-      (d[0]?.label) || (a[0]?.label) || (h[0]?.label) || (ex[0]?.label) || k;
-
-    const coveredByDynamic = isCoveredByDynamic(displayLabel, dynSources);
-
-    const hasRealHandler = h.some(x => x.kind === "real");
-    // "opens-terminal" is theater only if the label promises something
-    // besides opening a terminal. "Open in Terminal", "cd Here",
-    // "Send Path to Shell" legitimately just open/prep a shell.
-    const legitimatelyTerminal = /^(Open in Terminal|cd Here|Send Path to Shell|Open in New Window|Toggle Drawer|Terminal Drawer)$/.test(displayLabel);
-    const hasTheaterOnly =
-      h.length > 0 &&
-      h.every(x =>
-        x.kind === "theater" ||
-        (x.kind === "opens-terminal" && !legitimatelyTerminal),
-      );
-
-    rows.push({
-      label: displayLabel,
-      canon: k,
-      inDesign:   d.length > 0,
-      inApp:      a.length > 0,
-      inHandlers: h.length > 0,
-      inExtras:   ex.length > 0,
-      isParent,
-      coveredByDynamic,
-      hasRealHandler,
-      hasTheaterOnly,
-      designSources:   [...new Set(d.map(x => x.source))],
-      appSources:      [...new Set(a.map(x => x.source))],
-      handlerFiles:    [...new Set(h.map(x => x.file))],
-      handlerKinds:    [...new Set(h.map(x => x.kind))],
-      extraKinds:      [...new Set(ex.map(x => x.kind))],
-      kb: d[0]?.kb || a[0]?.kb || null,
-    });
-  }
-
-  // buckets — dynamic coverage suppresses "missing"/"designOnly" since the
-  // app resolves those labels at runtime, not from static data.ts.
-  const missing    = rows.filter(r => r.inDesign && !r.inApp && !r.inHandlers && !r.isParent && !r.coveredByDynamic);
-  const unwired    = rows.filter(r => r.inApp && !r.inHandlers && !r.isParent);
-  const orphaned   = rows.filter(r => r.inHandlers && !r.inApp && !r.inDesign && !r.inExtras);
-  const designOnly = rows.filter(r => r.inDesign && !r.inApp && !r.isParent && !r.coveredByDynamic);
-  const extrasUnwired = rows.filter(r => r.inExtras && !r.inHandlers && !r.inApp && !r.isParent);
-  const dynamicallyCovered = rows.filter(r => r.coveredByDynamic && r.inDesign);
-  const theater = rows.filter(r => r.hasTheaterOnly && !r.isParent);
-
-  return { rows, missing, unwired, orphaned, designOnly, extrasUnwired, dynamicallyCovered, theater };
-}
-
-// ─── render ──────────────────────────────────────────────────────────────
-function renderMarkdown(d) {
-  const lines = [];
-  lines.push("# Wiring Audit — Glasshouse\n");
-  lines.push(`_Generated: ${new Date().toISOString()}_\n`);
-  lines.push("Source: `design/project/src/data.jsx` + `components.jsx` vs `src/data.ts` + `src/handlers/*.ts`\n");
-
-  const total = d.rows.length;
-  lines.push("## Summary\n");
-  lines.push(`- total distinct labels: **${total}**`);
-  lines.push(`- design-only (never exposed in app): **${d.designOnly.length}**`);
-  lines.push(`- app menu items with no handler case (stubs): **${d.unwired.length}**`);
-  lines.push(`- design labels missing everywhere (unrouted): **${d.missing.length}**`);
-  lines.push(`- handler cases with no menu entry (orphan): **${d.orphaned.length}**`);
-  lines.push(`- theater handlers (returns true but no real work): **${d.theater.length}**`);
-  lines.push(`- raw UI elements (buttons/chips) not wired: **${d.extrasUnwired.length}**`);
-  lines.push("");
-
-  const section = (title, rows, extraCols = []) => {
-    lines.push(`## ${title} (${rows.length})\n`);
-    if (rows.length === 0) { lines.push("_none_\n"); return; }
-    const headers = ["label", "kb", "design", "app", "handler", ...extraCols];
-    lines.push("| " + headers.join(" | ") + " |");
-    lines.push("|" + headers.map(() => "---").join("|") + "|");
-    for (const r of rows.sort((a,b) => a.label.localeCompare(b.label))) {
-      const row = [
-        "`" + r.label.replace(/\|/g, "\\|") + "`",
-        r.kb || "",
-        r.designSources.join(", "),
-        r.appSources.join(", "),
-        r.handlerFiles.join(", ") || (r.extraKinds.join(", ") || ""),
-      ];
-      lines.push("| " + row.join(" | ") + " |");
+// HANDLERS in index.ts, in order, resolved to [exportName, file].
+function handlerChain() {
+  const sf = parse(HANDLERS_INDEX);
+  const imports = new Map();
+  let order = null;
+  const visit = (node) => {
+    if (ts.isImportDeclaration(node) && node.importClause?.namedBindings && ts.isNamedImports(node.importClause.namedBindings)) {
+      const from = node.moduleSpecifier.text;
+      for (const el of node.importClause.namedBindings.elements) imports.set(el.name.text, from);
     }
-    lines.push("");
+    if (ts.isVariableDeclaration(node) && node.name.getText(sf) === "HANDLERS" &&
+      node.initializer && ts.isArrayLiteralExpression(node.initializer)) {
+      order = node.initializer.elements.map((e) => e.getText(sf));
+    }
+    ts.forEachChild(node, visit);
   };
-
-  section("Missing everywhere (design says this exists; we don't route it)", d.missing);
-  section("Unwired stubs (menu item in app, no handler case)", d.unwired);
-  section("Theater (handler returns true but body is only console.log / alert / no-op)", d.theater);
-  section("Design-only (present in design, absent in current menu tree)", d.designOnly);
-  section("Dynamically covered (design label supplied by a runtime-resolved submenu)", d.dynamicallyCovered);
-  section("Raw UI (buttons / chips / status clicks not wired)", d.extrasUnwired);
-  section("Orphan handlers (case string matches nothing in design or menu)", d.orphaned);
-
-  return lines.join("\n");
+  visit(sf);
+  if (!order) throw new Error(`${rel(HANDLERS_INDEX)}: can't find the HANDLERS array`);
+  return order.map((name) => {
+    const from = imports.get(name);
+    if (!from) throw new Error(`${rel(HANDLERS_INDEX)}: ${name} isn't imported`);
+    return [name, path.join(path.dirname(HANDLERS_INDEX), from + ".ts")];
+  });
 }
 
-// ─── main ────────────────────────────────────────────────────────────────
+function handlerReceivers() {
+  const out = [];
+  let pathFallback = false;
+  for (const [name, file] of handlerChain()) {
+    const sf = parse(file);
+    const fn = findFunction(sf, name);
+    if (!fn) throw new Error(`${rel(file)}: can't find ${name}`);
+    for (const { node, conditional } of labelSwitches(fn)) {
+      for (const c of caseClauses(node)) {
+        out.push({
+          label: c.label,
+          where: `${rel(file)}:${lineOf(sf, c.clause)}`,
+          owner: name,
+          conditional,
+          theater: isTheater(c.body, sf),
+        });
+      }
+    }
+    // navHandler's default case opens labels that look like paths.
+    if (/looksLikePath/.test(fn.getText(sf))) pathFallback = true;
+  }
+  return { receivers: out, pathFallback };
+}
+
+const looksLikePath = (l) => l.startsWith("/") || l.startsWith("~") || /^[A-Za-z]:[\\/]/.test(l);
+
+// ─── checks ─────────────────────────────────────────────────────────────
+
+function audit() {
+  const data = loadData();
+  const { sent: menuSent, submenus } = dataSenders(data);
+  const sent = [...menuSent, ...codeSenders()];
+  const app = appReceivers();
+  const { receivers: handlers, pathFallback } = handlerReceivers();
+  const receivers = [...app, ...handlers];
+  const handled = new Set(receivers.map((r) => r.label));
+
+  const unwired = [];
+  const seenUnwired = new Set();
+  for (const s of sent) {
+    if (handled.has(s.label) || seenUnwired.has(s.label)) continue;
+    if (pathFallback && looksLikePath(s.label)) continue;
+    seenUnwired.add(s.label);
+    unwired.push(s);
+  }
+
+  // `receivers` is in route order: handleMenuCommand's switches, doFileOp's,
+  // then each handler in chain order. A case is shadowed when an earlier
+  // unconditional case has the same label. Conditional switches (the
+  // right-click target ones) only see some calls, so they shadow nothing.
+  const shadowed = [];
+  const firstOwner = new Map();
+  for (const r of receivers) {
+    const prev = firstOwner.get(r.label);
+    if (prev) shadowed.push({ ...r, by: prev.where });
+    else if (!r.conditional) firstOwner.set(r.label, r);
+  }
+
+  const sentLabels = new Set(sent.map((s) => s.label));
+  const shadowedSet = new Set(shadowed.map((s) => s.where));
+  const theater = receivers.filter((r) => r.theater && sentLabels.has(r.label) && !submenus.has(r.label) &&
+    !shadowedSet.has(r.where));
+  const neverSent = [...new Map(receivers
+    .filter((r) => !sentLabels.has(r.label))
+    .map((r) => [r.label, r])).values()];
+
+  return { counts: { sent: sent.length, receivers: receivers.length }, unwired, shadowed, theater, neverSent };
+}
+
+// ─── report ─────────────────────────────────────────────────────────────
+
 function main() {
-  const toStdout = process.argv.includes("--stdout");
-
-  const design      = loadDesignData();
-  const appResult   = loadAppData();
-  const app         = appResult.labels;
-  const dynSources  = appResult.dynSources;
-  const handlers    = loadHandlerLabels();
-  const extras      = extractComponentButtons();
-  const d           = diff(design, app, handlers, extras, dynSources);
-
-  const jsonOut = {
-    generated: new Date().toISOString(),
-    dynamicSources: [...dynSources],
-    counts: {
-      designLabels:       design.length,
-      appLabels:          app.length,
-      handlerCases:       handlers.length,
-      uiExtras:           extras.length,
-      missing:            d.missing.length,
-      unwired:            d.unwired.length,
-      orphaned:           d.orphaned.length,
-      designOnly:         d.designOnly.length,
-      extrasUnwired:      d.extrasUnwired.length,
-      dynamicallyCovered: d.dynamicallyCovered.length,
-      theater:            d.theater.length,
-    },
-    design, app, handlers, extras,
-    missing:            d.missing,
-    unwired:            d.unwired,
-    orphaned:           d.orphaned,
-    designOnly:         d.designOnly,
-    extrasUnwired:      d.extrasUnwired,
-    dynamicallyCovered: d.dynamicallyCovered,
-    theater:            d.theater,
-    all:                d.rows,
-  };
-
-  fs.writeFileSync(path.join(ROOT, "audit-wiring.json"), JSON.stringify(jsonOut, null, 2));
-  const md = renderMarkdown(d);
-  fs.writeFileSync(path.join(ROOT, "audit-wiring.md"), md);
-
-  if (toStdout) process.stdout.write(md);
-
-  // concise console summary
-  console.error(`[audit] design=${design.length} app=${app.length} handlers=${handlers.length} extras=${extras.length} dynSources=${[...dynSources].join(",") || "none"}`);
-  console.error(`[audit] missing=${d.missing.length} unwired=${d.unwired.length} theater=${d.theater.length} designOnly=${d.designOnly.length} extrasUnwired=${d.extrasUnwired.length} orphaned=${d.orphaned.length} dynamicallyCovered=${d.dynamicallyCovered.length}`);
-  console.error(`[audit] wrote audit-wiring.json + audit-wiring.md`);
-
-  // non-zero exit if unrouted labels exist (CI hook)
-  process.exit(d.missing.length > 0 ? 1 : 0);
+  const r = audit();
+  if (process.argv.includes("--json")) {
+    process.stdout.write(JSON.stringify(r, null, 2) + "\n");
+  } else {
+    const lines = [];
+    const section = (title, rows, fmt) => {
+      lines.push(`${title}: ${rows.length}`);
+      for (const row of rows) lines.push(`  ${fmt(row)}`);
+    };
+    lines.push(`wiring audit: ${r.counts.sent} sent labels, ${r.counts.receivers} switch cases`);
+    section("unwired (sent, but no case handles it)", r.unwired, (s) => `"${s.label}"  sent from ${s.where}`);
+    section("shadowed (case never runs)", r.shadowed, (s) => `"${s.label}"  ${s.where}  taken first by ${s.by}`);
+    section("theater (case only logs, alerts or returns)", r.theater, (t) => `"${t.label}"  ${t.where}`);
+    if (process.argv.includes("--all")) {
+      section("note: handled but never sent", r.neverSent, (n) => `"${n.label}"  ${n.where}`);
+    } else {
+      lines.push(`note: ${r.neverSent.length} handled labels are never sent (list them with --all)`);
+    }
+    process.stdout.write(lines.join("\n") + "\n");
+  }
+  const problems = r.unwired.length + r.shadowed.length + r.theater.length;
+  process.exit(problems > 0 ? 1 : 0);
 }
 
 main();

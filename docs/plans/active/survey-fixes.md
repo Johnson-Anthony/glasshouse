@@ -10,7 +10,7 @@ Line numbers are from commit `14c68bd` and drift, so search by name. Items marke
 | symlink-safety | Rust | **merged** (60e4eef) |
 | paste-conflicts | frontend | **merged** (2b26099) |
 | create-rename-conflicts | frontend | **merged** (ebd1571) |
-| no-clobber-fs | Rust, small | queued (found by create-rename-conflicts) |
+| no-clobber-fs | Rust, small | queued; starts after async-commands merges (both touch `write_text`, `make_dir`, `rename_entry`) |
 | link-display | both, low priority | queued (found by linux-parity) |
 | ui-fixes | frontend | **merged** (dfe77ca) |
 | tab-state | frontend | **merged** (971da66) |
@@ -21,9 +21,11 @@ Line numbers are from commit `14c68bd` and drift, so search by name. Items marke
 | linux-parity | Rust + a little frontend | **merged** (8d2b0a2) |
 | command-security | Rust + config | running |
 | async-commands | Rust | running |
-| dead-code | both | running (frontend items first) |
+| dead-code | both | frontend part **merged** (d61379a); Rust part starts after command-security merges (both edit the command list) |
+| unsent-labels | frontend | running (dead-code session, while it waits for a Rust slot) |
 | test-coverage | both | queued |
 | presentation | docs + small code | **merged**; GitHub text awaits the user |
+| pages-site | site (big project) | running (presentation session; added by the user) |
 | split-big-files | both | **wait until all the others are merged** |
 
 Merge order is the table order: small, contained fixes go first, and broad changes go last, so the broad ones absorb the conflicts.
@@ -168,6 +170,11 @@ The frontend now checks names before creating or renaming, but a few millisecond
 - **Toggles that do nothing:** "Show Ignored" and "Show Checksums" only flip their checkmarks, and "Browse archive in place" just opens the default app. Implement them, or remove or relabel them. Record the decision.
 - Also fix the stale `rust-version` in `Cargo.toml` (the locked dependencies need 1.88 or newer).
 
+## unsent-labels (frontend; found 2026-11-08 by dead-code)
+- `pnpm check:wiring --all` lists 77 labels that App.tsx or a handler handles but nothing sends: aliases such as "Prev Tab", "Reload" and "Settings", and no-op cases for submenu parents such as "New →" and "Template →".
+- Delete the cases that are dead. Keep a case only if something can still send it (a keybinding, a payload path the audit can't see, a label built at runtime), and say why in a comment or the decision record.
+- This edits App.tsx's switches, so keep each change line-local.
+
 ## test-coverage (both)
 - **Frontend:** only `fuzzy`, `paths` (without `basename`) and `shellCd` are tested. Add tests for:
   - command routing through the handler chain;
@@ -187,6 +194,20 @@ The public copy is rewritten in a plain voice: README, the Pages site (same desi
 - **Check:** `git grep -i 'r[i]ce' -- ':!src/assets/fonts'` must find nothing. The bundled Nerd Font files match only inside third-party glyph-name data.
 - **Done 2026-11-08:** the GitHub description and topics are applied, and the README and site text are published as `4b8043a`. The code-side renames reach GitHub with the full push at the end of the pass.
 - **The user decides separately:** git history and the unmerged `origin/feature` branch.
+
+## pages-site (big project; added by the user 2026-11-08)
+Turn the GitHub Pages site (`docs/index.html`) into an interactive showcase that **sells the app with its visuals**. The user is happy with the current wording and voice: keep it, extend it only where new sections need text, and never use the old nickname.
+- **Plan first.** This is a project in itself: spec it in `docs/plans/active/pages-site.md` (audience, sections, interactions, visual direction, assets, tech approach, milestones), then build it milestone by milestone. At the first visible milestone, send the lead screenshots so the user can steer.
+- **Ideas (optional):**
+  - an interactive demo built from the app's real React UI with a mocked backend (the Vite dev server already supports `?mockRows=N`);
+  - a live switcher across the app's 8 themes;
+  - the terminal drawer, tabs, git sidebar, Quick Look and the paste-conflict dialog shown in motion.
+- **Constraints:**
+  - Pages serves `main:/docs` with the legacy Jekyll build, and `docs/_config.yml` keeps SPEC/ARCHITECTURE/plans/decisions off the site; keep that working.
+  - `docs/.nojekyll` was removed on `main` so the Jekyll build runs and applies those excludes. Don't add it back, and don't start any site file or folder name with `_`, because Jekyll skips those.
+  - It must be a static site. If it needs a build step, either commit the built output under `docs/` or *propose* moving Pages to a GitHub Actions deployment. That's a repo setting, so propose it to the lead rather than making it.
+  - It must work on phones, respect `prefers-reduced-motion`, and keep page weight sensible (lazy-load media).
+- The site goes live only when the lead pushes `main` with the user's OK.
 
 ## split-big-files (both: only after every other task is merged)
 - **`components.tsx`:** dialogs (~L3472–6105) into `src/dialogs/`, previews (~L2182–3096) into `src/preview/`, the Sidebar (~L710–1503) into its own file, and the menus into `menus.tsx`.

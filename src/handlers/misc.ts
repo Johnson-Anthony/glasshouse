@@ -16,8 +16,6 @@ import {
   createShortcut,
   shred,
   renameEntry,
-  readTags,
-  writeTags,
   hashSha256,
 } from "../api";
 const REPO_URL = "https://github.com/Johnson-Anthony/glasshouse";
@@ -254,12 +252,6 @@ export const miscHandler: Handler = async (label, ctx) => {
       return true;
     }
 
-    // ─── Settings ──────────────────────────────────────────────────────────
-    case "Preferences":
-    case "Preferences…":
-      ctx.openTweaks();
-      return true;
-
     // ─── Destructive / special file ops ────────────────────────────────────
     case "Shred":
     case "Shred (srm)": {
@@ -366,20 +358,6 @@ export const miscHandler: Handler = async (label, ctx) => {
       return true;
     }
 
-    case "Clear All Tags": {
-      const firstPath = ctx.firstPath;
-      if (!firstPath) {
-        dialogs.showToast({ message: "no selection", variant: "info" });
-        return true;
-      }
-      const tags = await readTags();
-      delete tags[firstPath];
-      await writeTags(tags);
-      ctx.refresh();
-      dialogs.showToast({ message: "cleared all tags", variant: "success" });
-      return true;
-    }
-
     case "Paste as Copy (verify SHA256)": {
       const paths = ctx.clipboardPaths?.() ?? [];
       if (paths.length === 0) {
@@ -454,18 +432,6 @@ export const miscHandler: Handler = async (label, ctx) => {
       await createPythonModule(ctx);
       return true;
 
-    case "Script (.sh)":
-      await promptAndCreate(ctx, "script.sh", "#!/usr/bin/env bash\n");
-      return true;
-
-    case "Text File":
-      await promptAndCreate(ctx, "untitled.txt", "");
-      return true;
-
-    case "Markdown Note":
-      await promptAndCreate(ctx, "note.md", "");
-      return true;
-
     case "From Template…":
     case "From Template":
       await createFromTemplate(ctx);
@@ -479,17 +445,10 @@ export const miscHandler: Handler = async (label, ctx) => {
       ctx.redo?.();
       return true;
 
-    // ─── Refresh / Reload ─────────────────────────────────────────────────
-    case "Refresh":
-    case "Reload":
-      ctx.refresh();
-      return true;
-
     // ─── Submenu parents (no-ops, already marked consumed) ────────────────
     case "New":
     case "New →":
     case "Open With":
-    case "Open With →":
     case "Template":
     case "Template →":
     case "Profile":

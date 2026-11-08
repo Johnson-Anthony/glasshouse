@@ -78,8 +78,6 @@ export const viewHandler: Handler = (label, ctx) => {
     case "Layout":
     case "Display Mode":
     case "Paste Special →":
-    case "Tag →":
-    case "Select by Tag →":
       // Pure submenu parents — invoked from the palette we can't show a
       // submenu, so give the user a hint instead of silently returning.
       dialogs.showToast({
@@ -133,11 +131,6 @@ export const viewHandler: Handler = (label, ctx) => {
         ctx.setTweaks({ ...ctx.tweaks, showGitGutters: !ctx.tweaks.showGitGutters });
       }
       return true;
-    case "Show Ignored (.gitignore)":
-      if (ctx.tweaks && ctx.setTweaks) {
-        ctx.setTweaks({ ...ctx.tweaks, showIgnored: !ctx.tweaks.showIgnored });
-      }
-      return true;
 
     case "Compact List":
     case "Details (rows)":
@@ -161,12 +154,6 @@ export const viewHandler: Handler = (label, ctx) => {
     case "Status Bar":
       if (ctx.toggleStatusBar) ctx.toggleStatusBar();
       else document.documentElement.classList.toggle("no-status");
-      return true;
-
-    case "Show Checksums":
-      if (ctx.tweaks && ctx.setTweaks) {
-        ctx.setTweaks({ ...ctx.tweaks, showChecksums: !ctx.tweaks.showChecksums });
-      }
       return true;
 
     default:
