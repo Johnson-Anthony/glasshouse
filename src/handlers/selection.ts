@@ -1,4 +1,5 @@
 import { dialogs } from "../components";
+import { readTags } from "../api";
 import type { Handler } from "./types";
 
 function globToRegex(glob: string): RegExp {
@@ -109,6 +110,37 @@ export const selectionHandler: Handler = async (label, ctx) => {
       setSelected(next);
       dialogs.showToast({
         message: `selected ${next.length} .${target} file(s)`,
+        variant: next.length > 0 ? "success" : "info",
+      });
+      return true;
+    }
+    case "Select by Tag →": {
+      // Only offer tags that something in this folder carries, as
+      // Select by Extension does for extensions.
+      const tags = await readTags();
+      const present = new Set<string>();
+      for (const e of entries) for (const t of tags[e.path] ?? []) present.add(t);
+      if (present.size === 0) {
+        dialogs.showToast({ message: "nothing in this folder is tagged", variant: "info" });
+        return true;
+      }
+      const sorted = [...present].sort();
+      const tag = await dialogs.showPrompt({
+        title: "select by tag",
+        message: `present: ${sorted.join(", ")}`,
+        initialValue: sorted[0],
+        placeholder: "tag",
+        validate: (v) => present.has(v.trim()) ? null : "no item here has that tag",
+      });
+      if (tag == null) return true;
+      const target = tag.trim();
+      const next: number[] = [];
+      for (let i = 0; i < entries.length; i++) {
+        if ((tags[entries[i].path] ?? []).includes(target)) next.push(i);
+      }
+      setSelected(next);
+      dialogs.showToast({
+        message: `selected ${next.length} item(s) tagged "${target}"`,
         variant: next.length > 0 ? "success" : "info",
       });
       return true;

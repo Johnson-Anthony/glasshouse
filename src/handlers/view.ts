@@ -78,7 +78,6 @@ export const viewHandler: Handler = (label, ctx) => {
     case "Layout":
     case "Display Mode":
     case "Paste Special →":
-    case "Select by Tag →":
       // Pure submenu parents — invoked from the palette we can't show a
       // submenu, so give the user a hint instead of silently returning.
       dialogs.showToast({
