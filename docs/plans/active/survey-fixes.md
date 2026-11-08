@@ -7,12 +7,12 @@ Line numbers are from commit `14c68bd` and drift, so search by name. Items marke
 ## Status
 | Task | Area | Status |
 |---|---|---|
-| symlink-safety | Rust | done on `claude/recursing-allen-a7ecf9`, ready to merge |
-| paste-conflicts | frontend | queued (found by symlink-safety) |
-| ui-fixes | frontend | queued |
-| tab-state | frontend | queued |
-| platform-paths | frontend | queued |
-| backend-bugs | Rust | queued |
+| symlink-safety | Rust | **merged** (60e4eef) |
+| paste-conflicts | frontend | running (found by symlink-safety) |
+| ui-fixes | frontend | **merged** (dfe77ca) |
+| tab-state | frontend | running |
+| platform-paths | frontend | **merged** (2d9fcaf) |
+| backend-bugs | Rust | running |
 | linux-parity | Rust + a little frontend | queued |
 | command-security | Rust + config | queued |
 | async-commands | Rust | queued |
