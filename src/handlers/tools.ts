@@ -14,10 +14,11 @@ import {
   changeOwner,
   openWithDefaultStrict,
   makeDir,
-  moveEntry,
   readText,
   writeText,
 } from "../api";
+import { runTransfer, type TransferItem } from "../transfer";
+import { transferDeps } from "../transferUi";
 
 const clipboardStack: string[][] = [];
 
@@ -308,25 +309,30 @@ export const toolsHandler: Handler = async (label, ctx) => {
         });
         return true;
       }
-      const subfolders = new Set<string>();
-      let moved = 0;
+      const bySub = new Map<string, TransferItem[]>();
       for (const entry of matches) {
         const d = new Date(entry.modified_ms);
         if (!Number.isFinite(d.getTime())) continue;
         const yyyy = d.getFullYear();
         const mm = String(d.getMonth() + 1).padStart(2, "0");
         const sub = `${yyyy}-${mm}`;
+        bySub.set(sub, [...(bySub.get(sub) ?? []), { path: entry.path, isDir: false }]);
+      }
+      let moved = 0;
+      for (const [sub, items] of bySub) {
         const targetDir = joinPath(ctx.cwd, sub);
         try {
-          if (!subfolders.has(sub)) {
-            await makeDir(targetDir);
-            subfolders.add(sub);
-          }
-          const dest = joinPath(targetDir, entry.name);
-          await moveEntry(entry.path, dest);
-          moved++;
+          await makeDir(targetDir);
         } catch (e) {
-          console.log(`[tools] Screenshot Auto-sort: failed for ${entry.path}:`, e);
+          console.log(`[tools] Screenshot Auto-sort: can't create ${targetDir}:`, e);
+          continue;
+        }
+        // Same-named files already in the month folder are asked about.
+        const res = await runTransfer(items, targetDir, "move", transferDeps);
+        if (!res) continue;
+        moved += res.done.length;
+        for (const f of res.failed) {
+          console.log(`[tools] Screenshot Auto-sort: failed for ${f.src}:`, f.error);
         }
       }
       void dialogs.showAlert({

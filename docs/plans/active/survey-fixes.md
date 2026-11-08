@@ -8,18 +8,19 @@ Line numbers are from commit `14c68bd` and drift, so search by name. Items marke
 | Task | Area | Status |
 |---|---|---|
 | symlink-safety | Rust | **merged** (60e4eef) |
-| paste-conflicts | frontend | running (found by symlink-safety) |
+| paste-conflicts | frontend | **merged** (2b26099) |
+| create-rename-conflicts | frontend | running (found by paste-conflicts; same session) |
 | ui-fixes | frontend | **merged** (dfe77ca) |
 | tab-state | frontend | **merged** (971da66) |
 | undo-redo | frontend | running (found by tab-state; same session) |
 | platform-paths | frontend | **merged** (2d9fcaf) |
-| backend-bugs | Rust | running |
+| backend-bugs | Rust | **merged** (3ece93d) |
 | linux-parity | Rust + a little frontend | running |
 | command-security | Rust + config | queued |
 | async-commands | Rust | queued |
 | dead-code | both | queued |
 | test-coverage | both | queued |
-| presentation | docs + small code | running (added by the user) |
+| presentation | docs + small code | **merged**; GitHub text awaits the user |
 | split-big-files | both | **wait until all the others are merged** |
 
 Merge order is the table order: small, contained fixes go first, and broad changes go last, so the broad ones absorb the conflicts.
@@ -49,6 +50,13 @@ Merge order is the table order: small, contained fixes go first, and broad chang
   - Check whether `performDrop` (it already skips `src === dst`) and the FolderPicker "Move to…" flow need the same.
   - Keep the undo entries correct; they record src/dst pairs.
   - Add vitest coverage for the name-picking helper.
+
+## create-rename-conflicts (frontend; found 2026-11-08 by paste-conflicts) — data loss
+- **New File / Markdown Note / Script (.sh)** call `writeText` on `dir/name`. Rust `write_text` is `fs::write`, so an existing file with that name is emptied, and its undo then deletes it.
+- **New Folder** uses `create_dir_all`, which succeeds on an existing folder. Its undo then recursively deletes that **pre-existing** folder.
+- **Rename** (selection, context target and BulkRenameDialog) calls `rename_entry` = `fs::rename`, which replaces an existing file at the destination.
+- **Fix:** check the name against the target folder first, reusing `transfer.ts`'s `pickFreeName` and the `readDir` listing; compare case-insensitively on Windows. Then refuse, or suggest a free name. Undo must never delete something that existed before the operation.
+- **Coordinate with undo-redo,** which is changing `UndoEntry` and the `pushUndo` sites in `App.tsx`. Keep your edits to the checks before each operation, and `git merge main` before finishing.
 
 ## undo-redo (frontend; found 2026-11-08 by tab-state)
 - **Redo is broken.** `UndoEntry` only has `inverse`, and redo calls that same inverse again. For example, after undoing a rename, redo tries to rename back a second time and fails with "redo failed". Add a forward action to `UndoEntry` and have redo call it. There are about 13 `pushUndo` sites in `src/App.tsx`.
@@ -117,6 +125,7 @@ Merge order is the table order: small, contained fixes go first, and broad chang
   - `git_run` (network operations), `git_branch_list`, and `git_file_info` (two process spawns on every selection change);
   - `run_script`, `diff_files`, the preview readers, `system_info`, `shred`.
 - Prefer `#[tauri::command(async)]` or `tauri::async_runtime::spawn_blocking` over rewriting the bodies. Other branches edit `commands.rs`, so keep changes on the attribute and signature lines where possible.
+- `git_branch_list` turns per-branch rev-list failures into (0,0). Return or flag the error while you're changing it (found by backend-bugs).
 - Consider making `list_dir`'s git status cheaper (cache it, or scope it to the directory). Progress events for long operations are optional: plan them, but don't build them unless they're small.
 - Check that the UI stays responsive, for example while hashing a large file.
 
@@ -137,6 +146,7 @@ Merge order is the table order: small, contained fixes go first, and broad chang
 - **Unused backend code:**
   - the `git_dirty_count` command;
   - the Rust dependencies `thiserror`, `anyhow`, `tokio`, `walkdir` and the direct `grep-matcher`.
+- `components.tsx` renders a "!" git badge that can no longer appear, because backend-bugs removed the "ignored" status. `git_dirty_count` now returns `Result<Option<u32>>` and still has no caller.
 - The hash read loop is copied three times (`hash_sha256`, `hash_md5`, `hash_crc32`). Merge it into one helper.
 - **Toggles that do nothing:** "Show Ignored" and "Show Checksums" only flip their checkmarks, and "Browse archive in place" just opens the default app. Implement them, or remove or relabel them. Record the decision.
 - Also fix the stale `rust-version` in `Cargo.toml` (the locked dependencies need 1.88 or newer).
@@ -155,28 +165,13 @@ Merge order is the table order: small, contained fixes go first, and broad chang
   - the basics of the pty and watcher.
 - Put new tests in new files where you can. Don't write tests that lock in behaviour other branches are fixing (symlinks, paths, chmod, tabs).
 
-## presentation (docs + small code; added by the user 2026-11-08)
-The user is fine with how the GitHub page and the Pages site **look**, but finds the **text** cringe. Rewrite it in a plain, matter-of-fact voice.
-**No form of the word "rice"** ("rice", "riced", "riced-out", "ricing", "rice://") may appear anywhere in the code, docs or on GitHub.
-- **Code and config:**
-  - `package.json` `productName` ("rice:// file manager");
-  - `index.html` `<title>`;
-  - the `src-tauri/Cargo.toml` `description`;
-  - the settings key `rice.tweaks` (`src/App.tsx` ~L406, ~L554) and the `rice.` prefix checks in the reset-preferences code (`src/handlers/misc.ts` ~L191, ~L228). Rename the key to `glasshouse.tweaks`. Don't keep the old name in the code, not even for migration: saved display tweaks resetting once is accepted.
-- **Docs:**
-  - `README.md` (tagline and any other copy);
-  - `docs/index.html`, the Pages site (title, meta description, the `rice://` prefix on the heading, the tagline, "breaking the rice", and the rest of the copy). Keep its design as is.
-  - `docs/ARCHITECTURE.md` and any other doc that quotes these strings.
-- **Also check:**
-  - the About dialog's text and other user-facing copy;
-  - the release notes template in `.github/workflows/release.yml`;
-  - whether `docs/screenshot.png` shows the word (look at the image).
-- **GitHub itself:** don't change anything on GitHub. Put the exact proposed text in your plan under "GitHub changes" for the lead to apply after the user reviews it: the repo description ("A riced-out file manager…"), topics (drop `ricing`, maybe add better ones), and anything on the v0.1.0 release that should change.
-- **Out of scope** (the user decides separately):
-  - git history (old commit messages and file versions);
-  - the unmerged `origin/feature` branch;
-  - the bundled Nerd Font files, which match "rice" only inside third-party glyph-name data.
-- **Done when** `git grep -i -E '(^|[^a-z])ric(e|ed|ing)([^a-z]|$)|rice[:.]'` finds nothing outside those fonts.
+## presentation (docs + small code; added by the user 2026-11-08; **merged**)
+The public copy is rewritten in a plain voice: README, the Pages site (same design), package and crate descriptions, the window title, the release-notes template, the settings key (`glasshouse.tweaks`) and the layout export file (`.glasshouserc`). The project's old nickname is gone from the code and docs.
+- **Check:** `git grep -i 'r[i]ce' -- ':!src/assets/fonts'` must find nothing. The bundled Nerd Font files match only inside third-party glyph-name data.
+- **Still to do, with the user's OK:**
+  - apply the GitHub description and topics proposed in `docs/plans/completed/presentation.md`;
+  - push `main`, so Pages updates.
+- **The user decides separately:** git history and the unmerged `origin/feature` branch.
 
 ## split-big-files (both: only after every other task is merged)
 - **`components.tsx`:** dialogs (~L3472–6105) into `src/dialogs/`, previews (~L2182–3096) into `src/preview/`, the Sidebar (~L710–1503) into its own file, and the menus into `menus.tsx`.

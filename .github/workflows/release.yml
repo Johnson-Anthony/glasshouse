@@ -47,10 +47,9 @@ jobs:
           tagName: ${{ github.ref_name }}
           releaseName: "glasshouse ${{ github.ref_name }}"
           releaseBody: |
-            Pre-built binaries — Windows installer (`.msi` / NSIS `.exe`) and Linux (`.AppImage` / `.deb`).
+            Windows installers (`.msi` and NSIS `.exe`) and Linux packages (`.AppImage` and `.deb`).
 
-            Binaries are unsigned: Windows SmartScreen will warn on first run
-            (More info → Run anyway). On Linux, `chmod +x` the AppImage.
+            The binaries are unsigned, so Windows SmartScreen shows a warning the first time you run the installer: choose More info → Run anyway. On Linux, make the AppImage executable with `chmod +x` before running it.
           releaseDraft: false
           prerelease: false
           args: ${{ matrix.args }}

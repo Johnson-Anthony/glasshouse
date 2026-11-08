@@ -3,6 +3,8 @@ import { dialogs } from "../components";
 import { IS_WINDOWS } from "../platform";
 import { basename, joinPath, parentPath } from "../paths";
 import { getVersion } from "@tauri-apps/api/app";
+import { failureDetails, runTransfer, summarize } from "../transfer";
+import { asItems, pushTransferUndo, transferDeps } from "../transferUi";
 import {
   makeDir,
   writeText,
@@ -15,7 +17,6 @@ import {
   renameEntry,
   readTags,
   writeTags,
-  copyEntry,
   hashSha256,
 } from "../api";
 const REPO_URL = "https://github.com/Johnson-Anthony/glasshouse";
@@ -181,19 +182,19 @@ export const miscHandler: Handler = async (label, ctx) => {
       await openUrl(`${REPO_URL}/issues/new`);
       return true;
 
-    case "Export Layout (.ricerc)": {
+    case "Export Layout (.glasshouserc)": {
       // Snapshot every persisted UI preference (tweaks, display mode, layout,
-      // zoom, sidebar/tree prefs — all live under these two prefixes).
+      // zoom, sidebar/tree prefs — all live under this prefix).
       const settings: Record<string, string> = {};
       for (let i = 0; i < localStorage.length; i++) {
         const k = localStorage.key(i);
         if (!k) continue;
-        if (k.startsWith("glasshouse.") || k.startsWith("rice.")) {
+        if (k.startsWith("glasshouse.")) {
           const v = localStorage.getItem(k);
           if (v != null) settings[k] = v;
         }
       }
-      const target = joinPath(ctx.cwd, ".ricerc");
+      const target = joinPath(ctx.cwd, ".glasshouserc");
       const body = JSON.stringify({ version: 2, settings }, null, 2);
       await writeText(target, body);
       dialogs.showToast({
@@ -204,11 +205,11 @@ export const miscHandler: Handler = async (label, ctx) => {
       return true;
     }
 
-    case "Import Layout (.ricerc)": {
+    case "Import Layout (.glasshouserc)": {
       const sel = ctx.firstPath;
-      const source = sel && basename(sel).toLowerCase() === ".ricerc"
+      const source = sel && basename(sel).toLowerCase() === ".glasshouserc"
         ? sel
-        : joinPath(ctx.cwd, ".ricerc");
+        : joinPath(ctx.cwd, ".glasshouserc");
       let parsed: unknown;
       try {
         parsed = JSON.parse(await readText(source, 1_000_000));
@@ -225,14 +226,13 @@ export const miscHandler: Handler = async (label, ctx) => {
       const entries = settings && typeof settings === "object"
         ? Object.entries(settings as Record<string, unknown>).filter(
             ([k, v]) =>
-              (k.startsWith("glasshouse.") || k.startsWith("rice.")) &&
-              typeof v === "string",
+              k.startsWith("glasshouse.") && typeof v === "string",
           )
         : [];
       if (entries.length === 0) {
         await dialogs.showAlert({
           title: "import layout",
-          message: `${source} has no importable settings (expected a v2 .ricerc export)`,
+          message: `${source} has no importable settings (expected a v2 .glasshouserc export)`,
           variant: "error",
         });
         return true;
@@ -381,24 +381,25 @@ export const miscHandler: Handler = async (label, ctx) => {
         dialogs.showToast({ message: "clipboard is empty", variant: "info" });
         return true;
       }
-      let ok = 0;
+      const res = await runTransfer(asItems(paths), ctx.cwd, "copy", transferDeps);
+      if (!res) return true;
+      pushTransferUndo(res, "copy", `paste copy ${res.done.length} item(s)`);
       let verified = 0;
-      for (const src of paths) {
-        const dest = joinPath(ctx.cwd, basename(src));
+      for (const { src, dst } of res.done) {
         try {
-          await copyEntry(src, dest);
-          ok++;
-          try {
-            const [ha, hb] = await Promise.all([hashSha256(src), hashSha256(dest)]);
-            if (ha && hb && ha === hb) verified++;
-          } catch (e) {
-            console.error("[misc] hash verify failed", src, e);
-          }
+          const [ha, hb] = await Promise.all([hashSha256(src), hashSha256(dst)]);
+          if (ha && hb && ha === hb) verified++;
         } catch (e) {
-          console.error("[misc] copy failed", src, e);
+          console.error("[misc] hash verify failed", src, e);
         }
       }
-      dialogs.showToast({ message: `copied ${ok}/${paths.length}, ${verified} verified via SHA256`, variant: "success" });
+      const sum = summarize(res, "copy", IS_WINDOWS);
+      dialogs.showToast({
+        message: `${sum.message}, ${verified} verified via SHA256`,
+        variant: verified < res.done.length ? "warning" : sum.variant,
+      });
+      const details = failureDetails(res, IS_WINDOWS);
+      if (details) void dialogs.showAlert({ title: "copy failed", variant: "error", message: details });
       ctx.refresh();
       return true;
     }

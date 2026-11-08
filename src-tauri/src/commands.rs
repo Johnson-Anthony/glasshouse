@@ -19,7 +19,8 @@ pub struct FileEntry {
     pub lossy: bool,
     /// Per-row git status relative to the repo containing the listing dir.
     /// One of: "M" (modified), "A" (added/new), "D" (deleted), "U" (conflicted),
-    /// "?" (untracked), "!" (ignored). `None` for clean-tracked or outside-repo.
+    /// "?" (untracked); see `git_status_code`. `None` for clean, ignored or
+    /// outside-repo.
     pub git: Option<String>,
 }
 
@@ -129,11 +130,40 @@ pub fn list_dir(path: String, show_hidden: bool) -> Result<Vec<FileEntry>, Strin
     Ok(out)
 }
 
+/// Single-char code for one status entry, shared by `list_dir`, `git_status`
+/// and `git_dirty_count` so they agree. Priority: conflict > staged new >
+/// untracked > delete > modify (renames and type changes count as "M").
+/// `None` for anything else; ignored entries never reach here because no
+/// caller asks libgit2 for them.
+fn git_status_code(flags: git2::Status) -> Option<&'static str> {
+    use git2::Status;
+    if flags.contains(Status::CONFLICTED) {
+        Some("U")
+    } else if flags.contains(Status::INDEX_NEW) {
+        Some("A")
+    } else if flags.contains(Status::WT_NEW) {
+        Some("?")
+    } else if flags.intersects(Status::WT_DELETED | Status::INDEX_DELETED) {
+        Some("D")
+    } else if flags.intersects(
+        Status::WT_MODIFIED
+            | Status::INDEX_MODIFIED
+            | Status::WT_RENAMED
+            | Status::INDEX_RENAMED
+            | Status::WT_TYPECHANGE
+            | Status::INDEX_TYPECHANGE,
+    ) {
+        Some("M")
+    } else {
+        None
+    }
+}
+
 /// Walk `repo.statuses()` once and return a map of absolute-canonicalized
 /// paths to a single-char status code. Returns None when we couldn't open
 /// a repo at all (treat as "outside-repo; don't annotate").
 fn scan_repo_statuses(dir: &Path) -> Option<HashMap<PathBuf, String>> {
-    use git2::{Repository, Status, StatusOptions};
+    use git2::{Repository, StatusOptions};
     let repo = Repository::discover(dir).ok()?;
     let workdir = repo.workdir()?.to_path_buf();
     let mut opts = StatusOptions::new();
@@ -147,33 +177,7 @@ fn scan_repo_statuses(dir: &Path) -> Option<HashMap<PathBuf, String>> {
             Some(p) => p,
             None => continue,
         };
-        let flags = s.status();
-        // Single-char code per task spec. Priority ordering: conflict > add >
-        // delete > modify > untracked > ignored. Conflicted entries set
-        // Status::CONFLICTED on modern libgit2.
-        let code = if flags.contains(Status::CONFLICTED) {
-            "U"
-        } else if flags.contains(Status::INDEX_NEW) || flags.contains(Status::WT_NEW) {
-            // WT_NEW is the "untracked" state; keep untracked separate if
-            // nothing is staged.
-            if flags.contains(Status::INDEX_NEW) {
-                "A"
-            } else {
-                "?"
-            }
-        } else if flags.contains(Status::WT_DELETED) || flags.contains(Status::INDEX_DELETED) {
-            "D"
-        } else if flags.contains(Status::WT_MODIFIED)
-            || flags.contains(Status::INDEX_MODIFIED)
-            || flags.contains(Status::WT_RENAMED)
-            || flags.contains(Status::INDEX_RENAMED)
-            || flags.contains(Status::WT_TYPECHANGE)
-            || flags.contains(Status::INDEX_TYPECHANGE)
-        {
-            "M"
-            // No IGNORED arm: include_ignored(false) above means ignored
-            // entries are never enumerated here.
-        } else {
+        let Some(code) = git_status_code(s.status()) else {
             continue;
         };
         // `rel` can include a trailing slash for untracked directories. Trim
@@ -639,12 +643,54 @@ pub struct GitInfo {
     pub ahead: usize,
     pub behind: usize,
     pub dirty: usize,
-    pub status: std::collections::HashMap<String, String>, // path -> flag: mod|add|del|untracked|renamed
+    pub status: std::collections::HashMap<String, String>, // repo-relative path -> code, as in FileEntry.git
+}
+
+/// Open the repo containing `path`. `Ok(None)` when `path` isn't inside one
+/// (libgit2 says the same for a path that doesn't exist); `Err` when there is
+/// one but it can't be opened (unreadable, dubious ownership).
+fn discover_repo(path: &str) -> Result<Option<git2::Repository>, String> {
+    match git2::Repository::discover(path) {
+        Ok(repo) => Ok(Some(repo)),
+        Err(e) if e.code() == git2::ErrorCode::NotFound => Ok(None),
+        Err(e) => Err(format!("open repo at {}: {}", path, e.message())),
+    }
+}
+
+/// Commits HEAD is ahead of and behind its upstream. `Ok(None)` when there's
+/// nothing to compare: detached or unborn HEAD, no upstream configured, or
+/// an upstream ref that's gone (deleted on the remote and pruned).
+fn upstream_ahead_behind(repo: &git2::Repository) -> Result<Option<(usize, usize)>, git2::Error> {
+    use git2::ErrorCode;
+    let head = match repo.head() {
+        Ok(h) => h,
+        Err(e) if matches!(e.code(), ErrorCode::UnbornBranch | ErrorCode::NotFound) => {
+            return Ok(None)
+        }
+        Err(e) => return Err(e),
+    };
+    let (true, Some(name), Some(local)) = (head.is_branch(), head.name(), head.target()) else {
+        return Ok(None);
+    };
+    let upstream = match repo.branch_upstream_name(name) {
+        Ok(u) => u,
+        Err(e) if e.code() == ErrorCode::NotFound => return Ok(None),
+        Err(e) => return Err(e),
+    };
+    let Some(upstream) = upstream.as_str() else {
+        return Ok(None);
+    };
+    let upstream_oid = match repo.refname_to_id(upstream) {
+        Ok(oid) => oid,
+        Err(e) if e.code() == ErrorCode::NotFound => return Ok(None),
+        Err(e) => return Err(e),
+    };
+    repo.graph_ahead_behind(local, upstream_oid).map(Some)
 }
 
 #[tauri::command]
 pub fn git_status(path: String) -> Option<GitInfo> {
-    use git2::{Repository, Status, StatusOptions};
+    use git2::{Repository, StatusOptions};
     let repo = Repository::discover(&path).ok()?;
     let root = repo.workdir()?.to_string_lossy().to_string();
     let head = repo.head().ok();
@@ -653,22 +699,12 @@ pub fn git_status(path: String) -> Option<GitInfo> {
         .and_then(|h| h.shorthand().map(|s| s.to_string()))
         .unwrap_or_else(|| "(detached)".to_string());
 
-    // ahead/behind vs upstream
-    let (mut ahead, mut behind) = (0usize, 0usize);
-    if let Some(h) = &head {
-        let head_name = h.name().unwrap_or("").to_string();
-        if let (Some(local), Ok(upstream_buf)) = (h.target(), repo.branch_upstream_name(&head_name))
-        {
-            if let Some(upstream_refname) = upstream_buf.as_str() {
-                if let Ok(upstream_oid) = repo.refname_to_id(upstream_refname) {
-                    if let Ok((a, b)) = repo.graph_ahead_behind(local, upstream_oid) {
-                        ahead = a;
-                        behind = b;
-                    }
-                }
-            }
-        }
-    }
+    // The toolbar just hides zero counts, so a failure here shows nothing;
+    // git_ahead_behind reports the error.
+    let (ahead, behind) = upstream_ahead_behind(&repo)
+        .ok()
+        .flatten()
+        .unwrap_or((0, 0));
 
     let mut opts = StatusOptions::new();
     opts.include_untracked(true).recurse_untracked_dirs(false);
@@ -680,24 +716,11 @@ pub fn git_status(path: String) -> Option<GitInfo> {
                 Some(p) => p.to_string(),
                 None => continue,
             };
-            let flags = s.status();
-            let flag = if flags.contains(Status::WT_NEW) || flags.contains(Status::INDEX_NEW) {
-                "add"
-            } else if flags.contains(Status::WT_DELETED) || flags.contains(Status::INDEX_DELETED) {
-                "del"
-            } else if flags.contains(Status::WT_MODIFIED) || flags.contains(Status::INDEX_MODIFIED) {
-                "mod"
-            } else if flags.contains(Status::WT_RENAMED) || flags.contains(Status::INDEX_RENAMED) {
-                "renamed"
-            } else if flags.contains(Status::IGNORED) {
-                "ignored"
-            } else {
-                "untracked"
+            let Some(code) = git_status_code(s.status()) else {
+                continue;
             };
-            if flag != "ignored" {
-                dirty += 1;
-            }
-            status_map.insert(p, flag.to_string());
+            dirty += 1;
+            status_map.insert(p, code.to_string());
         }
     }
     Some(GitInfo {
@@ -1004,14 +1027,13 @@ pub fn win_to_wsl(path: String) -> String {
 
 #[tauri::command]
 pub fn wsl_to_win(path: String) -> String {
-    // /mnt/c/Users/me -> C:\Users\me
+    // /mnt/c/Users/me -> C:\Users\me, /mnt/c -> C:\
     if let Some(rest) = path.strip_prefix("/mnt/") {
-        if let Some((letter, tail)) = rest.split_once('/') {
-            if letter.len() == 1 {
-                let mut s = format!("{}:\\", letter.to_ascii_uppercase());
-                s.push_str(&tail.replace('/', "\\"));
-                return s;
-            }
+        let (letter, tail) = rest.split_once('/').unwrap_or((rest, ""));
+        if letter.len() == 1 && letter.as_bytes()[0].is_ascii_alphabetic() {
+            let mut s = format!("{}:\\", letter.to_ascii_uppercase());
+            s.push_str(&tail.replace('/', "\\"));
+            return s;
         }
     }
     path.replace('/', "\\")
@@ -1558,6 +1580,99 @@ fn run_archive_tool(program: &str, args: &[&str]) -> Result<(), String> {
     Ok(())
 }
 
+/// A tar child whose archive goes through a pipe while the zstd step runs
+/// in-process. stderr is read on a thread from the start, so a chatty tar
+/// can't fill that pipe and stall the stream.
+struct PipedTar {
+    child: std::process::Child,
+    stderr: std::thread::JoinHandle<Vec<u8>>,
+}
+
+impl PipedTar {
+    fn spawn(
+        args: &[&str],
+        stdin: std::process::Stdio,
+        stdout: std::process::Stdio,
+    ) -> Result<Self, String> {
+        use std::io::Read;
+        use std::process::{Command, Stdio};
+
+        let mut cmd = Command::new("tar");
+        cmd.args(args)
+            .stdin(stdin)
+            .stdout(stdout)
+            .stderr(Stdio::piped());
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            cmd.creation_flags(CREATE_NO_WINDOW);
+        }
+        let mut child = cmd
+            .spawn()
+            .map_err(|e| format!("tar spawn failed: {}", e))?;
+        let mut pipe = child.stderr.take().expect("stderr is piped");
+        let stderr = std::thread::spawn(move || {
+            let mut buf = Vec::new();
+            let _ = pipe.read_to_end(&mut buf);
+            buf
+        });
+        Ok(PipedTar { child, stderr })
+    }
+
+    /// Wait for tar and combine its result with the in-process side's
+    /// (`streamed`). That side's error wins unless it's a broken pipe, which
+    /// just means tar quit first and has the real reason on stderr.
+    fn finish(mut self, archive: &str, streamed: std::io::Result<()>) -> Result<(), String> {
+        let status = self.child.wait().map_err(|e| format!("tar wait: {}", e))?;
+        let stderr = self.stderr.join().unwrap_or_default();
+        match streamed {
+            Err(e) if e.kind() != std::io::ErrorKind::BrokenPipe => {
+                Err(format!("{}: {}", archive, e))
+            }
+            _ if !status.success() => Err(format!(
+                "tar exited {}: {}",
+                status.code().unwrap_or(-1),
+                String::from_utf8_lossy(&stderr).trim()
+            )),
+            Err(e) => Err(format!("{}: {}", archive, e)),
+            Ok(()) => Ok(()),
+        }
+    }
+}
+
+/// `.tar.zst` support that doesn't depend on tar's own zstd support: GNU
+/// tar's `--zstd` runs a separate `zstd` binary that often isn't installed,
+/// and not every bsdtar build has zstd compiled in. tar reads or writes a
+/// plain tar stream on a pipe, and the `zstd` crate (already linked in
+/// through `zip`) does the compression.
+fn tar_zst_create(dest: &str, parent: &str, members: &[String]) -> Result<(), String> {
+    use std::process::Stdio;
+    let file = std::fs::File::create(dest).map_err(|e| format!("create {}: {}", dest, e))?;
+    let mut args = vec!["-cf", "-", "-C", parent];
+    args.extend(members.iter().map(String::as_str));
+    let res = PipedTar::spawn(&args, Stdio::null(), Stdio::piped()).and_then(|mut tar| {
+        let tar_out = tar.child.stdout.take().expect("stdout is piped");
+        let streamed = zstd::stream::copy_encode(tar_out, file, 0);
+        tar.finish(dest, streamed)
+    });
+    if res.is_err() {
+        // Don't leave a truncated archive behind.
+        let _ = std::fs::remove_file(dest);
+    }
+    res
+}
+
+/// See `tar_zst_create`.
+fn tar_zst_extract(archive: &str, dest_dir: &str) -> Result<(), String> {
+    use std::process::Stdio;
+    let file = std::fs::File::open(archive).map_err(|e| format!("open {}: {}", archive, e))?;
+    let mut tar = PipedTar::spawn(&["-xf", "-", "-C", dest_dir], Stdio::piped(), Stdio::null())?;
+    let tar_in = tar.child.stdin.take().expect("stdin is piped");
+    // copy_decode drops `tar_in` when it returns, which gives tar its EOF.
+    let streamed = zstd::stream::copy_decode(file, tar_in);
+    tar.finish(archive, streamed)
+}
+
 /// Return whether the local machine has the tooling required to handle the
 /// given archive format. Values: "zip" | "tar.gz" | "tar.zst" | "7z".
 #[tauri::command]
@@ -1565,8 +1680,8 @@ pub fn archive_can_handle(format: String) -> bool {
     match format.as_str() {
         "zip" => true, // in-process zip crate
         "tar.gz" => which::which("tar").is_ok() || which::which("tar.exe").is_ok(),
-        // tar alone suffices: bsdtar handles --zstd natively, and the extract
-        // path falls back to a separate zstd binary only when tar lacks it.
+        // tar alone suffices: the zstd step runs in-process (tar_zst_create),
+        // so neither tar's --zstd nor a zstd binary is needed.
         "tar.zst" => which::which("tar").is_ok() || which::which("tar.exe").is_ok(),
         "7z" => which::which("7z").is_ok() || which::which("7z.exe").is_ok(),
         _ => false,
@@ -1626,15 +1741,7 @@ pub fn archive_create(
             }
             run_archive_tool("tar", &args)
         }
-        "tar.zst" => {
-            // Prefer bsdtar's native --zstd. tar.exe on Windows 10+ is
-            // bsdtar and supports it.
-            let mut args: Vec<&str> = vec!["--zstd", "-cf", &dest, "-C", &parent_str];
-            for m in &members {
-                args.push(m);
-            }
-            run_archive_tool("tar", &args)
-        }
+        "tar.zst" => tar_zst_create(&dest, &parent_str, &members),
         "7z" => {
             let program = if which::which("7z").is_ok() {
                 "7z"
@@ -1666,7 +1773,8 @@ pub fn archive_create(
 /// Extract `archive` into `dest_dir`, which must already exist or will be
 /// created. Dispatches on extension:
 ///   .zip → in-process zip crate (GNU tar on Linux can't read zip)
-///   .tar/.tar.gz/.tgz/.tar.bz2/.tar.zst → `tar -xf ...`
+///   .tar/.tar.gz/.tgz/.tar.bz2 → `tar -xf ...`
+///   .tar.zst/.tzst → in-process zstd piped into `tar -xf -`
 ///   .7z → `7z.exe x archive -o<dest_dir> -y`
 #[tauri::command]
 pub fn archive_extract(archive: String, dest_dir: String) -> Result<(), String> {
@@ -1716,14 +1824,10 @@ pub fn archive_extract(archive: String, dest_dir: String) -> Result<(), String> 
         if which::which("tar").is_err() && which::which("tar.exe").is_err() {
             return Err("tar.exe not found on PATH".to_string());
         }
-        let mut args: Vec<&str> = Vec::new();
         if is_tar_zst {
-            args.push("--zstd");
+            return tar_zst_extract(&archive, &dest_dir);
         }
-        args.push("-xf");
-        args.push(&archive);
-        args.push("-C");
-        args.push(&dest_dir);
+        let args = ["-xf", archive.as_str(), "-C", dest_dir.as_str()];
         return run_archive_tool("tar", &args);
     }
 
@@ -3001,25 +3105,28 @@ fn sample_net_octets() -> Result<(u64, u64), String> {
 
 // ---------- per-repo dirty count ----------
 
+/// Changed and untracked entries in the repo containing `path`, counted as
+/// `git_status`'s `dirty` is. `Ok(None)` when `path` isn't in a repo with a
+/// working tree; `Err` when the repo can't be opened or its status read.
 #[tauri::command]
-pub fn git_dirty_count(path: String) -> Result<u32, String> {
-    use git2::{Repository, Status, StatusOptions};
-    let Ok(repo) = Repository::discover(&path) else {
-        return Ok(0);
+pub fn git_dirty_count(path: String) -> Result<Option<u32>, String> {
+    use git2::StatusOptions;
+    let Some(repo) = discover_repo(&path)? else {
+        return Ok(None);
     };
+    if repo.is_bare() {
+        return Ok(None);
+    }
     let mut opts = StatusOptions::new();
     opts.include_untracked(true).recurse_untracked_dirs(false);
-    let Ok(statuses) = repo.statuses(Some(&mut opts)) else {
-        return Ok(0);
-    };
-    let mut n: u32 = 0;
-    for s in statuses.iter() {
-        if s.status().contains(Status::IGNORED) {
-            continue;
-        }
-        n += 1;
-    }
-    Ok(n)
+    let statuses = repo
+        .statuses(Some(&mut opts))
+        .map_err(|e| format!("git status: {}", e.message()))?;
+    let n = statuses
+        .iter()
+        .filter(|s| git_status_code(s.status()).is_some())
+        .count();
+    Ok(Some(n as u32))
 }
 
 // ---------- real git shell-outs ----------
@@ -3138,22 +3245,18 @@ pub fn git_branch_list(cwd: String) -> Result<Vec<GitBranch>, String> {
     Ok(branches)
 }
 
+/// Commits the current branch is ahead of and behind its upstream. `Ok(None)`
+/// when there's nothing to compare: not in a repo, detached or unborn HEAD,
+/// no upstream, or the upstream ref is gone. `Err` is a real failure, such as
+/// an unreadable repo, dubious ownership or a missing object.
 #[tauri::command]
-pub fn git_ahead_behind(cwd: String) -> Result<(u32, u32), String> {
-    let mut cmd = build_git_command(&cwd);
-    cmd.args(["rev-list", "--left-right", "--count", "HEAD...@{upstream}"]);
-    let out = match cmd.output() {
-        Ok(o) => o,
-        Err(e) => return Err(classify_spawn_err(&e)),
+pub fn git_ahead_behind(cwd: String) -> Result<Option<(u32, u32)>, String> {
+    let Some(repo) = discover_repo(&cwd)? else {
+        return Ok(None);
     };
-    if !out.status.success() {
-        return Ok((0, 0));
-    }
-    let s = String::from_utf8_lossy(&out.stdout);
-    let parts: Vec<&str> = s.split_whitespace().collect();
-    let a: u32 = parts.first().and_then(|x| x.parse().ok()).unwrap_or(0);
-    let b: u32 = parts.get(1).and_then(|x| x.parse().ok()).unwrap_or(0);
-    Ok((a, b))
+    let counts =
+        upstream_ahead_behind(&repo).map_err(|e| format!("git ahead/behind: {}", e.message()))?;
+    Ok(counts.map(|(a, b)| (a as u32, b as u32)))
 }
 
 // ---------- tests ----------
@@ -3490,6 +3593,194 @@ mod tests {
         assert_eq!(std::fs::read_to_string(dst.join("sub/f.txt")).unwrap(), "f");
         assert_eq!(std::fs::read_link(dst.join("link")).unwrap(), Path::new("sub/f.txt"));
         let _ = std::fs::remove_dir_all(&dst);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn wsl_to_win_bare_mount_and_non_letters() {
+        assert_eq!(wsl_to_win("/mnt/c".into()), "C:\\");
+        assert_eq!(wsl_to_win("/mnt/C/x".into()), "C:\\x");
+        assert_eq!(wsl_to_win(win_to_wsl("C:".into())), "C:\\");
+        // Not a drive letter: just the separator swap, as before.
+        assert_eq!(wsl_to_win("/mnt/1/x".into()), "\\mnt\\1\\x");
+        assert_eq!(wsl_to_win("/mnt/wsl/x".into()), "\\mnt\\wsl\\x");
+    }
+
+    fn test_repo(name: &str) -> (PathBuf, git2::Repository) {
+        let dir = temp_dir(name);
+        let mut opts = git2::RepositoryInitOptions::new();
+        opts.initial_head("main");
+        let repo = git2::Repository::init_opts(&dir, &opts).unwrap();
+        (dir, repo)
+    }
+
+    /// Stage the work tree's files and commit them on HEAD.
+    fn commit_all(repo: &git2::Repository, msg: &str) -> git2::Oid {
+        let mut index = repo.index().unwrap();
+        index
+            .add_all(["*"], git2::IndexAddOption::DEFAULT, None)
+            .unwrap();
+        index.write().unwrap();
+        let tree = repo.find_tree(index.write_tree().unwrap()).unwrap();
+        let sig = git2::Signature::now("test", "test@example.com").unwrap();
+        let parent = repo.head().ok().and_then(|h| h.peel_to_commit().ok());
+        let parents: Vec<&git2::Commit> = parent.iter().collect();
+        repo.commit(Some("HEAD"), &sig, &sig, msg, &tree, &parents)
+            .unwrap()
+    }
+
+    #[test]
+    fn git_status_codes_match_list_dir() {
+        let (dir, repo) = test_repo("gitcodes");
+        std::fs::write(dir.join("modified.txt"), "v1").unwrap();
+        std::fs::write(dir.join("deleted.txt"), "v1").unwrap();
+        commit_all(&repo, "init");
+        std::fs::write(dir.join("modified.txt"), "v2").unwrap();
+        std::fs::remove_file(dir.join("deleted.txt")).unwrap();
+        std::fs::write(dir.join("untracked.txt"), "new").unwrap();
+        std::fs::write(dir.join("staged.txt"), "new").unwrap();
+        let mut index = repo.index().unwrap();
+        index.add_path(Path::new("staged.txt")).unwrap();
+        index.write().unwrap();
+
+        let expected = [
+            ("modified.txt", "M"),
+            ("deleted.txt", "D"),
+            ("untracked.txt", "?"),
+            ("staged.txt", "A"),
+        ];
+        let path = dir.to_string_lossy().into_owned();
+        let info = git_status(path.clone()).unwrap();
+        let listed: HashMap<String, String> = scan_repo_statuses(&dir)
+            .unwrap()
+            .into_iter()
+            .map(|(p, code)| (p.file_name().unwrap().to_string_lossy().into_owned(), code))
+            .collect();
+        for (name, code) in expected {
+            assert_eq!(
+                info.status.get(name).map(String::as_str),
+                Some(code),
+                "git_status {}",
+                name
+            );
+            assert_eq!(
+                listed.get(name).map(String::as_str),
+                Some(code),
+                "list_dir {}",
+                name
+            );
+        }
+        assert_eq!(info.status.len(), expected.len());
+        assert_eq!(info.dirty, expected.len());
+        assert_eq!(git_dirty_count(path), Ok(Some(expected.len() as u32)));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn git_ahead_behind_counts_and_nothing_to_compare() {
+        let (dir, repo) = test_repo("aheadbehind");
+        let cwd = dir.to_string_lossy().into_owned();
+        assert_eq!(git_ahead_behind(cwd.clone()), Ok(None), "unborn HEAD");
+        std::fs::write(dir.join("a.txt"), "1").unwrap();
+        let base = commit_all(&repo, "one");
+        assert_eq!(git_ahead_behind(cwd.clone()), Ok(None), "no upstream");
+
+        // A fake origin/main at the first commit, then two local commits.
+        repo.remote("origin", "https://example.invalid/repo.git")
+            .unwrap();
+        repo.reference("refs/remotes/origin/main", base, true, "test")
+            .unwrap();
+        repo.find_branch("main", git2::BranchType::Local)
+            .unwrap()
+            .set_upstream(Some("origin/main"))
+            .unwrap();
+        std::fs::write(dir.join("a.txt"), "2").unwrap();
+        commit_all(&repo, "two");
+        std::fs::write(dir.join("a.txt"), "3").unwrap();
+        let tip = commit_all(&repo, "three");
+        assert_eq!(git_ahead_behind(cwd.clone()), Ok(Some((2, 0))));
+        let info = git_status(cwd.clone()).unwrap();
+        assert_eq!((info.ahead, info.behind), (2, 0));
+
+        // Swap them: local main at the first commit, origin/main at the tip.
+        repo.reference("refs/remotes/origin/main", tip, true, "test")
+            .unwrap();
+        repo.reference("refs/heads/main", base, true, "test")
+            .unwrap();
+        assert_eq!(git_ahead_behind(cwd.clone()), Ok(Some((0, 2))));
+
+        repo.set_head_detached(base).unwrap();
+        assert_eq!(git_ahead_behind(cwd.clone()), Ok(None), "detached HEAD");
+        repo.set_head("refs/heads/main").unwrap();
+        repo.find_reference("refs/remotes/origin/main")
+            .unwrap()
+            .delete()
+            .unwrap();
+        assert_eq!(git_ahead_behind(cwd.clone()), Ok(None), "upstream gone");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn git_counts_outside_a_repo_are_none() {
+        let dir = temp_dir("norepo");
+        // Only meaningful when the temp dir isn't itself inside a repo.
+        if git2::Repository::discover(&dir).is_err() {
+            let path = dir.to_string_lossy().into_owned();
+            assert_eq!(git_ahead_behind(path.clone()), Ok(None));
+            assert_eq!(git_dirty_count(path), Ok(None));
+            // libgit2 reports a path that doesn't exist as NotFound too.
+            let missing = s(&dir.join("missing"));
+            assert_eq!(git_ahead_behind(missing.clone()), Ok(None));
+            assert_eq!(git_dirty_count(missing), Ok(None));
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn tar_zst_round_trip_and_failures() {
+        if which::which("tar").is_err() {
+            return; // nothing to test without tar
+        }
+        let dir = temp_dir("tarzst");
+        let src = dir.join("payload");
+        std::fs::create_dir_all(src.join("nested")).unwrap();
+        std::fs::write(src.join("top.txt"), "top").unwrap();
+        let big = "inner ".repeat(50_000);
+        std::fs::write(src.join("nested/inner.txt"), &big).unwrap();
+
+        let archive = dir.join("payload.tar.zst");
+        archive_create(vec![s(&src)], s(&archive), "tar.zst".into()).unwrap();
+        let bytes = std::fs::read(&archive).unwrap();
+        assert_eq!(&bytes[..4], &[0x28, 0xB5, 0x2F, 0xFD], "zstd frame magic");
+        assert!(
+            bytes.len() < big.len() / 10,
+            "compressed: {} bytes",
+            bytes.len()
+        );
+
+        let out = dir.join("out");
+        archive_extract(s(&archive), s(&out)).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(out.join("payload/top.txt")).unwrap(),
+            "top"
+        );
+        assert_eq!(
+            std::fs::read_to_string(out.join("payload/nested/inner.txt")).unwrap(),
+            big
+        );
+
+        // Corrupt data reports the zstd error (and doesn't hang tar).
+        let bad = dir.join("bad.tar.zst");
+        std::fs::write(&bad, b"not zstd at all").unwrap();
+        let err = archive_extract(s(&bad), s(&dir.join("out2"))).unwrap_err();
+        assert!(err.contains("bad.tar.zst"), "{}", err);
+
+        // A failed create reports tar's error and leaves no partial archive.
+        let failed = dir.join("missing.tar.zst");
+        let err = archive_create(vec![s(&dir.join("missing"))], s(&failed), "tar.zst".into())
+            .unwrap_err();
+        assert!(err.starts_with("tar exited"), "{}", err);
+        assert!(!failed.exists());
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

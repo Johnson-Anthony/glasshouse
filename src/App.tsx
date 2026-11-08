@@ -47,7 +47,7 @@ import {
   type UseTabResult,
 } from "./state";
 import { HANDLERS, type HandlerCtx } from "./handlers";
-import { moveUndo, copyUndo, createUndo, type PathPair } from "./undoActions";
+import { moveUndo, createUndo } from "./undoActions";
 import { makeTab, closeTab, closeOtherTabs, moveTab as moveTabIn, tabLabel, type TabRecord } from "./tabs";
 import { canExtractArchive } from "./handlers/archive";
 import { IS_WINDOWS } from "./platform";
@@ -92,6 +92,8 @@ import {
   type FindMatch,
   type ShellProfile,
 } from "./api";
+import { runTransfer, planTransfer, type TransferItem, type TransferOp, type TransferResult } from "./transfer";
+import { transferDeps, reportTransfer, pushTransferUndo, asItems } from "./transferUi";
 
 const TWEAK_DEFAULTS: TweakState = {
   theme: "gruvbox-dark",
@@ -406,7 +408,7 @@ let contextTarget: ContextTarget | null = null;
 export function App() {
   const [state, setState] = useState<TweakState>(() => {
     try {
-      const saved = JSON.parse(localStorage.getItem("rice.tweaks") || "null");
+      const saved = JSON.parse(localStorage.getItem("glasshouse.tweaks") || "null");
       return saved ? { ...TWEAK_DEFAULTS, ...saved } : TWEAK_DEFAULTS;
     } catch { return TWEAK_DEFAULTS; }
   });
@@ -551,7 +553,7 @@ export function App() {
     document.documentElement.setAttribute("data-density", state.density);
     document.documentElement.setAttribute("data-scanlines", state.scanlines ? "on" : "off");
     document.documentElement.style.setProperty("--font-mono", state.font);
-    localStorage.setItem("rice.tweaks", JSON.stringify(state));
+    localStorage.setItem("glasshouse.tweaks", JSON.stringify(state));
   }, [state]);
 
   const activeTabId = tabs[activeTab]?.id;
@@ -1046,17 +1048,12 @@ export function App() {
                 title: `move "${basename(target)}" to…`,
                 onPick: (to) => {
                   setFolderPicker(null);
-                  const dst = joinPath(to, basename(target));
                   void (async () => {
-                    try {
-                      await moveEntry(target, dst);
-                      pushUndo(moveUndo(`move ${basename(target)} to ${to}`, [{ src: target, dst }], "move"));
-                      activeHandle?.actions.refresh();
-                    } catch (err) {
-                      console.error("move_entry failed for", target, err);
-                      const msg = err instanceof Error ? err.message : String(err);
-                      void dialogs.showAlert({ message: `move failed: ${msg}`, variant: "error" });
-                    }
+                    const res = await runTransfer([{ path: target }], to, "move", transferDeps);
+                    if (!res) return;
+                    pushTransferUndo(res, "move", `move ${basename(target)} to ${to}`);
+                    reportTransfer(res, "move", true);
+                    activeHandle?.actions.refresh();
                   })();
                 },
               });
@@ -1391,31 +1388,17 @@ export function App() {
             dialogs.showToast({ message: "clipboard is empty", variant: "info" });
             return;
           }
-          const { op, paths } = appClipboard;
-          const pasted: Array<{ src: string; dst: string }> = [];
-          for (const src of paths) {
-            const dst = joinPath(cwd, basename(src));
-            if (op === "copy") await copyEntry(src, dst);
-            else await moveEntry(src, dst);
-            pasted.push({ src, dst });
+          const { op, paths, kinds } = appClipboard;
+          const xop: TransferOp = op === "copy" ? "copy" : "move";
+          const res = await runTransfer(asItems(paths, kinds), cwd, xop, transferDeps);
+          if (!res) return;
+          pushTransferUndo(res, xop, `${op === "copy" ? "paste copy" : "paste move"} ${res.done.length} item(s)`);
+          if (op === "cut" && res.done.length > 0 && res.failed.length === 0) {
+            appClipboard = null;
+            setCutPaths([]);
           }
-          pushUndo({
-            label: `${op === "copy" ? "paste copy" : "paste move"} ${pasted.length} item(s)`,
-            inverse: async () => {
-              if (op === "copy") {
-                // recursive: pasted entries can be non-empty folders
-                for (const { dst } of pasted) { await deleteEntry(dst, true); }
-              } else {
-                for (const { src, dst } of pasted) { await moveEntry(dst, src); }
-              }
-            },
-          });
-          if (op === "cut") { appClipboard = null; setCutPaths([]); }
           refresh();
-          dialogs.showToast({
-            message: `${op === "copy" ? "pasted" : "moved"} ${pasted.length} item(s)`,
-            variant: "success",
-          });
+          reportTransfer(res, xop);
           return;
         }
         case "Paste Special":
@@ -1497,14 +1480,27 @@ export function App() {
         }
         case "Duplicate": {
           if (selectedPaths.length === 0) return;
-          const dupes: PathPair[] = [];
-          for (const p of selectedPaths) {
-            const dst = p + " (copy)";
-            await copyEntry(p, dst);
-            dupes.push({ src: p, dst });
+          // Each item is copied next to itself, so it always gets a free
+          // "(copy)" name. Group by folder: search results can span several.
+          const byDir = new Map<string, TransferItem[]>();
+          for (const i of st.selected) {
+            const e = st.entries[i];
+            if (!e?.path) continue;
+            const dir = parentPath(e.path);
+            byDir.set(dir, [...(byDir.get(dir) ?? []), { path: e.path, isDir: e.kind === "folder" }]);
           }
-          pushUndo(copyUndo(`duplicate ${dupes.length} item(s)`, dupes));
+          const res: TransferResult = { done: [], replaced: [], skipped: [], failed: [] };
+          for (const [dir, items] of byDir) {
+            const r = await runTransfer(items, dir, "copy", transferDeps);
+            if (!r) continue;
+            res.done.push(...r.done);
+            res.replaced.push(...r.replaced);
+            res.skipped.push(...r.skipped);
+            res.failed.push(...r.failed);
+          }
+          pushTransferUndo(res, "copy", `duplicate ${res.done.length} item(s)`);
           refresh();
+          reportTransfer(res, "copy", true);
           return;
         }
         case "Open in Terminal": {
@@ -1659,6 +1655,10 @@ export function App() {
           const home = await homeDir();
           const initial = cwd || home || undefined;
           const paths = [...selectedPaths];
+          const items: TransferItem[] = st.selected
+            .map(i => st.entries[i])
+            .filter((e): e is FileEntry => Boolean(e?.path))
+            .map(e => ({ path: e.path, isDir: e.kind === "folder" }));
           setFolderPicker({
             initialPath: initial,
             title: paths.length === 1
@@ -1667,31 +1667,11 @@ export function App() {
             onPick: (target) => {
               setFolderPicker(null);
               void (async () => {
-                const moved: Array<{ src: string; dst: string }> = [];
-                for (const src of paths) {
-                  const dst = joinPath(target, basename(src));
-                  try {
-                    await moveEntry(src, dst);
-                    moved.push({ src, dst });
-                  } catch (err) {
-                    console.error("move_entry failed for", src, err);
-                  }
-                }
-                if (moved.length > 0) {
-                  pushUndo(moveUndo(`move ${moved.length} item(s) to ${target}`, moved, "move"));
-                  refresh();
-                  dialogs.showToast({
-                    message: `moved ${moved.length} item(s) to ${target}`,
-                    variant: "success",
-                  });
-                }
-                if (moved.length < paths.length) {
-                  void dialogs.showAlert({
-                    title: "partial move",
-                    variant: "warning",
-                    message: `${paths.length - moved.length} item(s) failed to move. See console for details.`,
-                  });
-                }
+                const res = await runTransfer(items, target, "move", transferDeps);
+                if (!res) return;
+                pushTransferUndo(res, "move", `move ${res.done.length} item(s) to ${target}`);
+                if (res.done.length > 0) refresh();
+                reportTransfer(res, "move");
               })();
             },
           });
@@ -1984,33 +1964,12 @@ export function App() {
     refresh: () => void,
   ) => {
     if (srcPaths.length === 0 || !dstDir) return;
-    const moved: PathPair[] = [];
-    const copied: PathPair[] = [];
-    let failed = 0;
+    const op: TransferOp = copy ? "copy" : "move";
     void (async () => {
-      for (const src of srcPaths) {
-        const dst = joinPath(dstDir, basename(src));
-        if (src === dst) continue;
-        try {
-          if (copy) { await copyEntry(src, dst); copied.push({ src, dst }); }
-          else { await moveEntry(src, dst); moved.push({ src, dst }); }
-        } catch (err) {
-          failed++;
-          console.error(copy ? "drop copy failed" : "drop move failed", src, "→", dst, err);
-        }
-      }
-      if (failed > 0) {
-        dialogs.showToast({
-          message: `${failed} of ${srcPaths.length} item(s) failed to ${copy ? "copy" : "move"}`,
-          variant: "warning",
-        });
-      }
-      if (moved.length > 0) {
-        pushUndo(moveUndo(`move ${moved.length} item(s) to ${dstDir}`, moved, "move"));
-      }
-      if (copied.length > 0) {
-        pushUndo(copyUndo(`copy ${copied.length} item(s) to ${dstDir}`, copied));
-      }
+      const res = await runTransfer(asItems(srcPaths), dstDir, op, transferDeps);
+      if (!res) return;
+      pushTransferUndo(res, op, `${op} ${res.done.length} item(s) to ${dstDir}`);
+      reportTransfer(res, op, true);
       refresh();
     })();
   };
@@ -2300,6 +2259,8 @@ export function App() {
           clipboardMode={pasteSpecial.clipboardMode}
           copyEntry={copyEntry}
           moveEntry={moveEntry}
+          trashEntry={moveToTrash}
+          planTransfer={(items, dstDir, op) => planTransfer(items, dstDir, op, transferDeps)}
           onClose={() => setPasteSpecial(null)}
           onDone={(clear) => {
             if (clear) appClipboard = null;
