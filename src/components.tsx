@@ -18,6 +18,7 @@ import { basename, joinPath, parentPath, pathSegments, splitBreadcrumb } from ".
 import type { SkipReason, TransferItem, TransferOp, TransferStep } from "./transfer";
 import { checkRenames, orderRenames } from "./names";
 import { IS_WINDOWS } from "./platform";
+import { openNotices } from "./Notices";
 
 // ─── dynamic menu expansion ────────────────────────────────────────────────
 // Menu trees include `{ kind: "dynamic", source: … }` sentinel nodes. When a
@@ -5174,9 +5175,13 @@ export function AboutDialog({ open, onClose }: AboutDialogProps) {
         </div>
         <div style={{
           padding: "8px 12px", borderTop: "1px solid var(--fg-3)",
-          display: "flex", justifyContent: "flex-end",
+          display: "flex", justifyContent: "flex-end", gap: 8,
           background: "var(--bg-2, #16161e)",
         }}>
+          <button onClick={() => { onClose(); openNotices(); }} style={{
+            background: "transparent", border: "1px solid var(--fg-3)", color: "var(--fg-1)",
+            padding: "4px 12px", cursor: "pointer", borderRadius: 2, fontFamily: "inherit",
+          }}>third-party notices</button>
           <button onClick={onClose} style={{
             background: "transparent", border: "1px solid var(--fg-3)", color: "var(--fg-1)",
             padding: "4px 12px", cursor: "pointer", borderRadius: 2, fontFamily: "inherit",

@@ -6,6 +6,7 @@ import { getVersion } from "@tauri-apps/api/app";
 import { failureDetails, runTransfer, summarize } from "../transfer";
 import { asItems, assertFree, namesIn, pushTransferUndo, transferDeps, unlessTaken } from "../transferUi";
 import { freeNewName, nameProblem, takenProblem } from "../names";
+import { openNotices } from "../Notices";
 import {
   makeDir,
   createTextFile,
@@ -158,6 +159,10 @@ export const miscHandler: Handler = async (label, ctx) => {
       } else {
         await dialogs.showAlert({ title: "about", message: "Glasshouse — Tauri file manager" });
       }
+      return true;
+
+    case "Third-party Notices":
+      openNotices();
       return true;
 
     case "Documentation":
