@@ -173,6 +173,12 @@ export function listDir(path: string, showHidden: boolean): Promise<FileEntry[]>
   );
 }
 
+/** Like `listDir` with hidden entries, but rejects on error. For checking
+ *  what's at a destination, where an empty fallback would hide a conflict. */
+export function listDirStrict(path: string): Promise<FileEntry[]> {
+  return mustInvoke<FileEntry[]>("list_dir", { path, showHidden: true });
+}
+
 export function drives(): Promise<Drive[]> {
   return safe(() => invoke<Drive[]>("drives"), []);
 }

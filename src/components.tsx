@@ -15,6 +15,7 @@ import { drives as apiDrives, fileStatExtended, gitBranchList, gitFileInfo, hash
 import { getVersion } from "@tauri-apps/api/app";
 import { fuzzyFilter } from "./fuzzy";
 import { joinPath } from "./paths";
+import type { SkipReason, TransferItem, TransferOp, TransferStep } from "./transfer";
 
 // ─── dynamic menu expansion ────────────────────────────────────────────────
 // Menu trees include `{ kind: "dynamic", source: … }` sentinel nodes. When a
@@ -3881,6 +3882,10 @@ export interface PasteSpecialDialogProps {
   clipboardMode: "copy" | "cut";
   copyEntry: (from: string, to: string) => Promise<void>;
   moveEntry: (from: string, to: string) => Promise<void>;
+  trashEntry: (path: string) => Promise<void>;
+  /** Picks each item's destination (and asks about conflicts); one step per
+   *  item, null if the user cancelled. Rejects if dstDir can't be listed. */
+  planTransfer: (items: TransferItem[], dstDir: string, op: TransferOp) => Promise<TransferStep[] | null>;
   onClose: () => void;
   /** Called after completion with whether clipboard should be cleared and refresh requested. */
   onDone: (clearClipboard: boolean) => void;
@@ -3895,6 +3900,12 @@ interface RowStatus {
   message?: string;
 }
 
+const SKIP_TEXT: Record<SkipReason, string> = {
+  "same-place": "already here",
+  "conflict": "skipped (exists)",
+  "into-itself": "can't go inside itself",
+};
+
 function baseOf(p: string): string {
   const trimmed = p.replace(/[\\/]+$/, "");
   const idx = Math.max(trimmed.lastIndexOf("\\"), trimmed.lastIndexOf("/"));
@@ -3908,6 +3919,8 @@ export function PasteSpecialDialog({
   clipboardMode,
   copyEntry,
   moveEntry,
+  trashEntry,
+  planTransfer,
   onClose,
   onDone,
 }: PasteSpecialDialogProps) {
@@ -3938,32 +3951,57 @@ export function PasteSpecialDialog({
   const run = async () => {
     if (running || items.length === 0) return;
     setRunning(true);
+    let steps: TransferStep[] | null;
+    try {
+      steps = await planTransfer(
+        items.map(it => ({ path: it.path, isDir: it.kind === "folder" })),
+        dstDir,
+        mode === "move" ? "move" : "copy",
+      );
+    } catch (e) {
+      const msg = `can't read ${dstDir}: ${e instanceof Error ? e.message : String(e)}`;
+      setRows(rows.map(r => ({ ...r, state: "fail", message: msg })));
+      setRunning(false);
+      return;
+    }
+    if (!steps) { setRunning(false); return; }
     let anyFail = false;
     // Local mutable copy so we can update rows incrementally.
     const working: RowStatus[] = rows.map(r => ({ ...r, state: "pending", message: undefined }));
     setRows(working.slice());
     for (let i = 0; i < items.length; i++) {
       const it = items[i];
-      const name = baseOf(it.path);
-      const dst = joinPath(dstDir, name);
+      const step = steps[i];
+      if (step.action === "skip") {
+        const fail = step.reason === "into-itself";
+        anyFail ||= fail;
+        working[i] = { ...working[i], state: fail ? "fail" : "ok", message: SKIP_TEXT[step.reason] };
+        setRows(working.slice());
+        continue;
+      }
+      const dst = step.dst;
+      // Say so when the item landed under another name or replaced one.
+      const note = (baseOf(dst) !== baseOf(it.path) ? ` as ${baseOf(dst)}` : "") +
+        (step.replace ? " (old one trashed)" : "");
       working[i] = { ...working[i], state: "running" };
       setRows(working.slice());
       try {
+        if (step.replace) await trashEntry(step.replace);
         if (mode === "move") {
           await moveEntry(it.path, dst);
-          working[i] = { ...working[i], state: "ok", message: "moved" };
+          working[i] = { ...working[i], state: "ok", message: "moved" + note };
         } else if (mode === "copy") {
           await copyEntry(it.path, dst);
-          working[i] = { ...working[i], state: "ok", message: "copied" };
+          working[i] = { ...working[i], state: "ok", message: "copied" + note };
         } else {
           // copy + verify
           await copyEntry(it.path, dst);
           if (it.kind === "folder") {
-            working[i] = { ...working[i], state: "ok", message: "copied (dir — not hashed)" };
+            working[i] = { ...working[i], state: "ok", message: `copied${note} (dir — not hashed)` };
           } else {
             const [h1, h2] = await Promise.all([hashSha256(it.path), hashSha256(dst)]);
             if (h1 === h2) {
-              working[i] = { ...working[i], state: "ok", message: `ok ${h1.slice(0, 12)}…` };
+              working[i] = { ...working[i], state: "ok", message: `ok${note} ${h1.slice(0, 12)}…` };
             } else {
               anyFail = true;
               working[i] = { ...working[i], state: "fail", message: `FAIL hash mismatch` };
@@ -5385,6 +5423,15 @@ interface ConfirmOptions {
   cancelLabel?: string;
 }
 
+interface ChoiceOptions {
+  title?: string;
+  message: string;
+  /** Buttons after "cancel", left to right. Enter picks the primary one;
+   *  cancel, Esc and × resolve null. */
+  choices: Array<{ id: string; label: string; primary?: boolean }>;
+  cancelLabel?: string;
+}
+
 interface ToastOptions {
   message: string;
   variant?: DialogVariant;
@@ -5395,6 +5442,7 @@ interface DialogApi {
   showPrompt: (opts: PromptOptions) => Promise<string | null>;
   showAlert: (opts: AlertOptions) => Promise<void>;
   showConfirm: (opts: ConfirmOptions) => Promise<boolean>;
+  showChoice: (opts: ChoiceOptions) => Promise<string | null>;
   showToast: (opts: ToastOptions) => void;
 }
 
@@ -5415,6 +5463,10 @@ export const dialogs: DialogApi = {
     if (!dialogApiRef) return Promise.resolve(false);
     return dialogApiRef.showConfirm(opts);
   },
+  showChoice: (opts) => {
+    if (!dialogApiRef) return Promise.resolve<string | null>(null);
+    return dialogApiRef.showChoice(opts);
+  },
   showToast: (opts) => {
     if (!dialogApiRef) return;
     dialogApiRef.showToast(opts);
@@ -5425,6 +5477,7 @@ type DialogState =
   | { kind: "prompt"; opts: PromptOptions; resolve: (v: string | null) => void }
   | { kind: "alert"; opts: AlertOptions; resolve: () => void }
   | { kind: "confirm"; opts: ConfirmOptions; resolve: (v: boolean) => void }
+  | { kind: "choice"; opts: ChoiceOptions; resolve: (v: string | null) => void }
   | null;
 
 interface ToastState {
@@ -5466,6 +5519,10 @@ export function DialogHost() {
         new Promise<boolean>((resolve) => {
           setState({ kind: "confirm", opts, resolve });
         }),
+      showChoice: (opts) =>
+        new Promise<string | null>((resolve) => {
+          setState({ kind: "choice", opts, resolve });
+        }),
       showToast: (opts) => {
         const id = ++toastIdRef.current;
         const t: ToastState = {
@@ -5500,6 +5557,7 @@ export function DialogHost() {
     if (!state) return;
     if (state.kind === "prompt") state.resolve(null);
     else if (state.kind === "alert") state.resolve();
+    else if (state.kind === "choice") state.resolve(null);
     else state.resolve(false);
     setState(null);
   };
@@ -5530,6 +5588,12 @@ export function DialogHost() {
     setState(null);
   };
 
+  const choose = (id: string | undefined) => {
+    if (state?.kind !== "choice" || id === undefined) return;
+    state.resolve(id);
+    setState(null);
+  };
+
   useEffect(() => {
     if (!state) return;
     const h = (e: KeyboardEvent) => {
@@ -5539,6 +5603,7 @@ export function DialogHost() {
         e.preventDefault();
         if (state.kind === "prompt") submitPrompt();
         else if (state.kind === "confirm") confirmOk();
+        else if (state.kind === "choice") choose(state.opts.choices.find(c => c.primary)?.id);
         else alertOk();
       }
     };
@@ -5668,6 +5733,26 @@ export function DialogHost() {
               <button onClick={confirmOk} style={btn(true, !!state.opts.danger)}>
                 {state.opts.okLabel ?? (state.opts.danger ? "delete" : "ok")}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {state?.kind === "choice" && (
+        <div onClick={close} style={overlay}>
+          <div onClick={(e) => e.stopPropagation()} style={panel}>
+            <div style={header}>
+              <span style={{ color: "var(--accent)" }}>{state.opts.title ?? "choose"}</span>
+              <button onClick={close} style={closeBtn}>×</button>
+            </div>
+            <div style={{ ...body, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
+              {state.opts.message}
+            </div>
+            <div style={footer}>
+              <button onClick={close} style={btn(false)}>{state.opts.cancelLabel ?? "cancel"}</button>
+              {state.opts.choices.map(c => (
+                <button key={c.id} onClick={() => choose(c.id)} style={btn(!!c.primary)}>{c.label}</button>
+              ))}
             </div>
           </div>
         </div>

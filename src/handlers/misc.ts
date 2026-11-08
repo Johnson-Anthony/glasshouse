@@ -2,6 +2,8 @@ import type { Handler, HandlerCtx } from "./types";
 import { dialogs } from "../components";
 import { IS_WINDOWS } from "../platform";
 import { basename, joinPath } from "../paths";
+import { failureDetails, runTransfer, summarize } from "../transfer";
+import { asItems, pushTransferUndo, transferDeps } from "../transferUi";
 import {
   makeDir,
   writeText,
@@ -14,7 +16,6 @@ import {
   renameEntry,
   readTags,
   writeTags,
-  copyEntry,
   hashSha256,
 } from "../api";
 async function createFileAt(ctx: HandlerCtx, name: string, body: string): Promise<void> {
@@ -376,24 +377,25 @@ export const miscHandler: Handler = async (label, ctx) => {
         dialogs.showToast({ message: "clipboard is empty", variant: "info" });
         return true;
       }
-      let ok = 0;
+      const res = await runTransfer(asItems(paths), ctx.cwd, "copy", transferDeps);
+      if (!res) return true;
+      pushTransferUndo(res, "copy", `paste copy ${res.done.length} item(s)`);
       let verified = 0;
-      for (const src of paths) {
-        const dest = joinPath(ctx.cwd, basename(src));
+      for (const { src, dst } of res.done) {
         try {
-          await copyEntry(src, dest);
-          ok++;
-          try {
-            const [ha, hb] = await Promise.all([hashSha256(src), hashSha256(dest)]);
-            if (ha && hb && ha === hb) verified++;
-          } catch (e) {
-            console.error("[misc] hash verify failed", src, e);
-          }
+          const [ha, hb] = await Promise.all([hashSha256(src), hashSha256(dst)]);
+          if (ha && hb && ha === hb) verified++;
         } catch (e) {
-          console.error("[misc] copy failed", src, e);
+          console.error("[misc] hash verify failed", src, e);
         }
       }
-      dialogs.showToast({ message: `copied ${ok}/${paths.length}, ${verified} verified via SHA256`, variant: "success" });
+      const sum = summarize(res, "copy", IS_WINDOWS);
+      dialogs.showToast({
+        message: `${sum.message}, ${verified} verified via SHA256`,
+        variant: verified < res.done.length ? "warning" : sum.variant,
+      });
+      const details = failureDetails(res);
+      if (details) void dialogs.showAlert({ title: "copy failed", variant: "error", message: details });
       ctx.refresh();
       return true;
     }
