@@ -1235,8 +1235,7 @@ export function App() {
           else await openWithDefault(firstEntry.path);
           return;
         }
-        case "Add Bookmark":
-        case "Pin to Sidebar": {
+        case "Add Bookmark": {
           const targets = selectedPaths.length > 0
             ? selectedPaths
             : (firstPath ? [firstPath] : []);
@@ -1262,11 +1261,6 @@ export function App() {
             ? `pinned ${basename(added[0])}`
             : `pinned ${added.length} items`;
           dialogs.showToast({ message: msg, variant: "success" });
-          return;
-        }
-        case "Open With →":
-        case "Open With…": {
-          if (firstPath) await openWithDefault(firstPath);
           return;
         }
         case "Rename": {
@@ -1300,7 +1294,6 @@ export function App() {
           refresh();
           return;
         }
-        case "Bulk Rename":
         case "Bulk Rename…": {
           const items: BulkRenameItem[] = st.selected
             .map(i => st.entries[i])
@@ -1310,7 +1303,6 @@ export function App() {
           setBulkRenameItems(items);
           return;
         }
-        case "Delete":
         case "Delete Permanently": {
           if (selectedPaths.length === 0) return;
           const ok = await dialogs.showConfirm({
@@ -1378,7 +1370,6 @@ export function App() {
           reportTransfer(res, xop);
           return;
         }
-        case "Paste Special":
         case "Paste Special…": {
           if (!appClipboard || appClipboard.paths.length === 0) {
             console.warn("[paste-special] clipboard is empty");
@@ -1410,7 +1401,6 @@ export function App() {
           refresh();
           return;
         }
-        case "New File":
         case "Text File": {
           const taken = await namesIn(cwd);
           const name = await dialogs.showPrompt({
@@ -1505,8 +1495,7 @@ export function App() {
           }
           return;
         }
-        case "Reveal in Explorer":
-        case "Reveal in Tree": {
+        case "Reveal in Explorer": {
           if (firstPath) await revealInExplorer(firstPath);
           return;
         }
@@ -1523,16 +1512,12 @@ export function App() {
           await navigator.clipboard.writeText(wsl);
           return;
         }
-        case "Tag":
-        case "Tag →":
-        case "Add Tag…":
-        case "Add Tag": {
+        case "Add Tag…": {
           if (!firstPath) return;
           setTagPickerPath(firstPath);
           return;
         }
-        case "Remove Tag…":
-        case "Remove Tag": {
+        case "Remove Tag…": {
           if (!firstPath) return;
           const existing = tagStore[firstPath] ?? [];
           if (existing.length === 0) return;
@@ -1557,8 +1542,7 @@ export function App() {
           });
           return;
         }
-        case "Clear All Tags":
-        case "Remove All Tags": {
+        case "Clear All Tags": {
           const targets = selectedPaths.length > 0
             ? selectedPaths
             : (firstPath ? [firstPath] : []);
@@ -1583,9 +1567,7 @@ export function App() {
           refresh();
           return;
         }
-        case "Compress to ZIP…":
-        case "Compress →":
-        case "Compress": {
+        case "Compress to ZIP…": {
           // Use the current multi-selection; if empty, fall back to a single
           // firstPath if one exists (e.g. chip-only context with one active).
           const active: string[] = selectedPaths.length > 0
@@ -1631,9 +1613,7 @@ export function App() {
           }
           return;
         }
-        case "Move to…":
-        case "Move to":
-        case "Move To…": {
+        case "Move to…": {
           if (selectedPaths.length === 0) return;
           const home = await homeDir();
           const initial = cwd || home || undefined;
