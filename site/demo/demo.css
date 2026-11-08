@@ -1,0 +1,22 @@
+/* The app expects a window of at least 960×600; the site scales the frame. */
+html, body, #root { height: 100%; }
+body { margin: 0; background: var(--bg-0); min-width: 960px; min-height: 600px; }
+
+/* Pretend cursor for scripted scenes (scenes.ts). */
+#demo-cursor {
+  position: fixed; left: 0; top: 0; z-index: 100000;
+  pointer-events: none; opacity: 0;
+  transition-property: transform, opacity;
+  filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.5));
+}
+#demo-cursor.on { opacity: 1; }
+#demo-cursor svg { display: block; transform: translate(-3px, -2px); }
+#demo-cursor .ring {
+  position: absolute; left: -14px; top: -14px; width: 28px; height: 28px;
+  border-radius: 50%; border: 2px solid var(--accent); opacity: 0;
+}
+#demo-cursor .ring.go { animation: demo-click 0.45s ease-out; }
+@keyframes demo-click {
+  from { opacity: 0.9; transform: scale(0.4); }
+  to { opacity: 0; transform: scale(1.3); }
+}

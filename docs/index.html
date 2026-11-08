@@ -1,125 +1,26 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="tokyo-night">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>glasshouse — file manager for Windows and Linux</title>
 <meta name="description" content="glasshouse is a desktop file manager for Windows and Linux, with tabs, a built-in terminal and git status. Built with Tauri 2 and React.">
-<style>
-  :root {
-    --bg-0: #16161e;
-    --bg-1: #1a1b26;
-    --bg-2: #1f2233;
-    --bg-3: #292e42;
-    --fg-0: #c0caf5;
-    --fg-1: #a9b1d6;
-    --fg-3: #565f89;
-    --accent: #bb9af7;
-    --green: #9ece6a;
-    --blue: #7aa2f7;
-    --cyan: #7dcfff;
-    --red: #f7768e;
-    --border: #2a2f45;
-  }
-  * { margin: 0; padding: 0; box-sizing: border-box; }
-  html { scroll-behavior: smooth; }
-  body {
-    background: var(--bg-1);
-    color: var(--fg-1);
-    font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-    line-height: 1.6;
-    font-size: 15px;
-  }
-  a { color: var(--blue); text-decoration: none; }
-  a:hover { color: var(--cyan); }
-  .wrap { max-width: 960px; margin: 0 auto; padding: 0 24px; }
-
-  header {
-    padding: 72px 0 40px;
-    text-align: center;
-    background:
-      radial-gradient(ellipse 60% 50% at 50% -10%, rgba(187, 154, 247, 0.15), transparent),
-      var(--bg-0);
-    border-bottom: 1px solid var(--border);
-  }
-  h1 {
-    font-size: 44px;
-    color: var(--fg-0);
-    letter-spacing: -0.02em;
-  }
-  h1 .paren { color: var(--accent); }
-  .tagline { margin-top: 10px; font-size: 17px; color: var(--fg-1); }
-  .tagline em { color: var(--accent); font-style: normal; }
-  .links { margin-top: 28px; display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
-  .btn {
-    display: inline-block;
-    padding: 9px 20px;
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    background: var(--bg-2);
-    color: var(--fg-0);
-  }
-  .btn:hover { border-color: var(--accent); color: var(--fg-0); }
-  .btn.primary { background: var(--accent); color: var(--bg-0); border-color: var(--accent); }
-  .btn.primary:hover { filter: brightness(1.1); color: var(--bg-0); }
-
-  .shot { margin: -1px auto 0; padding: 40px 24px 8px; max-width: 1100px; }
-  .shot img {
-    width: 100%;
-    height: auto;
-    display: block;
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    box-shadow: 0 30px 80px rgba(0, 0, 0, 0.55);
-  }
-  .shot .caption { text-align: center; color: var(--fg-3); font-size: 12.5px; margin-top: 10px; }
-
-  section { padding: 56px 0 8px; }
-  h2 {
-    color: var(--fg-0);
-    font-size: 22px;
-    margin-bottom: 24px;
-  }
-  h2::before { content: "» "; color: var(--accent); }
-
-  .grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(270px, 1fr));
-    gap: 14px;
-  }
-  .card {
-    background: var(--bg-2);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 18px;
-  }
-  .card h3 { color: var(--fg-0); font-size: 15px; margin-bottom: 6px; }
-  .card h3 .ic { color: var(--green); margin-right: 6px; }
-  .card p { font-size: 13.5px; color: var(--fg-1); }
-
-  pre {
-    background: var(--bg-0);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 16px 20px;
-    overflow-x: auto;
-    font-size: 13.5px;
-    line-height: 1.7;
-  }
-  pre .c { color: var(--fg-3); }
-  pre .p { color: var(--green); }
-  .note { color: var(--fg-3); font-size: 13px; margin-top: 12px; }
-
-  footer {
-    margin-top: 64px;
-    padding: 28px 0 40px;
-    border-top: 1px solid var(--border);
-    text-align: center;
-    color: var(--fg-3);
-    font-size: 13px;
-  }
-  footer a { color: var(--fg-1); }
-</style>
+<meta property="og:title" content="glasshouse — file manager for Windows and Linux">
+<meta property="og:description" content="A desktop file manager for Windows and Linux, with tabs, a built-in terminal and git status. Try the interface in your browser.">
+<meta property="og:image" content="https://johnson-anthony.github.io/glasshouse/media/hero-tokyo-night.png">
+<meta property="og:type" content="website">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" type="image/png" href="favicon.png">
+<link rel="stylesheet" href="assets/themes.css">
+<link rel="stylesheet" href="assets/site.css">
+<script>
+  // Apply the visitor's saved theme before first paint.
+  try {
+    var t = localStorage.getItem("glasshouse-site.theme");
+    if (t) document.documentElement.setAttribute("data-theme", t);
+  } catch (e) {}
+</script>
+<script src="assets/site.js" defer></script>
 </head>
 <body>
 
@@ -129,18 +30,53 @@
     <p class="tagline">a desktop file manager for <em>Windows</em> and <em>Linux</em><br>with tabs, a built-in terminal and git status</p>
     <div class="links">
       <a class="btn primary" href="https://github.com/Johnson-Anthony/glasshouse/releases/latest">Download</a>
+      <a class="btn" href="#demo">Try the demo</a>
       <a class="btn" href="https://github.com/Johnson-Anthony/glasshouse">View on GitHub</a>
-      <a class="btn" href="#build">Build it</a>
     </div>
+  </div>
+
+  <div class="shot">
+    <div class="window">
+      <img id="hero-shot" src="media/hero-tokyo-night.webp" width="1280" height="800" fetchpriority="high"
+           data-src-pattern="media/hero-{theme}.webp"
+           alt="glasshouse showing a git repository: sidebar with pinned folders and tags, file list with a git status column, inspector, and the terminal drawer running git status">
+    </div>
+    <p class="caption">the app's real interface, captured from the browser demo below</p>
   </div>
 </header>
 
-<div class="shot">
-  <img src="screenshot.png" alt="glasshouse on Linux: sidebar with folder tree, tags and devices; file list with a git status column; menu bar">
-  <p class="caption">running on Linux (Hyprland); the Windows build has the same layout</p>
-</div>
-
 <div class="wrap">
+  <section id="themes">
+    <h2>themes</h2>
+    <p class="lead">8 color themes. Pick one to recolor this page and the demo.</p>
+    <div class="theme-picker" role="radiogroup" aria-label="Theme">
+      <button class="chip" role="radio" aria-checked="true" data-choice="tokyo-night"><span class="swatch" data-theme="tokyo-night"><i></i><i></i><i></i><i></i></span>tokyo night</button>
+      <button class="chip" role="radio" aria-checked="false" data-choice="catppuccin-mocha"><span class="swatch" data-theme="catppuccin-mocha"><i></i><i></i><i></i><i></i></span>catppuccin mocha</button>
+      <button class="chip" role="radio" aria-checked="false" data-choice="gruvbox-dark"><span class="swatch" data-theme="gruvbox-dark"><i></i><i></i><i></i><i></i></span>gruvbox dark</button>
+      <button class="chip" role="radio" aria-checked="false" data-choice="rose-pine"><span class="swatch" data-theme="rose-pine"><i></i><i></i><i></i><i></i></span>rosé pine</button>
+      <button class="chip" role="radio" aria-checked="false" data-choice="everforest"><span class="swatch" data-theme="everforest"><i></i><i></i><i></i><i></i></span>everforest</button>
+      <button class="chip" role="radio" aria-checked="false" data-choice="solarized-dark"><span class="swatch" data-theme="solarized-dark"><i></i><i></i><i></i><i></i></span>solarized dark</button>
+      <button class="chip" role="radio" aria-checked="false" data-choice="green-crt"><span class="swatch" data-theme="green-crt"><i></i><i></i><i></i><i></i></span>green crt</button>
+      <button class="chip" role="radio" aria-checked="false" data-choice="synthwave"><span class="swatch" data-theme="synthwave"><i></i><i></i><i></i><i></i></span>synthwave</button>
+    </div>
+  </section>
+
+  <section id="demo">
+    <h2>try it</h2>
+    <p class="lead">This is the app's real interface, running in your browser. The files, the git repository and the shell are simulated, so nothing on your computer is read or changed.</p>
+    <div class="demo-frame" data-state="idle">
+      <div class="demo-cover">
+        <button class="btn primary" type="button" id="demo-start">Start the demo</button>
+        <span class="size">loads about 300 KB</span>
+      </div>
+    </div>
+    <div class="demo-bar">
+      <p class="keys"><kbd>Ctrl</kbd>+<kbd>`</kbd> terminal · <kbd>Space</kbd> Quick Look · <kbd>Ctrl</kbd>+<kbd>P</kbd> command palette · right-click for menus</p>
+      <button class="btn" type="button" id="demo-fullscreen" hidden>Full screen</button>
+    </div>
+    <p class="demo-small note">The demo needs a desktop-size screen. <a href="demo/">Open it anyway</a>, or come back on a computer.</p>
+  </section>
+
   <section id="features">
     <h2>features</h2>
     <div class="grid">
@@ -206,6 +142,7 @@
         <p>Rust and Tauri 2, with git2, notify (file watching), portable-pty, sysinfo and zip. About 70 commands are exposed to the frontend.</p>
       </div>
     </div>
+    <p class="note">The demo on this page is the same React frontend, built with a stand-in for the Rust backend that keeps its files in memory.</p>
   </section>
 </div>
 

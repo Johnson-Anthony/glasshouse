@@ -557,6 +557,17 @@ export function App() {
     localStorage.setItem("glasshouse.tweaks", JSON.stringify(state));
   }, [state]);
 
+  // `glasshouse:set-theme` (detail: theme name) switches to a given theme;
+  // the project site's demo uses it for its theme picker.
+  useEffect(() => {
+    const onSetTheme = (e: Event) => {
+      const theme = (e as CustomEvent<unknown>).detail;
+      if (typeof theme === "string" && theme) setState(prev => ({ ...prev, theme }));
+    };
+    window.addEventListener("glasshouse:set-theme", onSetTheme);
+    return () => window.removeEventListener("glasshouse:set-theme", onSetTheme);
+  }, []);
+
   const activeTabId = tabs[activeTab]?.id;
   const activeHandle: UseTabResult | undefined = activeTabId === undefined ? undefined : tabHandles[activeTabId];
 
