@@ -708,8 +708,8 @@ export function App() {
         if (k === "l") { e.preventDefault(); dispatch("Go to Path…"); return; }
         if (k === "[") { e.preventDefault(); dispatch("Previous Location"); return; }
         if (k === "]") { e.preventDefault(); dispatch("Next Location"); return; }
-        if (k >= "1" && k <= "6") {
-          const modes = ["Details (rows)", "Compact List", "Icons", "Tiles", "Grid (thumbs)", "Tree Flat"];
+        if (k >= "1" && k <= "7") {
+          const modes = ["Details (rows)", "Compact List", "Icons", "Tiles", "Grid (thumbs)", "Tree Flat", "Miller Columns (ranger)"];
           e.preventDefault(); dispatch(modes[Number(k) - 1]); return;
         }
       }
