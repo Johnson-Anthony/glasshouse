@@ -103,7 +103,6 @@ const TWEAK_DEFAULTS: TweakState = {
   hidden: false,
   showExtensions: true,
   showGitGutters: true,
-  showIgnored: false,
   foldersFirst: true,
 };
 

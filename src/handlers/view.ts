@@ -131,11 +131,6 @@ export const viewHandler: Handler = (label, ctx) => {
         ctx.setTweaks({ ...ctx.tweaks, showGitGutters: !ctx.tweaks.showGitGutters });
       }
       return true;
-    case "Show Ignored (.gitignore)":
-      if (ctx.tweaks && ctx.setTweaks) {
-        ctx.setTweaks({ ...ctx.tweaks, showIgnored: !ctx.tweaks.showIgnored });
-      }
-      return true;
 
     case "Compact List":
     case "Details (rows)":

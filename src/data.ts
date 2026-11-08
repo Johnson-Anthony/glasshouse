@@ -178,7 +178,6 @@ export const MENUS: MenusData = {
       ] },
     { kind: "sep" },
     { kind: "item", ic: "", label: "Show Hidden Files",   kb: "Ctrl+H" },
-    { kind: "item", ic: "", label: "Show Ignored (.gitignore)" },
     { kind: "item", ic: "", label: "Show File Extensions", check: true },
     { kind: "item", ic: "", label: "Show Git Gutters",    check: true },
     { kind: "sep" },

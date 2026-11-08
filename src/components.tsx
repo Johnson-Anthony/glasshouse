@@ -234,8 +234,6 @@ function resolveChecked(item: MenuItemDef, toggles: MenuToggleState, parentLabel
       return !!tw?.showExtensions;
     case "Show Git Gutters":
       return !!tw?.showGitGutters;
-    case "Show Ignored (.gitignore)":
-      return !!tw?.showIgnored;
     case "Folders First":
       return !!tw?.foldersFirst;
     case "Sidebar":
@@ -3307,7 +3305,6 @@ export interface TweakState {
   hidden: boolean;
   showExtensions: boolean;
   showGitGutters: boolean;
-  showIgnored: boolean;
   foldersFirst: boolean;
 }
 
@@ -3382,13 +3379,6 @@ export function Tweaks({ state, setState, onClose }: TweaksProps) {
           <div className="segmented">
             <button className={state.showGitGutters ? "" : "active"} onClick={() => setState({...state, showGitGutters: false})}>hide</button>
             <button className={state.showGitGutters ? "active" : ""} onClick={() => setState({...state, showGitGutters: true})}>show</button>
-          </div>
-        </div>
-        <div className="tweak">
-          <label>ignored (.gitignore)</label>
-          <div className="segmented">
-            <button className={state.showIgnored ? "" : "active"} onClick={() => setState({...state, showIgnored: false})}>hide</button>
-            <button className={state.showIgnored ? "active" : ""} onClick={() => setState({...state, showIgnored: true})}>show</button>
           </div>
         </div>
         <div className="tweak">
