@@ -17,6 +17,7 @@
 5. Tag a v0.2.0 release once the pass is merged and CI is green.
 
 ## Broken / known issues
+- **Data loss:** New Folder on an existing folder followed by Undo recursively deletes the pre-existing folder. New File / Note / Script on an existing name empties that file, and Rename onto an existing name replaces it (task `create-rename-conflicts`).
 - Redo re-runs the undo action instead of redoing, so it fails ("redo failed"); closing the last tab leaves zero tabs; navigating drops a private tab's "(private)" label (task `undo-redo`).
 - Copy then Paste in the same folder now fails with an error instead of emptying the file (since `symlink-safety`); pasting onto an existing same-name item still replaces it silently, and the paste's undo can delete the original (task `paste-conflicts`).
 - All Rust commands are synchronous and run on the main thread, so heavy operations freeze the UI (task `async-commands`).
