@@ -1569,6 +1569,10 @@ export interface FilePaneProps {
   onActivate?: () => void;
   /** Paths currently in "cut" mode in the app clipboard — rendered dimmed. */
   cutPaths?: string[];
+  /** Why the folder couldn't be listed; shown in place of the rows. */
+  error?: string | null;
+  /** A listing is in flight. Only shown while there are no rows yet. */
+  loading?: boolean;
 }
 
 const PAGE_STEP = 10;
@@ -1668,6 +1672,8 @@ export function FilePane({
   paneRootRef,
   onActivate,
   cutPaths,
+  error,
+  loading,
 }: FilePaneProps) {
   const paneRef = useRef<HTMLElement>(null);
   // Wire external ref (App keeps a handle to focus programmatically for Tab nav).
@@ -2119,6 +2125,11 @@ export function FilePane({
             />
           );
         })}
+        {files.length === 0 && (
+          error
+            ? <div className="pane-notice error" role="alert"><b>can't read this folder</b><span>{error}</span></div>
+            : <div className="pane-notice">{loading ? "loading…" : "empty folder"}</div>
+        )}
       </div>
       {marquee && (
         <div

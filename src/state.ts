@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import {
-  listDir,
+  readDir,
   gitStatus,
   watchDir,
   unwatchDir,
@@ -11,6 +11,7 @@ import {
 } from "./api";
 
 import { normalizePath, parentPath } from "./paths";
+import { navBack, navClear, navForward, navGoTo, navInit, type NavState } from "./history";
 export { normalizePath, parentPath } from "./paths";
 
 export type SortKey = "name" | "size" | "modified" | "tag" | "git" | "type";
@@ -125,7 +126,12 @@ export function newTab(path?: string, opts?: { private?: boolean }): void {
 }
 
 export function useTabState(initialPath: string, isPrivate: boolean = false): UseTabResult {
-  const [path, setPath] = useState<string>(initialPath);
+  // Path and history live in one value. navRef is the source of truth for the
+  // actions and is updated synchronously, so two navigations in the same tick
+  // build on each other; the state copy is what renders.
+  const navRef = useRef<NavState>(navInit(initialPath));
+  const [nav, setNavState] = useState<NavState>(navRef.current);
+  const { path, back: historyBack, forward: historyForward } = nav;
   const [entries, setEntries] = useState<FileEntry[]>([]);
   const [gitInfo, setGitInfo] = useState<GitInfo | null>(null);
   const [selected, setSelected] = useState<number[]>([]);
@@ -137,39 +143,50 @@ export function useTabState(initialPath: string, isPrivate: boolean = false): Us
   const [foldersFirst, setFoldersFirst] = useState<boolean>(true);
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
-  const [historyBack, setHistoryBack] = useState<string[]>([]);
-  const [historyForward, setHistoryForward] = useState<string[]>([]);
   const [refreshTick, setRefreshTick] = useState<number>(0);
   const [tagFilter, setTagFilter] = useState<string | null>(null);
 
-  const pathRef = useRef(path);
   const showHiddenRef = useRef(showHidden);
-  useEffect(() => { pathRef.current = path; }, [path]);
   useEffect(() => { showHiddenRef.current = showHidden; }, [showHidden]);
 
-  const fetchAll = useCallback(async (p: string, hidden: boolean) => {
-    setLoading(true);
-    setError(null);
+  // Only the latest fetch may write results, so a slow listing (or error) for
+  // a folder we've already left can't overwrite the current one. A quiet fetch
+  // re-reads the same folder (poll, fs event, refresh) and keeps the current
+  // rows or error on screen until the result arrives, so nothing blinks.
+  const fetchSeq = useRef(0);
+  const fetchAll = useCallback(async (p: string, hidden: boolean, quiet = false) => {
+    const seq = ++fetchSeq.current;
+    if (!quiet) {
+      setLoading(true);
+      setError(null);
+    }
     try {
       const [dir, git] = await Promise.all([
-        listDir(p, hidden),
+        readDir(p, hidden),
         gitStatus(p),
       ]);
+      if (seq !== fetchSeq.current) return;
+      setError(null);
       setEntries(dir);
       setGitInfo(git);
     } catch (e) {
+      if (seq !== fetchSeq.current) return;
       setError(e instanceof Error ? e.message : String(e));
       setEntries([]);
       setGitInfo(null);
     } finally {
-      setLoading(false);
+      if (seq === fetchSeq.current) setLoading(false);
     }
   }, []);
 
+  const fetchedKey = useRef("");
   useEffect(() => {
     if (!path) return;
     const handle = window.setTimeout(() => {
-      void fetchAll(path, showHidden);
+      const key = `${showHidden}:${path}`;
+      const quiet = key === fetchedKey.current;
+      fetchedKey.current = key;
+      void fetchAll(path, showHidden, quiet);
     }, 60);
     return () => window.clearTimeout(handle);
   }, [path, showHidden, refreshTick, fetchAll]);
@@ -192,7 +209,7 @@ export function useTabState(initialPath: string, isPrivate: boolean = false): Us
       if (disposed) return;
       const payload = typeof evt.payload === "string" ? evt.payload : "";
       if (normalizePath(payload) === target) {
-        void fetchAll(pathRef.current, showHiddenRef.current);
+        void fetchAll(navRef.current.path, showHiddenRef.current, true);
       }
     }).then(fn => {
       if (disposed) {
@@ -203,7 +220,7 @@ export function useTabState(initialPath: string, isPrivate: boolean = false): Us
     }).catch(() => { /* ignore */ });
 
     const safetyId = window.setInterval(() => {
-      void fetchAll(pathRef.current, showHiddenRef.current);
+      void fetchAll(navRef.current.path, showHiddenRef.current, true);
     }, 30000);
 
     return () => {
@@ -222,45 +239,36 @@ export function useTabState(initialPath: string, isPrivate: boolean = false): Us
     setAnchorIndex(0);
   };
 
+  // Side effects stay out of state updaters: StrictMode runs updaters twice,
+  // which used to push every history entry twice.
+  const commitNav = (next: NavState): boolean => {
+    if (next === navRef.current) return false;
+    navRef.current = next;
+    setNavState(next);
+    resetNav();
+    return true;
+  };
+
   const goTo = useCallback((next: string) => {
-    setPath(prev => {
-      if (prev === next) return prev;
-      setHistoryBack(h => [...h, prev]);
-      setHistoryForward([]);
-      resetNav();
-      // Fire-and-forget: keep the recent list warm for File > Open Recent
-      // and Bookmarks > RECENT without blocking navigation. Private tabs
-      // opt out so the recent list stays clean.
-      if (!isPrivate) void appendRecent(next);
-      return next;
-    });
+    if (!commitNav(navGoTo(navRef.current, next))) return;
+    // Fire-and-forget: keep the recent list warm for File > Open Recent
+    // and Bookmarks > RECENT without blocking navigation. Private tabs
+    // opt out so the recent list stays clean.
+    if (!isPrivate) void appendRecent(next);
   }, [isPrivate]);
 
   const back = useCallback(() => {
-    setHistoryBack(h => {
-      if (h.length === 0) return h;
-      const prev = h[h.length - 1];
-      setHistoryForward(f => [...f, pathRef.current]);
-      setPath(prev);
-      resetNav();
-      return h.slice(0, -1);
-    });
+    commitNav(navBack(navRef.current));
   }, []);
 
   const forward = useCallback(() => {
-    setHistoryForward(f => {
-      if (f.length === 0) return f;
-      const next = f[f.length - 1];
-      setHistoryBack(h => [...h, pathRef.current]);
-      setPath(next);
-      resetNav();
-      return f.slice(0, -1);
-    });
+    commitNav(navForward(navRef.current));
   }, []);
 
   const up = useCallback(() => {
-    const parent = parentPath(pathRef.current);
-    if (parent && parent !== pathRef.current) goTo(parent);
+    const cur = navRef.current.path;
+    const parent = parentPath(cur);
+    if (parent && parent !== cur) goTo(parent);
   }, [goTo]);
 
   const refresh = useCallback(() => {
@@ -268,8 +276,10 @@ export function useTabState(initialPath: string, isPrivate: boolean = false): Us
   }, []);
 
   const clearHistory = useCallback(() => {
-    setHistoryBack([]);
-    setHistoryForward([]);
+    const next = navClear(navRef.current);
+    if (next === navRef.current) return;
+    navRef.current = next;
+    setNavState(next);
   }, []);
 
   const state: TabState = useMemo(() => ({

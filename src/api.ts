@@ -173,6 +173,13 @@ export function listDir(path: string, showHidden: boolean): Promise<FileEntry[]>
   );
 }
 
+/** Like listDir, but rejects when the folder can't be read, so the file pane
+ *  can say why instead of looking empty. */
+export function readDir(path: string, showHidden: boolean): Promise<FileEntry[]> {
+  if (!TAURI_AVAILABLE) return Promise.resolve(mockRows());
+  return invoke<FileEntry[]>("list_dir", { path, showHidden });
+}
+
 export function drives(): Promise<Drive[]> {
   return safe(() => invoke<Drive[]>("drives"), []);
 }
