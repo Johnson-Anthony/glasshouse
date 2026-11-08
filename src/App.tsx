@@ -29,7 +29,6 @@ import {
   type BulkRenameItem,
   type PasteSpecialItem,
   type SavedRemote,
-  type TabDef,
   type TweakState,
   type ContextKind,
   type GitOutputState,
@@ -48,6 +47,7 @@ import {
   type UseTabResult,
 } from "./state";
 import { HANDLERS, type HandlerCtx } from "./handlers";
+import { makeTab, closeTab, closeOtherTabs, moveTab as moveTabIn, type TabRecord } from "./tabs";
 import { canExtractArchive } from "./handlers/archive";
 import { IS_WINDOWS } from "./platform";
 import { TerminalDrawer } from "./Terminal";
@@ -115,10 +115,11 @@ const FALLBACK_PATH = IS_WINDOWS ? "C:\\" : "/";
 const GIT_CHORD_MS = 1500;
 
 interface TabShellProps {
-  index: number;
+  id: number;
   initialPath: string;
   isPrivate?: boolean;
-  onReady: (index: number, r: UseTabResult) => void;
+  /** Called with the tab's latest state, and with null when it unmounts. */
+  onReady: (id: number, r: UseTabResult | null) => void;
 }
 
 interface FindInFilesModalProps {
@@ -285,13 +286,14 @@ function FindInFilesModal({ root, onClose, onPick }: FindInFilesModalProps) {
   );
 }
 
-function TabShell({ index, initialPath, isPrivate, onReady }: TabShellProps) {
+function TabShell({ id, initialPath, isPrivate, onReady }: TabShellProps) {
   const tab = useTabState(initialPath, !!isPrivate);
   const onReadyRef = useRef(onReady);
   useEffect(() => { onReadyRef.current = onReady; });
   useEffect(() => {
-    onReadyRef.current(index, tab);
-  }, [index, tab.state, tab.actions]);
+    onReadyRef.current(id, tab);
+  }, [id, tab]);
+  useEffect(() => () => onReadyRef.current(id, null), [id]);
   return null;
 }
 
@@ -408,9 +410,7 @@ export function App() {
     } catch { return TWEAK_DEFAULTS; }
   });
 
-  const [initialPaths, setInitialPaths] = useState<string[] | null>(null);
-  const [privateTabs, setPrivateTabs] = useState<boolean[]>([]);
-  const [tabs, setTabs] = useState<TabDef[]>([]);
+  const [tabs, setTabs] = useState<TabRecord[]>([]);
   const [activeTab, setActiveTab] = useState(0);
   const [palOpen, setPalOpen] = useState(false);
   const [ctx, setCtx] = useState<CtxState | null>(null);
@@ -420,6 +420,7 @@ export function App() {
   const [showSidebar, setShowSidebar] = useState(true);
   const [showStatusBar, setShowStatusBar] = useState(true);
 
+  // Keyed by TabRecord.id, never by position.
   const [tabHandles, setTabHandles] = useState<Record<number, UseTabResult>>({});
   const [searchQuery, setSearchQuery] = useState("");
   const [paneFocused, setPaneFocused] = useState(false);
@@ -510,9 +511,7 @@ export function App() {
       const home = await homeDir();
       const p = home ?? FALLBACK_PATH;
       setHomePath(home);
-      setInitialPaths([p]);
-      setTabs([{ ic: "", color: "var(--blue)", label: p }]);
-      setPrivateTabs([false]);
+      setTabs([makeTab(p, { color: "var(--blue)" })]);
       if (home) {
         const remotesPath = joinPath(joinPath(home, ".glasshouse"), "remotes.json");
         try {
@@ -554,7 +553,8 @@ export function App() {
     localStorage.setItem("rice.tweaks", JSON.stringify(state));
   }, [state]);
 
-  const activeHandle: UseTabResult | undefined = tabHandles[activeTab];
+  const activeTabId = tabs[activeTab]?.id;
+  const activeHandle: UseTabResult | undefined = activeTabId === undefined ? undefined : tabHandles[activeTabId];
 
   useEffect(() => {
     if (!activeHandle) return;
@@ -840,84 +840,42 @@ export function App() {
 
   const openNewTab = () => {
     const seed = activeHandle?.state.path ?? FALLBACK_PATH;
-    setTabs(prev => [...prev, { ic: "", color: "var(--cyan)", label: seed }]);
-    setInitialPaths(prev => (prev ? [...prev, seed] : [seed]));
-    setPrivateTabs(prev => [...prev, false]);
+    setTabs(prev => [...prev, makeTab(seed)]);
+  };
+
+  // Each TabShell drops its own handle when it unmounts, so closing only
+  // edits the list.
+  const applyTabList = (next: { tabs: TabRecord[]; active: number }) => {
+    setTabs(next.tabs);
+    setActiveTab(next.active);
   };
 
   const closeTabAt = (i: number) => {
-    setTabs(prev => prev.filter((_, k) => k !== i));
-    setInitialPaths(prev => (prev ? prev.filter((_, k) => k !== i) : prev));
-    setPrivateTabs(prev => prev.filter((_, k) => k !== i));
-    setTabHandles(prev => {
-      const next: Record<number, UseTabResult> = {};
-      Object.entries(prev).forEach(([k, v]) => {
-        const ki = Number(k);
-        if (ki < i) next[ki] = v;
-        else if (ki > i) next[ki - 1] = v;
-      });
-      return next;
-    });
-    if (activeTab >= i && activeTab > 0) setActiveTab(activeTab - 1);
+    applyTabList(closeTab({ tabs, active: activeTab }, i));
   };
 
   const THEMES = ["tokyo-night","catppuccin-mocha","gruvbox-dark","rose-pine","everforest","solarized-dark","green-crt","synthwave"];
 
   const duplicateTabAt = (i: number) => {
-    const seed = initialPaths?.[i] ?? FALLBACK_PATH;
+    const t = tabs[i];
+    if (!t) return;
     // Prefer the live path of that tab's handle if available.
-    const live = tabHandles[i]?.state.path ?? seed;
-    setTabs(prev => [...prev, { ic: "", color: "var(--cyan)", label: live }]);
-    setInitialPaths(prev => (prev ? [...prev, live] : [live]));
-    setPrivateTabs(prev => [...prev, prev[i] ?? false]);
+    const live = tabHandles[t.id]?.state.path ?? t.initialPath;
+    setTabs(prev => [...prev, makeTab(live, { private: t.private })]);
   };
 
   const closeOtherTabsAt = (keep: number) => {
-    setTabs(prev => prev.filter((_, k) => k === keep));
-    setInitialPaths(prev => (prev ? prev.filter((_, k) => k === keep) : prev));
-    setPrivateTabs(prev => prev.filter((_, k) => k === keep));
-    setTabHandles(prev => {
-      const v = prev[keep];
-      const next: Record<number, UseTabResult> = {};
-      if (v) next[0] = v;
-      return next;
-    });
-    setActiveTab(0);
+    applyTabList(closeOtherTabs({ tabs, active: activeTab }, keep));
   };
 
   const openPathInNewTab = (p: string, isPrivate: boolean = false) => {
-    setTabs(prev => [...prev, { ic: "", color: isPrivate ? "var(--magenta, #bb9af7)" : "var(--cyan)", label: isPrivate ? `(private) ${p}` : p }]);
-    setInitialPaths(prev => (prev ? [...prev, p] : [p]));
-    setPrivateTabs(prev => [...prev, isPrivate]);
+    setTabs(prev => [...prev, makeTab(p, { private: isPrivate })]);
   };
 
   useEffect(() => {
     registerTabListMutator({
       moveTab: (from, to) => {
-        if (from === to) return;
-        setTabs(prev => {
-          if (from < 0 || from >= prev.length || to < 0 || to >= prev.length) return prev;
-          const next = [...prev];
-          const [moved] = next.splice(from, 1);
-          next.splice(to, 0, moved);
-          return next;
-        });
-        setInitialPaths(prev => {
-          if (!prev) return prev;
-          if (from < 0 || from >= prev.length || to < 0 || to >= prev.length) return prev;
-          const next = [...prev];
-          const [moved] = next.splice(from, 1);
-          next.splice(to, 0, moved);
-          return next;
-        });
-        setPrivateTabs(prev => {
-          if (from < 0 || from >= prev.length || to < 0 || to >= prev.length) return prev;
-          const next = [...prev];
-          const [moved] = next.splice(from, 1);
-          next.splice(to, 0, moved);
-          return next;
-        });
-        setActiveTab(cur => (cur === from ? to : cur));
+        applyTabList(moveTabIn({ tabs, active: activeTab }, from, to));
       },
       newTab: (path, opts) => {
         const p = path ?? activeHandle?.state.path ?? FALLBACK_PATH;
@@ -926,7 +884,7 @@ export function App() {
       },
     });
     return () => registerTabListMutator(null);
-  }, [tabs.length, activeHandle]);
+  }, [tabs, activeTab, activeHandle]);
 
   const handleMenuCommand = (label: string) => {
     // Handle context-sourced commands (sidebar / tab / breadcrumb right-click)
@@ -2128,12 +2086,15 @@ export function App() {
           onNavigate={(p) => handle?.actions.goTo(p)}
           onOpenFile={(p) => { void openWithDefault(p); }}
           onActivate={() => setFocusedPane("files")}
+          error={handle?.state.error ?? null}
         />
       );
     }
     return (
       <FilePane
         cutPaths={cutPaths}
+        error={handle?.state.error ?? null}
+        loading={handle?.state.loading ?? false}
         paneRootRef={pane0RootRef}
         onActivate={() => setFocusedPane("files")}
         files={rows}
@@ -2199,13 +2160,19 @@ export function App() {
 
   return (
     <div className="app">
-      {initialPaths && initialPaths.map((p, i) => (
+      {tabs.map(t => (
         <TabShell
-          key={i}
-          index={i}
-          initialPath={p}
-          isPrivate={privateTabs[i]}
-          onReady={(idx, r) => setTabHandles(prev => (prev[idx] === r ? prev : { ...prev, [idx]: r }))}
+          key={t.id}
+          id={t.id}
+          initialPath={t.initialPath}
+          isPrivate={t.private}
+          onReady={(id, r) => setTabHandles(prev => {
+            if (r) return prev[id] === r ? prev : { ...prev, [id]: r };
+            if (!(id in prev)) return prev;
+            const next = { ...prev };
+            delete next[id];
+            return next;
+          })}
         />
       ))}
       <Titlebar

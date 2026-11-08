@@ -15,6 +15,8 @@ export interface MillerViewProps {
   onNavigate: (path: string) => void;
   onOpenFile: (path: string) => void;
   onActivate?: () => void;
+  /** Why the current folder couldn't be listed. */
+  error?: string | null;
 }
 
 interface Indexed {
@@ -56,6 +58,7 @@ export function MillerView({
   onNavigate,
   onOpenFile,
   onActivate,
+  error,
 }: MillerViewProps) {
   const parent = parentPath(cwd);
   const atRoot = normalizePath(parent) === normalizePath(cwd);
@@ -148,7 +151,9 @@ export function MillerView({
             {e.kind !== "folder" && <span className="msize">{fmtBytes(e.size)}</span>}
           </div>
         ))}
-        {view.length === 0 && <div className="mrow dim">empty</div>}
+        {view.length === 0 && (error
+          ? <div className="mrow merror" role="alert" title={error}>can't read: {error}</div>
+          : <div className="mrow dim">empty</div>)}
       </div>
       <div className="mcol">
         {focused && focused.kind === "folder" && childView && (
