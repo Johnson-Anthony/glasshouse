@@ -172,9 +172,7 @@ Merge order is the table order: small, contained fixes go first, and broad chang
 ## presentation (docs + small code; added by the user 2026-11-08; **merged**)
 The public copy is rewritten in a plain voice: README, the Pages site (same design), package and crate descriptions, the window title, the release-notes template, the settings key (`glasshouse.tweaks`) and the layout export file (`.glasshouserc`). The project's old nickname is gone from the code and docs.
 - **Check:** `git grep -i 'r[i]ce' -- ':!src/assets/fonts'` must find nothing. The bundled Nerd Font files match only inside third-party glyph-name data.
-- **Still to do, with the user's OK:**
-  - apply the GitHub description and topics proposed in `docs/plans/completed/presentation.md`;
-  - push `main`, so Pages updates.
+- **Done 2026-11-08:** the GitHub description and topics are applied, and the README and site text are published as `4b8043a`. The code-side renames reach GitHub with the full push at the end of the pass.
 - **The user decides separately:** git history and the unmerged `origin/feature` branch.
 
 ## split-big-files (both: only after every other task is merged)
