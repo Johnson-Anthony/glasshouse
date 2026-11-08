@@ -10,7 +10,7 @@ Line numbers are from commit `14c68bd` and drift, so search by name. Items marke
 | symlink-safety | Rust | **merged** (60e4eef) |
 | paste-conflicts | frontend | **merged** (2b26099) |
 | create-rename-conflicts | frontend | **merged** (ebd1571) |
-| no-clobber-fs | Rust, small | queued; starts after async-commands merges (both touch `write_text`, `make_dir`, `rename_entry`) |
+| no-clobber-fs | Rust, small | running (backend-bugs session) |
 | link-display | both, low priority | queued (found by linux-parity) |
 | ui-fixes | frontend | **merged** (dfe77ca) |
 | tab-state | frontend | **merged** (971da66) |
@@ -20,7 +20,9 @@ Line numbers are from commit `14c68bd` and drift, so search by name. Items marke
 | backend-bugs | Rust | **merged** (3ece93d) |
 | linux-parity | Rust + a little frontend | **merged** (8d2b0a2) |
 | command-security | Rust + config | running |
-| async-commands | Rust | running |
+| async-commands | Rust | **merged** (9c3eefe) |
+| pty-writer | Rust, small | queued; after command-security merges (found by async-commands) |
+| op-progress | both | queued; after dead-code's Rust part and split-big-files (found by async-commands) |
 | dead-code | both | frontend part **merged** (d61379a); Rust part starts after command-security merges (both edit the command list) |
 | unsent-labels | frontend | running (dead-code session, while it waits for a Rust slot) |
 | test-coverage | both | queued |
@@ -147,6 +149,16 @@ The frontend now checks names before creating or renaming, but a few millisecond
 - `git_branch_list` turns per-branch rev-list failures into (0,0). Return or flag the error while you're changing it (found by backend-bugs).
 - Consider making `list_dir`'s git status cheaper (cache it, or scope it to the directory). Progress events for long operations are optional: plan them, but don't build them unless they're small.
 - Check that the UI stays responsive, for example while hashing a large file.
+
+## pty-writer (Rust, small; found 2026-11-08 by async-commands)
+- `pty_write` stays on the main thread so keystrokes arrive in order, but it can block there while a pty's input buffer is full. For example, pasting more than about 4 KB while a program that doesn't read stdin is running freezes the UI.
+- Fix: a writer thread per session in `pty.rs`, fed by a channel, so `pty_write` only enqueues. Keep the order, and drop the queue when the session exits.
+- Start after command-security merges, since it may change the pty command signatures.
+
+## op-progress (both; found 2026-11-08 by async-commands)
+- Long operations (hash, copy, find) send no progress and can't be cancelled.
+- Design is in `docs/plans/completed/async-commands.md`: an `op_id` per call, an `op-progress` event, and `cancel_op` setting an `AtomicBool`.
+- Start after dead-code's Rust part (shared hash helper) and split-big-files.
 
 ## dead-code (both; one removal per commit)
 - `scripts/audit-wiring.mjs` reads the deleted `design/project/src/*.jsx` (L26–27). Either rework it against `data.ts` and the handlers, which would still catch unhandled labels and "theater" handlers, or delete it. If you keep it, consider running it in CI.

@@ -1,6 +1,12 @@
 # Progress
 
 ## Done
+- 2026-11-08: Merged `async-commands` (9c3eefe).
+  - 54 commands and `pty_spawn` run off the main thread (`#[tauri::command(async)]`). A 25 s hash no longer freezes the UI; a main-thread ping answered in a 1 ms median during one.
+  - Commands that rely on call order stay on the main thread: pins, tags and recents config, watch_dir and unwatch_dir, and pty_write, pty_resize and pty_kill.
+  - Git labels in `list_dir` scan only the listed folder, about 3x faster in a big repo, and rows show before the whole-repo `git_status` returns.
+  - `git_branch_list` makes one `for-each-ref` call, and a deleted upstream is reported as `upstream_gone`.
+  - See `docs/decisions/2026-11-08-async-commands-threading.md`.
 - 2026-11-08: Merged `dead-code`'s frontend part (d61379a).
   - It removed 19 handler cases that App.tsx always handled first, plus HexDialog, the mock data and four unused api.ts wrappers.
   - It also removed three menu toggles that did nothing: Show Ignored, Show Checksums and Browse archive in place (see `docs/decisions/2026-11-08-dead-code-toggles.md`).
@@ -36,7 +42,8 @@
 
 ## Broken / known issues
 - A few-ms race remains between the frontend's name check and the backend write, because `write_text`, `make_dir` and `rename_entry` still overwrite (task `no-clobber-fs`).
-- All Rust commands are synchronous and run on the main thread, so heavy operations freeze the UI (task `async-commands`).
+- `pty_write` can still block the main thread when a pty's input buffer is full, for example on a large paste into a program that isn't reading (task `pty-writer`).
+- Windows is untested for the scoped git-label scan. If `list_dir_git_labels_scan_only_the_listed_folder` fails on Windows CI after the first push, the scan falls back to the whole repo there: labels stay correct, but the test needs adjusting.
 - Custom commands have no permission gating, and devtools are enabled in release builds (task `command-security`).
 - `origin/feature` has one unmerged commit from April, `ddb5466` (14 files, +2470/-492, merge base 23 commits behind `main`, so it won't merge cleanly). It contains: a Windows terminal-launch probe (`terminal_probe.rs`, HKCU DelegationTerminal, wt/DelegatedConsole), a menubar outside-click fix, and assorted polish (terminal drawer, themed dialogs, sidebar keyboard/drag-and-drop, remote manager, private tabs, About). Its "drive label dedup" is one Sidebar line, which `linux-parity` ports. The rest is undecided: cherry-pick parts or drop it.
 - The `rust-version = "1.77"` in `Cargo.toml` is stale: the locked dependencies need rustc 1.88 or newer.
