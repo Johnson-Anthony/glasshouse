@@ -15,6 +15,8 @@ import { getVersion } from "@tauri-apps/api/app";
 import { fuzzyFilter } from "./fuzzy";
 import { basename, joinPath, parentPath, pathSegments, splitBreadcrumb } from "./paths";
 import type { SkipReason, TransferItem, TransferOp, TransferStep } from "./transfer";
+import { checkRenames, orderRenames } from "./names";
+import { IS_WINDOWS } from "./platform";
 
 // ─── dynamic menu expansion ────────────────────────────────────────────────
 // Menu trees include `{ kind: "dynamic", source: … }` sentinel nodes. When a
@@ -3430,6 +3432,8 @@ export interface BulkRenameDialogProps {
   onClose: () => void;
   /** Called once per file, sequentially, to perform the rename server-side. */
   renameOne: (from: string, to: string) => Promise<void>;
+  /** Every name in a folder, hidden ones included; rejects if unreadable. */
+  listNames: (dir: string) => Promise<string[]>;
   /** Called after all renames complete (or threw) so parent can refresh. */
   onDone: () => void;
 }
@@ -3490,7 +3494,7 @@ function expandNumbering(s: string, seq: number): string {
   });
 }
 
-export function BulkRenameDialog({ items, onClose, renameOne, onDone }: BulkRenameDialogProps) {
+export function BulkRenameDialog({ items, onClose, renameOne, listNames, onDone }: BulkRenameDialogProps) {
   const [find, setFind] = useState("");
   const [replace, setReplace] = useState("");
   const [prefix, setPrefix] = useState("");
@@ -3503,8 +3507,20 @@ export function BulkRenameDialog({ items, onClose, renameOne, onDone }: BulkRena
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const firstInputRef = useRef<HTMLInputElement>(null);
+  // What's already in each affected folder, so the preview can flag names
+  // that would replace something outside the batch.
+  const dirs = useMemo(() => [...new Set(items.map(it => parentPath(it.path)))], [items]);
+  const [listings, setListings] = useState<Map<string, string[]> | null>(null);
 
   useEffect(() => { firstInputRef.current?.focus(); }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    Promise.all(dirs.map(async d => [d, await listNames(d)] as const))
+      .then(entries => { if (!cancelled) setListings(new Map(entries)); })
+      .catch(e => { if (!cancelled) setErr(`can't read the folder: ${e instanceof Error ? e.message : String(e)}`); });
+    return () => { cancelled = true; };
+  }, [dirs, listNames]);
 
   useEffect(() => {
     const h = (e: KeyboardEvent) => {
@@ -3540,44 +3556,68 @@ export function BulkRenameDialog({ items, onClose, renameOne, onDone }: BulkRena
     });
   }, [items, find, replace, prefix, suffix, numberEnabled, numberStart, numberDigits, caseMode]);
 
-  // Collisions: any duplicate target name in the batch, or no-op identity.
-  const { collisions, changedCount } = useMemo(() => {
-    const seen = new Map<string, number>();
-    for (const p of preview) {
-      seen.set(p.to, (seen.get(p.to) ?? 0) + 1);
-    }
-    const collisionSet = new Set<string>();
-    for (const [name, count] of seen) {
-      if (count > 1) collisionSet.add(name);
-      if (!name) collisionSet.add(name);
+  // Problems by row: an invalid or duplicate name, or one already used by
+  // something outside the batch.
+  const { problems, changedCount } = useMemo(() => {
+    const found = new Map<number, string>();
+    for (const dir of dirs) {
+      const rows = preview.map((_, i) => i).filter(i => parentPath(preview[i].path) === dir);
+      const names = listings?.get(dir) ?? [];
+      checkRenames(rows.map(i => preview[i]), names, IS_WINDOWS)
+        .forEach((p, j) => { if (p) found.set(rows[j], p); });
     }
     let changed = 0;
     for (const p of preview) if (p.to !== p.from) changed++;
-    return { collisions: collisionSet, changedCount: changed };
-  }, [preview]);
+    return { problems: found, changedCount: changed };
+  }, [preview, dirs, listings]);
   void numberDigits;
 
-  const hasCollision = collisions.size > 0;
-  const canRun = !running && !hasCollision && changedCount > 0;
+  const hasCollision = problems.size > 0;
+  const canRun = !running && listings !== null && !hasCollision && changedCount > 0;
 
   const run = async () => {
     if (!canRun) return;
-    const plan = preview.filter(p => p.to !== p.from);
     setRunning(true);
     setErr(null);
-    setProgress({ done: 0, total: plan.length });
+    // Re-read each folder (the dialog may have been open a while) and order
+    // the renames so none lands on a name that's still in use.
+    const steps: Array<{ dir: string; from: string; to: string }> = [];
     try {
-      for (let i = 0; i < plan.length; i++) {
-        const item = plan[i];
-        const dst = joinPath(parentPath(item.path), item.to);
-        await renameOne(item.path, dst);
-        setProgress({ done: i + 1, total: plan.length });
+      for (const dir of dirs) {
+        const moves = preview.filter(p => p.to !== p.from && parentPath(p.path) === dir);
+        if (moves.length === 0) continue;
+        const names = await listNames(dir);
+        const problem = checkRenames(moves, names, IS_WINDOWS).find(p => p !== null);
+        if (problem) throw new Error(problem);
+        for (const s of orderRenames(moves, names, IS_WINDOWS)) steps.push({ dir, ...s });
+      }
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+      setRunning(false);
+      return;
+    }
+    setProgress({ done: 0, total: steps.length });
+    const done: typeof steps = [];
+    try {
+      for (const s of steps) {
+        await renameOne(joinPath(s.dir, s.from), joinPath(s.dir, s.to));
+        done.push(s);
+        setProgress({ done: done.length, total: steps.length });
       }
       onDone();
       onClose();
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
-      setErr(msg);
+      // Put back what already ran, newest first, so nothing is left half
+      // renamed or under a temporary name.
+      let undone = true;
+      for (const s of [...done].reverse()) {
+        try { await renameOne(joinPath(s.dir, s.to), joinPath(s.dir, s.from)); }
+        catch { undone = false; }
+      }
+      setErr(done.length === 0 ? msg
+        : undone ? `${msg} (the renames before it were put back)`
+          : `${msg} (some earlier renames couldn't be put back; check the folder)`);
       onDone();
     } finally {
       setRunning(false);
@@ -3623,7 +3663,7 @@ export function BulkRenameDialog({ items, onClose, renameOne, onDone }: BulkRena
             {running
               ? `renaming ${progress?.done ?? 0}/${progress?.total ?? 0}…`
               : hasCollision
-                ? `${collisions.size} collision${collisions.size === 1 ? "" : "s"}`
+                ? `${problems.size} problem${problems.size === 1 ? "" : "s"}`
                 : `${changedCount} change${changedCount === 1 ? "" : "s"}`}
           </span>
           <button
@@ -3742,10 +3782,11 @@ export function BulkRenameDialog({ items, onClose, renameOne, onDone }: BulkRena
             <span>after</span>
           </div>
           {preview.map((p, i) => {
-            const dup = collisions.has(p.to);
+            const problem = problems.get(i);
+            const dup = problem !== undefined;
             const unchanged = p.to === p.from;
             return (
-              <div key={i} style={{
+              <div key={i} title={problem} style={{
                 display: "grid", gridTemplateColumns: "1fr 1fr",
                 padding: "2px 12px",
                 background: dup ? "rgba(255,80,80,0.12)" : "transparent",
@@ -3780,7 +3821,7 @@ export function BulkRenameDialog({ items, onClose, renameOne, onDone }: BulkRena
         }}>
           {hasCollision && (
             <span style={{ color: "var(--red, #f7768e)", fontSize: 12, marginRight: "auto" }}>
-              duplicate target names — resolve before renaming
+              {problems.values().next().value}{problems.size > 1 ? ` (+${problems.size - 1} more)` : ""} — resolve before renaming
             </span>
           )}
           <button

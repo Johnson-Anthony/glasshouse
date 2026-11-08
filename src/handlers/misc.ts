@@ -4,7 +4,8 @@ import { IS_WINDOWS } from "../platform";
 import { basename, joinPath, parentPath } from "../paths";
 import { getVersion } from "@tauri-apps/api/app";
 import { failureDetails, runTransfer, summarize } from "../transfer";
-import { asItems, pushTransferUndo, transferDeps } from "../transferUi";
+import { asItems, assertFree, namesIn, pushTransferUndo, transferDeps } from "../transferUi";
+import { freeNewName, nameProblem } from "../names";
 import {
   makeDir,
   writeText,
@@ -22,18 +23,20 @@ import {
 const REPO_URL = "https://github.com/Johnson-Anthony/glasshouse";
 
 async function createFileAt(ctx: HandlerCtx, name: string, body: string): Promise<void> {
+  await assertFree(ctx.cwd, name);
   const path = joinPath(ctx.cwd, name);
   await writeText(path, body);
   ctx.refresh();
 }
 
 async function promptAndCreate(ctx: HandlerCtx, defaultName: string, body = ""): Promise<void> {
+  const taken = await namesIn(ctx.cwd);
   const name = await dialogs.showPrompt({
     title: "new file",
     message: "file name:",
-    initialValue: defaultName,
+    initialValue: freeNewName(defaultName, false, taken.has),
     placeholder: defaultName,
-    validate: (v) => v.trim() ? null : "name required",
+    validate: (v) => nameProblem(v.trim(), taken),
   });
   if (name == null || name.trim() === "") return;
   await createFileAt(ctx, name.trim(), body);
@@ -136,14 +139,16 @@ async function createFromTemplate(ctx: HandlerCtx): Promise<void> {
 }
 
 async function createPythonModule(ctx: HandlerCtx): Promise<void> {
+  const taken = await namesIn(ctx.cwd);
   const name = await dialogs.showPrompt({
     title: "new python module",
     message: "module name (creates a folder with __init__.py):",
     placeholder: "my_module",
-    validate: (v) => v.trim() ? null : "name required",
+    validate: (v) => nameProblem(v.trim(), taken),
   });
   if (name == null || name.trim() === "") return;
   const mod = name.trim();
+  await assertFree(ctx.cwd, mod);
   const dir = joinPath(ctx.cwd, mod);
   await makeDir(dir);
   await writeText(joinPath(dir, "__init__.py"), "");
@@ -424,6 +429,18 @@ export const miscHandler: Handler = async (label, ctx) => {
       const name = text.trim();
       if (!name) {
         dialogs.showToast({ message: "clipboard text is empty", variant: "info" });
+        return true;
+      }
+      const self = basename(target);
+      if (name === self) return true;
+      try {
+        await assertFree(parentPath(target), name, self);
+      } catch (e) {
+        await dialogs.showAlert({
+          title: "can't rename",
+          message: e instanceof Error ? e.message : String(e),
+          variant: "error",
+        });
         return true;
       }
       const dest = joinPath(parentPath(target), name);

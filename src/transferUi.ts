@@ -1,7 +1,9 @@
-// The app's side of transfer.ts: the real fs calls, the conflict question,
-// and the toasts and undo entries every copy/move-into-a-folder shares.
+// The app's side of transfer.ts and names.ts: the real fs calls, the conflict
+// question, the toasts and undo entries every copy/move-into-a-folder shares,
+// and the name checks before creating or renaming.
 import { copyEntry, deleteEntry, moveEntry, moveToTrash, readDir } from "./api";
 import { dialogs } from "./components";
+import { NameSet, nameProblem } from "./names";
 import { IS_WINDOWS } from "./platform";
 import { pushUndo } from "./state";
 import {
@@ -69,3 +71,21 @@ export function pushTransferUndo(res: TransferResult, op: TransferOp, label: str
 /** Transfer items from parallel path/kind lists (kinds as FileEntry.kind). */
 export const asItems = (paths: string[], kinds?: string[]): TransferItem[] =>
   paths.map((path, i) => ({ path, isDir: kinds?.[i] === undefined ? undefined : kinds[i] === "folder" }));
+
+/** Every name in `dir` right now, hidden ones included. Rejects if `dir`
+ *  can't be read, so callers never create or rename blind. */
+export async function listNames(dir: string): Promise<string[]> {
+  return (await readDir(dir, true)).map(e => e.name);
+}
+
+/** `listNames` as a NameSet for this platform. */
+export async function namesIn(dir: string): Promise<NameSet> {
+  return new NameSet(await listNames(dir), IS_WINDOWS);
+}
+
+/** Throws if `name` can't be used in `dir`. Called right before writing,
+ *  since a prompt may have been open for a while. */
+export async function assertFree(dir: string, name: string, self?: string): Promise<void> {
+  const problem = nameProblem(name, await namesIn(dir), self);
+  if (problem) throw new Error(problem);
+}
