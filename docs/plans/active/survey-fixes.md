@@ -10,7 +10,8 @@ Line numbers are from commit `14c68bd` and drift, so search by name. Items marke
 | symlink-safety | Rust | **merged** (60e4eef) |
 | paste-conflicts | frontend | running (found by symlink-safety) |
 | ui-fixes | frontend | **merged** (dfe77ca) |
-| tab-state | frontend | running |
+| tab-state | frontend | **merged** (971da66) |
+| undo-redo | frontend | running (found by tab-state; same session) |
 | platform-paths | frontend | **merged** (2d9fcaf) |
 | backend-bugs | Rust | running |
 | linux-parity | Rust + a little frontend | running |
@@ -48,6 +49,13 @@ Merge order is the table order: small, contained fixes go first, and broad chang
   - Check whether `performDrop` (it already skips `src === dst`) and the FolderPicker "Move to…" flow need the same.
   - Keep the undo entries correct; they record src/dst pairs.
   - Add vitest coverage for the name-picking helper.
+
+## undo-redo (frontend; found 2026-11-08 by tab-state)
+- **Redo is broken.** `UndoEntry` only has `inverse`, and redo calls that same inverse again. For example, after undoing a rename, redo tries to rename back a second time and fails with "redo failed". Add a forward action to `UndoEntry` and have redo call it. There are about 13 `pushUndo` sites in `src/App.tsx`.
+- **Coordinate with paste-conflicts:** that branch is changing Paste's undo entries. Do Paste's entry last, and `git merge main` before finishing to pick up paste-conflicts if it has merged by then.
+- `closeTabAt` lets you close the last tab, which leaves zero tabs. Keep at least one, for example by opening Home.
+- The label-sync effect overwrites a private tab's "(private)" label once you navigate.
+- Add vitest coverage for undo then redo round trips.
 
 ## ui-fixes (frontend, small)
 - **chmod:** `parseInt(v, 8)` accepts partial input ("78" becomes 7, "0o755" becomes 0) and applies the result (`handlers/tools.ts` ~L451, ~L456). Validate strictly, e.g. `/^[0-7]{3,4}$/`.
