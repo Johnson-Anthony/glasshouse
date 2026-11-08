@@ -8,13 +8,13 @@ Line numbers are from commit `14c68bd` and drift, so search by name. Items marke
 | Task | Area | Status |
 |---|---|---|
 | symlink-safety | Rust | **merged** (60e4eef) |
-| paste-conflicts | frontend | done on `claude/cool-shamir-734852`, ready to merge |
+| paste-conflicts | frontend | **merged** (2b26099) |
 | create-rename-conflicts | frontend | running (found by paste-conflicts; same session) |
 | ui-fixes | frontend | **merged** (dfe77ca) |
 | tab-state | frontend | **merged** (971da66) |
 | undo-redo | frontend | running (found by tab-state; same session) |
 | platform-paths | frontend | **merged** (2d9fcaf) |
-| backend-bugs | Rust | running |
+| backend-bugs | Rust | **merged** (3ece93d) |
 | linux-parity | Rust + a little frontend | running |
 | command-security | Rust + config | queued |
 | async-commands | Rust | queued |
