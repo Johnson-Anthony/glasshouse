@@ -1,6 +1,12 @@
 # Progress
 
 ## Done
+- 2026-11-08: Merged `dead-code`'s Rust part (27340c6).
+  - Removed the uncalled commands `ping`, `wsl_to_win`, `set_always_on_top` (with the `window` permission group) and `git_dirty_count` + `git_ahead_behind`. Their logic is still tested through `git_status`. 69 commands remain.
+  - Dropped the dependencies thiserror, anyhow, tokio, walkdir and grep-matcher.
+  - The three hash commands share one read loop.
+  - `rust-version` is 1.88, and Cargo.lock is now format v4.
+  - See `docs/decisions/2026-11-08-dead-code-uncalled-commands.md`.
 - 2026-11-08: Merged `local-fonts` (ff0327c). The font picker's JetBrains Mono, IBM Plex Mono and Fira Code are bundled as the upstream woff2 files, with their OFL texts, so the app makes no Google request at startup. The CSP allows only `*.localhost` origins, and `src/offline.test.ts` keeps it that way.
 - 2026-11-08: Merged `command-security` (885bd2a). See `docs/decisions/2026-11-08-command-security-design.md`.
   - **App ACL:** `src-tauri/permissions/app.toml` puts every command in one of 7 groups, granted to the main window for local pages only. Before this, any page could call all of them. `build.rs` fails the build if a command is missing from it.
@@ -66,4 +72,3 @@
   - Verify Signature on a file named with a curly apostrophe (`Tom’s.exe`).
 - `run_script` kills only the direct child at its 60 s timeout (task `script-kill-tree`). Saved ssh remotes are limited to ASCII host names.
 - `origin/feature` has one unmerged commit from April, `ddb5466` (14 files, +2470/-492, merge base 23 commits behind `main`, so it won't merge cleanly). It contains: a Windows terminal-launch probe (`terminal_probe.rs`, HKCU DelegationTerminal, wt/DelegatedConsole), a menubar outside-click fix, and assorted polish (terminal drawer, themed dialogs, sidebar keyboard/drag-and-drop, remote manager, private tabs, About). Its "drive label dedup" is one Sidebar line, which `linux-parity` ports. The rest is undecided: cherry-pick parts or drop it.
-- The `rust-version = "1.77"` in `Cargo.toml` is stale: the locked dependencies need rustc 1.88 or newer.

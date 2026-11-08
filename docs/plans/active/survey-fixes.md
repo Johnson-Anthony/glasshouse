@@ -24,9 +24,9 @@ Line numbers are from commit `14c68bd` and drift, so search by name. Items marke
 | font-licenses | assets, small | running (command-security session; found by local-fonts) |
 | script-kill-tree | Rust, small | queued (found by command-security) |
 | async-commands | Rust | **merged** (9c3eefe) |
-| pty-writer | Rust, small | queued; next free Rust slot (found by async-commands) |
+| pty-writer | Rust, small | running (async-commands session; found by async-commands) |
 | op-progress | both | queued; after dead-code's Rust part and split-big-files (found by async-commands) |
-| dead-code | both | frontend part **merged** (d61379a); Rust part running |
+| dead-code | both | **merged** (frontend d61379a, Rust 27340c6) |
 | unsent-labels | frontend | **merged** (8828d97) |
 | test-coverage | both | queued |
 | presentation | docs + small code | **merged**; GitHub text awaits the user |

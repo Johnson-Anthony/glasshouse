@@ -11,7 +11,7 @@ glasshouse is meant to be a powerful file manager with a real terminal, so a pag
 **Before:** `build.rs` had no app manifest. tauri 2.10.3 (`Webview::on_message`) ACL-checks app commands only when an app manifest exists ("we only check ACL on plugin commands or if the app defined its ACL manifest"). So every page in any webview, remote origins included, could call all 71 commands.
 
 **Now:**
-- `src-tauri/permissions/app.toml` defines seven permissions, each a direct `commands.allow` list: `files-read`, `files-write`, `git`, `settings`, `launch`, `exec`, `window`.
+- `src-tauri/permissions/app.toml` defines seven permissions, each a direct `commands.allow` list: `files-read`, `files-write`, `git`, `settings`, `launch`, `exec`, `window`. *Later the same day, dead-code removed `set_always_on_top` and with it the `window` group, leaving six; see `2026-11-08-dead-code-uncalled-commands.md`.*
 - `capabilities/default.json` grants all seven to the `main` window. A capability with no `remote` entry applies only to the app's own (local) URLs, so a remote page loaded into the webview gets no command access.
 - `build.rs` passes `AppManifest::new()` explicitly and **fails the build** when the commands in `generate_handler!` (src/lib.rs) and the commands in permissions/*.toml differ, in either direction. Tauri rejects an ungranted command at runtime, and most `api.ts` wrappers swallow the error through `safe()`, so a command another branch adds would otherwise just look broken. The error message says which file to edit.
 
