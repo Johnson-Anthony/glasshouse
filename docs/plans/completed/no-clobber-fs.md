@@ -60,5 +60,21 @@ The frontend checks a name (create-rename-conflicts) and then writes, and a few 
   - Error text matches what `isAlreadyExists` expects.
 - vitest: `isAlreadyExists`, `unlessTaken`.
 
+## For review
+- **Modes as parameters, not new commands:** `write_text(…, overwrite?)` and `make_dir(…, all?)`. When the parameter is left out, the call refuses an existing target. The command set is unchanged, so `permissions/app.toml` needed no edit. Two signature lines gained a parameter. See `docs/decisions/2026-11-08-no-clobber-fs-design.md`.
+- **Case-only renames:** when the target is the source itself under another case (checked by identity), the rename falls back to `fs::rename`.
+- **Name prompts run the write inside the prompt** (`PromptOptions.submit`, `components.tsx` DialogHost). Any error from it now shows inline, not only "already exists". Before, other errors showed in an alert after the prompt closed.
+- **Not compiled locally:** the `cfg(windows)` code (`MoveFileExW`, the file-id `same_entry`). Its first compile is Windows CI. There, `rename_uses_the_atomic_primitive_here` checks that `MoveFileExW` refuses a taken name, and `rename_entry_allows_a_case_only_rename` covers case-only renames on NTFS.
+- **Remaining race:** `rename_entry` on non-Linux unix, or on a file system without `RENAME_NOREPLACE` (NFS, older FUSE), still checks and then renames.
+- **Seen in passing (mock mode only):** with `?mockRows`, the palette's Enter that runs New Folder also submits the prompt it opens, because the mock listing resolves within the same key event. Real IPC resolves later, and this was the same before this change.
+
 ## Status
-- 2026-11-08: plan written; implementing (no OK needed, per the lead).
+Done 2026-11-08. `main` merged in twice: `eaa5e44` at the start, and `edc3684` (command-security, unsent-labels, local-fonts) before the final checks. The only conflict was at the end of the `commands.rs` tests module, where both sides had appended tests; both sets are kept.
+- Rust (`commands.rs`): `no_clobber_err`, `rename_no_replace` with `rename_no_replace_os` (Linux, Windows, other unix), `rename_after_check`, `is_case_only_self_rename` and `same_entry`; new bodies for `write_text`, `make_dir` and `rename_entry`. `libc` became a direct Linux dependency (already in the lock file). Seven new tests.
+- Frontend: `api.ts` (`createTextFile`, `ensureDir`, `isAlreadyExists`), `components.tsx` (prompt `submit`), `transferUi.ts` (`unlessTaken`), `names.ts` (`takenProblem`), and the call sites in `App.tsx`, `handlers/misc.ts`, `handlers/tools.ts` and `undoActions.ts`. Five new vitest tests in `src/noClobber.test.ts`.
+- Checks on the merged tree (Linux arm64): `pnpm build` ok · `pnpm test` 160 passed · `pnpm check:wiring` 0 unwired, 0 unsent · `RUSTFLAGS="-D warnings" cargo clippy --all-targets` clean · `cargo test` 63 passed.
+- Mutation check: swapping `rename_entry` back to `fs::rename`, or `write_text` back to `File::create`, fails the refusal tests.
+- Checked in the browser against the Vite dev server (`?mockRows`, no Tauri):
+  - New Folder with a taken name shows `"folder-0" already exists here`;
+  - with a free name, the write's failure ("tauri unavailable") shows inside the prompt, which stays open;
+  - Esc cancels afterwards.
