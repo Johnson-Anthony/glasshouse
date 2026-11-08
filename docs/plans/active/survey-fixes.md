@@ -117,6 +117,7 @@ Merge order is the table order: small, contained fixes go first, and broad chang
   - `git_run` (network operations), `git_branch_list`, and `git_file_info` (two process spawns on every selection change);
   - `run_script`, `diff_files`, the preview readers, `system_info`, `shred`.
 - Prefer `#[tauri::command(async)]` or `tauri::async_runtime::spawn_blocking` over rewriting the bodies. Other branches edit `commands.rs`, so keep changes on the attribute and signature lines where possible.
+- `git_branch_list` turns per-branch rev-list failures into (0,0). Return or flag the error while you're changing it (found by backend-bugs).
 - Consider making `list_dir`'s git status cheaper (cache it, or scope it to the directory). Progress events for long operations are optional: plan them, but don't build them unless they're small.
 - Check that the UI stays responsive, for example while hashing a large file.
 
@@ -137,6 +138,7 @@ Merge order is the table order: small, contained fixes go first, and broad chang
 - **Unused backend code:**
   - the `git_dirty_count` command;
   - the Rust dependencies `thiserror`, `anyhow`, `tokio`, `walkdir` and the direct `grep-matcher`.
+- `components.tsx` renders a "!" git badge that can no longer appear, because backend-bugs removed the "ignored" status. `git_dirty_count` now returns `Result<Option<u32>>` and still has no caller.
 - The hash read loop is copied three times (`hash_sha256`, `hash_md5`, `hash_crc32`). Merge it into one helper.
 - **Toggles that do nothing:** "Show Ignored" and "Show Checksums" only flip their checkmarks, and "Browse archive in place" just opens the default app. Implement them, or remove or relabel them. Record the decision.
 - Also fix the stale `rust-version` in `Cargo.toml` (the locked dependencies need 1.88 or newer).
