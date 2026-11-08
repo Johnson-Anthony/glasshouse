@@ -1,6 +1,7 @@
 # Progress
 
 ## Done
+- 2026-11-08: Merged `local-fonts` (ff0327c). The font picker's JetBrains Mono, IBM Plex Mono and Fira Code are bundled as the upstream woff2 files, with their OFL texts, so the app makes no Google request at startup. The CSP allows only `*.localhost` origins, and `src/offline.test.ts` keeps it that way.
 - 2026-11-08: Merged `command-security` (885bd2a). See `docs/decisions/2026-11-08-command-security-design.md`.
   - **App ACL:** `src-tauri/permissions/app.toml` puts every command in one of 7 groups, granted to the main window for local pages only. Before this, any page could call all of them. `build.rs` fails the build if a command is missing from it.
   - **Argument checks:**

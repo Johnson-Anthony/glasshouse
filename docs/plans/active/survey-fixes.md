@@ -20,7 +20,8 @@ Line numbers are from commit `14c68bd` and drift, so search by name. Items marke
 | backend-bugs | Rust | **merged** (3ece93d) |
 | linux-parity | Rust + a little frontend | **merged** (8d2b0a2) |
 | command-security | Rust + config | **merged** (885bd2a) |
-| local-fonts | frontend, small | queued (found by command-security) |
+| local-fonts | frontend, small | **merged** (ff0327c) |
+| font-licenses | assets, small | running (command-security session; found by local-fonts) |
 | script-kill-tree | Rust, small | queued (found by command-security) |
 | async-commands | Rust | **merged** (9c3eefe) |
 | pty-writer | Rust, small | queued; next free Rust slot (found by async-commands) |
@@ -155,6 +156,10 @@ The frontend now checks names before creating or renaming, but a few millisecond
 ## local-fonts (frontend, small; found 2026-11-08 by command-security)
 - The font picker loads 3 fonts from Google Fonts, so the app makes a Google request at startup and the CSP has to allow those origins.
 - Bundle them (woff2 subsets, as pages-site did for the demo), or load them only when the picker selects one. Then drop the Google origins from the CSP in `tauri.conf.json`.
+
+## font-licenses (assets, small; found 2026-11-08 by local-fonts)
+- The bundled JetBrainsMono Nerd Font TTFs in `src/assets/fonts` (4 files, about 9 MB) have no license file in the repo. Add the license texts that apply: OFL for JetBrains Mono, plus the Nerd Fonts license and its glyph-set notices.
+- Consider shipping them as woff2: the same glyphs, much smaller. JetBrains Mono has no Reserved Font Name, so a format conversion is allowed. Record the choice.
 
 ## script-kill-tree (Rust, small; found 2026-11-08 by command-security)
 - `run_script` kills a script after 60 s, but only the direct child. A script's own children keep running.
