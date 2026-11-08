@@ -4,9 +4,9 @@
 
 > A desktop file manager for Windows and Linux, with tabs, a built-in terminal and git status.
 
-**[Project page](https://johnson-anthony.github.io/glasshouse/)**
+**[Project page](https://johnson-anthony.github.io/glasshouse/)**, with a live demo you can try in the browser.
 
-![glasshouse](docs/screenshot.png)
+![glasshouse showing a git repository, with the terminal drawer open](docs/media/hero-tokyo-night.png)
 
 ## What it is
 
@@ -44,6 +44,16 @@ pnpm install
 pnpm tauri:dev                              # run in dev mode
 pnpm tauri:build                            # Windows: .msi and .exe installers
 pnpm tauri build --bundles appimage,deb     # Linux: .AppImage and .deb
+```
+
+## Project site
+
+The project page in `docs/` includes a browser demo: the app's real interface over a stand-in backend that keeps its files in memory. To rebuild it after UI changes:
+
+```bash
+pnpm site:build              # demo bundle into docs/demo
+pnpm site:capture            # images and clips into docs/media (needs chromium and ffmpeg)
+pnpm site:capture check      # behavior checks in headless Chromium
 ```
 
 ## Status

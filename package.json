@@ -13,7 +13,11 @@
     "check:wiring": "node scripts/audit-wiring.mjs",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
-    "tauri:build": "tauri build"
+    "tauri:build": "tauri build",
+    "site:dev": "vite -c vite.site.config.ts",
+    "site:build": "tsc -p tsconfig.site.json && vite build -c vite.site.config.ts",
+    "site:preview": "vite preview -c vite.site.config.ts",
+    "site:capture": "node --experimental-websocket site/capture/capture.mjs"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.1.1",

@@ -1,0 +1,46 @@
+Photos used as sample files in the glasshouse browser demo.
+All are public domain or CC0 (no rights reserved), from Wikimedia Commons;
+they were resized to 1600 px wide and re-encoded.
+
+aurora-alaska.jpg
+  Aurora borealis over Eielson Air Force Base, Alaska.jpg, by United States Air Force photo by Senior Airman Joshua Strang
+  License: Public domain
+  Source: https://commons.wikimedia.org/wiki/File:Aurora_borealis_over_Eielson_Air_Force_Base,_Alaska.jpg
+
+aurora.jpg
+  Lofoten, Norway (Unsplash).jpg, by Johannes Groll followhansi
+  License: CC0
+  Source: https://commons.wikimedia.org/wiki/File:Lofoten,_Norway_(Unsplash).jpg
+
+moraine-lake.jpg
+  Moraine Lake 17092005.jpg, by Gorgo
+  License: Public domain
+  Source: https://commons.wikimedia.org/wiki/File:Moraine_Lake_17092005.jpg
+
+dunes.jpg
+  Desert Dunes (Unsplash).jpg, by Joe Mania joemania
+  License: CC0
+  Source: https://commons.wikimedia.org/wiki/File:Desert_Dunes_(Unsplash).jpg
+
+forest-mist.jpg
+  Mist above forest (Unsplash).jpg, by Ciprian Boiciuc ciprian
+  License: CC0
+  Source: https://commons.wikimedia.org/wiki/File:Mist_above_forest_(Unsplash).jpg
+
+matterhorn.jpg
+  Matterhorn sunset 2016 (Unsplash).jpg, by Sam Ferrara samferrara
+  License: CC0
+  Source: https://commons.wikimedia.org/wiki/File:Matterhorn_sunset_2016_(Unsplash).jpg
+
+quebec-night.jpg
+  Chateau Frontenac illuminated at night in Quebec City.jpg, by Wilfredor
+  License: CC0
+  Source: https://commons.wikimedia.org/wiki/File:Chateau_Frontenac_illuminated_at_night_in_Quebec_City.jpg
+
+crete-coast.jpg
+  Komos site baie Crète.jpg, by Jebulon
+  License: CC0
+  Source: https://commons.wikimedia.org/wiki/File:Komos_site_baie_Cr%C3%A8te.jpg
+
+logo.png and screenshot.png are the glasshouse app icon and a screenshot
+of the app, part of this project (MIT).

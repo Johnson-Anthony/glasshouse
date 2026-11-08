@@ -9,6 +9,7 @@ Full spec: docs/SPEC.md · Architecture: docs/ARCHITECTURE.md
 - Rust lint, as CI runs it: `cd src-tauri && RUSTFLAGS="-D warnings" cargo clippy --all-targets`
 - Rust tests: `cd src-tauri && cargo test`
 - Release binary: `pnpm tauri build --no-bundle`, output at `src-tauri/target/release/glasshouse`. The bundle targets in `tauri.conf.json` are Windows-only (msi, nsis).
+- Project site (`docs/`, GitHub Pages): `pnpm site:build`, then `pnpm site:capture` and `pnpm site:capture check`. See "Project site" in docs/ARCHITECTURE.md.
 - No ESLint or Prettier is configured.
 
 # Parallel task branches
