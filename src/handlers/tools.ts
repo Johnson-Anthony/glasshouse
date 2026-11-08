@@ -365,12 +365,7 @@ export const toolsHandler: Handler = async (label, ctx) => {
         validate: (v) => v.trim() ? null : "path required",
       });
       if (target == null || target.trim() === "") return true;
-      const go = ctx.activeHandle?.actions.goTo;
-      if (go) {
-        go(target);
-      } else {
-        ctx.dispatch(`Go to Path:${target}`);
-      }
+      ctx.activeHandle?.actions.goTo(target);
       return true;
     }
 
