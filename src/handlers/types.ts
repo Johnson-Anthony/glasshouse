@@ -16,7 +16,6 @@ export interface HandlerCtx {
   firstEntry: FileEntry | undefined;
   dispatch: (label: string) => void;
   openPalette: () => void;
-  openTweaks: () => void;
   openAbout?: () => void;
   toggleSidebar: () => void;
   toggleStatusBar?: () => void;

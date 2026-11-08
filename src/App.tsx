@@ -1743,7 +1743,6 @@ export function App() {
             firstEntry,
             dispatch: (l: string) => handleMenuCommandRef.current(l),
             openPalette: () => setPalOpen(true),
-            openTweaks: () => setTweaksOpen(true),
             openAbout: () => setAboutOpen(true),
             toggleSidebar: () => setShowSidebar(v => !v),
             toggleStatusBar: () => setShowStatusBar(v => !v),
