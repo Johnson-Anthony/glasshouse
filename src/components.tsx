@@ -3327,7 +3327,7 @@ export function Tweaks({ state, setState, onClose }: TweaksProps) {
     <div className="tweaks">
       <div className="tweaks-head">
         <span>◉</span>
-        <span>tweaks · ~/.ricerc</span>
+        <span>tweaks</span>
         <span className="close" onClick={onClose}>×</span>
       </div>
       <div className="tweaks-body">
