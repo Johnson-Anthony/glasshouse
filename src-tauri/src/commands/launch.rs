@@ -297,6 +297,11 @@ fn find_tool_in(names: &[&str], path: Option<std::ffi::OsString>) -> Option<Path
         .find_map(|n| which::which_in(n, path.as_ref(), &cwd).ok())
 }
 
+/// `find_tool`, with a miss reported as `what` not being on PATH.
+pub(super) fn require_tool(what: &str, names: &[&str]) -> Result<PathBuf, String> {
+    find_tool(names).ok_or_else(|| format!("{} not found on PATH (tried {})", what, names.join(", ")))
+}
+
 /// VS Code launchers in preference order: Microsoft's build, then VSCodium,
 /// then the distro OSS build (Arch, Fedora).
 #[cfg(windows)]
@@ -309,9 +314,7 @@ const VSCODE_NAMES: &[&str] = &["code", "codium", "code-oss"];
 pub fn spawn_vscode(path: String) -> Result<(), String> {
     use std::process::{Command, Stdio};
 
-    let program = find_tool(VSCODE_NAMES)
-        .ok_or_else(|| format!("VS Code not found on PATH (tried {})", VSCODE_NAMES.join(", ")))?
-        .into_os_string();
+    let program = require_tool("VS Code", VSCODE_NAMES)?.into_os_string();
 
     #[cfg(windows)]
     {

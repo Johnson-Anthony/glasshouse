@@ -1,5 +1,5 @@
 use std::path::{Path, PathBuf};
-use super::launch::find_tool;
+use super::launch::{find_tool, require_tool};
 #[cfg(windows)]
 use super::launch::CREATE_NO_WINDOW;
 
@@ -247,10 +247,10 @@ fn tar_zst_extract(archive: &str, dest_dir: &str) -> Result<(), String> {
 /// Linux build, Debian's `7zip` package) and `7za` (standalone p7zip).
 pub(super) const SEVEN_ZIP_NAMES: &[&str] = &["7z", "7zz", "7za", "7z.exe"];
 
+const TAR_NAMES: &[&str] = &["tar", "tar.exe"];
+
 fn find_7z() -> Result<String, String> {
-    find_tool(SEVEN_ZIP_NAMES)
-        .map(|p| p.to_string_lossy().into_owned())
-        .ok_or_else(|| format!("7-Zip not found on PATH (tried {})", SEVEN_ZIP_NAMES.join(", ")))
+    require_tool("7-Zip", SEVEN_ZIP_NAMES).map(|p| p.to_string_lossy().into_owned())
 }
 
 /// Return whether the local machine has the tooling required to handle the
@@ -259,10 +259,9 @@ fn find_7z() -> Result<String, String> {
 pub fn archive_can_handle(format: String) -> bool {
     match format.as_str() {
         "zip" => true, // in-process zip crate
-        "tar.gz" => which::which("tar").is_ok() || which::which("tar.exe").is_ok(),
-        // tar alone suffices: the zstd step runs in-process (tar_zst_create),
-        // so neither tar's --zstd nor a zstd binary is needed.
-        "tar.zst" => which::which("tar").is_ok() || which::which("tar.exe").is_ok(),
+        // For tar.zst too tar alone suffices: the zstd step runs in-process
+        // (tar_zst_create), so neither tar's --zstd nor a zstd binary is needed.
+        "tar.gz" | "tar.zst" => find_tool(TAR_NAMES).is_some(),
         "7z" => find_7z().is_ok(),
         _ => false,
     }
@@ -391,7 +390,7 @@ pub fn archive_extract(archive: String, dest_dir: String) -> Result<(), String> 
     }
 
     if is_tar_family {
-        if which::which("tar").is_err() && which::which("tar.exe").is_err() {
+        if find_tool(TAR_NAMES).is_none() {
             return Err("tar.exe not found on PATH".to_string());
         }
         if is_tar_zst {
