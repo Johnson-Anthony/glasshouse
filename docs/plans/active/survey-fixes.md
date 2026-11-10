@@ -24,7 +24,7 @@ Line numbers are from commit `14c68bd` and drift, so search by name. Items marke
 | local-fonts | frontend, small | **merged** (ff0327c) |
 | font-licenses | assets, small | **merged** (19e7dd0) |
 | notices-screen | frontend, small | **merged** (c595720) |
-| dependency-notices | both, small | running (backend-bugs session) |
+| dependency-notices | both, small | **merged** (d78c583) |
 | script-kill-tree | Rust, small | **merged** (1fd8435) |
 | async-commands | Rust | **merged** (9c3eefe) |
 | pty-writer | Rust, small | **merged** (16293b0) |

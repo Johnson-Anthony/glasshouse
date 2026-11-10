@@ -31,3 +31,5 @@ Task sessions are run by a lead Claude session, which acts for the user. Its ses
 - A new Rust command must also be listed in `src-tauri/permissions/app.toml`, in the group that matches what it can do; `build.rs` fails the build otherwise.
 - A new git menu item that runs through `git_run` needs its subcommand and flags in `GIT_RUN_ALLOWED` in `commands.rs`, or the backend refuses it.
 - `cfg(windows)` Rust code can't be fully built on this Linux machine; the windows-latest CI job is its first real compile. Pure-Rust Windows helpers can be type-checked here through a scratch crate (recipe in `~/.claude/environment.md`). Say in your report what wasn't built.
+- `.claude/launch.json` is tracked (the `site` preview). To preview something else, add a configuration to it; don't replace the file, and don't commit temporary entries.
+- Lockfile changes need `pnpm notices` (needs cargo-about) and the regenerated `src/assets/third-party.json` committed; CI's `notices` job fails otherwise.
