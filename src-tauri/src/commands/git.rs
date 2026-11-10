@@ -201,22 +201,15 @@ const BLAME_MAX_CAP: u32 = 2000;
 
 #[tauri::command(async)]
 pub fn git_blame(path: String, max_lines: u32) -> Result<Vec<BlameLine>, String> {
-    use git2::{BlameOptions, Repository};
+    use git2::BlameOptions;
     let abs = canonicalize_soft(&path);
-    let repo = Repository::discover(&abs).map_err(|e| format!("not a git repo: {}", e))?;
-    let workdir = repo
-        .workdir()
-        .ok_or_else(|| "bare repo has no workdir".to_string())?
-        .to_path_buf();
-    let rel = abs
-        .strip_prefix(&workdir)
-        .map_err(|_| format!("{} is not inside repo {}", abs.display(), workdir.display()))?
-        .to_path_buf();
+    let (repo, _, rels) = open_repo_and_relpaths(std::slice::from_ref(&path))?;
+    let rel = &rels[0];
 
     let mut opts = BlameOptions::new();
     opts.track_copies_same_file(true);
     let blame = repo
-        .blame_file(&rel, Some(&mut opts))
+        .blame_file(rel, Some(&mut opts))
         .map_err(|e| format!("blame_file: {}", e))?;
 
     // Pull the file text to attach content per line. Keep this bounded.
@@ -266,9 +259,11 @@ pub fn git_blame(path: String, max_lines: u32) -> Result<Vec<BlameLine>, String>
 
 // ---------- git per-row actions (stage / unstage / discard) ----------
 
+/// Open the repo containing `paths[0]` and return it with its workdir and
+/// each path relative to that workdir.
 fn open_repo_and_relpaths(
     paths: &[String],
-) -> Result<(git2::Repository, Vec<PathBuf>), String> {
+) -> Result<(git2::Repository, PathBuf, Vec<PathBuf>), String> {
     use git2::Repository;
     if paths.is_empty() {
         return Err("no paths".to_string());
@@ -288,13 +283,12 @@ fn open_repo_and_relpaths(
             .to_path_buf();
         rels.push(rel);
     }
-    Ok((repo, rels))
+    Ok((repo, workdir, rels))
 }
 
 #[tauri::command(async)]
 pub fn git_stage(paths: Vec<String>) -> Result<(), String> {
-    let (repo, rels) = open_repo_and_relpaths(&paths)?;
-    let workdir = repo.workdir().unwrap().to_path_buf();
+    let (repo, workdir, rels) = open_repo_and_relpaths(&paths)?;
     let mut index = repo.index().map_err(|e| e.to_string())?;
     for rel in &rels {
         let abs = workdir.join(rel);
@@ -313,7 +307,7 @@ pub fn git_stage(paths: Vec<String>) -> Result<(), String> {
 
 #[tauri::command(async)]
 pub fn git_unstage(paths: Vec<String>) -> Result<(), String> {
-    let (repo, rels) = open_repo_and_relpaths(&paths)?;
+    let (repo, _, rels) = open_repo_and_relpaths(&paths)?;
     // Equivalent of `git reset HEAD -- path`: reset the index entries for
     // these paths to match HEAD. If there is no HEAD yet (fresh repo with no
     // commits), fall back to removing the entries from the index instead.
@@ -337,8 +331,7 @@ pub fn git_unstage(paths: Vec<String>) -> Result<(), String> {
 #[tauri::command(async)]
 pub fn git_discard(paths: Vec<String>) -> Result<(), String> {
     use git2::build::CheckoutBuilder;
-    let (repo, rels) = open_repo_and_relpaths(&paths)?;
-    let workdir = repo.workdir().unwrap().to_path_buf();
+    let (repo, workdir, rels) = open_repo_and_relpaths(&paths)?;
 
     // Partition: untracked files (no index entry, no HEAD entry) get deleted;
     // everything else gets `checkout HEAD -- path` treatment.
