@@ -3,9 +3,14 @@
 Branch: `claude/exciting-davinci-df48b1` (worktree `exciting-davinci-df48b1`), from main 54a1e15. Both frontend and Rust; the only session running.
 
 ## Status
-- [ ] Phase 1a: `components.tsx` → `menus.tsx`, `Sidebar.tsx`, `preview/`, `dialogs/` (one commit each)
-- [ ] Phase 1b: `commands.rs` → `commands/` modules; shell profiles → `pty/profiles.rs`
-- [ ] Phase 1 reported to the lead
+- [x] Phase 1a: `components.tsx` → `menus.tsx`, `Sidebar.tsx`, `preview/`, `dialogs/` (one commit each: 07ed7c4, dbb3ef7, 2a08bb4, a2018de). `components.tsx` 6132 → 1127 lines. UI smoke-tested in the browser-only dev server (menus, Bulk Rename, About, Keybindings, Inspector preview).
+- [x] Phase 1b: `commands.rs` → `commands/` modules; shell profiles → `pty/profiles.rs` (3efa85d). `commands.rs` 5381 → 17 lines.
+- [x] Phase 1 reported to the lead
+
+### How the moves were made
+- **Frontend:** a throwaway script on the TypeScript compiler API moved line ranges verbatim and used the type checker to write each file's imports and to add `export` where another file now needs a declaration (`SEED_TAGS`, `TAG_COLOR_MAP`, `kindIcon`, `tagColor`, `AUDIO_EXTS`). It also rewrote importers. Hand edits: `routing.test.ts`'s `vi.mock` path and the demo's dynamic `import()` of `dialogs`.
+- **Rust:** a script moved line ranges per module and split the inline tests by name. Then `cargo check` errors gave the cross-module `use` lines and the six visibility changes. Windows-only code isn't compiled here, so a name scan looked for crate items it uses from other modules; only `CREATE_NO_WINDOW` turned up, now imported under `#[cfg(windows)]`.
+- `pnpm site:build` passes after every commit, but the rebuilt `docs/demo` assets are **not committed**. Their hashes change with module structure, not behaviour, and a rebuild per move would add ~1 MB of churn each time. Rebuild once on `main` if wanted.
 - [ ] Phase 2: App.tsx keymap table; `handleMenuCommand`/`doFileOp` into the handlers (design in docs/decisions/)
 
 Checks after every commit: `pnpm build`, `pnpm test`, `pnpm check:wiring`, `pnpm site:build`, `pnpm notices --check`, clippy `-D warnings`, `cargo test` (4 jobs).

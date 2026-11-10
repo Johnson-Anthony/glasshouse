@@ -6,7 +6,10 @@ Snapshot from the 2026-11-08 survey. Line numbers will drift, so search by name.
 | Path | What |
 |---|---|
 | `src/main.tsx` → `src/App.tsx` | Entry point and the `App()` shell: state, keybindings, command routing, drag and drop, layout |
-| `src/components.tsx` (~6k lines) | Most UI: Titlebar and menus, Toolbar, Sidebar, FilePane, previews and QuickLook, Inspector, StatusBar, Palette, ContextMenu, every dialog, `dialogs` API and DialogHost, FolderPicker |
+| `src/components.tsx` (~1.1k lines) | Titlebar, Toolbar, FilePane, StatusBar, Palette, Tweaks |
+| `src/menus.tsx`, `src/Sidebar.tsx` | Menubar, its dropdowns and the context menu (with dynamic menu items); the Sidebar |
+| `src/preview/` | `Inspector.tsx` (the inspector card, permissions grid); `FilePreview.tsx` (type-aware previews and Quick Look) |
+| `src/dialogs/` | One file per dialog. `DialogHost.tsx` holds the `dialogs` prompt/alert/confirm/toast API and its host |
 | `src/state.ts` | `useTabState` (per-tab state, history, fs watching) and the undo/redo stacks |
 | `src/handlers/*.ts` | Command handlers split by area (nav, selection, view, git, archive, tools, misc), chained in `handlers/index.ts` |
 | `src/data.ts` | Menu, palette and context-menu trees; Windows-only item stripping |
@@ -15,8 +18,8 @@ Snapshot from the 2026-11-08 survey. Line numbers will drift, so search by name.
 | `src/Terminal.tsx`, `src/Miller.tsx` | xterm drawer, miller-column view |
 | `src/styles/themes.css`, `app.css` | 8 themes as CSS variables on `[data-theme]`; layout and component CSS |
 | `src-tauri/src/lib.rs` | Plugin setup, managed state, registration of every command (`generate_handler!`; `build.rs` checks it against `permissions/app.toml`) |
-| `src-tauri/src/commands.rs` (~3.1k lines) | Nearly all `#[tauri::command]`s, divided by `// ---------- … ----------` section headers; unit tests at the end |
-| `src-tauri/src/pty.rs`, `watcher.rs` | Terminal sessions (portable-pty; each session has a reader thread, a wait thread and a writer thread that `pty_write` queues input onto; when a session ends on unix, `unblock_writer` drains the slave if that writer is stuck on a full pty) and directory watching (notify, 300 ms debounce) |
+| `src-tauri/src/commands.rs` → `commands/` | Nearly all `#[tauri::command]`s, one module per area: `listing`, `fs_ops`, `file_info`, `search`, `archive`, `hash`, `git`, `config`, `system`, `wsl`, `launch`. Tests are inline at the end of each module, plus `<module>_tests.rs` siblings; shared test helpers are in `commands/testing.rs` |
+| `src-tauri/src/pty.rs` (+ `pty/profiles.rs`: `ShellProfile`, shell/WSL/ssh detection, `check_profile`), `watcher.rs` | Terminal sessions (portable-pty; each session has a reader thread, a wait thread and a writer thread that `pty_write` queues input onto; when a session ends on unix, `unblock_writer` drains the slave if that writer is stuck on a full pty) and directory watching (notify, 300 ms debounce) |
 | `src-tauri/src/proc_tree.rs` | Spawns a process so its whole tree can be killed (Unix process group / Windows job object). `run_script` uses it at its 60 s timeout |
 | `src-tauri/capabilities/default.json` | What the main window may call: plugin permissions (fs, shell, dialog, os, opener) and the app permissions |
 | `src-tauri/permissions/app.toml` | App command permissions, grouped (files-read, files-write, git, settings, launch, exec). `build.rs` fails the build if a command in `generate_handler!` isn't in one |
