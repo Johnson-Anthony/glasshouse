@@ -1,4 +1,4 @@
-import { type FileEntry, openWithDefault, writePins, renameEntry, deleteEntry, moveToTrash, makeDir, createTextFile, spawnTerminal, spawnVscodeStrict, revealInExplorer, winToWsl, writeTags, compress, hashSha256, homeDir, gitStage, gitUnstage, gitDiscard, gitBlame } from "../api";
+import { type FileEntry, openWithDefault, renameEntry, deleteEntry, moveToTrash, makeDir, createTextFile, spawnTerminal, spawnVscodeStrict, revealInExplorer, winToWsl, writeTags, compress, hashSha256, homeDir, gitStage, gitUnstage, gitDiscard, gitBlame } from "../api";
 import { MUTATING_LABELS } from "../data";
 import { dialogs } from "../dialogs/DialogHost";
 import { basename, parentPath, joinPath } from "../paths";
@@ -49,12 +49,12 @@ export const fileOpsHandler: Handler = async (label, ctx) => {
   const { activeHandle } = ctx;
   const {
     pins,
+    savePins,
     setBlame,
     setBulkRenameItems,
     setCutPaths,
     setFolderPicker,
     setPasteSpecial,
-    setPins,
     setPropsEntry,
     setTagPickerPath,
     setTagStore,
@@ -111,8 +111,7 @@ export const fileOpsHandler: Handler = async (label, ctx) => {
         dialogs.showToast({ message: "already pinned", variant: "info" });
         return true;
       }
-      setPins(next);
-      void writePins(next);
+      savePins(next);
       const msg = added.length === 1
         ? `pinned ${basename(added[0])}`
         : `pinned ${added.length} items`;

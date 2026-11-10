@@ -24,6 +24,8 @@ export interface AppCommands {
   openPathInNewTab: (p: string, isPrivate?: boolean) => void;
   persistRemotes: (next: SavedRemote[]) => void;
   pins: string[];
+  /** Sets the pins and writes them to disk. */
+  savePins: (next: string[]) => void;
   savedRemotes: SavedRemote[];
   setBlame: React.Dispatch<React.SetStateAction<{ path: string; lines: BlameLine[]; } | null>>;
   setBookmarkManagerOpen: React.Dispatch<React.SetStateAction<boolean>>;
@@ -35,7 +37,6 @@ export interface AppCommands {
   setManageRemotesOpen: React.Dispatch<React.SetStateAction<boolean>>;
   setPalOpen: React.Dispatch<React.SetStateAction<boolean>>;
   setPasteSpecial: React.Dispatch<React.SetStateAction<{ items: PasteSpecialItem[]; dstDir: string; clipboardMode: "copy" | "cut"; } | null>>;
-  setPins: React.Dispatch<React.SetStateAction<string[]>>;
   setPropsEntry: React.Dispatch<React.SetStateAction<FileEntry | null>>;
   setShowFindModal: React.Dispatch<React.SetStateAction<boolean>>;
   setShowInspector: React.Dispatch<React.SetStateAction<boolean>>;

@@ -431,6 +431,11 @@ export function App() {
     })();
   }, []);
 
+  const savePins = (next: string[]) => {
+    setPins(next);
+    void writePins(next);
+  };
+
   // Display mode is mostly CSS driven off <html data-display-mode>, but
   // Miller columns needs a different pane component, so App mirrors the mode
   // in state (updated via the event setDisplayMode fires in handlers/view.ts).
@@ -750,9 +755,7 @@ export function App() {
       toggleStatusBar: () => setShowStatusBar(v => !v),
       pinPath: (p: string) => {
         if (pins.includes(p)) return;
-        const next = [...pins, p];
-        setPins(next);
-        void writePins(next);
+        savePins([...pins, p]);
       },
       tabs,
       activeTab,
@@ -778,6 +781,7 @@ export function App() {
         openPathInNewTab,
         persistRemotes,
         pins,
+        savePins,
         savedRemotes,
         setBlame,
         setBookmarkManagerOpen,
@@ -789,7 +793,6 @@ export function App() {
         setManageRemotesOpen,
         setPalOpen,
         setPasteSpecial,
-        setPins,
         setPropsEntry,
         setShowFindModal,
         setShowInspector,
@@ -1174,9 +1177,7 @@ export function App() {
               dialogs.showToast({ message: `already pinned: ${basename(p) || p}`, variant: "info" });
               return;
             }
-            const next = [...pins, p];
-            setPins(next);
-            void writePins(next);
+            savePins([...pins, p]);
             dialogs.showToast({ message: `pinned ${basename(p) || p}`, variant: "success" });
           }}
           tags={tagStore}
@@ -1343,8 +1344,7 @@ export function App() {
           pins={pins}
           onClose={() => setBookmarkManagerOpen(false)}
           onSave={(nextPins) => {
-            setPins(nextPins);
-            void writePins(nextPins);
+            savePins(nextPins);
             setBookmarkManagerOpen(false);
             dialogs.showToast({ message: `saved ${nextPins.length} bookmark${nextPins.length === 1 ? "" : "s"}`, variant: "success" });
           }}

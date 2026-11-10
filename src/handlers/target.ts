@@ -1,5 +1,5 @@
 import { dialogs } from "../dialogs/DialogHost";
-import { spawnTerminal, spawnVscodeStrict, winToWsl, revealInExplorer, renameEntry, homeDir, moveToTrash, writePins, listDir } from "../api";
+import { spawnTerminal, spawnVscodeStrict, winToWsl, revealInExplorer, renameEntry, homeDir, moveToTrash, listDir } from "../api";
 import { winPathToWsl } from "../shellCd";
 import { basename, parentPath, joinPath, normalizePath } from "../paths";
 import { namesIn, unlessTaken, transferDeps, pushTransferUndo, reportTransfer } from "../transferUi";
@@ -27,10 +27,10 @@ export const targetHandler: Handler = (label, ctx) => {
     openPathInNewTab,
     persistRemotes,
     pins,
+    savePins,
     savedRemotes,
     setFolderPicker,
     setManageRemotesOpen,
-    setPins,
     setPropsEntry,
     setTagPickerPath,
     setTermOpen,
@@ -198,14 +198,10 @@ export const targetHandler: Handler = (label, ctx) => {
           })();
           return true;
         }
-        case "Pin": {
+        case "Pin":
           cmdState.contextTarget = null;
-          if (pins.includes(target)) return true;
-          const next = [...pins, target];
-          setPins(next);
-          void writePins(next);
+          ctx.pinPath(target);
           return true;
-        }
         case "Properties": {
           // Previously fell through to the pane-selection handler, so the
           // dialog showed whatever was selected in the pane instead of the
@@ -237,9 +233,7 @@ export const targetHandler: Handler = (label, ctx) => {
         case "Unpin": {
           cmdState.contextTarget = null;
           if (!pins.includes(target)) return true;
-          const next = pins.filter(p => p !== target);
-          setPins(next);
-          void writePins(next);
+          savePins(pins.filter(p => p !== target));
           return true;
         }
         case "Move pin up":
@@ -251,8 +245,7 @@ export const targetHandler: Handler = (label, ctx) => {
           if (dst < 0 || dst >= pins.length) return true;
           const next = [...pins];
           [next[idx], next[dst]] = [next[dst], next[idx]];
-          setPins(next);
-          void writePins(next);
+          savePins(next);
           return true;
         }
       }
