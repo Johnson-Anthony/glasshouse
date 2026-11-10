@@ -21,6 +21,8 @@ import { PropertiesDialog } from "./dialogs/Properties";
 import { AboutDialog } from "./dialogs/About";
 import { KeybindingsDialog } from "./dialogs/Keybindings";
 import { DialogHost, dialogs } from "./dialogs/DialogHost";
+import { OpsTray } from "./OpsTray";
+import { isCancelled, newOpId } from "./ops";
 import { FolderPickerDialog } from "./dialogs/FolderPicker";
 import { BookmarkManagerDialog } from "./dialogs/BookmarkManager";
 import { Inspector } from "./preview/Inspector";
@@ -53,7 +55,6 @@ import {
   homeDir,
   ensureDir,
   renameEntry,
-  copyEntry,
   moveEntry,
   openWithDefault,
   spawnVscode,
@@ -65,6 +66,7 @@ import {
   readText,
   gitBlame,
   findInFiles,
+  cancelOp,
   type FileEntry,
   type BlameLine,
   type FindMatch,
@@ -139,19 +141,35 @@ function FindInFilesModal({ root, onClose, onPick }: FindInFilesModalProps) {
     }
     const q = query;
     const cs = caseSensitive;
+    // Each new query cancels the search for the previous one, so a slow
+    // stale search neither keeps running nor lands on top of a newer one.
+    const opId = newOpId();
+    let stale = false;
+    let running = false;
     const t = window.setTimeout(() => {
       setBusy(true);
+      running = true;
       void (async () => {
         try {
-          const res = await findInFiles(root, q, !cs, 500);
+          const res = await findInFiles(root, q, !cs, 500, opId);
+          if (stale) return;
           setMatches(res);
           setRan(true);
+        } catch (e) {
+          if (stale || isCancelled(e)) return;
+          setMatches([]);
+          setRan(true);
         } finally {
-          setBusy(false);
+          running = false;
+          if (!stale) setBusy(false);
         }
       })();
     }, 250);
-    return () => window.clearTimeout(t);
+    return () => {
+      stale = true;
+      window.clearTimeout(t);
+      if (running) void cancelOp(opId);
+    };
   }, [query, caseSensitive, root]);
 
   const grouped = useMemo(() => {
@@ -1287,7 +1305,7 @@ export function App() {
           items={pasteSpecial.items}
           dstDir={pasteSpecial.dstDir}
           clipboardMode={pasteSpecial.clipboardMode}
-          copyEntry={copyEntry}
+          copyEntry={transferDeps.copy}
           moveEntry={moveEntry}
           trashEntry={moveToTrash}
           planTransfer={(items, dstDir, op) => planTransfer(items, dstDir, op, transferDeps)}
@@ -1353,6 +1371,7 @@ export function App() {
         />
       )}
       <DialogHost />
+      <OpsTray />
       <NoticesHost />
 
       {!tweaksOpen && (

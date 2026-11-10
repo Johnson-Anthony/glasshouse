@@ -202,6 +202,8 @@ export function createBackend(hooks: BackendHooks) {
     },
     hash_md5: a => crc32(str(a.path)).repeat(4),
     hash_crc32: a => { const n = must(str(a.path)); return crc32(n.text ?? n.name); },
+    // Demo hashes, copies and searches finish at once, so there's nothing to cancel.
+    cancel_op: () => null,
     diff_files: a => {
       const x = must(str(a.a));
       const y = must(str(a.b));

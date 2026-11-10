@@ -1,4 +1,5 @@
 mod commands;
+mod ops;
 mod proc_tree;
 mod pty;
 mod watcher;
@@ -12,6 +13,7 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .manage(watcher::WatcherState::default())
         .manage(pty::PtyRegistry::default())
+        .manage(ops::OpRegistry::default())
         .invoke_handler(tauri::generate_handler![
             commands::listing::home_dir,
             commands::listing::list_dir,
@@ -71,6 +73,7 @@ pub fn run() {
             commands::file_info::file_stat_extended,
             commands::hash::hash_md5,
             commands::hash::hash_crc32,
+            ops::cancel_op,
             commands::git::git_file_info,
             commands::system::path_fs_type,
             commands::system::net_rate,

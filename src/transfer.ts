@@ -6,6 +6,7 @@
 // a skip for folders pasted into themselves.
 // Policy notes: docs/decisions/2026-11-08-paste-conflicts-policy.md
 import { pathOps } from "./paths";
+import { isCancelled } from "./opStore";
 
 // Path rules follow the `windows` flag each entry point is given (the app
 // passes IS_WINDOWS), so both flavors can be tested on any host.
@@ -208,6 +209,9 @@ export interface TransferResult {
   replaced: string[];
   skipped: Array<{ src: string; reason: SkipReason }>;
   failed: Array<{ src: string; error: string }>;
+  /** Set when the user cancelled a copy or move partway: how many items
+   *  didn't happen, the cancelled one included. Steps before it stand. */
+  cancelled?: number;
 }
 
 function errText(err: unknown): string {
@@ -252,7 +256,7 @@ export async function runTransfer(
   }
   if (!steps) return null;
   const { basename } = pathOps(deps.windows);
-  for (const s of steps) {
+  for (const [i, s] of steps.entries()) {
     if (s.action === "skip") { res.skipped.push({ src: s.src, reason: s.reason }); continue; }
     if (s.replace) {
       try {
@@ -271,6 +275,13 @@ export async function runTransfer(
       else await deps.move(s.src, s.dst);
       res.done.push({ src: s.src, dst: s.dst });
     } catch (err) {
+      if (isCancelled(err)) {
+        // The backend removed the partial copy; the rest doesn't start.
+        const rest = steps.slice(i);
+        res.cancelled = rest.filter(t => t.action !== "skip").length;
+        for (const t of rest) if (t.action === "skip") res.skipped.push({ src: t.src, reason: t.reason });
+        break;
+      }
       res.failed.push({ src: s.src, error: errText(err) });
     }
   }
@@ -305,7 +316,7 @@ export function summarize(
 ): { message: string; variant: "success" | "info" | "warning" } {
   const reasons = (r: SkipReason) => res.skipped.filter(s => s.reason === r).length;
   const parts: string[] = [];
-  if (res.done.length || res.skipped.length + res.failed.length === 0) {
+  if (res.done.length || res.skipped.length + res.failed.length + (res.cancelled ?? 0) === 0) {
     parts.push(`${op === "copy" ? "copied" : "moved"} ${countItems(res.done.length)}`);
   }
   if (res.replaced.length) {
@@ -317,6 +328,9 @@ export function summarize(
     parts.push(`skipped ${reasons("into-itself")}: a folder can't go inside itself`);
   }
   if (res.failed.length) parts.push(`${res.failed.length} failed`);
+  if (res.cancelled) {
+    parts.push(`cancelled: ${countItems(res.cancelled)} not ${op === "copy" ? "copied" : "moved"}`);
+  }
   const variant = res.failed.length || reasons("into-itself")
     ? "warning"
     : res.done.length ? "success" : "info";

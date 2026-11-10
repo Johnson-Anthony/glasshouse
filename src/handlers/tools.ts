@@ -19,6 +19,7 @@ import {
 } from "../api";
 import { runTransfer, type TransferItem } from "../transfer";
 import { transferDeps } from "../transferUi";
+import { isCancelled, runOp } from "../ops";
 
 const clipboardStack: string[][] = [];
 
@@ -110,15 +111,24 @@ export const toolsHandler: Handler = async (label, ctx) => {
       }
       const lines: string[] = [];
       let failed = 0;
-      for (const p of paths) {
-        try {
-          const hex = await hashSha256(p);
-          lines.push(`${p}\n${hex}`);
-        } catch (e) {
-          failed++;
-          const msg = e instanceof Error ? e.message : String(e);
-          lines.push(`${p}\n(failed: ${msg})`);
+      const files = `${paths.length} file${paths.length === 1 ? "" : "s"}`;
+      const cancelled = await runOp(`hashing ${files}`, async track => {
+        for (const p of paths) {
+          try {
+            const hex = await hashSha256(p, track());
+            lines.push(`${p}\n${hex}`);
+          } catch (e) {
+            if (isCancelled(e)) return true;
+            failed++;
+            const msg = e instanceof Error ? e.message : String(e);
+            lines.push(`${p}\n(failed: ${msg})`);
+          }
         }
+        return false;
+      });
+      if (cancelled) {
+        dialogs.showToast({ message: "hashing cancelled", variant: "info" });
+        return true;
       }
       void dialogs.showAlert({
         title: `SHA256 (${paths.length} file${paths.length === 1 ? "" : "s"})`,
@@ -235,7 +245,8 @@ export const toolsHandler: Handler = async (label, ctx) => {
       });
       if (replacement == null) return true;
       try {
-        const matches = await findInFiles(ctx.cwd, needle, true, 500);
+        const matches = await runOp(`finding "${needle}"`, track =>
+          findInFiles(ctx.cwd, needle, true, 500, track()), "items");
         if (matches.length === 0) {
           void dialogs.showAlert({ title: "no matches", message: `no matches for "${needle}"`, variant: "info" });
           return true;
@@ -263,7 +274,10 @@ export const toolsHandler: Handler = async (label, ctx) => {
         dialogs.showToast({ message: `replaced in ${filesWritten} files`, variant: "success" });
         ctx.refresh();
       } catch (e) {
+        if (isCancelled(e)) return true;
         console.log("[tools] findInFiles failed:", e);
+        const msg = e instanceof Error ? e.message : String(e);
+        void dialogs.showAlert({ title: "find failed", variant: "error", message: msg });
       }
       return true;
     }
@@ -331,7 +345,8 @@ export const toolsHandler: Handler = async (label, ctx) => {
       });
       if (pattern == null || pattern.trim() === "") return true;
       try {
-        const matches = await findFileByName(ctx.cwd, pattern, 500);
+        const matches = await runOp(`finding "${pattern}"`, track =>
+          findFileByName(ctx.cwd, pattern, 500, track()), "items");
         if (matches.length === 0) {
           void dialogs.showAlert({ title: "no matches", message: `No matches for "${pattern}"`, variant: "info" });
         } else {
@@ -343,7 +358,10 @@ export const toolsHandler: Handler = async (label, ctx) => {
           });
         }
       } catch (e) {
+        if (isCancelled(e)) return true;
         console.log(`[tools] findFileByName failed (pattern=${pattern}):`, e);
+        const msg = e instanceof Error ? e.message : String(e);
+        void dialogs.showAlert({ title: "find failed", variant: "error", message: msg });
       }
       return true;
     }

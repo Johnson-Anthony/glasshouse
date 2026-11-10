@@ -7,6 +7,7 @@ import { failureDetails, runTransfer, summarize } from "../transfer";
 import { asItems, assertFree, namesIn, pushTransferUndo, transferDeps, unlessTaken } from "../transferUi";
 import { freeNewName, nameProblem, takenProblem } from "../names";
 import { openNotices } from "../Notices";
+import { isCancelled, runOp } from "../ops";
 import {
   makeDir,
   createTextFile,
@@ -365,17 +366,21 @@ export const miscHandler: Handler = async (label, ctx) => {
       if (!res) return true;
       pushTransferUndo(res, "copy", `paste copy ${res.done.length} item(s)`);
       let verified = 0;
-      for (const { src, dst } of res.done) {
-        try {
-          const [ha, hb] = await Promise.all([hashSha256(src), hashSha256(dst)]);
-          if (ha && hb && ha === hb) verified++;
-        } catch (e) {
-          console.error("[misc] hash verify failed", src, e);
+      const verifyCancelled = await runOp(`verifying ${res.done.length} cop${res.done.length === 1 ? "y" : "ies"}`, async track => {
+        for (const { src, dst } of res.done) {
+          try {
+            const [ha, hb] = await Promise.all([hashSha256(src, track()), hashSha256(dst, track())]);
+            if (ha && hb && ha === hb) verified++;
+          } catch (e) {
+            if (isCancelled(e)) return true;
+            console.error("[misc] hash verify failed", src, e);
+          }
         }
-      }
+        return false;
+      });
       const sum = summarize(res, "copy", IS_WINDOWS);
       dialogs.showToast({
-        message: `${sum.message}, ${verified} verified via SHA256`,
+        message: `${sum.message}, ${verified} verified via SHA256${verifyCancelled ? " (verifying cancelled)" : ""}`,
         variant: verified < res.done.length ? "warning" : sum.variant,
       });
       const details = failureDetails(res, IS_WINDOWS);

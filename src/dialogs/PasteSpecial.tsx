@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { hashSha256 } from "../api";
+import { isCancelled, runOp } from "../ops";
 import { basename } from "../paths";
 import type { SkipReason, TransferItem, TransferOp, TransferStep } from "../transfer";
 
@@ -133,7 +134,8 @@ export function PasteSpecialDialog({
           if (it.kind === "folder") {
             working[i] = { ...working[i], state: "ok", message: `copied${note} (dir — not hashed)` };
           } else {
-            const [h1, h2] = await Promise.all([hashSha256(it.path), hashSha256(dst)]);
+            const [h1, h2] = await runOp(`verifying ${basename(dst)}`, track =>
+              Promise.all([hashSha256(it.path, track()), hashSha256(dst, track())]));
             if (h1 === h2) {
               working[i] = { ...working[i], state: "ok", message: `ok${note} ${h1.slice(0, 12)}…` };
             } else {
@@ -144,6 +146,14 @@ export function PasteSpecialDialog({
         }
       } catch (e) {
         anyFail = true;
+        if (isCancelled(e)) {
+          // Cancelled from the tray: this item and the rest don't happen.
+          for (let j = i; j < items.length; j++) {
+            working[j] = { ...working[j], state: "fail", message: "cancelled" };
+          }
+          setRows(working.slice());
+          break;
+        }
         const msg = e instanceof Error ? e.message : String(e);
         working[i] = { ...working[i], state: "fail", message: msg };
       }
