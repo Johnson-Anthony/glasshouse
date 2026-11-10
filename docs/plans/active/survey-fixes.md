@@ -38,7 +38,7 @@ Line numbers are from commit `14c68bd` and drift, so search by name. Items marke
 | parser-fixes | Rust, tiny, low priority | **merged** (dd12285) |
 | presentation | docs + small code | **merged**; GitHub text awaits the user |
 | pages-site | site (big project) | **merged** (6f72fd7); live on the next push |
-| split-big-files | both | **wait until all the others are merged** |
+| split-big-files | both | running (test-coverage session; phase 1 moves, then phase 2 App.tsx) |
 
 Merge order is the table order: small, contained fixes go first, and broad changes go last, so the broad ones absorb the conflicts.
 
