@@ -2,11 +2,7 @@
 
 use crate::commands::testing::{put, read, s, tree, Scratch};
 use super::*;
-
-/// The copy_entry command without its Tauri arguments: untracked.
-fn copy_entry(from: String, to: String) -> Result<(), String> {
-    copy_path(&from, &to, &Op::untracked())
-}
+use super::tests::copy_entry;
 
 #[test]
 fn delete_entry_removes_a_file() {

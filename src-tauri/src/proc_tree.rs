@@ -128,15 +128,8 @@ mod tests {
         false
     }
 
-    /// Alive = in /proc and not a zombie. A killed orphan can sit as a
-    /// zombie under whichever ancestor reaps orphans, which may not reap.
     #[cfg(target_os = "linux")]
-    fn alive(pid: u32) -> bool {
-        match std::fs::read_to_string(format!("/proc/{}/stat", pid)) {
-            Ok(stat) => stat.rsplit(')').next().and_then(|s| s.trim().chars().next()) != Some('Z'),
-            Err(_) => false,
-        }
-    }
+    use crate::commands::testing::process_alive as alive;
 
     #[cfg(target_os = "linux")]
     #[test]

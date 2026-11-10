@@ -837,10 +837,7 @@ mod tests {
         assert!(t.elapsed() < Duration::from_secs(5), "{:?}", t.elapsed());
         let bg: u32 = String::from_utf8_lossy(&run.stdout).trim().parse().unwrap();
         // Gone, or a zombie waiting for whichever ancestor reaps orphans.
-        let dead = || match std::fs::read_to_string(format!("/proc/{}/stat", bg)) {
-            Ok(stat) => stat.rsplit(')').next().and_then(|s| s.trim().chars().next()) == Some('Z'),
-            Err(_) => true,
-        };
+        let dead = || !crate::commands::testing::process_alive(bg);
         let until = Instant::now() + Duration::from_secs(5);
         while !dead() && Instant::now() < until {
             std::thread::sleep(Duration::from_millis(50));

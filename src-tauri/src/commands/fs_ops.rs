@@ -806,15 +806,11 @@ pub fn change_owner(path: String, owner: String) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::commands::testing::{temp_dir, s};
+    use crate::commands::testing::{read, temp_dir, s};
 
     /// The copy_entry command without its Tauri arguments: untracked.
-    fn copy_entry(from: String, to: String) -> Result<(), String> {
+    pub(super) fn copy_entry(from: String, to: String) -> Result<(), String> {
         copy_path(&from, &to, &Op::untracked())
-    }
-
-    fn read(p: &Path) -> String {
-        std::fs::read_to_string(p).unwrap()
     }
 
     #[cfg_attr(windows, allow(dead_code))]

@@ -7,14 +7,7 @@ pub(crate) struct Scratch(PathBuf);
 
 impl Scratch {
     pub(crate) fn new(name: &str) -> Self {
-        let dir = std::env::temp_dir().join(format!(
-            "glasshouse-test-{}-{}",
-            std::process::id(),
-            name
-        ));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-        Scratch(dir)
+        Scratch(temp_dir(name))
     }
 
     pub(crate) fn path(&self) -> &Path {
@@ -69,11 +62,23 @@ pub(crate) fn tree(root: &Path) -> Vec<String> {
     out
 }
 
+/// A fresh, empty folder under the system temp dir. Unlike `Scratch`, it
+/// stays until the test removes it.
 pub(crate) fn temp_dir(name: &str) -> PathBuf {
     let d = std::env::temp_dir().join(format!("glasshouse-test-{}-{}", std::process::id(), name));
     let _ = std::fs::remove_dir_all(&d);
     std::fs::create_dir_all(&d).unwrap();
     d
+}
+
+/// Alive = in /proc and not a zombie. A killed orphan can sit as a
+/// zombie under whichever ancestor reaps orphans, which may not reap.
+#[cfg(target_os = "linux")]
+pub(crate) fn process_alive(pid: u32) -> bool {
+    match std::fs::read_to_string(format!("/proc/{}/stat", pid)) {
+        Ok(stat) => stat.rsplit(')').next().and_then(|s| s.trim().chars().next()) != Some('Z'),
+        Err(_) => false,
+    }
 }
 
 pub(crate) fn test_repo(name: &str) -> (PathBuf, git2::Repository) {
