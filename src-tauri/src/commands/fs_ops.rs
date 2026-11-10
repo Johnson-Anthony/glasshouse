@@ -29,7 +29,7 @@ pub fn rename_entry(from: String, to: String) -> Result<(), String> {
 
 /// The error for a create or rename whose target is taken, in the wording
 /// undo's `ensureFree` uses; `isAlreadyExists` in api.ts matches it.
-fn no_clobber_err(path: &str, e: std::io::Error) -> String {
+pub(super) fn no_clobber_err(path: &str, e: std::io::Error) -> String {
     if e.kind() != std::io::ErrorKind::AlreadyExists {
         return e.to_string();
     }

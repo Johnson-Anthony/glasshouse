@@ -1,4 +1,5 @@
 use std::path::{Path, PathBuf};
+use super::fs_ops::no_clobber_err;
 use super::launch::{find_tool, require_tool};
 #[cfg(windows)]
 use super::launch::CREATE_NO_WINDOW;
@@ -17,8 +18,7 @@ pub fn compress(paths: Vec<String>, output: String) -> Result<(), String> {
         return Err("compress: no input paths".to_string());
     }
 
-    let out_file = std::fs::File::create(&output)
-        .map_err(|e| format!("create {}: {}", output, e))?;
+    let out_file = create_new_file(&output)?;
     let mut zipw = zip::ZipWriter::new(BufWriter::new(out_file));
     let options: zip::write::FileOptions<'_, ()> =
         zip::write::FileOptions::default().compression_method(zip::CompressionMethod::Deflated);
@@ -49,6 +49,28 @@ pub fn compress(paths: Vec<String>, output: String) -> Result<(), String> {
 
     zipw.finish().map_err(|e| format!("finish zip: {}", e))?;
     Ok(())
+}
+
+/// Open a new archive file. Like every other write, archive creation never
+/// replaces an existing file; the error is `no_clobber_err`'s.
+fn create_new_file(dest: &str) -> Result<std::fs::File, String> {
+    std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(dest)
+        .map_err(|e| match e.kind() {
+            std::io::ErrorKind::AlreadyExists => no_clobber_err(dest, e),
+            _ => format!("create {}: {}", dest, e),
+        })
+}
+
+/// For the archivers that open `dest` themselves: `tar -czf` would replace
+/// an existing file and `7z a` would add to it. This leaves a small race.
+fn refuse_existing(dest: &str) -> Result<(), String> {
+    match std::fs::symlink_metadata(dest) {
+        Ok(_) => Err(no_clobber_err(dest, std::io::ErrorKind::AlreadyExists.into())),
+        Err(_) => Ok(()),
+    }
 }
 
 fn add_dir_recursive<W: std::io::Write + std::io::Seek>(
@@ -211,7 +233,7 @@ impl PipedTar {
 /// through `zip`) does the compression.
 fn tar_zst_create(dest: &str, parent: &str, members: &[String]) -> Result<(), String> {
     use std::process::Stdio;
-    let file = std::fs::File::create(dest).map_err(|e| format!("create {}: {}", dest, e))?;
+    let file = create_new_file(dest)?;
     // `--`: a member named like an option (`--checkpoint-action=exec=…`)
     // must stay a file name.
     let mut args = vec!["-cf", "-", "-C", parent, "--"];
@@ -310,6 +332,7 @@ pub fn archive_create(
 
     match format.as_str() {
         "tar.gz" => {
+            refuse_existing(&dest)?;
             // `--` keeps a member named like an option a file name.
             let mut args: Vec<&str> = vec!["-czf", &dest, "-C", &parent_str, "--"];
             for m in &members {
@@ -319,6 +342,7 @@ pub fn archive_create(
         }
         "tar.zst" => tar_zst_create(&dest, &parent_str, &members),
         "7z" => {
+            refuse_existing(&dest)?;
             let program = find_7z()?;
             // 7z a <dest> <members...>; cd into parent first by using -w
             // (working dir) is not supported, so pass absolute paths instead.
@@ -512,6 +536,32 @@ mod tests {
                 assert_eq!(std::fs::read_to_string(out.join(n)).unwrap(), n, "{} {}", format, n);
             }
         }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn create_never_replaces_an_existing_file() {
+        let dir = temp_dir("archnoclobber");
+        let src = dir.join("a.txt");
+        std::fs::write(&src, "payload").unwrap();
+        let mut formats = vec!["zip"];
+        if which::which("tar").is_ok() {
+            formats.extend(["tar.gz", "tar.zst"]);
+        }
+        if find_7z().is_ok() {
+            formats.push("7z");
+        }
+        for format in formats {
+            let dest = dir.join(format!("taken.{}", format));
+            std::fs::write(&dest, "keep me").unwrap();
+            let err = archive_create(vec![s(&src)], s(&dest), format.into()).unwrap_err();
+            assert!(err.starts_with("\"taken."), "{}: {}", format, err);
+            assert!(err.contains("already exists in"), "{}: {}", format, err);
+            assert_eq!(std::fs::read_to_string(&dest).unwrap(), "keep me", "{}", format);
+        }
+        let dest = dir.join("taken.zip");
+        assert!(compress(vec![s(&src)], s(&dest)).unwrap_err().contains("already exists in"));
+        assert_eq!(std::fs::read_to_string(&dest).unwrap(), "keep me");
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
