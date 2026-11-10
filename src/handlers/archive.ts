@@ -1,4 +1,4 @@
-import type { Handler, HandlerCtx } from "./types";
+import { selectedOrFirst, type Handler, type HandlerCtx } from "./types";
 import {
   archiveCreate,
   archiveExtract,
@@ -33,11 +33,6 @@ function stripArchiveExt(name: string): string {
     if (lower.endsWith(ext)) return name.slice(0, -ext.length);
   }
   return name;
-}
-
-function selectedOrFirst(ctx: HandlerCtx): string[] {
-  if (ctx.selectedPaths.length) return ctx.selectedPaths;
-  return ctx.firstPath ? [ctx.firstPath] : [];
 }
 
 async function doCreate(

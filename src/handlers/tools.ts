@@ -1,4 +1,4 @@
-import type { Handler } from "./types";
+import { selectedOrFirst, type Handler } from "./types";
 import { dialogs } from "../dialogs/DialogHost";
 import { IS_WINDOWS } from "../platform";
 import { parseOctalMode } from "../octal";
@@ -101,11 +101,7 @@ export const toolsHandler: Handler = async (label, ctx) => {
     }
 
     case "Hash SHA256 of Selection": {
-      const paths = ctx.selectedPaths.length
-        ? ctx.selectedPaths
-        : ctx.firstPath
-          ? [ctx.firstPath]
-          : [];
+      const paths = selectedOrFirst(ctx);
       if (paths.length === 0) {
         dialogs.showToast({ message: "Hash SHA256: no selection", variant: "info" });
         return true;
@@ -132,7 +128,7 @@ export const toolsHandler: Handler = async (label, ctx) => {
         return true;
       }
       void dialogs.showAlert({
-        title: `SHA256 (${paths.length} file${paths.length === 1 ? "" : "s"})`,
+        title: `SHA256 (${files})`,
         message: lines.join("\n\n"),
         variant: failed > 0 ? "warning" : undefined,
       });
@@ -206,11 +202,7 @@ export const toolsHandler: Handler = async (label, ctx) => {
     }
 
     case "Run Script on Selection…": {
-      const targets = ctx.selectedPaths.length
-        ? ctx.selectedPaths
-        : ctx.firstPath
-          ? [ctx.firstPath]
-          : [];
+      const targets = selectedOrFirst(ctx);
       if (targets.length === 0) {
         dialogs.showToast({ message: "Run Script: no selection", variant: "info" });
         return true;
@@ -420,11 +412,7 @@ export const toolsHandler: Handler = async (label, ctx) => {
     }
 
     case "Batch Permissions…": {
-      const paths = ctx.selectedPaths.length
-        ? ctx.selectedPaths
-        : ctx.firstPath
-          ? [ctx.firstPath]
-          : [];
+      const paths = selectedOrFirst(ctx);
       if (paths.length === 0) {
         dialogs.showToast({ message: "Batch Permissions: no selection", variant: "info" });
         return true;

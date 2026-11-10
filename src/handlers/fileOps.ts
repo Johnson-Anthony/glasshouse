@@ -12,7 +12,7 @@ import { isCancelled, runOp } from "../ops";
 import { type TransferOp, runTransfer, type TransferItem, type TransferResult } from "../transfer";
 import type { PasteSpecialItem } from "../dialogs/PasteSpecial";
 import { winPathToWsl } from "../shellCd";
-import type { Handler } from "./types";
+import { selectedOrFirst, type Handler } from "./types";
 import { cmdState } from "../commandState";
 import { errText } from "../errors";
 
@@ -69,9 +69,7 @@ export const fileOpsHandler: Handler = async (label, ctx) => {
       return true;
     }
     case "Add Bookmark": {
-      const targets = selectedPaths.length > 0
-        ? selectedPaths
-        : (firstPath ? [firstPath] : []);
+      const targets = selectedOrFirst(ctx);
       if (targets.length === 0) {
         dialogs.showToast({ message: "no selection", variant: "info" });
         return true;
@@ -371,9 +369,7 @@ export const fileOpsHandler: Handler = async (label, ctx) => {
       return true;
     }
     case "Clear All Tags": {
-      const targets = selectedPaths.length > 0
-        ? selectedPaths
-        : (firstPath ? [firstPath] : []);
+      const targets = selectedOrFirst(ctx);
       const tagged = targets.filter(p => (tagStore[p]?.length ?? 0) > 0);
       if (tagged.length === 0) {
         dialogs.showToast({ message: "no tagged items in selection", variant: "info" });
@@ -398,9 +394,7 @@ export const fileOpsHandler: Handler = async (label, ctx) => {
     case "Compress to ZIP…": {
       // Use the current multi-selection; if empty, fall back to a single
       // firstPath if one exists (e.g. chip-only context with one active).
-      const active: string[] = selectedPaths.length > 0
-        ? selectedPaths
-        : (firstPath ? [firstPath] : []);
+      const active: string[] = selectedOrFirst(ctx);
       if (active.length === 0) return true;
       const baseName = basename(active[0]) || "archive";
       const defaultName = `${baseName}.zip`;
