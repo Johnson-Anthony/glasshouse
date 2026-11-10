@@ -123,6 +123,32 @@ async function createFromTemplate(ctx: HandlerCtx): Promise<void> {
   await promptAndCreate(ctx, tpl.file, tpl.body);
 }
 
+/** Paste as Symlink, Hard Link or Shortcut: one link per clipboard path in
+ *  the current folder, named after its target plus `suffix`. */
+async function pasteAsLinks(
+  ctx: HandlerCtx,
+  noun: string,
+  suffix: string,
+  create: (target: string, linkPath: string) => Promise<void>,
+): Promise<void> {
+  const paths = ctx.clipboardPaths?.() ?? [];
+  if (paths.length === 0) {
+    dialogs.showToast({ message: "clipboard is empty", variant: "info" });
+    return;
+  }
+  let ok = 0;
+  for (const p of paths) {
+    try {
+      await create(p, joinPath(ctx.cwd, basename(p) + suffix));
+      ok++;
+    } catch (e) {
+      console.error(`[misc] ${noun} failed`, p, e);
+    }
+  }
+  dialogs.showToast({ message: `created ${ok}/${paths.length} ${noun}(s)`, variant: "success" });
+  ctx.refresh();
+}
+
 async function createPythonModule(ctx: HandlerCtx): Promise<void> {
   const taken = await namesIn(ctx.cwd);
   const name = await dialogs.showPrompt({
@@ -285,65 +311,17 @@ export const miscHandler: Handler = async (label, ctx) => {
 
     // ─── Clipboard special paste ──────────────────────────────────────────
     case "Paste as Symlink":
-    case "Paste as Link (symlink)": {
-      const paths = ctx.clipboardPaths?.() ?? [];
-      if (paths.length === 0) {
-        dialogs.showToast({ message: "clipboard is empty", variant: "info" });
-        return true;
-      }
-      let ok = 0;
-      for (const p of paths) {
-        try {
-          await createSymlink(p, joinPath(ctx.cwd, basename(p)));
-          ok++;
-        } catch (e) {
-          console.error("[misc] symlink failed", p, e);
-        }
-      }
-      dialogs.showToast({ message: `created ${ok}/${paths.length} symlink(s)`, variant: "success" });
-      ctx.refresh();
+    case "Paste as Link (symlink)":
+      await pasteAsLinks(ctx, "symlink", "", createSymlink);
       return true;
-    }
 
-    case "Paste as Hard Link": {
-      const paths = ctx.clipboardPaths?.() ?? [];
-      if (paths.length === 0) {
-        dialogs.showToast({ message: "clipboard is empty", variant: "info" });
-        return true;
-      }
-      let ok = 0;
-      for (const p of paths) {
-        try {
-          await createHardLink(p, joinPath(ctx.cwd, basename(p)));
-          ok++;
-        } catch (e) {
-          console.error("[misc] hard link failed", p, e);
-        }
-      }
-      dialogs.showToast({ message: `created ${ok}/${paths.length} hard link(s)`, variant: "success" });
-      ctx.refresh();
+    case "Paste as Hard Link":
+      await pasteAsLinks(ctx, "hard link", "", createHardLink);
       return true;
-    }
 
-    case "Paste as Shortcut": {
-      const paths = ctx.clipboardPaths?.() ?? [];
-      if (paths.length === 0) {
-        dialogs.showToast({ message: "clipboard is empty", variant: "info" });
-        return true;
-      }
-      let ok = 0;
-      for (const p of paths) {
-        try {
-          await createShortcut(p, joinPath(ctx.cwd, basename(p) + ".lnk"));
-          ok++;
-        } catch (e) {
-          console.error("[misc] shortcut failed", p, e);
-        }
-      }
-      dialogs.showToast({ message: `created ${ok}/${paths.length} shortcut(s)`, variant: "success" });
-      ctx.refresh();
+    case "Paste as Shortcut":
+      await pasteAsLinks(ctx, "shortcut", ".lnk", createShortcut);
       return true;
-    }
 
     case "Paste as Copy (verify SHA256)": {
       const paths = ctx.clipboardPaths?.() ?? [];
