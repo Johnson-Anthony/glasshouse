@@ -11,6 +11,7 @@
     "preview": "vite preview",
     "test": "vitest run",
     "check:wiring": "node scripts/audit-wiring.mjs",
+    "notices": "node scripts/gen-notices.mjs",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build",

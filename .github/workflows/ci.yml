@@ -24,6 +24,27 @@ jobs:
       - run: pnpm test
       - run: pnpm check:wiring
 
+  # src/assets/third-party.json (Help → Third-party Notices) must match the
+  # lockfiles. Run `pnpm notices` and commit the result when this fails.
+  notices:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+      - uses: dtolnay/rust-toolchain@stable
+      # The same version as the committed output was made with.
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-about@0.9.3
+      - run: pnpm install --frozen-lockfile
+      - run: cargo fetch --locked
+        working-directory: src-tauri
+      - run: pnpm notices --check
+
   backend:
     strategy:
       fail-fast: false
