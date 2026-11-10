@@ -1,4 +1,5 @@
 import type { Handler } from "./types";
+import { pickNumbered } from "./helpers";
 import { dialogs } from "../dialogs/DialogHost";
 import {
   gitStage,
@@ -212,24 +213,8 @@ export const gitHandler: Handler = async (label, ctx) => {
         dialogs.showToast({ message: "no branches (or not a git repo)", variant: "info" });
         return true;
       }
-      const picked = await dialogs.showPrompt({
-        title: "git checkout",
-        message: branches.slice(0, 20).map((b, i) =>
-          `${i + 1}. ${b.current ? "* " : "  "}${b.name}`,
-        ).join("\n"),
-        placeholder: "1",
-        validate: (v) => {
-          const n = parseInt(v.trim(), 10);
-          return (Number.isFinite(n) && n >= 1 && n <= branches.length)
-            ? null
-            : `enter 1..${Math.min(branches.length, 20)}`;
-        },
-      });
-      if (picked != null) {
-        const n = parseInt(picked.trim(), 10) - 1;
-        const b = branches[n];
-        if (b) await runAndShow(ctx, `git checkout ${b.name}`, ["checkout", b.name], true);
-      }
+      const b = await pickNumbered("git checkout", branches, b => `${b.current ? "* " : "  "}${b.name}`, 20);
+      if (b) await runAndShow(ctx, `git checkout ${b.name}`, ["checkout", b.name], true);
       return true;
     }
     default: {

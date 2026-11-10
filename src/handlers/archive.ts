@@ -1,4 +1,5 @@
-import { selectedOrFirst, type Handler, type HandlerCtx } from "./types";
+import type { Handler, HandlerCtx } from "./types";
+import { selectedOrFirst } from "./helpers";
 import {
   archiveCreate,
   archiveExtract,

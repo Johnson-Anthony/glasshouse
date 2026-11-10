@@ -81,9 +81,3 @@ export interface HandlerCtx {
 }
 
 export type Handler = (label: string, ctx: HandlerCtx) => Promise<boolean> | boolean;
-
-/** The selected paths, or the first entry's path when nothing else is. */
-export function selectedOrFirst(ctx: HandlerCtx): string[] {
-  if (ctx.selectedPaths.length) return ctx.selectedPaths;
-  return ctx.firstPath ? [ctx.firstPath] : [];
-}

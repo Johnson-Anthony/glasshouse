@@ -1,4 +1,5 @@
 import type { Handler, HandlerCtx } from "./types";
+import { pickNumbered } from "./helpers";
 import { dialogs } from "../dialogs/DialogHost";
 import { IS_WINDOWS } from "../platform";
 import { basename, joinPath, parentPath } from "../paths";
@@ -117,20 +118,7 @@ SOFTWARE.
 ];
 
 async function createFromTemplate(ctx: HandlerCtx): Promise<void> {
-  const listing = TEMPLATES.map((t, i) => `${i + 1}. ${t.name} (${t.file})`).join("\n");
-  const picked = await dialogs.showPrompt({
-    title: "new from template",
-    message: listing,
-    placeholder: "1",
-    validate: (v) => {
-      const n = parseInt(v.trim(), 10);
-      return (Number.isFinite(n) && n >= 1 && n <= TEMPLATES.length)
-        ? null
-        : `enter 1..${TEMPLATES.length}`;
-    },
-  });
-  if (picked == null) return;
-  const tpl = TEMPLATES[parseInt(picked.trim(), 10) - 1];
+  const tpl = await pickNumbered("new from template", TEMPLATES, t => `${t.name} (${t.file})`);
   if (!tpl) return;
   await promptAndCreate(ctx, tpl.file, tpl.body);
 }

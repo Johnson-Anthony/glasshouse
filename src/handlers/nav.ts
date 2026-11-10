@@ -1,4 +1,5 @@
 import type { Handler } from "./types";
+import { pickNumbered } from "./helpers";
 import { dialogs } from "../dialogs/DialogHost";
 import { IS_WINDOWS } from "../platform";
 import { joinPath } from "../paths";
@@ -22,22 +23,8 @@ export const navHandler: Handler = async (label, ctx) => {
         dialogs.showToast({ message: "no recent paths", variant: "info" });
         return true;
       }
-      const picked = await dialogs.showPrompt({
-        title: "open recent",
-        message: paths.slice(0, 8).map((p, i) => `${i + 1}. ${p}`).join("\n"),
-        placeholder: "1",
-        validate: (v) => {
-          const n = parseInt(v.trim(), 10);
-          return (Number.isFinite(n) && n >= 1 && n <= paths.length)
-            ? null
-            : `enter 1..${Math.min(paths.length, 8)}`;
-        },
-      });
-      if (picked != null) {
-        const n = parseInt(picked.trim(), 10) - 1;
-        const p = paths[n];
-        if (p) ctx.activeHandle?.actions.goTo(p);
-      }
+      const p = await pickNumbered("open recent", paths, p => p, 8);
+      if (p) ctx.activeHandle?.actions.goTo(p);
       return true;
     }
     case "Jump to Bookmark →": {
@@ -46,22 +33,8 @@ export const navHandler: Handler = async (label, ctx) => {
         dialogs.showToast({ message: "no bookmarks", variant: "info" });
         return true;
       }
-      const picked = await dialogs.showPrompt({
-        title: "jump to bookmark",
-        message: pins.slice(0, 10).map((p, i) => `${i + 1}. ${p}`).join("\n"),
-        placeholder: "1",
-        validate: (v) => {
-          const n = parseInt(v.trim(), 10);
-          return (Number.isFinite(n) && n >= 1 && n <= pins.length)
-            ? null
-            : `enter 1..${Math.min(pins.length, 10)}`;
-        },
-      });
-      if (picked != null) {
-        const n = parseInt(picked.trim(), 10) - 1;
-        const p = pins[n];
-        if (p) ctx.activeHandle?.actions.goTo(p);
-      }
+      const p = await pickNumbered("jump to bookmark", pins, p => p, 10);
+      if (p) ctx.activeHandle?.actions.goTo(p);
       return true;
     }
     case "Clear History":

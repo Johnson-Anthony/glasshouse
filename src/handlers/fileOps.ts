@@ -12,7 +12,8 @@ import { isCancelled, runOp } from "../ops";
 import { type TransferOp, runTransfer, type TransferItem, type TransferResult } from "../transfer";
 import type { PasteSpecialItem } from "../dialogs/PasteSpecial";
 import { winPathToWsl } from "../shellCd";
-import { selectedOrFirst, type Handler } from "./types";
+import type { Handler } from "./types";
+import { selectedOrFirst } from "./helpers";
 import { cmdState } from "../commandState";
 import { errText } from "../errors";
 

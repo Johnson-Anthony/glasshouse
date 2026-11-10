@@ -1,4 +1,5 @@
-import { selectedOrFirst, type Handler } from "./types";
+import type { Handler } from "./types";
+import { selectedOrFirst } from "./helpers";
 import { dialogs } from "../dialogs/DialogHost";
 import { IS_WINDOWS } from "../platform";
 import { parseOctalMode } from "../octal";
