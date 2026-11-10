@@ -1,4 +1,4 @@
-import { type FileEntry, openWithDefault, renameEntry, deleteEntry, moveToTrash, makeDir, createTextFile, spawnTerminal, spawnVscodeStrict, revealInExplorer, winToWsl, writeTags, compress, hashSha256, homeDir, gitStage, gitUnstage, gitDiscard } from "../api";
+import { type FileEntry, openWithDefault, renameEntry, deleteEntry, moveToTrash, makeDir, createTextFile, spawnTerminal, spawnVscodeStrict, revealInExplorer, winToWsl, writeTags, archiveCreate, hashSha256, homeDir, gitStage, gitUnstage, gitDiscard } from "../api";
 import { MUTATING_LABELS } from "../data";
 import { dialogs } from "../dialogs/DialogHost";
 import { basename, parentPath, joinPath } from "../paths";
@@ -390,7 +390,7 @@ export const fileOpsHandler: Handler = async (label, ctx) => {
       if (!/\.zip$/i.test(name)) name += ".zip";
       const outPath = joinPath(cwd, name);
       try {
-        await compress(active, outPath);
+        await archiveCreate(active, outPath, "zip");
         refresh();
         dialogs.showToast({ message: `compressed to ${name}`, variant: "success" });
       } catch (err) {

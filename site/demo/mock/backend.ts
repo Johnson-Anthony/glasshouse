@@ -258,7 +258,6 @@ export function createBackend(hooks: BackendHooks) {
       changed(parent(dest));
       return null;
     },
-    compress: a => handlers.archive_create({ paths: a.paths, dest: a.output }),
     archive_extract: a => {
       const archive = str(a.archive);
       const dest = str(a.destDir);

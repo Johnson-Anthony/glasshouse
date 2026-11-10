@@ -367,10 +367,6 @@ export function writeTags(tags: Record<string, string[]>): Promise<void> {
   return safe(() => invoke<void>("write_tags", { tags }), undefined);
 }
 
-export function compress(paths: string[], output: string): Promise<void> {
-  return mustInvoke<void>("compress", { paths, output });
-}
-
 export function archiveCreate(
   paths: string[],
   dest: string,
