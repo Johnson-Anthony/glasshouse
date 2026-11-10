@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import type { FileKind } from "../data";
 import { listDir, readHexDump, readImageB64, readText, type FileEntry } from "../api";
-import { kindIcon } from "../components";
+import { fullName, kindIcon } from "../components";
 import type { InspectableFile } from "./Inspector";
 import { errText } from "../errors";
 
@@ -595,7 +595,7 @@ export function FilePreview({ file: f, large = false, onExpand }: FilePreviewPro
 // Full-window preview overlay ("quick look") — Space or the expand button
 // opens it for the selected file; Esc, Space or a backdrop click closes.
 export function QuickLook({ file, onClose }: { file: InspectableFile; onClose: () => void }) {
-  const displayName = file.ext && file.kind !== "folder" ? `${file.name}.${file.ext}` : file.name;
+  const displayName = fullName(file);
   const ki = kindIcon(file.kind);
   return (
     <div className="ql-overlay" onMouseDown={onClose}>

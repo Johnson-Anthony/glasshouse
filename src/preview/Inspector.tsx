@@ -2,7 +2,7 @@ import React, { useState, useEffect } from "react";
 import type { FileRow, FileKind } from "../data";
 import { fileStatExtended, gitFileInfo, hashCrc32, hashMd5, hashSha256, setPermissions, type FileEntry, type FileStatExt, type GitFileInfo } from "../api";
 import { parentPath } from "../paths";
-import { formatDate, tagColor } from "../components";
+import { formatDate, fullName, tagColor } from "../components";
 import { dialogs } from "../dialogs/DialogHost";
 import { isCancelled, runOp } from "../ops";
 import { AUDIO_EXTS, FilePreview } from "./FilePreview";
@@ -202,7 +202,7 @@ export function Inspector({ file, onQuickAction, onExpand }: InspectorProps) {
   }
 
   const f = file;
-  const displayName = f.ext && f.kind !== "folder" ? `${f.name}.${f.ext}` : f.name;
+  const displayName = fullName(f);
   const mime = mimeGuess(f.kind, f.ext);
   const createdStr = formatDate(statExt?.created_ms ?? null);
   const ownerStr = statExt?.owner ?? "—";

@@ -186,6 +186,11 @@ export function tagColor(tag: string | null): string {
   return (tag && m[tag]) || "var(--fg-3)";
 }
 
+/** A row's name with its extension put back, except on folders. */
+export function fullName(row: Pick<FileRow, "name" | "ext" | "kind">): string {
+  return row.ext && row.kind !== "folder" ? `${row.name}.${row.ext}` : row.name;
+}
+
 /** A modified/created time as "YYYY-MM-DD HH:MM" local time, "—" when unset. */
 export function formatDate(ms: number | null | undefined): string {
   if (!ms) return "—";
@@ -378,7 +383,7 @@ export function FilePane({
       ? fuzzyFilter(
           q,
           indexed,
-          x => (x.file.ext && x.file.kind !== "folder") ? `${x.file.name}.${x.file.ext}` : x.file.name,
+          x => fullName(x.file),
         ).map(r => r.item)
       : indexed;
 
