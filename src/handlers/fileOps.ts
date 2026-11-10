@@ -5,7 +5,7 @@ import { basename, parentPath, joinPath } from "../paths";
 import type { BulkRenameItem } from "../dialogs/BulkRename";
 import { namesIn, unlessTaken, asItems, transferDeps, pushTransferUndo, reportTransfer } from "../transferUi";
 import { nameProblem, freeNewName } from "../names";
-import { pushUndo } from "../state";
+import { pushUndo, type TabState } from "../state";
 import { moveUndo, createUndo, type Created } from "../undoActions";
 import { IS_WINDOWS } from "../platform";
 import { isCancelled, runOp } from "../ops";
@@ -15,6 +15,20 @@ import type { Handler } from "./types";
 import { copyWslPath, selectedOrFirst, showBlame } from "./helpers";
 import { cmdState } from "../commandState";
 import { errText } from "../errors";
+
+/** The kinds of the selected entries, parallel to ctx.selectedPaths. */
+function selectedKinds(st: TabState): string[] {
+  return st.selected
+    .map(i => st.entries[i]?.kind ?? "file")
+    .filter((_, idx) => Boolean(st.entries[st.selected[idx]]?.path));
+}
+
+function bulkRenameItems(st: TabState): BulkRenameItem[] {
+  return st.selected
+    .map(i => st.entries[i])
+    .filter((e): e is FileEntry => !!e)
+    .map(e => ({ path: e.path, name: e.name }));
+}
 
 /** New Folder, Text File, Markdown Note and Script: prompt for a free name in
  *  `cwd`, create it, and push an undo entry that removes it. */
@@ -62,12 +76,7 @@ export const fileOpsHandler: Handler = async (label, ctx) => {
   if (!activeHandle) return true;
   const st = activeHandle.state;
   const refresh = activeHandle.actions.refresh;
-  const selectedPaths = st.selected
-    .map(i => st.entries[i]?.path)
-    .filter((p): p is string => Boolean(p));
-  const firstEntry: FileEntry | undefined = st.entries[st.selected[0]];
-  const firstPath = firstEntry?.path;
-  const cwd = st.path;
+  const { selectedPaths, firstEntry, firstPath, cwd } = ctx;
 
   // Entries whose on-disk name isn't valid UTF-8 carry a lossy rendering of
   // the real path — any mutating op would target a path that doesn't exist
@@ -122,11 +131,7 @@ export const fileOpsHandler: Handler = async (label, ctx) => {
       // Multi-select routes through bulk rename so F2 is consistent with
       // the palette / context menu "Bulk Rename…" entry.
       if (st.selected.length > 1) {
-        const items: BulkRenameItem[] = st.selected
-          .map(i => st.entries[i])
-          .filter((e): e is FileEntry => !!e)
-          .map(e => ({ path: e.path, name: e.name }));
-        setBulkRenameItems(items);
+        setBulkRenameItems(bulkRenameItems(st));
         return true;
       }
       // The entry's own folder: search results can live outside cwd.
@@ -148,10 +153,7 @@ export const fileOpsHandler: Handler = async (label, ctx) => {
       return true;
     }
     case "Bulk Rename…": {
-      const items: BulkRenameItem[] = st.selected
-        .map(i => st.entries[i])
-        .filter((e): e is FileEntry => !!e)
-        .map(e => ({ path: e.path, name: e.name }));
+      const items = bulkRenameItems(st);
       if (items.length === 0) return true;
       setBulkRenameItems(items);
       return true;
@@ -187,9 +189,7 @@ export const fileOpsHandler: Handler = async (label, ctx) => {
     }
     case "Copy": {
       if (selectedPaths.length === 0) return true;
-      const kinds = st.selected
-        .map(i => st.entries[i]?.kind ?? "file")
-        .filter((_, idx) => Boolean(st.entries[st.selected[idx]]?.path));
+      const kinds = selectedKinds(st);
       cmdState.clipboard = { op: "copy", paths: selectedPaths, kinds };
       setCutPaths([]);
       dialogs.showToast({ message: `copied ${selectedPaths.length} item(s)`, variant: "info" });
@@ -197,9 +197,7 @@ export const fileOpsHandler: Handler = async (label, ctx) => {
     }
     case "Cut": {
       if (selectedPaths.length === 0) return true;
-      const kinds = st.selected
-        .map(i => st.entries[i]?.kind ?? "file")
-        .filter((_, idx) => Boolean(st.entries[st.selected[idx]]?.path));
+      const kinds = selectedKinds(st);
       cmdState.clipboard = { op: "cut", paths: selectedPaths, kinds };
       setCutPaths(selectedPaths);
       dialogs.showToast({ message: `cut ${selectedPaths.length} item(s)`, variant: "info" });
