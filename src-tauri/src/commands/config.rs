@@ -1,3 +1,5 @@
+use serde::de::DeserializeOwned;
+use serde::Serialize;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Manager};
@@ -21,38 +23,41 @@ fn write_config_atomic(path: &Path, body: &str) -> Result<(), String> {
     std::fs::rename(&tmp, path).map_err(|e| e.to_string())
 }
 
-#[tauri::command]
-pub fn read_pins(app: AppHandle) -> Result<Vec<String>, String> {
-    let path = config_file(&app, "pins.json")?;
+/// Read config file `name` as JSON; a missing file reads as `T::default()`.
+fn read_json<T: DeserializeOwned + Default>(app: &AppHandle, name: &str) -> Result<T, String> {
+    let path = config_file(app, name)?;
     match std::fs::read_to_string(&path) {
-        Ok(s) => serde_json::from_str::<Vec<String>>(&s).map_err(|e| e.to_string()),
-        Err(ref e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Vec::new()),
+        Ok(s) => serde_json::from_str::<T>(&s).map_err(|e| e.to_string()),
+        Err(ref e) if e.kind() == std::io::ErrorKind::NotFound => Ok(T::default()),
         Err(e) => Err(e.to_string()),
     }
+}
+
+/// Write `value` to config file `name` as JSON, atomically.
+fn write_json<T: Serialize>(app: &AppHandle, name: &str, value: &T) -> Result<(), String> {
+    let path = config_file(app, name)?;
+    let body = serde_json::to_string(value).map_err(|e| e.to_string())?;
+    write_config_atomic(&path, &body)
+}
+
+#[tauri::command]
+pub fn read_pins(app: AppHandle) -> Result<Vec<String>, String> {
+    read_json(&app, "pins.json")
 }
 
 #[tauri::command]
 pub fn write_pins(app: AppHandle, pins: Vec<String>) -> Result<(), String> {
-    let path = config_file(&app, "pins.json")?;
-    let body = serde_json::to_string(&pins).map_err(|e| e.to_string())?;
-    write_config_atomic(&path, &body)
+    write_json(&app, "pins.json", &pins)
 }
 
 #[tauri::command]
 pub fn read_tags(app: AppHandle) -> Result<HashMap<String, Vec<String>>, String> {
-    let path = config_file(&app, "tags.json")?;
-    match std::fs::read_to_string(&path) {
-        Ok(s) => serde_json::from_str::<HashMap<String, Vec<String>>>(&s).map_err(|e| e.to_string()),
-        Err(ref e) if e.kind() == std::io::ErrorKind::NotFound => Ok(HashMap::new()),
-        Err(e) => Err(e.to_string()),
-    }
+    read_json(&app, "tags.json")
 }
 
 #[tauri::command]
 pub fn write_tags(app: AppHandle, tags: HashMap<String, Vec<String>>) -> Result<(), String> {
-    let path = config_file(&app, "tags.json")?;
-    let body = serde_json::to_string(&tags).map_err(|e| e.to_string())?;
-    write_config_atomic(&path, &body)
+    write_json(&app, "tags.json", &tags)
 }
 
 // ---------- recent-paths persistence ----------
@@ -61,12 +66,7 @@ const RECENT_MAX: usize = 20;
 
 #[tauri::command]
 pub fn read_recent(app: AppHandle) -> Result<Vec<String>, String> {
-    let path = config_file(&app, "recent.json")?;
-    match std::fs::read_to_string(&path) {
-        Ok(s) => serde_json::from_str::<Vec<String>>(&s).map_err(|e| e.to_string()),
-        Err(ref e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Vec::new()),
-        Err(e) => Err(e.to_string()),
-    }
+    read_json(&app, "recent.json")
 }
 
 #[tauri::command]
@@ -87,9 +87,7 @@ pub fn append_recent(app: AppHandle, path: String) -> Result<(), String> {
 
 #[tauri::command]
 pub fn clear_recent(app: AppHandle) -> Result<(), String> {
-    let cfg = config_file(&app, "recent.json")?;
-    let body = serde_json::to_string(&Vec::<String>::new()).map_err(|e| e.to_string())?;
-    write_config_atomic(&cfg, &body)
+    write_json(&app, "recent.json", &Vec::<String>::new())
 }
 
 #[cfg(test)]
