@@ -351,12 +351,20 @@ pub fn pty_write(
     queue_input(&registry.sessions, &session_id, data)
 }
 
+/// The live session `session_id`, or an error naming it.
+fn get_session<'a>(
+    sessions: &'a HashMap<String, PtySession>,
+    session_id: &str,
+) -> Result<&'a PtySession, String> {
+    sessions
+        .get(session_id)
+        .ok_or_else(|| format!("no pty session: {}", session_id))
+}
+
 /// Hand `data` to the session's writer thread. Never blocks on the pty.
 fn queue_input(sessions: &Sessions, session_id: &str, data: String) -> Result<(), String> {
     let sessions = lock(sessions);
-    let session = sessions
-        .get(session_id)
-        .ok_or_else(|| format!("no pty session: {}", session_id))?;
+    let session = get_session(&sessions, session_id)?;
     session
         .input
         .send(data.into_bytes())
@@ -371,9 +379,7 @@ pub fn pty_resize(
     rows: u16,
 ) -> Result<(), String> {
     let sessions = lock(&registry.sessions);
-    let session = sessions
-        .get(&session_id)
-        .ok_or_else(|| format!("no pty session: {}", session_id))?;
+    let session = get_session(&sessions, &session_id)?;
     session
         .master
         .resize(PtySize {
