@@ -3,8 +3,6 @@ import {
   Titlebar,
   Toolbar,
   FilePane,
-  Inspector,
-  QuickLook,
   StatusBar,
   Palette,
   Tweaks,
@@ -29,6 +27,8 @@ import {
   type ContextKind,
   type GitOutputState,
 } from "./components";
+import { Inspector } from "./preview/Inspector";
+import { QuickLook } from "./preview/FilePreview";
 import { Sidebar, type SavedRemote, type SidebarRowKind } from "./Sidebar";
 import { Menubar, ContextMenu, setDynamicGitCwd } from "./menus";
 import { CONTEXT_FILE, CONTEXT_EMPTY, CONTEXT_SIDEBAR, CONTEXT_SIDEBAR_FOLDER, CONTEXT_SIDEBAR_DRIVE, CONTEXT_SIDEBAR_REMOTE, CONTEXT_TAB, CONTEXT_BREADCRUMB, GIT_CHORDS, MUTATING_LABELS, THEMES, type MenuItemDef, type DynamicPayload, type FileRow, type FileKind, type GitStatus } from "./data";
