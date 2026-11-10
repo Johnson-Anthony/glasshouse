@@ -28,14 +28,14 @@ Line numbers are from commit `14c68bd` and drift, so search by name. Items marke
 | script-kill-tree | Rust, small | **merged** (1fd8435) |
 | async-commands | Rust | **merged** (9c3eefe) |
 | pty-writer | Rust, small | **merged** (16293b0) |
-| pty-drain | Rust, small, low priority | queued (found by pty-writer) |
+| pty-drain | Rust, small, low priority | running (async-commands session) |
 | op-progress | both | queued; after dead-code's Rust part and split-big-files (found by async-commands) |
 | dead-code | both | **merged** (frontend d61379a, Rust 27340c6) |
 | unsent-labels | frontend | **merged** (8828d97) |
 | test-coverage | both | **merged** (5a59187) |
 | copy-move-no-clobber | Rust, small; data loss | **merged** (86c6b52) |
 | bulk-rename-digits | frontend, small | **merged** (6cbc6dd) |
-| parser-fixes | Rust, tiny, low priority | queued (found by test-coverage) |
+| parser-fixes | Rust, tiny, low priority | running (test-coverage session) |
 | presentation | docs + small code | **merged**; GitHub text awaits the user |
 | pages-site | site (big project) | **merged** (6f72fd7); live on the next push |
 | split-big-files | both | **wait until all the others are merged** |
