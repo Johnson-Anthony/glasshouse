@@ -78,7 +78,7 @@ pub fn list_dir(path: String, show_hidden: bool) -> Result<Vec<FileEntry>, Strin
             Err(_) => continue,
         };
         let name = entry.file_name().to_string_lossy().to_string();
-        let hidden = is_hidden(&entry.path(), &name, &link_meta);
+        let hidden = is_hidden(&name, &link_meta);
         if hidden && !show_hidden {
             continue;
         }
@@ -135,7 +135,7 @@ pub fn list_dir(path: String, show_hidden: bool) -> Result<Vec<FileEntry>, Strin
 }
 
 #[cfg(windows)]
-fn is_hidden(_path: &Path, name: &str, meta: &std::fs::Metadata) -> bool {
+fn is_hidden(name: &str, meta: &std::fs::Metadata) -> bool {
     use std::os::windows::fs::MetadataExt;
     const FILE_ATTRIBUTE_HIDDEN: u32 = 0x2;
     const FILE_ATTRIBUTE_SYSTEM: u32 = 0x4;
@@ -147,7 +147,7 @@ fn is_hidden(_path: &Path, name: &str, meta: &std::fs::Metadata) -> bool {
 }
 
 #[cfg(not(windows))]
-fn is_hidden(_path: &Path, name: &str, _meta: &std::fs::Metadata) -> bool {
+fn is_hidden(name: &str, _meta: &std::fs::Metadata) -> bool {
     name.starts_with('.')
 }
 
