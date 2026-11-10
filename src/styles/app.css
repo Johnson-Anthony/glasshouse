@@ -323,7 +323,6 @@ html, body {
 .dropdown .mi .ic { color: var(--fg-3); font-size: 11px; }
 .dropdown .mi .kb { font-size: 10.5px; color: var(--fg-3); letter-spacing: 0.03em; }
 .dropdown .mi .chev { color: var(--fg-3); }
-.dropdown .mi.disabled { opacity: 0.4; pointer-events: none; }
 .dropdown .mi.danger:hover { background: color-mix(in oklch, var(--red) 30%, var(--bg-sel)); color: var(--red); }
 .dropdown .sep { height: 1px; background: var(--border); margin: 4px 2px; }
 .dropdown .group-label {
@@ -355,7 +354,6 @@ html, body {
   font-size: 12px;
 }
 .nav-btn:hover { background: var(--bg-3); color: var(--fg-0); }
-.nav-btn.disabled { opacity: 0.3; pointer-events: none; }
 
 .breadcrumb {
   flex: 1;
@@ -371,7 +369,6 @@ html, body {
   height: 26px;
   overflow: hidden;
 }
-.breadcrumb .scheme { color: var(--accent); margin-right: 4px; }
 .breadcrumb .crumb {
   color: var(--fg-1);
   padding: 1px 4px;
@@ -518,9 +515,6 @@ html, body {
 .tree-row .chev { color: var(--fg-3); font-size: 9px; display: grid; place-items: center; }
 .tree-row .ic { color: var(--yellow); }
 .tree-row .git { font-size: 10px; color: var(--fg-3); }
-.tree-row .git.mod { color: var(--yellow); }
-.tree-row .git.add { color: var(--green); }
-.tree-row .git.del { color: var(--red); }
 
 /* file pane */
 .pane {
@@ -645,7 +639,6 @@ html, body {
 .row .git-dot.gu { background: var(--red); }
 .row .git-dot.gq { background: var(--fg-2); }
 .row .git-dot.gb { background: var(--fg-3); }
-.row .meta { color: var(--fg-3); font-size: 11px; }
 .row .ext { color: var(--fg-3); font-size: 11px; }
 .row .link, .miller .link { color: var(--cyan); font-size: 11px; flex: none; }
 .row .size {
@@ -729,11 +722,6 @@ html, body {
   padding: 3px 7px;
   border-radius: 3px;
   border: 1px dashed var(--border-strong);
-}
-.insp-preview .big-ic {
-  font-size: 48px;
-  color: var(--accent);
-  filter: drop-shadow(var(--glow));
 }
 
 /* ------- file preview (inspector card + quick look) ------- */
@@ -1076,8 +1064,6 @@ html.no-status .statusbar { display: none; }
   font-weight: 600;
   letter-spacing: 0.08em;
 }
-.sb-seg.mode.visual { background: var(--yellow); }
-.sb-seg.mode.cmd { background: var(--red); }
 
 /* ------- Terminal drawer ------- */
 /* Matches design/project/styles/app.css verbatim (tabs header + scrollable
@@ -1305,7 +1291,6 @@ html.no-status .statusbar { display: none; }
 .ctx-menu .mi .ic { color: var(--fg-3); font-size: 11px; }
 .ctx-menu .mi .kb { font-size: 10.5px; color: var(--fg-3); letter-spacing: 0.03em; }
 .ctx-menu .mi .chev { color: var(--fg-3); }
-.ctx-menu .mi.disabled { opacity: 0.4; pointer-events: none; }
 .ctx-menu .mi.danger:hover { background: color-mix(in oklch, var(--red) 30%, var(--bg-sel)); color: var(--red); }
 .ctx-menu .sep { height: 1px; background: var(--border); margin: 4px 2px; }
 .ctx-menu .group-label {
@@ -1478,7 +1463,6 @@ html[data-display-mode="grid-thumbs"] .pane .row .ic {
   font-size: 32px;
   margin-bottom: 6px;
 }
-html[data-display-mode="grid-thumbs"] .pane .row .meta,
 html[data-display-mode="grid-thumbs"] .pane .row .ext,
 html[data-display-mode="grid-thumbs"] .pane .row .date,
 html[data-display-mode="grid-thumbs"] .pane .row .size,
@@ -1511,7 +1495,6 @@ html[data-display-mode="icons"] .pane .row .ic {
   font-size: 38px;
   margin-bottom: 4px;
 }
-html[data-display-mode="icons"] .pane .row .meta,
 html[data-display-mode="icons"] .pane .row .ext,
 html[data-display-mode="icons"] .pane .row .date,
 html[data-display-mode="icons"] .pane .row .size,
