@@ -1158,13 +1158,24 @@ fn linux_terminal_command(
         .into_iter()
         .find(|c| which::which(c).is_ok())
         .ok_or_else(|| "no terminal emulator found — set $TERMINAL".to_string())?;
-    let name = std::path::Path::new(&term)
+    Ok(terminal_command_for(&term, cwd, run))
+}
+
+/// The command for terminal emulator `term` (a name or path) with the
+/// flags it takes for `cwd` and `run`.
+#[cfg(not(windows))]
+fn terminal_command_for(
+    term: &str,
+    cwd: &str,
+    run: Option<(&str, &[String])>,
+) -> std::process::Command {
+    let name = std::path::Path::new(term)
         .file_stem()
         .and_then(|s| s.to_str())
-        .unwrap_or(term.as_str())
+        .unwrap_or(term)
         .to_string();
 
-    let mut cmd = std::process::Command::new(&term);
+    let mut cmd = std::process::Command::new(term);
     if !cwd.is_empty() {
         cmd.current_dir(cwd);
         match name.as_str() {
@@ -1208,7 +1219,7 @@ fn linux_terminal_command(
             cmd.arg("-e").arg(prog).args(args);
         }
     }
-    Ok(cmd)
+    cmd
 }
 
 /// Carries the folder to a PowerShell started via `cmd /C start` (see
@@ -2921,6 +2932,12 @@ fn ssh_hosts() -> Vec<String> {
         Ok(t) => t,
         Err(_) => return Vec::new(),
     };
+    parse_ssh_hosts(&text)
+}
+
+/// The `Host` names in an ssh config's text, in order, without wildcards or
+/// repeats.
+fn parse_ssh_hosts(text: &str) -> Vec<String> {
     let mut hosts: Vec<String> = Vec::new();
     for raw in text.lines() {
         let line = raw.trim();
@@ -3593,22 +3610,29 @@ pub fn path_fs_type(path: String) -> Result<String, String> {
         // Longest mount-point prefix of `path` wins. /proc/self/mounts escapes
         // spaces in mount points as \040.
         let mounts = std::fs::read_to_string("/proc/self/mounts").map_err(|e| e.to_string())?;
-        let mut best_len = 0usize;
-        let mut best_fs = String::new();
-        for line in mounts.lines() {
-            let mut it = line.split_whitespace();
-            let (Some(_dev), Some(mp_raw), Some(fs)) = (it.next(), it.next(), it.next()) else {
-                continue;
-            };
-            let mp = mp_raw.replace("\\040", " ");
-            let matches = mp == "/" || path == mp || path.starts_with(&(mp.clone() + "/"));
-            if matches && mp.len() > best_len {
-                best_len = mp.len();
-                best_fs = fs.to_string();
-            }
-        }
-        Ok(best_fs)
+        Ok(fs_type_for(&mounts, &path))
     }
+}
+
+/// The filesystem type of the mount in `mounts` (`/proc/self/mounts` text)
+/// that holds `path`, or "" if none does.
+#[cfg(not(windows))]
+fn fs_type_for(mounts: &str, path: &str) -> String {
+    let mut best_len = 0usize;
+    let mut best_fs = String::new();
+    for line in mounts.lines() {
+        let mut it = line.split_whitespace();
+        let (Some(_dev), Some(mp_raw), Some(fs)) = (it.next(), it.next(), it.next()) else {
+            continue;
+        };
+        let mp = mp_raw.replace("\\040", " ");
+        let matches = mp == "/" || path == mp || path.starts_with(&(mp.clone() + "/"));
+        if matches && mp.len() > best_len {
+            best_len = mp.len();
+            best_fs = fs.to_string();
+        }
+    }
+    best_fs
 }
 
 // ---------- network rate ----------
@@ -3677,6 +3701,12 @@ fn sample_net_octets() -> Result<(u64, u64), String> {
     // /proc/net/dev: two header lines, then "iface: rx_bytes ... tx_bytes ..."
     // with tx_bytes at field index 8 after the colon.
     let text = std::fs::read_to_string("/proc/net/dev").map_err(|e| e.to_string())?;
+    Ok(parse_net_dev(&text))
+}
+
+/// Total received and sent bytes in `/proc/net/dev` text, loopback excluded.
+#[cfg(not(windows))]
+fn parse_net_dev(text: &str) -> (u64, u64) {
     let mut total_in = 0u64;
     let mut total_out = 0u64;
     for line in text.lines().skip(2) {
@@ -3693,7 +3723,7 @@ fn sample_net_octets() -> Result<(u64, u64), String> {
         total_in = total_in.saturating_add(fields[0].parse::<u64>().unwrap_or(0));
         total_out = total_out.saturating_add(fields[8].parse::<u64>().unwrap_or(0));
     }
-    Ok((total_in, total_out))
+    (total_in, total_out)
 }
 
 // ---------- real git shell-outs ----------
@@ -5281,3 +5311,12 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
+
+#[cfg(test)]
+pub(crate) mod testing;
+#[cfg(test)]
+mod archive_tests;
+#[cfg(test)]
+mod fs_tests;
+#[cfg(test)]
+mod parser_tests;

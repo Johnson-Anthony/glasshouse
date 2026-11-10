@@ -34,7 +34,7 @@ async function copyToClipboard(text: string): Promise<void> {
   console.log("[tools] clipboard unavailable, would copy:", text);
 }
 
-function winToUnc(path: string): string {
+export function winToUnc(path: string): string {
   // C:\foo\bar → \\wsl$\... is not a clean mapping; give the common
   // administrative-share form: C:\foo → \\localhost\C$\foo. For UNC paths
   // or WSL paths, return verbatim.

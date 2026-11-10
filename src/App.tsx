@@ -52,6 +52,7 @@ import { makeTab, closeTab, closeOtherTabs, moveTab as moveTabIn, tabLabel, type
 import { canExtractArchive } from "./handlers/archive";
 import { IS_WINDOWS } from "./platform";
 import { TerminalDrawer } from "./Terminal";
+import { NoticesHost } from "./Notices";
 import { MillerView } from "./Miller";
 import { joinPath, parentPath, basename, normalizePath } from "./paths";
 import { winPathToWsl } from "./shellCd";
@@ -2293,6 +2294,7 @@ export function App() {
         />
       )}
       <DialogHost />
+      <NoticesHost />
 
       {!tweaksOpen && (
         <button
