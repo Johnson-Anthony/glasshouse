@@ -29,7 +29,7 @@ Line numbers are from commit `14c68bd` and drift, so search by name. Items marke
 | async-commands | Rust | **merged** (053bde0) |
 | pty-writer | Rust, small | **merged** (fc29a03) |
 | pty-drain | Rust, small, low priority | **merged** (8ce779e) |
-| op-progress | both | queued; unblocked (found by async-commands) |
+| op-progress | both | running (async-commands session) |
 | dead-code | both | **merged** (frontend 2968133, Rust f705c10) |
 | unsent-labels | frontend | **merged** (d92b73f) |
 | test-coverage | both | **merged** (9c0f668) |
@@ -39,7 +39,7 @@ Line numbers are from commit `14c68bd` and drift, so search by name. Items marke
 | presentation | docs + small code | **merged**; GitHub text awaits the user |
 | pages-site | site (big project) | **merged** (041e487); live on the next push |
 | split-big-files | both | **merged** (phase 1 df0378c, phase 2 228733d) |
-| shortcut-hints | frontend, small | queued (found by split-big-files) |
+| shortcut-hints | frontend, small | running (test-coverage session) |
 
 Merge order is the table order: small, contained fixes go first, and broad changes go last, so the broad ones absorb the conflicts.
 

@@ -1,6 +1,7 @@
 # Progress
 
 ## Done
+- 2026-11-10: **Pushed `main`** to GitHub (`2a5381c`, a fast-forward from `4b8043a`), with the whole survey-fix pass and the new Pages site. Before the push, commit `ee1dd9b`'s message was reworded with `git filter-branch` over `origin/main..main` (trees unchanged) and 97 cited commit ids in the docs were updated. The pre-reword history is kept locally as branch `pre-reword-backup`, never to be pushed. Task worktree branches made before the reword must be reset to `main`, not merged.
 - 2026-11-10: Merged `split-big-files` phase 2 (228733d). App.tsx went from 2301 lines to 1366.
   - Keyboard shortcuts are a table in `src/keymap.ts`, and the Keybindings cheatsheet is derived from it.
   - `handleMenuCommand` and `doFileOp` became handlers (`handlers/app.ts`, `handlers/fileOps.ts`) at the front of `COMMAND_CHAIN`, with the right-click target switch.
@@ -99,7 +100,7 @@
 1. Merge task branches into `main` as they finish, in the merge order in `survey-fixes.md`. After each merge, rerun all checks and update this file and the task's status.
 2. Remaining tasks: `shortcut-hints` and `op-progress` (see the backlog).
 3. Settle the open questions in `docs/SPEC.md` (remote browsing, macOS, command-line path, `origin/feature`).
-4. **Before the first push:** run `pnpm site:build` (and `pnpm site:capture` plus `check` if the UI changed visibly) so the demo matches `main`; since pages-site merged, notices-screen has added a Help item. Also reword unpushed commit `1c18c44`, whose message contains the old nickname. Rewrite only `origin/main..main` (e.g. `git filter-branch --msg-filter` on that range) once every task branch that contains it is merged, so it can't come back. It's about 150 commits deep, so a reword changes every later commit id, and PROGRESS, the backlog, plans and decisions cite many of them: keep the old→new commit map and rewrite those references in the same pass. Every worktree branch must then be reset to the new `main`, and the old pushed history (from before this pass) still has the word unless the user also approves a force push.
+4. After the first CI run on Windows, fix whatever the Windows-only code needs (it has never been compiled).
 5. Tag a v0.2.0 release once the pass is merged and CI is green.
 
 ## Broken / known issues
