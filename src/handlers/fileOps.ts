@@ -487,6 +487,4 @@ export const fileOpsHandler: Handler = async (label, ctx) => {
     default:
       return false;
   }
-  // A case that ends with `break` handled the label too.
-  return true;
 };
