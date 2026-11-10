@@ -86,8 +86,7 @@ export const navHandler: Handler = async (label, ctx) => {
     }
 
     case "Go to WSL Distro…": {
-      let distros: Awaited<ReturnType<typeof listWslDistros>> = [];
-      try { distros = await listWslDistros(); } catch { distros = []; }
+      const distros = await listWslDistros();
       const message = distros.length === 0
         ? "no distros detected — type a distro name:"
         : `available: ${distros.map(d => d.name).join(", ")}`;

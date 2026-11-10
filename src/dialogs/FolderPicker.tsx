@@ -1,7 +1,6 @@
 import { useState, useEffect, useMemo } from "react";
 import { drives as apiDrives, homeDir as apiHomeDir, listDir, type Drive, type FileEntry } from "../api";
 import { parentPath, splitBreadcrumb } from "../paths";
-import { errText } from "../errors";
 
 // ============= FolderPickerDialog =============
 // In-app folder picker modal. Replaces the Tauri native open-directory dialog
@@ -20,7 +19,6 @@ export function FolderPickerDialog({ initialPath, title, onClose, onPick }: Fold
   const [entries, setEntries] = useState<FileEntry[]>([]);
   const [driveList, setDriveList] = useState<Drive[]>([]);
   const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
 
   useEffect(() => {
     void (async () => {
@@ -36,17 +34,11 @@ export function FolderPickerDialog({ initialPath, title, onClose, onPick }: Fold
     if (!cwd) return;
     let cancelled = false;
     setBusy(true);
-    setErr(null);
     void (async () => {
-      try {
-        const list = await listDir(cwd, false);
-        if (cancelled) return;
-        setEntries(list.filter(e => e.kind === "folder"));
-      } catch (e) {
-        if (!cancelled) setErr(errText(e));
-      } finally {
-        if (!cancelled) setBusy(false);
-      }
+      const list = await listDir(cwd, false);
+      if (cancelled) return;
+      setEntries(list.filter(e => e.kind === "folder"));
+      setBusy(false);
     })();
     return () => { cancelled = true; };
   }, [cwd]);
@@ -165,8 +157,7 @@ export function FolderPickerDialog({ initialPath, title, onClose, onPick }: Fold
           </div>
           <div style={{ flex: 1, overflow: "auto", padding: "4px 0", fontSize: 12 }}>
             {busy && <div style={{ padding: "4px 12px", color: "var(--fg-3)" }}>loading…</div>}
-            {err && <div style={{ padding: "4px 12px", color: "var(--red, #f7768e)" }}>{err}</div>}
-            {!busy && !err && entries.length === 0 && (
+            {!busy && entries.length === 0 && (
               <div style={{ padding: "4px 12px", color: "var(--fg-3)" }}>(no subfolders)</div>
             )}
             {entries.map((e) => (

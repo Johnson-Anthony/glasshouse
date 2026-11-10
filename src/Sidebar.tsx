@@ -186,19 +186,27 @@ export function Sidebar({ activePath, onGoTo, onRowContext, pins, onAddPin, tags
     });
   };
 
+  // List each of `paths` again for the tree, keyed by path.
+  const relist = async (paths: string[]): Promise<Record<string, FileEntry[]>> => {
+    const updates: Record<string, FileEntry[]> = {};
+    for (const p of paths) {
+      const kids = await listDir(p, treePrefs.showHidden);
+      updates[p] = filterKids(kids);
+    }
+    return updates;
+  };
+
   useEffect(() => {
     void (async () => {
       const h = await apiHomeDir();
       setHome(h);
       setDriveList(await apiDrives());
-      try { setWslDistros(await listWslDistros()); } catch { /* not on Windows */ }
+      setWslDistros(await listWslDistros());
       if (h) {
         setRootPath(h);
-        try {
-          const kids = await listDir(h, treePrefs.showHidden);
-          setChildren(prev => ({ ...prev, [h]: filterKids(kids) }));
-          setExpanded(prev => ({ ...prev, [h]: true }));
-        } catch { /* unreadable */ }
+        const kids = await listDir(h, treePrefs.showHidden);
+        setChildren(prev => ({ ...prev, [h]: filterKids(kids) }));
+        setExpanded(prev => ({ ...prev, [h]: true }));
       }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -210,13 +218,7 @@ export function Sidebar({ activePath, onGoTo, onRowContext, pins, onAddPin, tags
     const paths = Object.keys(children);
     if (paths.length === 0) return;
     void (async () => {
-      const updates: Record<string, FileEntry[]> = {};
-      for (const p of paths) {
-        try {
-          const kids = await listDir(p, treePrefs.showHidden);
-          updates[p] = filterKids(kids);
-        } catch { /* unreadable */ }
-      }
+      const updates = await relist(paths);
       setChildren(prev => ({ ...prev, ...updates }));
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -232,10 +234,8 @@ export function Sidebar({ activePath, onGoTo, onRowContext, pins, onAddPin, tags
       for (let i = 0; i < parts.length - 1; i++) {
         cur = joinPath(cur, parts[i]);
         if (!children[cur]) {
-          try {
-            const kids = await listDir(cur, treePrefs.showHidden);
-            setChildren(prev => ({ ...prev, [cur]: filterKids(kids) }));
-          } catch { break; }
+          const kids = await listDir(cur, treePrefs.showHidden);
+          setChildren(prev => ({ ...prev, [cur]: filterKids(kids) }));
         }
         setExpanded(prev => ({ ...prev, [cur]: true }));
       }
@@ -250,10 +250,8 @@ export function Sidebar({ activePath, onGoTo, onRowContext, pins, onAddPin, tags
       return;
     }
     if (!children[path]) {
-      try {
-        const kids = await listDir(path, treePrefs.showHidden);
-        setChildren(prev => ({ ...prev, [path]: filterKids(kids) }));
-      } catch { return; }
+      const kids = await listDir(path, treePrefs.showHidden);
+      setChildren(prev => ({ ...prev, [path]: filterKids(kids) }));
     }
     setExpanded(prev => ({ ...prev, [path]: true }));
   };
@@ -265,35 +263,21 @@ export function Sidebar({ activePath, onGoTo, onRowContext, pins, onAddPin, tags
     // hasn't been listed yet (e.g. Collapse all is hit while still loading)
     // pull its children first so the tree doesn't flash empty.
     if (!children[rootPath]) {
-      try {
-        const kids = await listDir(rootPath, treePrefs.showHidden);
-        setChildren(prev => ({ ...prev, [rootPath]: filterKids(kids) }));
-      } catch { /* unreadable — tree will show just the root row */ }
+      const kids = await listDir(rootPath, treePrefs.showHidden);
+      setChildren(prev => ({ ...prev, [rootPath]: filterKids(kids) }));
     }
     setExpanded({ [rootPath]: true });
   };
 
   const refreshTree = async () => {
-    const paths = Object.keys(children);
-    const updates: Record<string, FileEntry[]> = {};
-    for (const p of paths) {
-      try {
-        const kids = await listDir(p, treePrefs.showHidden);
-        updates[p] = filterKids(kids);
-      } catch { /* unreadable */ }
-    }
-    setChildren(updates);
+    setChildren(await relist(Object.keys(children)));
   };
 
   const applyNewRoot = async (picked: string) => {
     setRootPath(picked);
     setExpanded({ [picked]: true });
-    try {
-      const kids = await listDir(picked, treePrefs.showHidden);
-      setChildren({ [picked]: filterKids(kids) });
-    } catch {
-      setChildren({ [picked]: [] });
-    }
+    const kids = await listDir(picked, treePrefs.showHidden);
+    setChildren({ [picked]: filterKids(kids) });
   };
 
   const changeRoot = async () => {
