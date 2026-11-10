@@ -158,7 +158,9 @@ fn is_hidden(_path: &Path, name: &str, _meta: &std::fs::Metadata) -> bool {
 mod tests {
     use super::*;
     use std::collections::HashMap;
-    use crate::commands::testing::{temp_dir, test_repo, commit_all, s};
+    use crate::commands::testing::{test_repo, commit_all};
+    #[cfg_attr(windows, allow(unused_imports))]
+    use crate::commands::testing::{temp_dir, s};
 
     #[test]
     fn kind_from_ext_dir_wins_over_ext() {

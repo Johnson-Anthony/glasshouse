@@ -1,5 +1,7 @@
 use serde::Serialize;
+#[cfg(target_os = "linux")]
 use std::collections::HashMap;
+#[cfg(target_os = "linux")]
 use std::path::{Path, PathBuf};
 
 #[derive(Debug, Serialize)]
@@ -346,7 +348,9 @@ fn parse_net_dev(text: &str) -> (u64, u64) {
 
 #[cfg(test)]
 mod tests {
+    #[cfg_attr(windows, allow(unused_imports))]
     use super::*;
+    #[cfg_attr(windows, allow(unused_imports))]
     use crate::commands::testing::temp_dir;
 
     #[cfg(target_os = "linux")]

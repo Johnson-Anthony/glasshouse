@@ -1,5 +1,6 @@
 //! /proc/self/mounts and /proc/net/dev parsing.
 
+#[cfg(not(windows))]
 use super::*;
 
 #[cfg(not(windows))]

@@ -1,4 +1,6 @@
-use std::path::{Path, PathBuf};
+#[cfg(not(windows))]
+use std::path::Path;
+use std::path::PathBuf;
 use crate::pty::profiles::{check_profile, detect_shells, ShellProfile};
 
 // ---------- open / reveal ----------
@@ -725,7 +727,9 @@ pub fn spawn_terminal_profile(profile: ShellProfile, cwd: String) -> Result<(), 
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg_attr(windows, allow(unused_imports))]
     use crate::commands::archive::SEVEN_ZIP_NAMES;
+    #[cfg_attr(windows, allow(unused_imports))]
     use crate::commands::testing::temp_dir;
 
     #[cfg(unix)]

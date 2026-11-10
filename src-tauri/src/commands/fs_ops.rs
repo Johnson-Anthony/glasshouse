@@ -1,5 +1,8 @@
 use std::path::{Path, PathBuf};
+#[cfg(not(windows))]
 use super::listing::home_dir_path;
+#[cfg(windows)]
+use super::launch::CREATE_NO_WINDOW;
 
 // ---------- file operations ----------
 

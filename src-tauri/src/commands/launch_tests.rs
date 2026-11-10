@@ -1,5 +1,6 @@
 //! The arguments each Linux terminal emulator gets.
 
+#[cfg(not(windows))]
 use super::*;
 
 #[cfg(not(windows))]

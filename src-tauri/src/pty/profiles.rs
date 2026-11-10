@@ -298,6 +298,7 @@ fn is_ssh_host(s: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg_attr(windows, allow(unused_imports))]
     use crate::commands::testing::{temp_dir, s};
 
     fn profile(kind: &str, exec: &str, args: &[&str]) -> ShellProfile {
