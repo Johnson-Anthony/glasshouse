@@ -135,7 +135,7 @@ pub struct FileStatExt {
     pub symlink_target: Option<String>,
 }
 
-fn system_time_to_ms(t: std::time::SystemTime) -> Option<i64> {
+pub(super) fn system_time_to_ms(t: std::time::SystemTime) -> Option<i64> {
     t.duration_since(std::time::UNIX_EPOCH)
         .ok()
         .map(|d| d.as_millis() as i64)

@@ -1,5 +1,6 @@
 use serde::Serialize;
 use std::path::{Path, PathBuf};
+use super::file_info::system_time_to_ms;
 use super::git::scan_repo_statuses;
 
 #[derive(Debug, Serialize)]
@@ -93,12 +94,7 @@ pub fn list_dir(path: String, show_hidden: bool) -> Result<Vec<FileEntry>, Strin
             .map(|s| s.to_string_lossy().to_string())
             .unwrap_or_default();
         let size = if is_dir { 0 } else { meta.len() };
-        let modified_ms = meta
-            .modified()
-            .ok()
-            .and_then(|m| m.duration_since(std::time::UNIX_EPOCH).ok())
-            .map(|d| d.as_millis() as i64)
-            .unwrap_or(0);
+        let modified_ms = meta.modified().ok().and_then(system_time_to_ms).unwrap_or(0);
         let raw_path = entry.path();
         let lossy = raw_path.to_str().is_none();
         out.push(FileEntry {
