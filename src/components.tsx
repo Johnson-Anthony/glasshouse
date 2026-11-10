@@ -186,6 +186,14 @@ export function tagColor(tag: string | null): string {
   return (tag && m[tag]) || "var(--fg-3)";
 }
 
+/** A modified/created time as "YYYY-MM-DD HH:MM" local time, "—" when unset. */
+export function formatDate(ms: number | null | undefined): string {
+  if (!ms) return "—";
+  const d = new Date(ms);
+  const pad = (n: number) => n.toString().padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
 // Map single-char git status codes to CSS-safe class suffixes. "?" isn't
 // valid in a class name, so we translate.
 function gitDotClass(code: string): string {

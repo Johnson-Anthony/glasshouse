@@ -6,6 +6,7 @@ import {
   StatusBar,
   Palette,
   Tweaks,
+  formatDate,
   type TweakState,
   type ContextKind,
 } from "./components";
@@ -311,13 +312,6 @@ function formatBytes(bytes: number, isDir: boolean): string {
   if (v >= 100) return `${v.toFixed(0)}${units[ui]}`;
   if (v >= 10) return `${v.toFixed(1)}${units[ui]}`;
   return `${v.toFixed(1)} ${units[ui]}`;
-}
-
-function formatDate(ms: number): string {
-  if (!ms) return "—";
-  const d = new Date(ms);
-  const pad = (n: number) => n.toString().padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
 function normalizeGit(flag: string | null | undefined): GitStatus | null {

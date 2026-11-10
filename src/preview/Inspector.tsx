@@ -2,7 +2,7 @@ import React, { useState, useEffect } from "react";
 import type { FileRow, FileKind } from "../data";
 import { fileStatExtended, gitFileInfo, hashCrc32, hashMd5, hashSha256, setPermissions, type FileEntry, type FileStatExt, type GitFileInfo } from "../api";
 import { parentPath } from "../paths";
-import { tagColor } from "../components";
+import { formatDate, tagColor } from "../components";
 import { dialogs } from "../dialogs/DialogHost";
 import { isCancelled, runOp } from "../ops";
 import { AUDIO_EXTS, FilePreview } from "./FilePreview";
@@ -204,13 +204,7 @@ export function Inspector({ file, onQuickAction, onExpand }: InspectorProps) {
   const f = file;
   const displayName = f.ext && f.kind !== "folder" ? `${f.name}.${f.ext}` : f.name;
   const mime = mimeGuess(f.kind, f.ext);
-  const fmtMs = (ms: number | null | undefined): string => {
-    if (!ms) return "—";
-    const d = new Date(ms);
-    const pad = (n: number) => n.toString().padStart(2, "0");
-    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
-  };
-  const createdStr = fmtMs(statExt?.created_ms ?? null);
+  const createdStr = formatDate(statExt?.created_ms ?? null);
   const ownerStr = statExt?.owner ?? "—";
   const inodeStr = statExt?.file_index != null ? String(statExt.file_index) : "—";
   const diffStr =
