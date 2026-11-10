@@ -11,7 +11,7 @@ use tauri::{AppHandle, Emitter, State};
 use crate::lock;
 
 pub mod profiles;
-use profiles::{check_profile, detect_shells, ShellProfile};
+use profiles::{check_profile, detect_shells, profile_program, ShellProfile};
 
 /// One live PTY session — keeps the master handle (for resize), the queue
 /// feeding its writer thread (keystrokes) and a kill handle. The child itself
@@ -99,29 +99,10 @@ pub fn pty_spawn(
         pixel_height: 0,
     };
 
-    let mut cmd = match profile.kind.as_str() {
-        "wsl" => {
-            let mut c = CommandBuilder::new("wsl.exe");
-            for a in &profile.args {
-                c.arg(a);
-            }
-            c
-        }
-        "ssh" => {
-            let mut c = CommandBuilder::new("ssh");
-            for a in &profile.args {
-                c.arg(a);
-            }
-            c
-        }
-        _ => {
-            let mut c = CommandBuilder::new(&profile.exec);
-            for a in &profile.args {
-                c.arg(a);
-            }
-            c
-        }
-    };
+    let mut cmd = CommandBuilder::new(profile_program(&profile));
+    for a in &profile.args {
+        cmd.arg(a);
+    }
     if !cwd.is_empty() {
         cmd.cwd(&cwd);
     }

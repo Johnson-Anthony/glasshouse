@@ -272,6 +272,17 @@ pub(crate) fn check_profile(profile: &ShellProfile, shells: &[ShellProfile]) -> 
     Ok(())
 }
 
+/// The program a profile runs. `check_profile` checks only the args of a
+/// wsl or ssh profile, never its exec, so those kinds run their fixed
+/// program whatever exec says; a shell runs its (checked) exec.
+pub(crate) fn profile_program(profile: &ShellProfile) -> &str {
+    match profile.kind.as_str() {
+        "wsl" => "wsl.exe",
+        "ssh" => "ssh",
+        _ => &profile.exec,
+    }
+}
+
 /// A WSL distro name: letters, digits, `.`, `_`, `-`, not starting with `-`.
 fn is_plain_name(s: &str) -> bool {
     !s.is_empty()
@@ -410,6 +421,16 @@ mod tests {
         for p in &bad {
             assert!(check_profile(p, &shells).is_err(), "{} {:?}", p.kind, p.args);
         }
+    }
+
+    #[test]
+    fn profile_program_runs_a_fixed_program_for_wsl_and_ssh() {
+        // A checked wsl profile with any exec still runs wsl.exe.
+        let wsl = profile("wsl", "/any/bin", &["-d", "x"]);
+        assert!(check_profile(&wsl, &[]).is_ok());
+        assert_eq!(profile_program(&wsl), "wsl.exe");
+        assert_eq!(profile_program(&profile("ssh", "/any/bin", &["host"])), "ssh");
+        assert_eq!(profile_program(&profile("shell", "/usr/bin/bash", &[])), "/usr/bin/bash");
     }
 
     #[test]

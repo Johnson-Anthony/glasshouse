@@ -712,11 +712,9 @@ pub fn spawn_terminal_profile(profile: ShellProfile, cwd: String) -> Result<(), 
     }
     #[cfg(not(windows))]
     {
+        use crate::pty::profiles::profile_program;
         use std::process::Stdio;
-        let prog: &str = match profile.kind.as_str() {
-            "ssh" => "ssh",
-            _ => profile.exec.as_str(),
-        };
+        let prog = profile_program(&profile);
         let mut cmd = linux_terminal_command(&cwd, Some((prog, &profile.args)))?;
         cmd.stdin(Stdio::null())
             .stdout(Stdio::null())
