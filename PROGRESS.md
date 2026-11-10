@@ -1,6 +1,11 @@
 # Progress
 
 ## Done
+- 2026-11-10: Merged `split-big-files` phase 2 (d028dfb). App.tsx went from 2301 lines to 1366.
+  - Keyboard shortcuts are a table in `src/keymap.ts`, and the Keybindings cheatsheet is derived from it.
+  - `handleMenuCommand` and `doFileOp` became handlers (`handlers/app.ts`, `handlers/fileOps.ts`) at the front of `COMMAND_CHAIN`, with the right-click target switch.
+  - One intended change: an exception in a right-click or app-level command now shows the error dialog.
+  - See `docs/decisions/2026-11-10-split-big-files-app-routing.md`.
 - 2026-11-10: Merged `split-big-files` phase 1 (4ba4550), moves only.
   - `components.tsx` went from 6132 lines to 1127: menus are in `menus.tsx`, the Sidebar in `Sidebar.tsx`, the Inspector and previews in `src/preview/`, and the dialogs in `src/dialogs/`, one file each, with `DialogHost.tsx` holding the `dialogs` API.
   - `commands.rs` became the `commands/` modules (listing, git, fs_ops, file_info, search, archive, hash, config, system, wsl, launch), and the shell profiles moved to `pty/profiles.rs`.
@@ -92,7 +97,7 @@
 
 ## Next
 1. Merge task branches into `main` as they finish, in the merge order in `survey-fixes.md`. After each merge, rerun all checks and update this file and the task's status.
-2. Start `split-big-files` only after the other branches are merged.
+2. Remaining tasks: `shortcut-hints` and `op-progress` (see the backlog).
 3. Settle the open questions in `docs/SPEC.md` (remote browsing, macOS, command-line path, `origin/feature`).
 4. **Before the first push:** run `pnpm site:build` (and `pnpm site:capture` plus `check` if the UI changed visibly) so the demo matches `main`; since pages-site merged, notices-screen has added a Help item. Also reword unpushed commit `ee1dd9b`, whose message contains the old nickname. Rewrite only `origin/main..main` (e.g. `git filter-branch --msg-filter` on that range) once every task branch that contains it is merged, so it can't come back. It's about 150 commits deep, so a reword changes every later commit id, and PROGRESS, the backlog, plans and decisions cite many of them: keep the old→new commit map and rewrite those references in the same pass. Every worktree branch must then be reset to the new `main`, and the old pushed history (from before this pass) still has the word unless the user also approves a force push.
 5. Tag a v0.2.0 release once the pass is merged and CI is green.

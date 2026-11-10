@@ -29,7 +29,7 @@ Line numbers are from commit `14c68bd` and drift, so search by name. Items marke
 | async-commands | Rust | **merged** (9c3eefe) |
 | pty-writer | Rust, small | **merged** (16293b0) |
 | pty-drain | Rust, small, low priority | **merged** (2868b88) |
-| op-progress | both | queued; after dead-code's Rust part and split-big-files (found by async-commands) |
+| op-progress | both | queued; unblocked (found by async-commands) |
 | dead-code | both | **merged** (frontend d61379a, Rust 27340c6) |
 | unsent-labels | frontend | **merged** (8828d97) |
 | test-coverage | both | **merged** (5a59187) |
@@ -38,7 +38,8 @@ Line numbers are from commit `14c68bd` and drift, so search by name. Items marke
 | parser-fixes | Rust, tiny, low priority | **merged** (dd12285) |
 | presentation | docs + small code | **merged**; GitHub text awaits the user |
 | pages-site | site (big project) | **merged** (6f72fd7); live on the next push |
-| split-big-files | both | phase 1 **merged** (4ba4550); phase 2 (App.tsx keymap and command routing) running |
+| split-big-files | both | **merged** (phase 1 4ba4550, phase 2 d028dfb) |
+| shortcut-hints | frontend, small | queued (found by split-big-files) |
 
 Merge order is the table order: small, contained fixes go first, and broad changes go last, so the broad ones absorb the conflicts.
 
@@ -204,6 +205,13 @@ The frontend now checks names before creating or renaming, but a few millisecond
 ## pty-drain (Rust, small, low priority; found 2026-11-08 by pty-writer)
 - On unix, if a session ends while its pty input is full (a raw-mode program stopped reading and more than ~64 KB was queued), the kernel never wakes the blocked write. That writer thread, its pty and the queued bytes stay until the app exits. Before pty-writer, the same write hung the whole app.
 - Fix sketched in `docs/decisions/2026-11-08-pty-writer-queue.md`: in Drop, reopen the slave with `O_NOCTTY|O_NONBLOCK` and drain it until the write returns, plus a stop flag. `libc` is already a direct dependency (no-clobber-fs).
+
+## shortcut-hints (frontend, small; found 2026-11-10 by split-big-files)
+Seven menu shortcut hints don't run their item's command. `keymap.test.ts` lists them as `KNOWN_GAPS` and fails if one is fixed without updating the list. Give each a binding in `src/keymap.ts` or remove the hint:
+- No binding at all: Ctrl+Q Quit, Ctrl+Shift+C Copy Path, Esc Deselect, `*` Select by Pattern…
+- Ctrl+Shift+` "New Terminal Tab" toggles the drawer, like Ctrl+`.
+- File → "Open in Terminal" shows Ctrl+`, which toggles the drawer instead.
+- Tools → "Find & Replace in Files" shows Ctrl+Shift+F, which opens Find in Files.
 
 ## op-progress (both; found 2026-11-08 by async-commands)
 - Long operations (hash, copy, find) send no progress and can't be cancelled.
