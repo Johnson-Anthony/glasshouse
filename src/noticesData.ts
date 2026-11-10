@@ -1,7 +1,11 @@
-// Every text file next to the bundled fonts: their licenses and the index,
-// LICENSES.md. Notices.tsx only reaches this through a dynamic import(), so
-// the texts (about 100 KB) are their own chunk, loaded when the view opens.
-import { compareNotices, type Notice } from "./notices";
+// Every license text the app ships: the files next to the bundled fonts
+// (LICENSES.md first), then the npm packages and the Rust crates for this
+// platform from the generated third-party.json. Notices.tsx only reaches this
+// through a dynamic import(), so the texts are their own chunk, loaded when
+// the view opens.
+import thirdParty from "./assets/third-party.json";
+import { compareNotices, dependencyNotices, fileNotice, type Notice, type ThirdPartyData } from "./notices";
+import { IS_WINDOWS } from "./platform";
 
 const FONTS = "./assets/fonts/";
 
@@ -10,6 +14,9 @@ const files = import.meta.glob<string>(
   { query: "?raw", import: "default", eager: true },
 );
 
-export const NOTICES: Notice[] = Object.entries(files)
-  .map(([key, text]) => ({ path: key.slice(FONTS.length), text }))
-  .sort(compareNotices);
+export const NOTICES: Notice[] = [
+  ...Object.entries(files)
+    .map(([key, text]) => fileNotice(key.slice(FONTS.length), text))
+    .sort(compareNotices),
+  ...dependencyNotices(thirdParty as ThirdPartyData, IS_WINDOWS ? "windows" : "linux"),
+];

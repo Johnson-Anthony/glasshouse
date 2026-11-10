@@ -1,10 +1,11 @@
 // Third-party notices view (Help → Third-party Notices, or "notices" in
-// About): the license texts that ship with the app, as plain text. Links in
-// them that point at another bundled notice are clickable, so LICENSES.md
-// works as the index. Mounted once as <NoticesHost />; open it with
-// openNotices().
+// About): the license texts that ship with the app, as plain text. That's the
+// bundled font files, then the npm packages and Rust crates for this platform.
+// Links in the font files that point at another one are clickable, so
+// LICENSES.md works as the index. Mounted once as <NoticesHost />; open it
+// with openNotices().
 import { useEffect, useMemo, useState } from "react";
-import { groupByFolder, linkSegments, NOTICES_INDEX, type Notice } from "./notices";
+import { groupNotices, linkSegments, NOTICES_INDEX, type Notice } from "./notices";
 
 let openRef: (() => void) | null = null;
 
@@ -23,10 +24,11 @@ export function NoticesHost() {
   const [notices, setNotices] = useState<Notice[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [current, setCurrent] = useState<string | null>(null);
+  const [filter, setFilter] = useState("");
 
   useEffect(() => {
-    // Each open starts at the index.
-    openRef = () => { setCurrent(NOTICES_INDEX); setOpen(true); };
+    // Each open starts at the index, unfiltered.
+    openRef = () => { setCurrent(NOTICES_INDEX); setFilter(""); setOpen(true); };
     return () => { openRef = null; };
   }, []);
 
@@ -47,8 +49,12 @@ export function NoticesHost() {
     return () => window.removeEventListener("keydown", h);
   }, [open]);
 
-  const known = useMemo(() => new Set(notices?.map((n) => n.path)), [notices]);
-  const groups = useMemo(() => groupByFolder(notices ?? []), [notices]);
+  const known = useMemo(() => new Set(notices?.filter((n) => n.links).map((n) => n.path)), [notices]);
+  const groups = useMemo(() => {
+    const q = filter.trim().toLowerCase();
+    const matching = (notices ?? []).filter((n) => !q || (n.group + n.label).toLowerCase().includes(q));
+    return groupNotices(matching);
+  }, [notices, filter]);
   const shown = notices?.find((n) => n.path === current) ?? null;
 
   if (!open) return null;
@@ -84,13 +90,25 @@ export function NoticesHost() {
         }}>
           <nav style={{
             overflowY: "auto", borderRight: "1px solid var(--fg-3)",
-            padding: "6px 0", fontSize: 12,
+            padding: "0 0 6px", fontSize: 12,
           }}>
+            <input
+              value={filter}
+              onChange={(e) => setFilter(e.target.value)}
+              placeholder="filter…"
+              aria-label="filter notices"
+              style={{
+                position: "sticky", top: 0, display: "block", width: "100%", boxSizing: "border-box",
+                padding: "6px 10px", border: "none", borderBottom: "1px solid var(--fg-3)",
+                background: "var(--bg-2, #16161e)", color: "var(--fg-1)",
+                fontFamily: "inherit", fontSize: "inherit", outline: "none",
+              }}
+            />
             {loadError && <div style={{ padding: "4px 10px", color: "var(--red, #f7768e)" }}>{loadError}</div>}
             {!notices && !loadError && <div style={{ padding: "4px 10px", color: "var(--fg-3)" }}>loading…</div>}
             {groups.map((g) => (
-              <div key={g.folder} style={{ marginBottom: 6 }}>
-                <div style={{ padding: "4px 10px", color: "var(--fg-3)" }}>fonts/{g.folder}</div>
+              <div key={g.group} style={{ marginTop: 6 }}>
+                <div style={{ padding: "4px 10px", color: "var(--fg-3)" }}>{g.group}</div>
                 {g.items.map((n) => (
                   <button
                     key={n.path}
@@ -106,7 +124,7 @@ export function NoticesHost() {
                       color: n.path === current ? "var(--accent)" : "var(--fg-1)",
                     }}
                   >
-                    {n.path.slice(g.folder.length)}
+                    {n.label}
                   </button>
                 ))}
               </div>
@@ -117,7 +135,7 @@ export function NoticesHost() {
             margin: 0, padding: "10px 14px", overflow: "auto",
             whiteSpace: "pre-wrap", wordBreak: "break-word", fontSize: 12, lineHeight: 1.5,
           }}>
-            {shown && linkSegments(shown.path, shown.text, known).map((s, i) => {
+            {shown && (shown.links ? linkSegments(shown.path, shown.text, known) : [{ text: shown.text }]).map((s, i) => {
               const target = s.target;
               return target ? (
                 <a
@@ -137,7 +155,7 @@ export function NoticesHost() {
           display: "flex", justifyContent: "space-between", alignItems: "center",
           background: "var(--bg-2, #16161e)", fontSize: 12,
         }}>
-          <span style={{ color: "var(--fg-3)" }}>{shown ? `fonts/${shown.path}` : ""}</span>
+          <span style={{ color: "var(--fg-3)" }}>{shown ? shown.group + shown.label : ""}</span>
           <button onClick={close} style={{ ...button, padding: "4px 12px" }}>close</button>
         </div>
       </div>
