@@ -59,8 +59,9 @@ fn kind_from_ext(ext: &str, is_dir: bool) -> &'static str {
     }
 }
 
-pub(super) fn canonicalize_soft(p: &str) -> PathBuf {
-    dunce::canonicalize(p).unwrap_or_else(|_| PathBuf::from(p))
+pub(super) fn canonicalize_soft(p: impl AsRef<Path>) -> PathBuf {
+    let p = p.as_ref();
+    dunce::canonicalize(p).unwrap_or_else(|_| p.to_path_buf())
 }
 
 #[tauri::command(async)]

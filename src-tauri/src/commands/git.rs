@@ -45,7 +45,7 @@ pub(super) fn scan_repo_statuses(dir: &Path) -> Option<HashMap<PathBuf, String>>
     // Only the workdir is canonicalized. Git never descends through a
     // symlink, so every folder in a status path is real; canonicalizing the
     // whole path would resolve a symlink entry to its target.
-    let root = dunce::canonicalize(&workdir).unwrap_or_else(|_| workdir.clone());
+    let root = canonicalize_soft(&workdir);
     let mut opts = StatusOptions::new();
     opts.include_untracked(true)
         .include_ignored(false)
