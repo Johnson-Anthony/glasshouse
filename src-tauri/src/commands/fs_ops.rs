@@ -750,6 +750,7 @@ mod tests {
         std::fs::read_to_string(p).unwrap()
     }
 
+    #[cfg_attr(windows, allow(dead_code))]
     fn is_link(p: &Path) -> bool {
         std::fs::symlink_metadata(p).is_ok_and(|m| m.file_type().is_symlink())
     }

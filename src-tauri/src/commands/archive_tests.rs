@@ -6,6 +6,7 @@ use super::*;
 use std::io::Write;
 
 /// `root/payload` with a nested file and an empty folder.
+#[cfg_attr(windows, allow(dead_code))]
 fn payload(root: &Path) -> PathBuf {
     let src = root.join("payload");
     put(&src.join("top.txt"), "top");
@@ -15,6 +16,7 @@ fn payload(root: &Path) -> PathBuf {
 }
 
 /// `payload` extracted into `out`: the same tree, nothing else.
+#[cfg_attr(windows, allow(dead_code))]
 fn assert_payload(out: &Path) {
     assert_eq!(
         tree(out),
@@ -29,6 +31,7 @@ fn assert_payload(out: &Path) {
     assert_eq!(std::fs::read_to_string(out.join("payload/nested/inner.txt")).unwrap(), "inner");
 }
 
+#[cfg_attr(windows, allow(dead_code))]
 fn tool_works(program: &str, args: &[&str], cwd: &Path) -> bool {
     std::process::Command::new(program)
         .args(args)
