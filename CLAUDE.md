@@ -5,7 +5,7 @@ Full spec: docs/SPEC.md · Architecture: docs/ARCHITECTURE.md
 - Install deps (also needed in every fresh worktree): `pnpm install`
 - Run the app in dev mode: `pnpm tauri:dev`
 - Frontend typecheck + build: `pnpm build` (runs `tsc -b && vite build`)
-- Frontend tests: `pnpm test` (vitest)
+- Frontend tests: `pnpm test` (vitest). CI also runs `pnpm check:wiring` (menu-label routing audit) and `pnpm notices --check` (third-party notices match the lockfiles).
 - Rust lint, as CI runs it: `cd src-tauri && RUSTFLAGS="-D warnings" cargo clippy --all-targets`
 - Rust tests: `cd src-tauri && cargo test`
 - Release binary: `pnpm tauri build --no-bundle`, output at `src-tauri/target/release/glasshouse`. The bundle targets in `tauri.conf.json` are Windows-only (msi, nsis).

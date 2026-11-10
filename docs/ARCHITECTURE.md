@@ -1,60 +1,88 @@
 # Architecture
 
-Snapshot from the 2026-11-08 survey. Line numbers will drift, so search by name.
+How glasshouse works as of 2026-11-10. Search by name; line numbers drift.
 
-## Layout
+## The shape of it
+A Tauri 2 app. The window is a React 18 UI (`src/`) that calls Rust commands (`src-tauri/src/`) through `invoke`. The Rust side does all file-system, git, archive, process and terminal work, and sends events back (`fs-changed`, `pty-data`, `pty-exit`, `op-progress`). There's no server and no database: state lives in React, plus small JSON config files and `localStorage`.
+
+**Where to start reading:**
+1. `src/App.tsx`, the shell;
+2. `src/handlers/index.ts`, where commands go;
+3. `src/api.ts`, the backend surface;
+4. `src-tauri/src/lib.rs`, the command registry, then the `commands/` module you need.
+
+## Frontend (`src/`)
 | Path | What |
 |---|---|
-| `src/main.tsx` → `src/App.tsx` | Entry point and the `App()` shell: state, the keydown listener, the command router, drag and drop, layout |
-| `src/keymap.ts` | Window keyboard shortcuts as a table (`KEYMAP`); also feeds the Keybindings cheatsheet |
-| `src/components.tsx` (~1.1k lines) | Titlebar, Toolbar, FilePane, StatusBar, Palette, Tweaks |
-| `src/menus.tsx`, `src/Sidebar.tsx` | Menubar, its dropdowns and the context menu (with dynamic menu items); the Sidebar |
-| `src/preview/` | `Inspector.tsx` (the inspector card, permissions grid); `FilePreview.tsx` (type-aware previews and Quick Look) |
-| `src/dialogs/` | One file per dialog. `DialogHost.tsx` holds the `dialogs` prompt/alert/confirm/toast API and its host |
-| `src/state.ts` | `useTabState` (per-tab state, history, fs watching) and the undo/redo stacks |
-| `src/handlers/*.ts` | Command handlers, chained in `handlers/index.ts` as `COMMAND_CHAIN`: `target` (context-menu target), `app` (App-level commands), `fileOps` (file ops on the active tab), then the feature handlers in `HANDLERS` (selection, view, git, archive, tools, nav, misc) |
-| `src/data.ts` | Menu, palette and context-menu trees; Windows-only item stripping |
-| `src/api.ts` | Typed wrappers over `invoke`. `safe()` swallows errors and returns a fallback |
-| `src/ops.ts`, `opStore.ts`, `OpsTray.tsx` | Long operations (hash, copy, find) with progress and Cancel: `runOp(label, track => …)` passes `track()` ids to the api calls; the tray (bottom left) shows what has run for more than 400 ms |
-| `src/paths.ts`, `shellCd.ts`, `fuzzy.ts`, `platform.ts` | Pure helpers; these are what the vitest suite covers |
-| `src/Terminal.tsx`, `src/Miller.tsx` | xterm drawer, miller-column view |
-| `src/styles/themes.css`, `app.css` | 8 themes as CSS variables on `[data-theme]`; layout and component CSS |
-| `src-tauri/src/lib.rs` | Plugin setup, managed state, registration of every command (`generate_handler!`; `build.rs` checks it against `permissions/app.toml`) |
-| `src-tauri/src/ops.rs` | `OpRegistry` and `Op`: progress events and cancellation for commands given an `op_id`; `cancel_op` |
-| `src-tauri/src/commands.rs` → `commands/` | Nearly all `#[tauri::command]`s, one module per area: `listing`, `fs_ops`, `file_info`, `search`, `archive`, `hash`, `git`, `config`, `system`, `wsl`, `launch`. Tests are inline at the end of each module, plus `<module>_tests.rs` siblings; shared test helpers are in `commands/testing.rs` |
-| `src-tauri/src/pty.rs` (+ `pty/profiles.rs`: `ShellProfile`, shell/WSL/ssh detection, `check_profile`), `watcher.rs` | Terminal sessions (portable-pty; each session has a reader thread, a wait thread and a writer thread that `pty_write` queues input onto; when a session ends on unix, `unblock_writer` drains the slave if that writer is stuck on a full pty) and directory watching (notify, 300 ms debounce) |
-| `src-tauri/src/proc_tree.rs` | Spawns a process so its whole tree can be killed (Unix process group / Windows job object). `run_script` uses it at its 60 s timeout |
-| `src-tauri/capabilities/default.json` | What the main window may call: plugin permissions (fs, shell, dialog, os, opener) and the app permissions |
-| `src-tauri/permissions/app.toml` | App command permissions, grouped (files-read, files-write, git, settings, launch, exec). `build.rs` fails the build if a command in `generate_handler!` isn't in one |
+| `main.tsx` → `App.tsx` | The shell: tabs, panels, dialogs, theme, drag and drop, the keydown listener, and `handleMenuCommand`, the command router |
+| `components.tsx` | Titlebar, Toolbar, FilePane (the file list), StatusBar, Palette, Tweaks |
+| `menus.tsx`, `Sidebar.tsx`, `Miller.tsx`, `Terminal.tsx` | Menubar and context menu; the sidebar (pins, tree, tags, devices); the miller-column view; the xterm drawer |
+| `preview/` | `Inspector.tsx` (details, permissions, checksums) and `FilePreview.tsx` (type-aware previews and Quick Look) |
+| `dialogs/` | One file per dialog. `DialogHost.tsx` holds the promise-based `dialogs` API (prompt, alert, confirm, toast) and its host |
+| `state.ts` | `useTabState`: per-tab listing, selection, sort, history (`history.ts`) and fs watching. Also the undo and redo stacks |
+| `handlers/` | Command handlers, chained as `COMMAND_CHAIN` in `index.ts`: `target` (context-menu target), `app` (App-level), `fileOps` (file ops on the active tab), then the feature handlers in `HANDLERS` (selection, view, git, archive, tools, nav, misc). `types.ts` defines `HandlerCtx` |
+| `keymap.ts` | Window shortcuts as a table (`KEYMAP`), which also feeds the Keybindings cheatsheet |
+| `data.ts` | Menu, palette and context-menu trees, and Windows-only item stripping |
+| `api.ts` | Typed wrappers over `invoke`. `safe()` swallows an error and returns a fallback |
+| `transfer.ts`, `transferUi.ts` | Copy and move planning (conflicts, "(copy)" names, keep both / replace / skip) and running, shared by paste, drag and drop, Move to… and Duplicate |
+| `undoActions.ts` | Undo and redo entries for moves, copies (fingerprinted) and creations |
+| `names.ts`, `paths.ts`, `tabs.ts`, `fuzzy.ts`, `shellCd.ts`, `octal.ts` | Pure helpers: name conflicts and bulk-rename ordering; path rules per platform; tab-list operations; fuzzy matching; terminal `cd`; chmod parsing |
+| `ops.ts`, `opStore.ts`, `OpsTray.tsx` | Long operations (hash, copy, find) with progress and Cancel |
+| `Notices.tsx`, `notices.ts`, `noticesData.ts` | Help → Third-party Notices, from `assets/fonts` and the generated `assets/third-party.json` (lazy chunk) |
+| `commandState.ts`, `remotes.ts`, `platform.ts` | `cmdState` (app clipboard, context-menu target); ssh profiles for saved remotes; `IS_WINDOWS` |
+| `styles/themes.css`, `styles/app.css` | 8 themes as CSS variables on `[data-theme]`; layout and component CSS |
 
-## Frontend
-- **State:** there's no store or reducer. `App()` holds about 45 `useState` hooks, and display tweaks persist in `localStorage["glasshouse.tweaks"]`.
-  - Each tab is a headless `<TabShell>` running `useTabState` and passing `{state, actions}` up into `tabHandles`.
-  - The app clipboard and the context-menu target are in `cmdState` (`src/commandState.ts`). The undo stacks, the `dialogs` API and the git cwd are module-level variables.
-  - Components also signal each other with window events (`glasshouse:*`) and attributes on `<html>`.
-- **Commands are identified by their display label.** Menus, the palette, context menus and `KEYMAP` bindings all send a label string to App's `handleMenuCommand`. It builds a `HandlerCtx` (with App's state and setters as `ctx.app`) and runs `COMMAND_CHAIN`:
-  1. `targetHandler`: commands for the surface a context menu was opened on (`cmdState.contextTarget`);
-  2. `appHandler`: App-level commands (panels, dialogs, tabs, window, theme);
-  3. `fileOpsHandler`: file ops on the active tab. With no tab it takes every label, so nothing later runs. It refuses mutating ops on lossy names;
-  4. the feature handlers in `HANDLERS`.
+**State.** There's no store or reducer.
+- `App()` holds about 40 `useState` hooks. Display tweaks persist in `localStorage["glasshouse.tweaks"]`.
+- Each tab is a headless `<TabShell>` running `useTabState` and passing `{state, actions}` up into `tabHandles`.
+- Module-level state: `cmdState`, the undo stacks, the `dialogs` API and the git cwd.
+- Components also signal each other with window events (`glasshouse:*`) and attributes on `<html>`.
 
-  The first handler to return true wins, and a "not yet wired" toast shows if none does. A handler that returns a plain boolean runs synchronously. The router catches errors and shows them in a dialog. See `docs/decisions/2026-11-10-split-big-files-app-routing.md`.
+**Commands are identified by their display label.**
+- Menus, the palette, context menus and `KEYMAP` bindings all send a label string to `handleMenuCommand`.
+- It builds a `HandlerCtx` (with App's state and setters as `ctx.app`) and runs `COMMAND_CHAIN`. The first handler to return true wins, and the router shows errors in a dialog.
+- Dynamic menu items (recents, bookmarks, open-with apps) carry a `payload` and go to `handleMenuPayload` instead.
+- Renaming a label breaks routing unless its case changes too. `pnpm check:wiring` (`scripts/audit-wiring.mjs`, run in CI) fails on labels that nothing handles, cases that never run, no-op cases and cases nothing sends.
+- See `docs/decisions/2026-11-10-split-big-files-app-routing.md`.
 
-  Dynamic menu items carry a `payload` and go to `handleMenuPayload` instead. Renaming a menu label breaks routing unless every case is updated too; `pnpm check:wiring` catches the mismatch.
-- **Refresh:** `watch_dir` plus the `fs-changed` event, with a 30 s backup poll.
-- **Platform:** `IS_WINDOWS` comes from the user agent. Path helpers guess the separator from the string itself.
+**Listing and refresh.**
+- `useTabState` calls `list_dir`, which returns each entry with its git label scanned for that folder only.
+- It then calls `watch_dir`. The backend sends `fs-changed` for the folder (300 ms debounce) and the tab re-lists. A 30 s poll is the backup.
 
-## Backend
-- Commands return `Result<T, String>`. Some return `Option`, or a default value, on failure.
-- Events sent to the frontend: `fs-changed` (parent dir), `pty-data` `{session_id,data}`, `pty-exit` `{session_id,exit_code}`. `op-progress` `{op_id,done,total}` for hash, copy and find calls given an `op_id` (at most every 100 ms); `cancel_op` makes such a call fail with "cancelled" (a cancelled copy leaves nothing behind). See `docs/decisions/2026-11-10-op-progress-design.md`.
-- **Threading:** commands that do I/O are `#[tauri::command(async)]`, so they run on Tauri's tokio workers, in parallel and finishing in any order. Commands that rely on call order stay plain `#[tauri::command]` and run on the main thread, one at a time: config read/write (pins, tags, recents), `watch_dir`/`unwatch_dir`, `pty_write`/`pty_resize`/`pty_kill`, and a few instant ones. A new command that does I/O should be `(async)`. See `docs/decisions/2026-11-08-async-commands-threading.md`.
-- Platform splits: `cfg(windows)` covers Win32 drives, hidden attributes, WSL, shortcuts, signatures and `cmd /C` launching. `cfg(not(windows))` covers sysinfo drives, `xdg-open`, terminal discovery (`$TERMINAL`, kitty, alacritty, foot…) and the `/proc` parsers.
-- Config data (pins, tags, recents) is stored as JSON in the app config dir, with atomic writes.
-- Every command, app or plugin, is ACL-checked: only the `main` window's own (local) pages can call them. **Adding a command means adding it to `permissions/app.toml`**, or the build fails. Commands that start programs check their arguments (`check_profile`, `check_git_args`, `check_open_url`), and none puts user strings on a `cmd.exe` or PowerShell command line. See `docs/decisions/2026-11-08-command-security-design.md`.
+**Paths.** Paths are plain strings. `paths.ts` applies the platform's rules (`IS_WINDOWS` comes from the user agent): `\` is a separator, and comparisons are case-insensitive, only on Windows.
+
+## Backend (`src-tauri/src/`)
+| Path | What |
+|---|---|
+| `lib.rs` | Plugins, managed state, and every command in `generate_handler!` |
+| `commands/` | The commands, one module per area: `listing`, `fs_ops`, `file_info`, `search`, `archive`, `hash`, `git`, `config`, `system`, `wsl`, `launch`. Tests are inline or in `<module>_tests.rs`; shared helpers are in `testing.rs` |
+| `ops.rs` | `OpRegistry` and `Op`: `op-progress` events (at most every 100 ms) and cancellation for calls given an `op_id`, plus `cancel_op` |
+| `pty.rs`, `pty/profiles.rs` | Terminal sessions (portable-pty; per session a reader, a wait and a writer thread, with `pty_write` queuing onto the writer); shell, WSL and ssh profile detection and `check_profile` |
+| `watcher.rs` | Folder watching (notify, 300 ms debounce) emitting `fs-changed` |
+| `proc_tree.rs` | Spawns a process so its whole tree can be killed (Unix process group, Windows job object); used by `run_script`'s 60 s timeout |
+| `build.rs`, `permissions/app.toml`, `capabilities/default.json` | The app ACL: every command belongs to a permission group, granted to the main window's local pages only. `build.rs` fails if a registered command isn't in `app.toml` |
+
+**Conventions.**
+- Commands return `Result<T, String>`; a few return `Option` or a default.
+- Commands that do I/O are `#[tauri::command(async)]` and run on Tauri's worker threads. Those that rely on call order stay on the main thread: config read and write, `watch_dir`/`unwatch_dir`, and `pty_write`/`pty_resize`/`pty_kill`. See `docs/decisions/2026-11-08-async-commands-threading.md`.
+- **File writes never clobber.** Create, rename, copy and move refuse an existing target (`create_new`, `RENAME_NOREPLACE` or `MoveFileExW` without replace, `CopyFileW` with fail-if-exists). The frontend's Replace choice trashes the old item first.
+- **Launching never builds a shell command line from user strings.** Arguments are checked (`check_profile`, `check_git_args`, `open_url`'s scheme list), and Windows paths go through the opener, direct spawns or environment variables. See `docs/decisions/2026-11-08-command-security-design.md`.
+- Git uses libgit2 for status and numstat, and the `git` CLI for history and for running menu commands (`git_run`, limited to `GIT_RUN_ALLOWED`).
+- Platform splits: `cfg(windows)` covers Win32 drives, hidden attributes, WSL, shortcuts, signatures, job objects and `CREATE_NO_WINDOW`. `cfg(not(windows))` covers sysinfo drives, `xdg-open` and FileManager1 reveal, terminal discovery, XDG trash and the `/proc` parsers.
+- Pins, tags and recents are JSON in the app config dir, written atomically.
+
+## Build, CI and release
+- **CI** (`.github/workflows/ci.yml`):
+  - frontend: build, test, `check:wiring`;
+  - backend on Ubuntu and Windows: clippy with `-D warnings`, cargo test;
+  - `notices`: `pnpm notices --check` against the lockfiles.
+- **Releases:** `release.yml` runs on a `v*` tag. It builds the Windows installers (msi, NSIS) and Linux packages (AppImage, deb) with tauri-action.
+- **Locally:** `pnpm tauri build --no-bundle` makes the Linux binary. This machine links it into its app launcher.
+- **Third-party notices:** `pnpm notices` (`scripts/gen-notices.mjs`, cargo-about) regenerates `src/assets/third-party.json`.
 
 ## Project site (`docs/` on GitHub Pages)
-- `docs/index.html` with `docs/assets/site.css` and `site.js` is the landing page, hand-written with no build step. It uses the app's theme tokens (`docs/assets/themes.css`, copied from `src/styles/themes.css` by the site build), so the theme picker sets `data-theme` on `<html>`.
-- `site/demo/` is a browser demo of the real UI: `main.tsx` installs `@tauri-apps/api/mocks` before importing `App`. `mock/` holds an in-memory filesystem, a pretend git repo and shell, and one handler per Tauri command. `scenes.ts` holds the scripted walkthroughs. `pnpm site:build` (`vite.site.config.ts`) builds it into `docs/demo/`, which is committed.
-- `site/capture/capture.mjs` serves `docs/` like Pages and drives headless Chromium over the DevTools protocol. It records the hero images and tour clips into `docs/media/` (needs chromium and ffmpeg), takes review shots (`page`) and runs behavior checks (`check`).
-- Pages runs Jekyll (there's no `.nojekyll`), and `docs/_config.yml` keeps the working docs off the site. Built asset names never start with `_` or `.`.
-- After UI changes, run `pnpm site:build`, then `pnpm site:capture` to refresh the images and clips, then `pnpm site:capture check`.
+- `docs/index.html` with `docs/assets/site.css` and `site.js` is the landing page, hand-written with no build step. It uses the app's theme tokens (`docs/assets/themes.css`, copied from `src/styles/themes.css` by the site build).
+- `site/demo/` is a browser demo of the real UI. `main.tsx` installs `@tauri-apps/api/mocks` before importing `App`, and `mock/` holds an in-memory file system, a pretend git repo and shell, and one handler per command. `pnpm site:build` (`vite.site.config.ts`) builds it into `docs/demo/`, which is committed.
+- `site/capture/capture.mjs` drives headless Chromium to record `docs/media/` (hero images and tour clips; needs chromium and ffmpeg) and runs the behavior checks (`check`).
+- Pages runs Jekyll; `docs/_config.yml` keeps the working docs (SPEC, ARCHITECTURE, plans, decisions) off the site, so no published name may start with `_` or `.`.
+- After UI changes: `pnpm site:build`, `pnpm site:capture`, `pnpm site:capture check`.
