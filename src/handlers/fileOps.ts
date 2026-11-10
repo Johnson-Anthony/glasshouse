@@ -1,4 +1,4 @@
-import { type FileEntry, openWithDefault, renameEntry, deleteEntry, moveToTrash, makeDir, createTextFile, spawnTerminal, spawnVscodeStrict, revealInExplorer, winToWsl, writeTags, compress, hashSha256, homeDir, gitStage, gitUnstage, gitDiscard, gitBlame } from "../api";
+import { type FileEntry, openWithDefault, renameEntry, deleteEntry, moveToTrash, makeDir, createTextFile, spawnTerminal, spawnVscodeStrict, revealInExplorer, winToWsl, writeTags, compress, hashSha256, homeDir, gitStage, gitUnstage, gitDiscard } from "../api";
 import { MUTATING_LABELS } from "../data";
 import { dialogs } from "../dialogs/DialogHost";
 import { basename, parentPath, joinPath } from "../paths";
@@ -13,7 +13,7 @@ import { type TransferOp, runTransfer, type TransferItem, type TransferResult } 
 import type { PasteSpecialItem } from "../dialogs/PasteSpecial";
 import { winPathToWsl } from "../shellCd";
 import type { Handler } from "./types";
-import { selectedOrFirst } from "./helpers";
+import { selectedOrFirst, showBlame } from "./helpers";
 import { cmdState } from "../commandState";
 import { errText } from "../errors";
 
@@ -483,14 +483,7 @@ export const fileOpsHandler: Handler = async (label, ctx) => {
       if (!firstEntry) return true;
       if (firstEntry.kind === "folder") return true;
       if (firstEntry.git === "?") return true;
-      try {
-        const lines = await gitBlame(firstEntry.path, 2000);
-        setBlame({ path: firstEntry.path, lines });
-      } catch (err) {
-        const msg = errText(err);
-        console.error("git blame:", msg);
-        void dialogs.showAlert({ title: "git blame failed", variant: "error", message: msg });
-      }
+      await showBlame(firstEntry.path, setBlame);
       return true;
     }
     case "Properties": {

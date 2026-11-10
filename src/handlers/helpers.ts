@@ -1,4 +1,6 @@
+import { gitBlame, type BlameLine } from "../api";
 import { dialogs } from "../dialogs/DialogHost";
+import { errText } from "../errors";
 import type { HandlerCtx } from "./types";
 
 /** The selected paths, or the first entry's path when nothing else is. */
@@ -29,4 +31,19 @@ export async function pickNumbered<T>(
   });
   if (picked == null) return undefined;
   return items[parseInt(picked.trim(), 10) - 1];
+}
+
+/** Blame `path` into the Blame dialog, or alert why it couldn't be. */
+export async function showBlame(
+  path: string,
+  setBlame: (b: { path: string; lines: BlameLine[] }) => void,
+): Promise<void> {
+  try {
+    const lines = await gitBlame(path, 2000);
+    setBlame({ path, lines });
+  } catch (err) {
+    const msg = errText(err);
+    console.error("git blame:", msg);
+    void dialogs.showAlert({ title: "git blame failed", variant: "error", message: msg });
+  }
 }

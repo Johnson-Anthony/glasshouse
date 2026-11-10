@@ -47,6 +47,7 @@ import { sshProfileFor } from "./remotes";
 import { findBinding, type KeyAction } from "./keymap";
 import { makeTab, closeTab, closeOtherTabs, moveTab as moveTabIn, tabLabel, type TabRecord } from "./tabs";
 import { canExtractArchive } from "./handlers/archive";
+import { showBlame } from "./handlers/helpers";
 import { DISPLAY_MODE_DEFAULT, DISPLAY_MODE_KEY, LAYOUT_KEY, slugify, storedZoom } from "./handlers/view";
 import { IS_WINDOWS } from "./platform";
 import { TerminalDrawer } from "./Terminal";
@@ -66,7 +67,6 @@ import {
   writePins,
   readTags,
   readText,
-  gitBlame,
   findInFiles,
   cancelOp,
   type FileEntry,
@@ -1223,20 +1223,7 @@ export function App() {
                   void spawnVscode(path);
                   return;
                 case "git-blame":
-                  void (async () => {
-                    try {
-                      const lines = await gitBlame(path, 2000);
-                      setBlame({ path, lines });
-                    } catch (err) {
-                      const msg = errText(err);
-                      console.error("git blame:", msg);
-                      void dialogs.showAlert({
-                        title: "git blame failed",
-                        message: msg,
-                        variant: "error",
-                      });
-                    }
-                  })();
+                  void showBlame(path, setBlame);
                   return;
                 case "compress":
                   handleMenuCommandRef.current("Compress to ZIP…");
