@@ -5,7 +5,7 @@ use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
 
 use portable_pty::{ChildKiller, CommandBuilder, MasterPty, PtySize, native_pty_system};
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use tauri::{AppHandle, Emitter, State};
 
 use crate::lock;
@@ -56,13 +56,13 @@ pub struct PtyRegistry {
     next_id: Mutex<u64>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct PtyDataEvent {
     pub session_id: String,
     pub data: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct PtyExitEvent {
     pub session_id: String,
     pub exit_code: Option<i32>,

@@ -7,18 +7,10 @@ use notify::{RecommendedWatcher, RecursiveMode};
 use notify_debouncer_full::{new_debouncer, DebouncedEvent, Debouncer, RecommendedCache};
 use tauri::{AppHandle, Emitter, State};
 
+#[derive(Default)]
 pub struct WatcherState {
     pub debouncer: Mutex<Option<Debouncer<RecommendedWatcher, RecommendedCache>>>,
     pub watched: Mutex<HashSet<PathBuf>>,
-}
-
-impl Default for WatcherState {
-    fn default() -> Self {
-        Self {
-            debouncer: Mutex::new(None),
-            watched: Mutex::new(HashSet::new()),
-        }
-    }
 }
 
 #[tauri::command]
