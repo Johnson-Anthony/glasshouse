@@ -11,7 +11,7 @@ use super::launch::CREATE_NO_WINDOW;
 /// archive keeps a recognisable structure.
 #[tauri::command(async)]
 pub fn compress(paths: Vec<String>, output: String) -> Result<(), String> {
-    use std::io::{BufWriter, Read, Write};
+    use std::io::BufWriter;
 
     if paths.is_empty() {
         return Err("compress: no input paths".to_string());
@@ -43,16 +43,7 @@ pub fn compress(paths: Vec<String>, output: String) -> Result<(), String> {
                 .ok_or_else(|| format!("bad filename: {}", src_path.display()))?;
             zipw.start_file(name, options)
                 .map_err(|e| format!("start_file: {}", e))?;
-            let mut f = std::fs::File::open(src_path)
-                .map_err(|e| format!("open {}: {}", src_path.display(), e))?;
-            let mut buf = [0u8; 64 * 1024];
-            loop {
-                let n = f.read(&mut buf).map_err(|e| e.to_string())?;
-                if n == 0 {
-                    break;
-                }
-                zipw.write_all(&buf[..n]).map_err(|e| e.to_string())?;
-            }
+            copy_file_into(&mut zipw, src_path)?;
         }
     }
 
@@ -66,8 +57,6 @@ fn add_dir_recursive<W: std::io::Write + std::io::Seek>(
     archive_prefix: &str,
     options: &zip::write::FileOptions<'_, ()>,
 ) -> Result<(), String> {
-    use std::io::{Read, Write};
-
     // Write the directory entry itself so empty dirs survive round-trip.
     let dir_entry = format!("{}/", archive_prefix);
     zipw.add_directory(dir_entry, *options)
@@ -93,17 +82,24 @@ fn add_dir_recursive<W: std::io::Write + std::io::Seek>(
         } else {
             zipw.start_file(&child_prefix, *options)
                 .map_err(|e| format!("start_file {}: {}", child_prefix, e))?;
-            let mut f = std::fs::File::open(&child)
-                .map_err(|e| format!("open {}: {}", child.display(), e))?;
-            let mut buf = [0u8; 64 * 1024];
-            loop {
-                let n = f.read(&mut buf).map_err(|e| e.to_string())?;
-                if n == 0 {
-                    break;
-                }
-                zipw.write_all(&buf[..n]).map_err(|e| e.to_string())?;
-            }
+            copy_file_into(zipw, &child)?;
         }
+    }
+    Ok(())
+}
+
+/// Copy the file at `src` into the zip entry just started. A plain read
+/// loop: `io::copy` would also retry interrupted reads.
+fn copy_file_into(zipw: &mut impl std::io::Write, src: &Path) -> Result<(), String> {
+    use std::io::Read;
+    let mut f = std::fs::File::open(src).map_err(|e| format!("open {}: {}", src.display(), e))?;
+    let mut buf = [0u8; 64 * 1024];
+    loop {
+        let n = f.read(&mut buf).map_err(|e| e.to_string())?;
+        if n == 0 {
+            break;
+        }
+        zipw.write_all(&buf[..n]).map_err(|e| e.to_string())?;
     }
     Ok(())
 }
