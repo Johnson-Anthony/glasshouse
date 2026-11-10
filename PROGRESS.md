@@ -1,6 +1,15 @@
 # Progress
 
 ## Done
+- 2026-11-10: Merged `shortcut-hints` (b0e1852). Every shortcut shown in a menu or the palette now runs its command:
+  - Ctrl+Q quits;
+  - Ctrl+Shift+C copies the path when something is selected and focus isn't in a text field (the terminal keeps it);
+  - `*` opens Select by Pattern;
+  - Ctrl+Shift+` opens a new terminal tab;
+  - Find & Replace in Files is Ctrl+Shift+H;
+  - Open in Terminal lost its wrong Ctrl+` hint.
+  
+  Also fixed: a dismissed context menu's target stuck around, so a later Ctrl+W or Delete could act on the right-clicked tab or sidebar folder instead of the selection. See `docs/decisions/2026-11-10-shortcut-hints-bindings.md`.
 - 2026-11-10: **Pushed `main`** to GitHub (`2a5381c`, a fast-forward from `4b8043a`), with the whole survey-fix pass and the new Pages site. Before the push, commit `ee1dd9b`'s message was reworded with `git filter-branch` over `origin/main..main` (trees unchanged) and 97 cited commit ids in the docs were updated. The pre-reword history is kept locally as branch `pre-reword-backup`, never to be pushed. Task worktree branches made before the reword must be reset to `main`, not merged.
 - 2026-11-10: Merged `split-big-files` phase 2 (228733d). App.tsx went from 2301 lines to 1366.
   - Keyboard shortcuts are a table in `src/keymap.ts`, and the Keybindings cheatsheet is derived from it.
@@ -104,6 +113,7 @@
 5. Tag a v0.2.0 release once the pass is merged and CI is green.
 
 ## Broken / known issues
+- Esc doesn't clear the selection in Miller columns (its key handler has no Escape case).
 - Windows-only code that no machine here has compiled: CopyFileW in `copy_file_no_clobber`, plus the earlier command-security, no-clobber-fs and script-kill-tree pieces. Windows CI is their first build.
 - Renames can still race where `renameat2(RENAME_NOREPLACE)` isn't available (non-Linux unix, NFS, older FUSE), which falls back to check-then-rename. no-clobber-fs's Windows code (`MoveFileExW`, file-id identity) is uncompiled until Windows CI.
 - Windows is untested for the scoped git-label scan. If `list_dir_git_labels_scan_only_the_listed_folder` fails on Windows CI after the first push, the scan falls back to the whole repo there: labels stay correct, but the test needs adjusting.

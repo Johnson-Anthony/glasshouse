@@ -39,7 +39,7 @@ Line numbers are from commit `14c68bd` and drift, so search by name. Items marke
 | presentation | docs + small code | **merged**; GitHub text awaits the user |
 | pages-site | site (big project) | **merged** (041e487); live on the next push |
 | split-big-files | both | **merged** (phase 1 df0378c, phase 2 228733d) |
-| shortcut-hints | frontend, small | running (test-coverage session) |
+| shortcut-hints | frontend, small | **merged** (b0e1852) |
 
 Merge order is the table order: small, contained fixes go first, and broad changes go last, so the broad ones absorb the conflicts.
 
