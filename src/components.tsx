@@ -6,6 +6,7 @@ import { netRate, pathFsType, systemInfo as apiSystemInfo, winClose, winMinimize
 import { fuzzyFilter } from "./fuzzy";
 import { splitBreadcrumb } from "./paths";
 import type { SortDir, SortKey } from "./state";
+import { TAG_COLOR_MAP } from "./Sidebar";
 
 // ============= Titlebar =============
 export interface TabDef {
@@ -183,8 +184,7 @@ export function kindIcon(kind: FileKind): { ic: string; cls: string } {
 }
 
 export function tagColor(tag: string | null): string {
-  const m: Record<string, string> = { project: "var(--magenta)", school: "var(--green)", secret: "var(--red)", review: "var(--yellow)", archive: "var(--cyan)" };
-  return (tag && m[tag]) || "var(--fg-3)";
+  return (tag && TAG_COLOR_MAP[tag]) || "var(--fg-3)";
 }
 
 /** A row's name with its extension put back, except on folders. */
