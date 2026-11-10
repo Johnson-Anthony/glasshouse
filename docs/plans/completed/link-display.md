@@ -35,12 +35,8 @@ The async-commands pathspec scoping is unchanged.
 - **Miller columns:** the same marker on rows in all three columns.
 - **Not included:** the sidebar folder tree.
 
-### 3. Miller columns showed the extension twice *(added by the lead)*
-`Miller.tsx` appended `.ext` to `FileEntry.name`, which already includes the extension, so a file showed as `README.md.md`. This happened in all three columns and the preview title. It now shows `e.name` as is. Miller doesn't style the extension separately, so there's nothing to split.
-- **Test:** `src/Miller.test.tsx` renders `MillerView` with `react-dom/server` (no DOM needed). It checks that each name appears once, without a doubled extension, and that only the symlink row gets `↪`. It fails on the old code.
-- **Mock data:** the browser-only `?mockRows=N` entries in `api.ts` had names without their extension, unlike real entries, which is how this went unnoticed in the mock. They now include it. The main list renders them the same, because `entryToRow` strips a matching extension.
-- **Checked in the Browser pane** (vite with `?mockRows=30`, Ctrl+7): 60 Miller rows, none with a doubled extension.
-- **Separate commit**, after merging `main` at `5ec205c`.
+### 3. Miller double extension
+Found here and fixed as its own task, `miller-names`; see `docs/plans/completed/miller-names.md`.
 
 ## Files
 `src-tauri/src/commands.rs` (list_dir, scan_repo_statuses, one test), `src/data.ts`, `src/App.tsx` (entryToRow), `src/components.tsx` (PaneRow), `src/Miller.tsx`, `src/styles/app.css`. Docs: this plan and `docs/decisions/2026-11-08-link-display-marker.md`.
@@ -50,4 +46,4 @@ The async-commands pathspec scoping is unchanged.
 
 ## For review
 - Marker glyph and color: `↪` in `--cyan`, after the name.
-- The Miller double-extension bug, found here, was fixed in a follow-up commit at the lead's request (section 3).
+- The Miller double-extension bug, found here, became the `miller-names` task.
