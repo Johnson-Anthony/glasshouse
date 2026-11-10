@@ -3474,10 +3474,11 @@ function formatNumber(n: number, digits: number): string {
   return "0".repeat(digits - s.length) + s;
 }
 
-/** Substitute {n} / {n:NNN} style tokens using the row's sequence index. */
-function expandNumbering(s: string, seq: number): string {
+/** Substitute {n} / {n:W} tokens with the row's sequence index, zero-padded
+ *  to `defaultDigits`, or to W when the token gives one. */
+function expandNumbering(s: string, seq: number, defaultDigits: number): string {
   return s.replace(/\{n(?::(\d+))?\}/g, (_m, d: string | undefined) => {
-    const digits = d ? Math.max(1, parseInt(d, 10)) : 1;
+    const digits = d ? Math.max(1, parseInt(d, 10)) : defaultDigits;
     return formatNumber(seq, digits);
   });
 }
@@ -3489,12 +3490,14 @@ export interface BulkRenameOptions {
   suffix: string;
   numberEnabled: boolean;
   numberStart: number;
+  /** Width `{n}` is padded to; `{n:W}` overrides it. */
+  numberDigits: number;
   caseMode: CaseMode;
 }
 
 /** The dialog's preview: each item's new name under `opts`. */
 export function bulkRenamePreview(items: BulkRenameItem[], opts: BulkRenameOptions): BulkRenamePlan[] {
-  const { find, replace, prefix, suffix, numberEnabled, numberStart, caseMode } = opts;
+  const { find, replace, prefix, suffix, numberEnabled, numberStart, numberDigits, caseMode } = opts;
   const { re, literal } = parseFind(find);
   return items.map((it, idx) => {
     const { base, ext } = splitName(it.name);
@@ -3508,9 +3511,9 @@ export function bulkRenamePreview(items: BulkRenameItem[], opts: BulkRenameOptio
     }
     // 2. numbering token substitution in prefix/suffix/replace
     const seq = numberEnabled ? numberStart + idx : 0;
-    if (numberEnabled) next = expandNumbering(next, seq);
-    const pfx = numberEnabled ? expandNumbering(prefix, seq) : prefix;
-    const sfx = numberEnabled ? expandNumbering(suffix, seq) : suffix;
+    if (numberEnabled) next = expandNumbering(next, seq, numberDigits);
+    const pfx = numberEnabled ? expandNumbering(prefix, seq, numberDigits) : prefix;
+    const sfx = numberEnabled ? expandNumbering(suffix, seq, numberDigits) : suffix;
     // 3. prefix / suffix
     next = pfx + next + sfx;
     // 4. case transform (ext preserved verbatim)
@@ -3557,7 +3560,7 @@ export function BulkRenameDialog({ items, onClose, renameOne, listNames, onDone 
   }, [onClose, running]);
 
   const preview = useMemo(
-    () => bulkRenamePreview(items, { find, replace, prefix, suffix, numberEnabled, numberStart, caseMode }),
+    () => bulkRenamePreview(items, { find, replace, prefix, suffix, numberEnabled, numberStart, numberDigits, caseMode }),
     [items, find, replace, prefix, suffix, numberEnabled, numberStart, numberDigits, caseMode],
   );
 
@@ -3575,7 +3578,6 @@ export function BulkRenameDialog({ items, onClose, renameOne, listNames, onDone 
     for (const p of preview) if (p.to !== p.from) changed++;
     return { problems: found, changedCount: changed };
   }, [preview, dirs, listings]);
-  void numberDigits;
 
   const hasCollision = problems.size > 0;
   const canRun = !running && listings !== null && !hasCollision && changedCount > 0;
@@ -3711,7 +3713,7 @@ export function BulkRenameDialog({ items, onClose, renameOne, listNames, onDone 
             <input
               value={prefix}
               onChange={(e) => setPrefix(e.target.value)}
-              placeholder="prepend… ({n:03} ok)"
+              placeholder="prepend… ({n} = number)"
               style={inputStyle}
               disabled={running}
             />
@@ -3721,7 +3723,7 @@ export function BulkRenameDialog({ items, onClose, renameOne, listNames, onDone 
             <input
               value={suffix}
               onChange={(e) => setSuffix(e.target.value)}
-              placeholder="append… ({n:03} ok)"
+              placeholder="append… ({n} = number)"
               style={inputStyle}
               disabled={running}
             />
@@ -3750,7 +3752,7 @@ export function BulkRenameDialog({ items, onClose, renameOne, listNames, onDone 
               min={1}
               max={9}
               value={numberDigits}
-              onChange={(e) => setNumberDigits(Math.max(1, parseInt(e.target.value, 10) || 1))}
+              onChange={(e) => setNumberDigits(Math.min(9, Math.max(1, parseInt(e.target.value, 10) || 1)))}
               style={{ ...inputStyle, width: "5ch" }}
               disabled={running || !numberEnabled}
             />
