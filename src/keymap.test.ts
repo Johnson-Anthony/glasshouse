@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { CONTEXT_EMPTY, CONTEXT_FILE, GIT_CHORDS, MENUS, type MenuItemDef } from "./data";
+import { CONTEXT_EMPTY, CONTEXT_FILE, GIT_CHORDS, MENUS, PALETTE, type MenuItemDef } from "./data";
 import { CHEATSHEET, KEYMAP, findBinding, matches, parseCombo, type KeyAction, type KeyEventLike } from "./keymap";
 
 function key(combo: string, extra: Partial<KeyEventLike> = {}): KeyEventLike {
@@ -36,7 +36,7 @@ describe("matches", () => {
   it("ignores the modifiers a binding lists in `any`", () => {
     expect(sends("Ctrl+F5")).toBe("Refresh");
     expect(sends("Ctrl+Alt+P")).toBe("run:palette");
-    expect(sends("Ctrl+Shift+`")).toBe("run:terminal");
+    expect(sends("Ctrl+Alt+`")).toBe("run:terminal");
   });
   it("compares keys without case and takes alternate keys", () => {
     expect(sends("Ctrl+Shift+R", {}, { key: "R" })).toBe("Bulk Rename…");
@@ -111,20 +111,14 @@ describe("menu shortcut hints", () => {
   const ALIAS: Record<string, string> = {
     "Show Hidden Files": "Toggle Hidden Files",
     "Bookmark Folder": "Bookmark This Folder",
+    "New Folder": "Folder",
+    "Git: Commit…": "Commit…",
   };
   // Handled outside the window keymap.
   const ELSEWHERE: Record<string, string> = {
-    "Select All": "FilePane's own key handler",
+    "Select All": "FilePane's own key handler (Ctrl+A)",
+    "Deselect": "FilePane's own key handler (Escape)",
   };
-  // Hints whose key does something else, or nothing. Found when the keymap
-  // became a table; reported, not fixed here. Remove an entry once fixed.
-  const KNOWN_GAPS = [
-    "Quit Ctrl+Q", "Copy Path Ctrl+Shift+C", "Deselect Esc", "Select by Pattern… *", // no binding
-    "New Terminal Tab Ctrl+Shift+`", // toggles the drawer, like Ctrl+`
-    "Open in Terminal Ctrl+`", // toggles the drawer instead
-    "Find & Replace in Files Ctrl+Shift+F", // opens Find in Files instead
-  ];
-  const gapKey = (h: { send: string; kb: string }) => `${h.send} ${h.kb}`;
 
   const hinted: { send: string; kb: string }[] = [];
   const walk = (list: MenuItemDef[]) => {
@@ -134,27 +128,60 @@ describe("menu shortcut hints", () => {
     }
   };
   for (const tree of [...Object.values(MENUS), CONTEXT_FILE, CONTEXT_EMPTY]) walk(tree);
+  for (const p of PALETTE) if (p.kb) hinted.push({ send: p.label, kb: p.kb.join("+") });
   const norm = (kb: string) => {
     const p = parseCombo(kb.replace(/\bDel\b/, "Delete").replace("↑", "ArrowUp").replace(/^Esc$/, "Escape"));
     return [p.ctrl, p.shift, p.alt, p.key].join();
   };
   const bound = (h: { send: string; kb: string }) =>
-    KEYMAP.some(b => norm(b.combo) === norm(h.kb) &&
-      (b.send !== undefined && (b.send === h.send || b.send === ALIAS[h.send])) || (b.run !== undefined && b.run === RUN_FOR[h.send]));
+    KEYMAP.some(b => norm(b.combo) === norm(h.kb) && (
+      (b.send !== undefined && (b.send === h.send || b.send === ALIAS[h.send])) ||
+      (b.run !== undefined && b.run === RUN_FOR[h.send])));
+  // "Ctrl+G C" in menus, ["Ctrl","G","C"] in the palette.
+  const chord = (h: { send: string; kb: string }) => {
+    const m = /^Ctrl\+G[ +]([A-Z])$/.exec(h.kb);
+    return !!m && (GIT_CHORDS[m[1].toLowerCase()] === h.send || GIT_CHORDS[m[1].toLowerCase()] === ALIAS[h.send]);
+  };
 
-  it("each advertised key runs that item's command", () => {
-    const chords = new Set(Object.values(GIT_CHORDS));
-    const unbound = hinted.filter(h =>
-      !bound(h) && !(h.kb.startsWith("Ctrl+G ") && chords.has(h.send)) && !ELSEWHERE[h.send] && !KNOWN_GAPS.includes(gapKey(h)));
-    expect(unbound).toEqual([]);
+  it("covers the menus and the palette", () => {
+    expect(hinted.length).toBeGreaterThan(60);
+    expect(hinted).toContainEqual({ send: "Go to Path…", kb: "Ctrl+L" });
   });
 
-  it("still lists only real gaps as known gaps", () => {
-    for (const gap of KNOWN_GAPS) {
-      const h = hinted.find(x => gapKey(x) === gap);
-      expect(h, gap).toBeDefined();
-      expect(bound(h!), gap).toBe(false);
-    }
+  it("each advertised key runs that item's command", () => {
+    expect(hinted.filter(h => !bound(h) && !chord(h) && !ELSEWHERE[h.send])).toEqual([]);
+  });
+});
+
+describe("bindings for advertised keys", () => {
+  it("Ctrl+Q quits, but not from a text field or the terminal", () => {
+    expect(sends("Ctrl+Q")).toBe("Quit");
+    expect(sends("Ctrl+Q", { inText: true })).toBeUndefined();
+  });
+
+  it("Ctrl+Shift+C copies the selection's path, and is left alone otherwise", () => {
+    expect(sends("Ctrl+Shift+C", { selected: 1 })).toBe("Copy Path");
+    expect(sends("Ctrl+Shift+C")).toBeUndefined();
+    expect(sends("Ctrl+Shift+C", { inText: true, selected: 1 })).toBeUndefined(); // terminal copy
+  });
+
+  it("* selects by pattern, from Shift+8 or the keypad", () => {
+    expect(sends("*")).toBe("Select by Pattern…");
+    expect(sends("Shift+*")).toBe("Select by Pattern…");
+    expect(sends("*", { inText: true })).toBeUndefined();
+  });
+
+  it("Ctrl+Shift+` opens a terminal tab, and Ctrl+` only toggles the drawer", () => {
+    expect(sends("Ctrl+Shift+`")).toBe("New Terminal Tab");
+    expect(sends("Ctrl+Shift+~")).toBe("New Terminal Tab"); // US layout: Shift+` is ~
+    expect(sends("Ctrl+Shift+`", { inText: true })).toBe("New Terminal Tab");
+    expect(sends("Ctrl+`")).toBe("run:terminal");
+  });
+
+  it("Ctrl+Shift+H is Find & Replace in Files; Ctrl+Shift+F stays Find in Files", () => {
+    expect(sends("Ctrl+Shift+H")).toBe("Find & Replace in Files");
+    expect(sends("Ctrl+Shift+H", { inText: true })).toBeUndefined();
+    expect(sends("Ctrl+Shift+F")).toBe("run:findInFiles");
   });
 });
 
