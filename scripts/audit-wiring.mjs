@@ -10,9 +10,8 @@
 //             src/keymap.ts, menu items built in code, dispatch("…") calls)
 //             that no switch handles, so clicking it
 //             shows "not yet wired";
-//   shadowed  a handler case that never runs, because App.tsx's own switches
-//             or an earlier handler in src/handlers/index.ts take the label
-//             first;
+//   shadowed  a handler case that never runs, because an earlier handler in
+//             COMMAND_CHAIN (src/handlers/index.ts) takes the label first;
 //   theater   a handled label whose case only logs, alerts, toasts or returns;
 //   unsent    a case for a label nothing sends (an old alias, or a submenu
 //             parent, which never dispatches). If something the audit can't
@@ -33,12 +32,9 @@ const ts = require("typescript");
 const ROOT = path.resolve(path.dirname(url.fileURLToPath(import.meta.url)), "..");
 const SRC = path.join(ROOT, "src");
 const DATA = path.join(SRC, "data.ts");
-const APP = path.join(SRC, "App.tsx");
 const HANDLERS_INDEX = path.join(SRC, "handlers", "index.ts");
 const KEYMAP = path.join(SRC, "keymap.ts");
 
-// Functions in App.tsx that switch on the label before the handler chain runs.
-const APP_ROUTERS = ["handleMenuCommand", "doFileOp"];
 
 // ─── source parsing ─────────────────────────────────────────────────────
 
@@ -264,48 +260,29 @@ function codeSenders() {
   return sent;
 }
 
-// ─── receivers: App.tsx and the handler chain ───────────────────────────
+// ─── receivers: the command chain ─────────────────────────────────────
 
-function appReceivers() {
-  const sf = parse(APP);
-  const out = [];
-  for (const name of APP_ROUTERS) {
-    const fn = findFunction(sf, name);
-    if (!fn) throw new Error(`${rel(APP)}: can't find ${name}()`);
-    for (const { node, conditional } of labelSwitches(fn)) {
-      for (const c of caseClauses(node)) {
-        out.push({
-          label: c.label,
-          where: `${rel(APP)}:${lineOf(sf, c.clause)}`,
-          owner: `App.tsx ${name}`,
-          conditional,
-          theater: isTheater(c.body, sf),
-        });
-      }
-    }
-  }
-  return out;
-}
-
-// HANDLERS in index.ts, in order, resolved to [exportName, file].
+// COMMAND_CHAIN in index.ts, in order, resolved to [exportName, file].
+// A `...NAME` element expands the array NAME declared in the same file.
 function handlerChain() {
   const sf = parse(HANDLERS_INDEX);
   const imports = new Map();
-  let order = null;
+  const arrays = new Map();
   const visit = (node) => {
     if (ts.isImportDeclaration(node) && node.importClause?.namedBindings && ts.isNamedImports(node.importClause.namedBindings)) {
       const from = node.moduleSpecifier.text;
       for (const el of node.importClause.namedBindings.elements) imports.set(el.name.text, from);
     }
-    if (ts.isVariableDeclaration(node) && node.name.getText(sf) === "HANDLERS" &&
-      node.initializer && ts.isArrayLiteralExpression(node.initializer)) {
-      order = node.initializer.elements.map((e) => e.getText(sf));
+    if (ts.isVariableDeclaration(node) && node.initializer && ts.isArrayLiteralExpression(node.initializer)) {
+      arrays.set(node.name.getText(sf), node.initializer.elements);
     }
     ts.forEachChild(node, visit);
   };
   visit(sf);
-  if (!order) throw new Error(`${rel(HANDLERS_INDEX)}: can't find the HANDLERS array`);
-  return order.map((name) => {
+  const expand = (elements) => elements.flatMap((e) =>
+    ts.isSpreadElement(e) ? expand(arrays.get(e.expression.getText(sf)) ?? []) : [e.getText(sf)]);
+  if (!arrays.has("COMMAND_CHAIN")) throw new Error(`${rel(HANDLERS_INDEX)}: can't find the COMMAND_CHAIN array`);
+  return expand(arrays.get("COMMAND_CHAIN")).map((name) => {
     const from = imports.get(name);
     if (!from) throw new Error(`${rel(HANDLERS_INDEX)}: ${name} isn't imported`);
     return [name, path.join(path.dirname(HANDLERS_INDEX), from + ".ts")];
@@ -344,9 +321,7 @@ function audit() {
   const data = loadData();
   const { sent: menuSent, submenus } = dataSenders(data);
   const sent = [...menuSent, ...codeSenders()];
-  const app = appReceivers();
-  const { receivers: handlers, pathFallback } = handlerReceivers();
-  const receivers = [...app, ...handlers];
+  const { receivers, pathFallback } = handlerReceivers();
   const handled = new Set(receivers.map((r) => r.label));
 
   const unwired = [];
@@ -358,8 +333,8 @@ function audit() {
     unwired.push(s);
   }
 
-  // `receivers` is in route order: handleMenuCommand's switches, doFileOp's,
-  // then each handler in chain order. A case is shadowed when an earlier
+  // `receivers` is in route order: each handler in COMMAND_CHAIN, from the
+  // context-menu target handler to misc. A case is shadowed when an earlier
   // unconditional case has the same label. Conditional switches (the
   // right-click target ones) only see some calls, so they shadow nothing.
   const shadowed = [];

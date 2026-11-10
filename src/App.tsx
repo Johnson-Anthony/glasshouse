@@ -27,7 +27,7 @@ import { Inspector } from "./preview/Inspector";
 import { QuickLook } from "./preview/FilePreview";
 import { Sidebar, type SavedRemote, type SidebarRowKind } from "./Sidebar";
 import { Menubar, ContextMenu, setDynamicGitCwd } from "./menus";
-import { CONTEXT_FILE, CONTEXT_EMPTY, CONTEXT_SIDEBAR, CONTEXT_SIDEBAR_FOLDER, CONTEXT_SIDEBAR_DRIVE, CONTEXT_SIDEBAR_REMOTE, CONTEXT_TAB, CONTEXT_BREADCRUMB, GIT_CHORDS, MUTATING_LABELS, THEMES, type MenuItemDef, type DynamicPayload, type FileRow, type FileKind, type GitStatus } from "./data";
+import { CONTEXT_FILE, CONTEXT_EMPTY, CONTEXT_SIDEBAR, CONTEXT_SIDEBAR_FOLDER, CONTEXT_SIDEBAR_DRIVE, CONTEXT_SIDEBAR_REMOTE, CONTEXT_TAB, CONTEXT_BREADCRUMB, GIT_CHORDS, type MenuItemDef, type DynamicPayload, type FileRow, type FileKind, type GitStatus } from "./data";
 import {
   useTabState,
   pushUndo,
@@ -38,59 +38,40 @@ import {
   newTab as stateNewTab,
   type UseTabResult,
 } from "./state";
-import { HANDLERS, type HandlerCtx } from "./handlers";
+import { COMMAND_CHAIN, type HandlerCtx } from "./handlers";
+import { cmdState } from "./commandState";
+import { sshProfileFor } from "./remotes";
 import { findBinding, type KeyAction } from "./keymap";
-import { moveUndo, createUndo } from "./undoActions";
 import { makeTab, closeTab, closeOtherTabs, moveTab as moveTabIn, tabLabel, type TabRecord } from "./tabs";
 import { canExtractArchive } from "./handlers/archive";
 import { IS_WINDOWS } from "./platform";
 import { TerminalDrawer } from "./Terminal";
 import { NoticesHost } from "./Notices";
 import { MillerView } from "./Miller";
-import { joinPath, parentPath, basename, normalizePath } from "./paths";
-import { winPathToWsl } from "./shellCd";
+import { joinPath, parentPath, basename } from "./paths";
 import {
   homeDir,
-  listDir,
-  makeDir,
   ensureDir,
   renameEntry,
   copyEntry,
   moveEntry,
-  deleteEntry,
   openWithDefault,
-  revealInExplorer,
-  spawnTerminal,
-  spawnTerminalProfile,
   spawnVscode,
-  spawnVscodeStrict,
-  openWithDefaultStrict,
   moveToTrash,
-  winToWsl,
-  createTextFile,
   writeText,
-  winClose,
-  winToggleMaximize,
   readPins,
   writePins,
   readTags,
-  writeTags,
   readText,
   gitBlame,
-  gitStage,
-  gitUnstage,
-  gitDiscard,
   findInFiles,
-  compress,
-  hashSha256,
   type FileEntry,
   type BlameLine,
   type FindMatch,
   type ShellProfile,
 } from "./api";
-import { runTransfer, planTransfer, type TransferItem, type TransferOp, type TransferResult } from "./transfer";
-import { transferDeps, reportTransfer, pushTransferUndo, asItems, namesIn, unlessTaken, listNames } from "./transferUi";
-import { NameSet, freeNewName, nameProblem } from "./names";
+import { runTransfer, planTransfer, type TransferOp } from "./transfer";
+import { transferDeps, reportTransfer, pushTransferUndo, asItems, listNames } from "./transferUi";
 
 const TWEAK_DEFAULTS: TweakState = {
   theme: "gruvbox-dark",
@@ -362,45 +343,6 @@ function entryToRow(
     entry: e,
   };
 }
-
-
-/** Build the ssh terminal profile for a saved remote, honoring a trailing
- *  :port in the host ("example.com:2222" → ssh -p 2222 example.com). */
-function sshProfileFor(r: SavedRemote): ShellProfile {
-  const colonIdx = r.host.lastIndexOf(":");
-  const portPart = colonIdx > 0 ? r.host.slice(colonIdx + 1) : "";
-  const hasPort = colonIdx > 0 && /^\d+$/.test(portPart);
-  const hostOnly = hasPort ? r.host.slice(0, colonIdx) : r.host;
-  return {
-    id: `ssh:${r.host}`,
-    label: `SSH: ${r.label}`,
-    kind: "ssh",
-    exec: "ssh",
-    args: hasPort ? ["-p", portPart, hostOnly] : [hostOnly],
-  };
-}
-
-interface AppClipboard {
-  op: "copy" | "cut";
-  paths: string[];
-  /** Per-path kind ("file" | "folder" | …) parallel to `paths`. Used by
-   *  Paste Special to decide whether to hash-verify. */
-  kinds: string[];
-}
-let appClipboard: AppClipboard | null = null;
-
-// Right-click context target — populated when a non-file-row surface opens a
-// context menu (sidebar row, tab, breadcrumb crumb). Case handlers read from
-// this instead of selection state. Module-level to match the `appClipboard`
-// pattern already in use.
-interface ContextTarget {
-  kind: "sidebar" | "tab" | "breadcrumb";
-  path?: string;
-  tabIndex?: number;
-  /** When kind === "sidebar", the specific row subtype right-clicked. */
-  rowKind?: SidebarRowKind;
-}
-let contextTarget: ContextTarget | null = null;
 
 export function App() {
   const [state, setState] = useState<TweakState>(() => {
@@ -769,845 +711,112 @@ export function App() {
       });
     }
   };
+  // Command routing: a label goes through COMMAND_CHAIN (handlers/index.ts)
+  // and the first handler that takes it wins. A handler that returns a plain
+  // boolean runs synchronously, so the context-menu and app handlers act
+  // within the click or keypress. See
+  // docs/decisions/2026-11-10-split-big-files-app-routing.md.
+  const buildCtx = (): HandlerCtx => {
+    const st = activeHandle?.state;
+    const selectedPaths = st
+      ? st.selected.map(i => st.entries[i]?.path).filter((p): p is string => Boolean(p))
+      : [];
+    const firstEntry: FileEntry | undefined = st?.entries[st.selected[0]];
+    const firstPath = firstEntry?.path;
+    const cwd = st?.path ?? "";
+    const refresh = activeHandle ? activeHandle.actions.refresh : () => {};
+    return {
+      activeHandle,
+      cwd,
+      selectedPaths,
+      firstPath,
+      firstEntry,
+      dispatch: (l: string) => handleMenuCommandRef.current(l),
+      openAbout: () => setAboutOpen(true),
+      toggleSidebar: () => setShowSidebar(v => !v),
+      toggleStatusBar: () => setShowStatusBar(v => !v),
+      pinPath: (p: string) => {
+        if (pins.includes(p)) return;
+        const next = [...pins, p];
+        setPins(next);
+        void writePins(next);
+      },
+      tabs,
+      activeTab,
+      setActiveTab,
+      setBlame,
+      setDiffView,
+      setGitOutput,
+      clipboardPaths: () => cmdState.clipboard?.paths ?? [],
+      pushUndo,
+      undo: () => { void runUndoStep("undo"); },
+      redo: () => { void runUndoStep("redo"); },
+      moveTab: stateMoveTab,
+      newTab: stateNewTab,
+      refresh,
+      tweaks: state,
+      setTweaks: setState,
+      app: {
+        activeTab,
+        closeOtherTabsAt,
+        closeTabAt,
+        duplicateTabAt,
+        openNewTab,
+        openPathInNewTab,
+        persistRemotes,
+        pins,
+        savedRemotes,
+        setBlame,
+        setBookmarkManagerOpen,
+        setBulkRenameItems,
+        setCheatsheetOpen,
+        setConnectOpen,
+        setCutPaths,
+        setFolderPicker,
+        setManageRemotesOpen,
+        setPalOpen,
+        setPasteSpecial,
+        setPins,
+        setPropsEntry,
+        setShowFindModal,
+        setShowInspector,
+        setState,
+        setTagPickerPath,
+        setTagStore,
+        setTermOpen,
+        setTermProfile,
+        setTweaksOpen,
+        state,
+        tagStore,
+      },
+    };
+  };
 
   const handleMenuCommand = (label: string) => {
-    // Handle context-sourced commands (sidebar / tab / breadcrumb right-click)
-    // up front. Consume contextTarget on use so a later selection-sourced
-    // click with the same label doesn't misfire.
-    const ctxT = contextTarget;
-    if (ctxT) {
-      if (ctxT.kind === "tab" && typeof ctxT.tabIndex === "number") {
-        switch (label) {
-          case "Close Tab":
-            contextTarget = null;
-            closeTabAt(ctxT.tabIndex); return;
-          case "Close Other Tabs":
-            contextTarget = null;
-            closeOtherTabsAt(ctxT.tabIndex); return;
-          case "Duplicate Tab":
-            contextTarget = null;
-            duplicateTabAt(ctxT.tabIndex); return;
-        }
-      } else if (ctxT.kind === "sidebar" && ctxT.rowKind === "remote" && ctxT.path) {
-        const host = ctxT.path;
-        switch (label) {
-          case "Connect": {
-            contextTarget = null;
-            const r = savedRemotes.find(x => x.host === host);
-            if (!r) return;
-            setTermProfile(sshProfileFor(r));
-            setTermOpen(true);
-            void dialogs.showToast({ message: `connecting to ${r.label}…`, variant: "info" });
-            return;
-          }
-          case "Edit…": {
-            contextTarget = null;
-            setManageRemotesOpen(true);
-            return;
-          }
-          case "Remove": {
-            contextTarget = null;
-            const idx = savedRemotes.findIndex(x => x.host === host);
-            if (idx < 0) return;
-            const r = savedRemotes[idx];
-            void (async () => {
-              const ok = await dialogs.showConfirm({
-                title: "remove remote",
-                message: `Remove "${r.label}"?`,
-                danger: true,
-                okLabel: "remove",
-              });
-              if (!ok) return;
-              persistRemotes(savedRemotes.filter((_, i) => i !== idx));
-            })();
-            return;
-          }
-          case "Manage Remotes…":
-            contextTarget = null;
-            setManageRemotesOpen(true);
-            return;
-        }
-      } else if ((ctxT.kind === "sidebar" || ctxT.kind === "breadcrumb") && ctxT.path) {
-        const target = ctxT.path;
-        switch (label) {
-          case "Open":
-            contextTarget = null;
-            activeHandle?.actions.goTo(target); return;
-          case "Open in New Tab":
-            contextTarget = null;
-            openPathInNewTab(target); return;
-          case "Open in New Window":
-            contextTarget = null;
-            openPathInNewTab(target); return;
-          case "Open in Terminal":
-            contextTarget = null;
-            void spawnTerminal(target); return;
-          case "Open in VS Code":
-            contextTarget = null;
-            void (async () => {
-              try { await spawnVscodeStrict(target); }
-              catch (err) {
-                const msg = err instanceof Error ? err.message : String(err);
-                void dialogs.showAlert({ title: "open in VS Code failed", variant: "error", message: msg });
-              }
-            })();
-            return;
-          case "Copy Path":
-            contextTarget = null;
-            void navigator.clipboard.writeText(target); return;
-          case "Copy as WSL Path":
-          case "Copy Path (WSL)":
-            contextTarget = null;
-            void (async () => {
-              let wsl = "";
-              try { wsl = await winToWsl(target); } catch { wsl = ""; }
-              if (!wsl) wsl = winPathToWsl(target);
-              await navigator.clipboard.writeText(wsl);
-            })();
-            return;
-          case "Copy as Command":
-            contextTarget = null;
-            void navigator.clipboard.writeText(`cd ${JSON.stringify(target)}`);
-            return;
-          case "Reveal in Explorer":
-            contextTarget = null;
-            void revealInExplorer(target); return;
-          case "Rename": {
-            contextTarget = null;
-            const base = basename(target);
-            void (async () => {
-              const dir = parentPath(target);
-              // An unreadable folder still gets a prompt; the rename reports it.
-              const taken = await namesIn(dir).catch(() => new NameSet([], IS_WINDOWS));
-              const next = await dialogs.showPrompt({
-                title: "rename",
-                message: `rename "${base}" to:`,
-                initialValue: base,
-                placeholder: "new name",
-                validate: (v) => nameProblem(v, taken, base),
-                submit: (v) => unlessTaken(v, async () => { if (v !== base) await renameEntry(target, joinPath(dir, v)); }),
-              });
-              if (!next || next === base) return;
-              const dst = joinPath(dir, next);
-              try {
-                pushUndo(moveUndo(`rename ${base} → ${next}`, [{ src: target, dst }], "rename"));
-                activeHandle?.actions.refresh();
-              } catch (err) {
-                const msg = err instanceof Error ? err.message : String(err);
-                void dialogs.showAlert({ message: `rename failed: ${msg}`, variant: "error" });
-              }
-            })();
-            return;
-          }
-          case "Move to…": {
-            contextTarget = null;
-            void (async () => {
-              const home = await homeDir();
-              setFolderPicker({
-                initialPath: home ?? undefined,
-                title: `move "${basename(target)}" to…`,
-                onPick: (to) => {
-                  setFolderPicker(null);
-                  void (async () => {
-                    const res = await runTransfer([{ path: target }], to, "move", transferDeps);
-                    if (!res) return;
-                    pushTransferUndo(res, "move", `move ${basename(target)} to ${to}`);
-                    reportTransfer(res, "move", true);
-                    activeHandle?.actions.refresh();
-                  })();
-                },
-              });
-            })();
-            return;
-          }
-          case "Move to Trash": {
-            contextTarget = null;
-            void (async () => {
-              try {
-                await moveToTrash(target);
-                activeHandle?.actions.refresh();
-              } catch (err) {
-                const msg = err instanceof Error ? err.message : String(err);
-                void dialogs.showAlert({ message: `trash failed: ${msg}`, variant: "error" });
-              }
-            })();
-            return;
-          }
-          case "Pin": {
-            contextTarget = null;
-            if (pins.includes(target)) return;
-            const next = [...pins, target];
-            setPins(next);
-            void writePins(next);
-            return;
-          }
-          case "Properties": {
-            // Previously fell through to the pane-selection handler, so the
-            // dialog showed whatever was selected in the pane instead of the
-            // sidebar/breadcrumb row that was right-clicked.
-            contextTarget = null;
-            void (async () => {
-              const siblings = await listDir(parentPath(target), true);
-              const norm = normalizePath(target);
-              const entry = siblings.find(e => normalizePath(e.path) === norm) ?? {
-                name: basename(target) || target,
-                path: target,
-                kind: "folder",
-                size: 0,
-                modified_ms: 0,
-                hidden: false,
-                ext: "",
-                is_symlink: false,
-                lossy: false,
-                git: null,
-              };
-              setPropsEntry(entry);
-            })();
-            return;
-          }
-          case "Add Tag…":
-            contextTarget = null;
-            setTagPickerPath(target);
-            return;
-          case "Unpin": {
-            contextTarget = null;
-            if (!pins.includes(target)) return;
-            const next = pins.filter(p => p !== target);
-            setPins(next);
-            void writePins(next);
-            return;
-          }
-          case "Move pin up":
-          case "Move pin down": {
-            contextTarget = null;
-            const idx = pins.indexOf(target);
-            if (idx < 0) return;
-            const dst = label === "Move pin up" ? idx - 1 : idx + 1;
-            if (dst < 0 || dst >= pins.length) return;
-            const next = [...pins];
-            [next[idx], next[dst]] = [next[dst], next[idx]];
-            setPins(next);
-            void writePins(next);
-            return;
-          }
-        }
-      }
-    }
-    switch (label) {
-      case "Toggle Drawer": {
-        setTermOpen(v => !v);
-        return;
-      }
-      case "Command Palette":
-        setPalOpen(v => !v); return;
-      case "Keybindings Cheatsheet":
-        setCheatsheetOpen(true); return;
-      case "Find in Files":
-        setShowFindModal(true); return;
-      case "Tweaks":
-      case "Preferences…":
-        setTweaksOpen(v => !v); return;
-      case "Manage Bookmarks…":
-        setBookmarkManagerOpen(true); return;
-      case "Manage Remotes…":
-        setManageRemotesOpen(true); return;
-      case "Connect to Server…":
-        setConnectOpen(true); return;
-      case "New Tab":
-        openNewTab(); return;
-      case "New Terminal Tab":
-        // Drawer owns tab state; open it and signal it to add a tab.
-        setTermOpen(true);
-        window.dispatchEvent(new Event("glasshouse:term-new-tab"));
-        return;
-      case "Close Tab":
-        closeTabAt(activeTab); return;
-      case "Close Other Tabs":
-        // File-menu path; the tab context-menu variant passes ctxT.tabIndex.
-        closeOtherTabsAt(activeTab); return;
-      case "Home":
-        void (async () => {
-          const h = await homeDir();
-          if (h) activeHandle?.actions.goTo(h);
-        })();
-        return;
-      case "Quit":
-        void winClose(); return;
-      case "Full Screen":
-        void winToggleMaximize(); return;
-      case "Refresh":
-        activeHandle?.actions.refresh(); return;
-      case "Back":
-        activeHandle?.actions.back(); return;
-      case "Forward":
-        activeHandle?.actions.forward(); return;
-      case "Up":
-      case "Open Parent":
-        activeHandle?.actions.up(); return;
-      case "Toggle Hidden Files":
-      case "Show Hidden Files":
-        setState(prev => ({ ...prev, hidden: !prev.hidden })); return;
-      case "Inspector":
-        setShowInspector(v => !v); return;
-      case "Switch Theme →": {
-        const i = THEMES.indexOf(state.theme);
-        const next = THEMES[(i < 0 ? 0 : i + 1) % THEMES.length];
-        setState(prev => ({ ...prev, theme: next }));
-        return;
-      }
-      default:
-        void doFileOp(label);
-        return;
-    }
+    void runCommand(label);
   };
-  handleMenuCommandRef.current = handleMenuCommand;
 
-  async function doFileOp(label: string) {
-    if (!activeHandle) return;
-    const st = activeHandle.state;
-    const refresh = activeHandle.actions.refresh;
-    const selectedPaths = st.selected
-      .map(i => st.entries[i]?.path)
-      .filter((p): p is string => Boolean(p));
-    const firstEntry: FileEntry | undefined = st.entries[st.selected[0]];
-    const firstPath = firstEntry?.path;
-    const cwd = st.path;
-
-    // Entries whose on-disk name isn't valid UTF-8 carry a lossy rendering of
-    // the real path — any mutating op would target a path that doesn't exist
-    // (or worse). Refuse with an actionable message instead.
-    // MUTATING_LABELS is derived from the `mutates` flags in data.ts.
-    if (MUTATING_LABELS.has(label) && st.selected.some(i => st.entries[i]?.lossy)) {
-      void dialogs.showAlert({
-        title: "invalid filename encoding",
-        variant: "error",
-        message:
-          "The selected entry's on-disk name isn't valid UTF-8, so it can't be " +
-          "addressed safely from here. Rename it in a terminal first (tab-completion " +
-          "will match the raw bytes).",
-      });
-      return;
-    }
-
+  async function runCommand(label: string) {
+    const ctx = buildCtx();
     try {
-      switch (label) {
-        case "Open": {
-          if (!firstEntry) return;
-          if (firstEntry.kind === "folder") activeHandle.actions.goTo(firstEntry.path);
-          else await openWithDefault(firstEntry.path);
-          return;
-        }
-        case "Add Bookmark": {
-          const targets = selectedPaths.length > 0
-            ? selectedPaths
-            : (firstPath ? [firstPath] : []);
-          if (targets.length === 0) {
-            dialogs.showToast({ message: "no selection", variant: "info" });
-            return;
-          }
-          const next = [...pins];
-          const added: string[] = [];
-          for (const p of targets) {
-            if (!next.includes(p)) {
-              next.push(p);
-              added.push(p);
-            }
-          }
-          if (added.length === 0) {
-            dialogs.showToast({ message: "already pinned", variant: "info" });
-            return;
-          }
-          setPins(next);
-          void writePins(next);
-          const msg = added.length === 1
-            ? `pinned ${basename(added[0])}`
-            : `pinned ${added.length} items`;
-          dialogs.showToast({ message: msg, variant: "success" });
-          return;
-        }
-        case "Rename": {
-          if (!firstEntry) return;
-          // Multi-select routes through bulk rename so F2 is consistent with
-          // the palette / context menu "Bulk Rename…" entry.
-          if (st.selected.length > 1) {
-            const items: BulkRenameItem[] = st.selected
-              .map(i => st.entries[i])
-              .filter((e): e is FileEntry => !!e)
-              .map(e => ({ path: e.path, name: e.name }));
-            setBulkRenameItems(items);
-            return;
-          }
-          // The entry's own folder: search results can live outside cwd.
-          const src = firstEntry.path;
-          const dir = parentPath(src);
-          const taken = await namesIn(dir);
-          const next = await dialogs.showPrompt({
-            title: "rename",
-            message: `rename "${firstEntry.name}" to:`,
-            initialValue: firstEntry.name,
-            placeholder: "new name",
-            validate: (v) => nameProblem(v, taken, firstEntry.name),
-            submit: (v) => unlessTaken(v, async () => { if (v !== firstEntry.name) await renameEntry(src, joinPath(dir, v)); }),
-          });
-          if (!next || next === firstEntry.name) return;
-          const dst = joinPath(dir, next);
-          pushUndo(moveUndo(`rename ${firstEntry.name} → ${next}`, [{ src, dst }], "rename"));
-          refresh();
-          return;
-        }
-        case "Bulk Rename…": {
-          const items: BulkRenameItem[] = st.selected
-            .map(i => st.entries[i])
-            .filter((e): e is FileEntry => !!e)
-            .map(e => ({ path: e.path, name: e.name }));
-          if (items.length === 0) return;
-          setBulkRenameItems(items);
-          return;
-        }
-        case "Delete Permanently": {
-          if (selectedPaths.length === 0) return;
-          const ok = await dialogs.showConfirm({
-            title: "delete permanently",
-            message: `Permanently delete ${selectedPaths.length} item(s)? This cannot be undone.`,
-            danger: true,
-            okLabel: "delete",
-          });
-          if (!ok) return;
-          for (const p of selectedPaths) await deleteEntry(p, false);
-          refresh();
-          return;
-        }
-        case "Move to Trash": {
-          if (selectedPaths.length === 0) return;
-          // Trash is reversible — only prompt for multi-select. Single items
-          // go straight to the recycle bin without ceremony.
-          if (selectedPaths.length > 1) {
-            const ok = await dialogs.showConfirm({
-              title: "move to trash",
-              message: `Move ${selectedPaths.length} items to ${IS_WINDOWS ? "Recycle Bin" : "Trash"}?`,
-              okLabel: "move",
-            });
-            if (!ok) return;
-          }
-          for (const p of selectedPaths) await moveToTrash(p);
-          refresh();
-          return;
-        }
-        case "Copy": {
-          if (selectedPaths.length === 0) return;
-          const kinds = st.selected
-            .map(i => st.entries[i]?.kind ?? "file")
-            .filter((_, idx) => Boolean(st.entries[st.selected[idx]]?.path));
-          appClipboard = { op: "copy", paths: selectedPaths, kinds };
-          setCutPaths([]);
-          dialogs.showToast({ message: `copied ${selectedPaths.length} item(s)`, variant: "info" });
-          return;
-        }
-        case "Cut": {
-          if (selectedPaths.length === 0) return;
-          const kinds = st.selected
-            .map(i => st.entries[i]?.kind ?? "file")
-            .filter((_, idx) => Boolean(st.entries[st.selected[idx]]?.path));
-          appClipboard = { op: "cut", paths: selectedPaths, kinds };
-          setCutPaths(selectedPaths);
-          dialogs.showToast({ message: `cut ${selectedPaths.length} item(s)`, variant: "info" });
-          return;
-        }
-        case "Paste": {
-          if (!appClipboard || appClipboard.paths.length === 0) {
-            dialogs.showToast({ message: "clipboard is empty", variant: "info" });
-            return;
-          }
-          const { op, paths, kinds } = appClipboard;
-          const xop: TransferOp = op === "copy" ? "copy" : "move";
-          const res = await runTransfer(asItems(paths, kinds), cwd, xop, transferDeps);
-          if (!res) return;
-          pushTransferUndo(res, xop, `${op === "copy" ? "paste copy" : "paste move"} ${res.done.length} item(s)`);
-          if (op === "cut" && res.done.length > 0 && res.failed.length === 0) {
-            appClipboard = null;
-            setCutPaths([]);
-          }
-          refresh();
-          reportTransfer(res, xop);
-          return;
-        }
-        case "Paste Special…": {
-          if (!appClipboard || appClipboard.paths.length === 0) {
-            console.warn("[paste-special] clipboard is empty");
-            return;
-          }
-          const { op, paths, kinds } = appClipboard;
-          const items: PasteSpecialItem[] = paths.map((p, i) => ({
-            path: p,
-            kind: kinds[i] ?? "file",
-          }));
-          setPasteSpecial({ items, dstDir: cwd, clipboardMode: op });
-          return;
-        }
-        case "New Folder":
-        case "Folder": {
-          const taken = await namesIn(cwd);
-          const name = await dialogs.showPrompt({
-            title: "new folder",
-            message: "folder name:",
-            initialValue: freeNewName("new-folder", true, taken.has),
-            placeholder: "folder-name",
-            validate: (v) => nameProblem(v, taken),
-            submit: (v) => unlessTaken(v, () => makeDir(joinPath(cwd, v))),
-          });
-          if (!name) return;
-          const dst = joinPath(cwd, name);
-          pushUndo(createUndo(`new folder ${name}`, dst, { kind: "folder" }));
-          refresh();
-          return;
-        }
-        case "Text File": {
-          const taken = await namesIn(cwd);
-          const name = await dialogs.showPrompt({
-            title: "new text file",
-            message: "file name:",
-            initialValue: freeNewName("untitled.txt", false, taken.has),
-            placeholder: "name.txt",
-            validate: (v) => nameProblem(v, taken),
-            submit: (v) => unlessTaken(v, () => createTextFile(joinPath(cwd, v), "")),
-          });
-          if (!name) return;
-          const dst = joinPath(cwd, name);
-          pushUndo(createUndo(`new file ${name}`, dst, { kind: "file", content: "" }));
-          refresh();
-          return;
-        }
-        case "Markdown Note": {
-          const taken = await namesIn(cwd);
-          const name = await dialogs.showPrompt({
-            title: "new markdown note",
-            message: "note name:",
-            initialValue: freeNewName("note.md", false, taken.has),
-            placeholder: "note.md",
-            validate: (v) => nameProblem(v, taken),
-            submit: (v) => unlessTaken(v, () => createTextFile(joinPath(cwd, v), "")),
-          });
-          if (!name) return;
-          const dst = joinPath(cwd, name);
-          pushUndo(createUndo(`new note ${name}`, dst, { kind: "file", content: "" }));
-          refresh();
-          return;
-        }
-        case "Script (.sh)": {
-          const script = "#!/usr/bin/env bash\n";
-          const taken = await namesIn(cwd);
-          const name = await dialogs.showPrompt({
-            title: "new shell script",
-            message: "script name:",
-            initialValue: freeNewName("script.sh", false, taken.has),
-            placeholder: "script.sh",
-            validate: (v) => nameProblem(v, taken),
-            submit: (v) => unlessTaken(v, () => createTextFile(joinPath(cwd, v), script)),
-          });
-          if (!name) return;
-          const dst = joinPath(cwd, name);
-          pushUndo(createUndo(`new script ${name}`, dst, { kind: "file", content: script }));
-          refresh();
-          return;
-        }
-        case "Duplicate": {
-          if (selectedPaths.length === 0) return;
-          // Each item is copied next to itself, so it always gets a free
-          // "(copy)" name. Group by folder: search results can span several.
-          const byDir = new Map<string, TransferItem[]>();
-          for (const i of st.selected) {
-            const e = st.entries[i];
-            if (!e?.path) continue;
-            const dir = parentPath(e.path);
-            byDir.set(dir, [...(byDir.get(dir) ?? []), { path: e.path, isDir: e.kind === "folder" }]);
-          }
-          const res: TransferResult = { done: [], replaced: [], skipped: [], failed: [] };
-          for (const [dir, items] of byDir) {
-            const r = await runTransfer(items, dir, "copy", transferDeps);
-            if (!r) continue;
-            res.done.push(...r.done);
-            res.replaced.push(...r.replaced);
-            res.skipped.push(...r.skipped);
-            res.failed.push(...r.failed);
-          }
-          pushTransferUndo(res, "copy", `duplicate ${res.done.length} item(s)`);
-          refresh();
-          reportTransfer(res, "copy", true);
-          return;
-        }
-        case "Open in Terminal": {
-          await spawnTerminal(cwd);
-          return;
-        }
-        case "Open in VS Code": {
-          try {
-            await spawnVscodeStrict(firstPath ?? cwd);
-          } catch (err) {
-            const msg = err instanceof Error ? err.message : String(err);
-            void dialogs.showAlert({
-              title: "open in VS Code failed",
-              variant: "error",
-              message: `${msg}\n\nMake sure "code" is on PATH (install Shell Command from VS Code's command palette).`,
-            });
-          }
-          return;
-        }
-        case "Reveal in Explorer": {
-          if (firstPath) await revealInExplorer(firstPath);
-          return;
-        }
-        case "Copy Path": {
-          if (firstPath) await navigator.clipboard.writeText(firstPath);
-          return;
-        }
-        case "Copy as WSL Path":
-        case "Copy Path (WSL)": {
-          if (!firstPath) return;
-          let wsl = "";
-          try { wsl = await winToWsl(firstPath); } catch { wsl = ""; }
-          if (!wsl) wsl = winPathToWsl(firstPath);
-          await navigator.clipboard.writeText(wsl);
-          return;
-        }
-        case "Add Tag…": {
-          if (!firstPath) return;
-          setTagPickerPath(firstPath);
-          return;
-        }
-        case "Remove Tag…": {
-          if (!firstPath) return;
-          const existing = tagStore[firstPath] ?? [];
-          if (existing.length === 0) return;
-          const raw = await dialogs.showPrompt({
-            title: "remove tag",
-            message: `Remove which tag? (current: ${existing.join(", ")})`,
-            initialValue: existing[0],
-            placeholder: "tag",
-            validate: (v) => existing.includes(v.trim()) ? null : `not a current tag`,
-          });
-          if (raw === null) return;
-          const tag = raw.trim();
-          if (!tag || !existing.includes(tag)) return;
-          setTagStore(prev => {
-            const cur = prev[firstPath] ?? [];
-            const filtered = cur.filter(t => t !== tag);
-            const next = { ...prev };
-            if (filtered.length === 0) delete next[firstPath];
-            else next[firstPath] = filtered;
-            void writeTags(next);
-            return next;
-          });
-          return;
-        }
-        case "Clear All Tags": {
-          const targets = selectedPaths.length > 0
-            ? selectedPaths
-            : (firstPath ? [firstPath] : []);
-          const tagged = targets.filter(p => (tagStore[p]?.length ?? 0) > 0);
-          if (tagged.length === 0) {
-            dialogs.showToast({ message: "no tagged items in selection", variant: "info" });
-            return;
-          }
-          const ok = await dialogs.showConfirm({
-            title: "Remove all tags",
-            message: `Remove all tags from ${tagged.length} item(s)?`,
-            danger: true,
-            okLabel: "remove",
-          });
-          if (!ok) return;
-          setTagStore(prev => {
-            const next = { ...prev };
-            for (const p of tagged) delete next[p];
-            void writeTags(next);
-            return next;
-          });
-          refresh();
-          return;
-        }
-        case "Compress to ZIP…": {
-          // Use the current multi-selection; if empty, fall back to a single
-          // firstPath if one exists (e.g. chip-only context with one active).
-          const active: string[] = selectedPaths.length > 0
-            ? selectedPaths
-            : (firstPath ? [firstPath] : []);
-          if (active.length === 0) return;
-          const baseName = basename(active[0]) || "archive";
-          const defaultName = `${baseName}.zip`;
-          const entered = await dialogs.showPrompt({
-            title: "compress to ZIP",
-            message: "output archive name:",
-            initialValue: defaultName,
-            placeholder: "archive.zip",
-            validate: (v) => v.trim() ? null : "name required",
-          });
-          if (entered === null) return;
-          let name = entered.trim();
-          if (!name) return;
-          if (!/\.zip$/i.test(name)) name += ".zip";
-          const outPath = joinPath(cwd, name);
-          try {
-            await compress(active, outPath);
-            refresh();
-            dialogs.showToast({ message: `compressed to ${name}`, variant: "success" });
-          } catch (err) {
-            const msg = err instanceof Error ? err.message : String(err);
-            console.error("compress failed:", msg);
-            void dialogs.showAlert({ title: "compress failed", variant: "error", message: msg });
-          }
-          return;
-        }
-        case "Checksum SHA256":
-        case "Checksum (SHA256)": {
-          if (!firstPath) return;
-          try {
-            const hex = await hashSha256(firstPath);
-            try { await navigator.clipboard.writeText(hex); } catch { /* clipboard unavailable */ }
-            dialogs.showToast({ message: `sha256 copied: ${hex.slice(0, 16)}…`, variant: "success" });
-          } catch (err) {
-            const msg = err instanceof Error ? err.message : String(err);
-            console.error("hash_sha256 failed:", msg);
-            void dialogs.showAlert({ title: "hash failed", variant: "error", message: msg });
-          }
-          return;
-        }
-        case "Move to…": {
-          if (selectedPaths.length === 0) return;
-          const home = await homeDir();
-          const initial = cwd || home || undefined;
-          const paths = [...selectedPaths];
-          const items: TransferItem[] = st.selected
-            .map(i => st.entries[i])
-            .filter((e): e is FileEntry => Boolean(e?.path))
-            .map(e => ({ path: e.path, isDir: e.kind === "folder" }));
-          setFolderPicker({
-            initialPath: initial,
-            title: paths.length === 1
-              ? `move "${basename(paths[0])}" to…`
-              : `move ${paths.length} items to…`,
-            onPick: (target) => {
-              setFolderPicker(null);
-              void (async () => {
-                const res = await runTransfer(items, target, "move", transferDeps);
-                if (!res) return;
-                pushTransferUndo(res, "move", `move ${res.done.length} item(s) to ${target}`);
-                if (res.done.length > 0) refresh();
-                reportTransfer(res, "move");
-              })();
-            },
-          });
-          return;
-        }
-        case "Git: Stage": {
-          const targets = selectedPaths.filter((_, idx) => {
-            const e = st.entries[st.selected[idx]];
-            return !!e && e.git !== null;
-          });
-          if (targets.length === 0) return;
-          await gitStage(targets);
-          refresh();
-          return;
-        }
-        case "Git: Unstage": {
-          const targets = selectedPaths.filter((_, idx) => {
-            const e = st.entries[st.selected[idx]];
-            return !!e && e.git !== null && e.git !== "?";
-          });
-          if (targets.length === 0) return;
-          await gitUnstage(targets);
-          refresh();
-          return;
-        }
-        case "Git: Discard changes": {
-          const targets = selectedPaths.filter((_, idx) => {
-            const e = st.entries[st.selected[idx]];
-            return !!e && e.git !== null;
-          });
-          if (targets.length === 0) return;
-          const ok = await dialogs.showConfirm({
-            title: "discard changes",
-            message: `Discard local changes for ${targets.length} item(s)? This cannot be undone.`,
-            danger: true,
-            okLabel: "discard",
-          });
-          if (!ok) return;
-          await gitDiscard(targets);
-          refresh();
-          return;
-        }
-        case "Git: Blame": {
-          if (!firstEntry) return;
-          if (firstEntry.kind === "folder") return;
-          if (firstEntry.git === "?") return;
-          try {
-            const lines = await gitBlame(firstEntry.path, 2000);
-            setBlame({ path: firstEntry.path, lines });
-          } catch (err) {
-            const msg = err instanceof Error ? err.message : String(err);
-            console.error("git blame:", msg);
-            void dialogs.showAlert({ title: "git blame failed", variant: "error", message: msg });
-          }
-          return;
-        }
-        case "Properties": {
-          if (firstEntry) setPropsEntry(firstEntry);
-          return;
-        }
-        default: {
-          // Registry dispatch — each handlers/*.ts file owns a disjoint slice
-          // of labels (selection, view, git, archive, tools, nav, misc).
-          const handlerCtx: HandlerCtx = {
-            activeHandle,
-            cwd,
-            selectedPaths,
-            firstPath,
-            firstEntry,
-            dispatch: (l: string) => handleMenuCommandRef.current(l),
-            openAbout: () => setAboutOpen(true),
-            toggleSidebar: () => setShowSidebar(v => !v),
-            toggleStatusBar: () => setShowStatusBar(v => !v),
-            pinPath: (p: string) => {
-              if (pins.includes(p)) return;
-              const next = [...pins, p];
-              setPins(next);
-              void writePins(next);
-            },
-            tabs,
-            activeTab,
-            setActiveTab,
-            setBlame,
-            setDiffView,
-            setGitOutput,
-            clipboardPaths: () => appClipboard?.paths ?? [],
-            pushUndo,
-            undo: () => { void runUndoStep("undo"); },
-            redo: () => { void runUndoStep("redo"); },
-            moveTab: stateMoveTab,
-            newTab: stateNewTab,
-            refresh,
-            tweaks: state,
-            setTweaks: setState,
-          };
-          for (const h of HANDLERS) {
-            // eslint-disable-next-line no-await-in-loop
-            const handled = await h(label, handlerCtx);
-            if (handled) return;
-          }
-          // Give the user visible feedback instead of silent no-op. Task #13
-          // is specifically about this — don't let palette commands vanish.
-          console.warn("menu command not wired:", label);
-          dialogs.showToast({
-            message: `"${label}" — not yet wired`,
-            variant: "warning",
-          });
-          return;
-        }
+      for (const h of COMMAND_CHAIN) {
+        const r = h(label, ctx);
+        if (typeof r === "boolean" ? r : await r) return;
       }
+      // Give the user visible feedback instead of silent no-op. Task #13
+      // is specifically about this — don't let palette commands vanish.
+      console.warn("menu command not wired:", label);
+      dialogs.showToast({
+        message: `"${label}" — not yet wired`,
+        variant: "warning",
+      });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       console.error("file op failed", label, err);
       void dialogs.showAlert({ title: "error", variant: "error", message: msg });
     }
   }
+  handleMenuCommandRef.current = handleMenuCommand;
 
   const handleMenuPayload = (payload: DynamicPayload) => {
     if (payload.type === "open-path") {
@@ -1629,7 +838,7 @@ export function App() {
   const onContext = (e: React.MouseEvent, kind: ContextKind, rowIndex?: number) => {
     // File-pane surfaces act on the current selection; clear the module target
     // so stale sidebar/tab/breadcrumb right-clicks can't leak into file ops.
-    contextTarget = null;
+    cmdState.contextTarget = null;
     if (kind === "file") {
       // Hide "Remove Tag…" when the selected row has no tags — keeps the
       // menu honest instead of dangling a no-op command.
@@ -1695,7 +904,7 @@ export function App() {
   };
 
   const onSidebarContext = (e: React.MouseEvent, path: string, rowKind: SidebarRowKind) => {
-    contextTarget = { kind: "sidebar", path, rowKind };
+    cmdState.contextTarget = { kind: "sidebar", path, rowKind };
     let menu: MenuItemDef[];
     switch (rowKind) {
       case "pinned": {
@@ -1739,12 +948,12 @@ export function App() {
   };
 
   const onTabContext = (e: React.MouseEvent, tabIndex: number) => {
-    contextTarget = { kind: "tab", tabIndex };
+    cmdState.contextTarget = { kind: "tab", tabIndex };
     openCtxMenu(e, CONTEXT_TAB);
   };
 
   const onCrumbContext = (e: React.MouseEvent, path: string) => {
-    contextTarget = { kind: "breadcrumb", path };
+    cmdState.contextTarget = { kind: "breadcrumb", path };
     openCtxMenu(e, CONTEXT_BREADCRUMB);
   };
 
@@ -2082,7 +1291,7 @@ export function App() {
           planTransfer={(items, dstDir, op) => planTransfer(items, dstDir, op, transferDeps)}
           onClose={() => setPasteSpecial(null)}
           onDone={(clear) => {
-            if (clear) appClipboard = null;
+            if (clear) cmdState.clipboard = null;
             activeHandle?.actions.refresh();
           }}
         />

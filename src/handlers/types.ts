@@ -5,9 +5,49 @@
 // collide on merges.
 
 import type { UndoEntry, UseTabResult } from "../state";
-import type { FileEntry, BlameLine } from "../api";
+import type { BlameLine, FileEntry, ShellProfile } from "../api";
 import type { TweakState } from "../components";
 import type { GitOutputState } from "../dialogs/GitOutput";
+import type React from "react";
+import type { SavedRemote } from "../Sidebar";
+import type { BulkRenameItem } from "../dialogs/BulkRename";
+import type { PasteSpecialItem } from "../dialogs/PasteSpecial";
+
+/** App state and setters the command handlers moved out of App.tsx use
+ *  (targetHandler, appHandler, fileOpsHandler). App passes them by name. */
+export interface AppCommands {
+  activeTab: number;
+  closeOtherTabsAt: (keep: number) => void;
+  closeTabAt: (i: number) => void;
+  duplicateTabAt: (i: number) => void;
+  openNewTab: () => void;
+  openPathInNewTab: (p: string, isPrivate?: boolean) => void;
+  persistRemotes: (next: SavedRemote[]) => void;
+  pins: string[];
+  savedRemotes: SavedRemote[];
+  setBlame: React.Dispatch<React.SetStateAction<{ path: string; lines: BlameLine[]; } | null>>;
+  setBookmarkManagerOpen: React.Dispatch<React.SetStateAction<boolean>>;
+  setBulkRenameItems: React.Dispatch<React.SetStateAction<BulkRenameItem[] | null>>;
+  setCheatsheetOpen: React.Dispatch<React.SetStateAction<boolean>>;
+  setConnectOpen: React.Dispatch<React.SetStateAction<boolean>>;
+  setCutPaths: React.Dispatch<React.SetStateAction<string[]>>;
+  setFolderPicker: React.Dispatch<React.SetStateAction<{ initialPath?: string | undefined; title?: string | undefined; onPick: (p: string) => void; } | null>>;
+  setManageRemotesOpen: React.Dispatch<React.SetStateAction<boolean>>;
+  setPalOpen: React.Dispatch<React.SetStateAction<boolean>>;
+  setPasteSpecial: React.Dispatch<React.SetStateAction<{ items: PasteSpecialItem[]; dstDir: string; clipboardMode: "copy" | "cut"; } | null>>;
+  setPins: React.Dispatch<React.SetStateAction<string[]>>;
+  setPropsEntry: React.Dispatch<React.SetStateAction<FileEntry | null>>;
+  setShowFindModal: React.Dispatch<React.SetStateAction<boolean>>;
+  setShowInspector: React.Dispatch<React.SetStateAction<boolean>>;
+  setState: React.Dispatch<React.SetStateAction<TweakState>>;
+  setTagPickerPath: React.Dispatch<React.SetStateAction<string | null>>;
+  setTagStore: React.Dispatch<React.SetStateAction<Record<string, string[]>>>;
+  setTermOpen: React.Dispatch<React.SetStateAction<boolean>>;
+  setTermProfile: React.Dispatch<React.SetStateAction<ShellProfile | null>>;
+  setTweaksOpen: React.Dispatch<React.SetStateAction<boolean>>;
+  state: TweakState;
+  tagStore: Record<string, string[]>;
+}
 
 export interface HandlerCtx {
   activeHandle: UseTabResult | undefined;
@@ -36,6 +76,8 @@ export interface HandlerCtx {
   newTab?: (path?: string, opts?: { private?: boolean }) => void;
   tweaks?: TweakState;
   setTweaks?: (s: TweakState) => void;
+  /** Set by App; the feature handlers in HANDLERS don't need it. */
+  app?: AppCommands;
 }
 
 export type Handler = (label: string, ctx: HandlerCtx) => Promise<boolean> | boolean;

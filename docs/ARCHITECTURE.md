@@ -5,13 +5,14 @@ Snapshot from the 2026-11-08 survey. Line numbers will drift, so search by name.
 ## Layout
 | Path | What |
 |---|---|
-| `src/main.tsx` → `src/App.tsx` | Entry point and the `App()` shell: state, keybindings, command routing, drag and drop, layout |
+| `src/main.tsx` → `src/App.tsx` | Entry point and the `App()` shell: state, the keydown listener, the command router, drag and drop, layout |
+| `src/keymap.ts` | Window keyboard shortcuts as a table (`KEYMAP`); also feeds the Keybindings cheatsheet |
 | `src/components.tsx` (~1.1k lines) | Titlebar, Toolbar, FilePane, StatusBar, Palette, Tweaks |
 | `src/menus.tsx`, `src/Sidebar.tsx` | Menubar, its dropdowns and the context menu (with dynamic menu items); the Sidebar |
 | `src/preview/` | `Inspector.tsx` (the inspector card, permissions grid); `FilePreview.tsx` (type-aware previews and Quick Look) |
 | `src/dialogs/` | One file per dialog. `DialogHost.tsx` holds the `dialogs` prompt/alert/confirm/toast API and its host |
 | `src/state.ts` | `useTabState` (per-tab state, history, fs watching) and the undo/redo stacks |
-| `src/handlers/*.ts` | Command handlers split by area (nav, selection, view, git, archive, tools, misc), chained in `handlers/index.ts` |
+| `src/handlers/*.ts` | Command handlers, chained in `handlers/index.ts` as `COMMAND_CHAIN`: `target` (context-menu target), `app` (App-level commands), `fileOps` (file ops on the active tab), then the feature handlers in `HANDLERS` (selection, view, git, archive, tools, nav, misc) |
 | `src/data.ts` | Menu, palette and context-menu trees; Windows-only item stripping |
 | `src/api.ts` | Typed wrappers over `invoke`. `safe()` swallows errors and returns a fallback |
 | `src/paths.ts`, `shellCd.ts`, `fuzzy.ts`, `platform.ts` | Pure helpers; these are what the vitest suite covers |
@@ -27,17 +28,17 @@ Snapshot from the 2026-11-08 survey. Line numbers will drift, so search by name.
 ## Frontend
 - **State:** there's no store or reducer. `App()` holds about 45 `useState` hooks, and display tweaks persist in `localStorage["glasshouse.tweaks"]`.
   - Each tab is a headless `<TabShell>` running `useTabState` and passing `{state, actions}` up into `tabHandles`.
-  - Clipboard, context target, undo stacks, the `dialogs` API and the git cwd are module-level variables.
+  - The app clipboard and the context-menu target are in `cmdState` (`src/commandState.ts`). The undo stacks, the `dialogs` API and the git cwd are module-level variables.
   - Components also signal each other with window events (`glasshouse:*`) and attributes on `<html>`.
-- **Commands are identified by their display label.** Menus, palette, context menus and the keydown handler all send a label string to `handleMenuCommand`:
-  1. the right-click target switch;
-  2. a global switch;
-  3. `doFileOp`;
-  4. the selection switch;
-  5. the `HANDLERS` chain, where the first handler to return true wins;
-  6. a "not yet wired" message if nothing handled it.
+- **Commands are identified by their display label.** Menus, the palette, context menus and `KEYMAP` bindings all send a label string to App's `handleMenuCommand`. It builds a `HandlerCtx` (with App's state and setters as `ctx.app`) and runs `COMMAND_CHAIN`:
+  1. `targetHandler`: commands for the surface a context menu was opened on (`cmdState.contextTarget`);
+  2. `appHandler`: App-level commands (panels, dialogs, tabs, window, theme);
+  3. `fileOpsHandler`: file ops on the active tab. With no tab it takes every label, so nothing later runs. It refuses mutating ops on lossy names;
+  4. the feature handlers in `HANDLERS`.
 
-  Dynamic menu items carry a `payload` and go to `handleMenuPayload` instead. Renaming a menu label breaks routing unless every switch is updated too.
+  The first handler to return true wins, and a "not yet wired" toast shows if none does. A handler that returns a plain boolean runs synchronously. The router catches errors and shows them in a dialog. See `docs/decisions/2026-11-10-split-big-files-app-routing.md`.
+
+  Dynamic menu items carry a `payload` and go to `handleMenuPayload` instead. Renaming a menu label breaks routing unless every case is updated too; `pnpm check:wiring` catches the mismatch.
 - **Refresh:** `watch_dir` plus the `fs-changed` event, with a 30 s backup poll.
 - **Platform:** `IS_WINDOWS` comes from the user agent. Path helpers guess the separator from the string itself.
 
