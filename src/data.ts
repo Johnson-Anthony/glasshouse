@@ -394,18 +394,6 @@ export const CONTEXT_SIDEBAR: MenuItemDef[] = [
   { kind: "item", ic: "", label: "Copy Path" },
 ];
 
-// Menu shown for sidebar rows that are pinned. Adds Unpin on top of the
-// standard sidebar menu. App.tsx picks between this and CONTEXT_SIDEBAR
-// based on whether the right-clicked path is in the pins array.
-export const CONTEXT_SIDEBAR_PINNED: MenuItemDef[] = [
-  { kind: "item", ic: "", label: "Open" },
-  { kind: "item", ic: "", label: "Open in New Tab" },
-  { kind: "sep" },
-  { kind: "item", ic: "", label: "Copy Path" },
-  { kind: "sep" },
-  { kind: "item", ic: "", label: "Unpin" },
-];
-
 // Big folder menu shown when right-clicking a tree folder or pinned folder
 // (with extra Unpin appended). Mirrors CONTEXT_FILE where operations make
 // sense for a directory, while dropping file-only actions.
@@ -536,29 +524,9 @@ export function stripWinOnly(items: MenuItemDef[]): void {
   }
 }
 
-if (!IS_WINDOWS) {
-  Object.values(MENUS).forEach(stripWinOnly);
-  [
-    CONTEXT_FILE,
-    CONTEXT_SIDEBAR,
-    CONTEXT_SIDEBAR_PINNED,
-    CONTEXT_SIDEBAR_FOLDER,
-    CONTEXT_SIDEBAR_DRIVE,
-    CONTEXT_SIDEBAR_REMOTE,
-    CONTEXT_TAB,
-    CONTEXT_BREADCRUMB,
-    CONTEXT_EMPTY,
-  ].forEach(stripWinOnly);
-}
-
-// ─── Derived lookups ───────────────────────────────────────────────────────
-// Built after platform gating so they see the final dispatch keys.
-
-const ALL_MENU_TREES: MenuItemDef[][] = [
-  ...Object.values(MENUS),
+const CONTEXT_MENUS: MenuItemDef[][] = [
   CONTEXT_FILE,
   CONTEXT_SIDEBAR,
-  CONTEXT_SIDEBAR_PINNED,
   CONTEXT_SIDEBAR_FOLDER,
   CONTEXT_SIDEBAR_DRIVE,
   CONTEXT_SIDEBAR_REMOTE,
@@ -566,6 +534,16 @@ const ALL_MENU_TREES: MenuItemDef[][] = [
   CONTEXT_BREADCRUMB,
   CONTEXT_EMPTY,
 ];
+
+if (!IS_WINDOWS) {
+  Object.values(MENUS).forEach(stripWinOnly);
+  CONTEXT_MENUS.forEach(stripWinOnly);
+}
+
+// ─── Derived lookups ───────────────────────────────────────────────────────
+// Built after platform gating so they see the final dispatch keys.
+
+const ALL_MENU_TREES: MenuItemDef[][] = [...Object.values(MENUS), ...CONTEXT_MENUS];
 
 function collectMutating(items: MenuItemDef[], out: Set<string>): void {
   for (const it of items) {

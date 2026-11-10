@@ -912,7 +912,7 @@ export function App() {
     let menu: MenuItemDef[];
     switch (rowKind) {
       case "pinned": {
-        // Previously this rendered the stub CONTEXT_SIDEBAR_PINNED. Users
+        // Previously this rendered a four-item stub menu. Users
         // expect the full folder right-click here (most pins are folders)
         // plus pin-management — inject Unpin on top, reorder items next,
         // then the usual folder body (stripping the inner "Pin" entry

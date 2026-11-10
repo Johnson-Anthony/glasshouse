@@ -6,7 +6,6 @@ import {
   CONTEXT_SIDEBAR,
   CONTEXT_SIDEBAR_DRIVE,
   CONTEXT_SIDEBAR_FOLDER,
-  CONTEXT_SIDEBAR_PINNED,
   CONTEXT_SIDEBAR_REMOTE,
   CONTEXT_TAB,
   MENUS,
@@ -68,7 +67,7 @@ describe("stripWinOnly", () => {
 describe.skipIf(IS_WINDOWS)("menus off Windows", () => {
   const TREES: Record<string, MenuItemDef[]> = {
     ...Object.fromEntries(Object.entries(MENUS).map(([k, v]) => [`menu ${k}`, v])),
-    CONTEXT_FILE, CONTEXT_SIDEBAR, CONTEXT_SIDEBAR_PINNED, CONTEXT_SIDEBAR_FOLDER,
+    CONTEXT_FILE, CONTEXT_SIDEBAR, CONTEXT_SIDEBAR_FOLDER,
     CONTEXT_SIDEBAR_DRIVE, CONTEXT_SIDEBAR_REMOTE, CONTEXT_TAB, CONTEXT_BREADCRUMB, CONTEXT_EMPTY,
   };
 
