@@ -618,11 +618,6 @@ pub fn set_permissions(path: String, mode: u32) -> Result<(), String> {
             .map_err(|e| format!("set_permissions({}): {}", path, e))?;
         Ok(())
     }
-    #[cfg(not(any(unix, windows)))]
-    {
-        let _ = (path, mode);
-        Err("set_permissions: unsupported platform".into())
-    }
 }
 
 // ---------- symlink / hard link ----------
@@ -646,11 +641,6 @@ pub fn create_symlink(target: String, link_path: String) -> Result<(), String> {
             std::os::windows::fs::symlink_file(&target, &link_path)
         };
         res.map_err(|e| format!("symlink {} -> {}: {}", link_path, target, e))
-    }
-    #[cfg(not(any(unix, windows)))]
-    {
-        let _ = (target, link_path);
-        Err("create_symlink: unsupported platform".into())
     }
 }
 
@@ -809,11 +799,6 @@ pub fn change_owner(path: String, owner: String) -> Result<(), String> {
     {
         let _ = (path, owner);
         Err("change_owner: not supported on windows".into())
-    }
-    #[cfg(not(any(unix, windows)))]
-    {
-        let _ = (path, owner);
-        Err("change_owner: unsupported platform".into())
     }
 }
 
