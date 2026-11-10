@@ -13,8 +13,8 @@ Full spec: docs/SPEC.md · Architecture: docs/ARCHITECTURE.md
 - No ESLint or Prettier is configured.
 
 # Parallel task branches
-Some work is split into task branches, each in its own git worktree with its own Claude session. The backlog and per-task scope are in `docs/plans/active/survey-fixes.md`.
-- On a task branch, don't edit `PROGRESS.md`, `survey-fixes.md` or other tasks' files. Put your status in your own plan, `docs/plans/active/<task>.md`, and decisions in `docs/decisions/<yyyy-mm-dd>-<task>-<topic>.md`.
+Some work is split into task branches, each in its own git worktree with its own Claude session. The backlog (a plan with a task Status table) and per-task scope live in `docs/plans/active/` while a pass runs; the 2026-11 survey-fix pass is finished, in `docs/plans/completed/survey-fixes.md`.
+- On a task branch, don't edit `PROGRESS.md`, the backlog or other tasks' files. Put your status in your own plan, `docs/plans/active/<task>.md`, and decisions in `docs/decisions/<yyyy-mm-dd>-<task>-<topic>.md`.
 - A handoff on a task branch updates your plan's Status, moves the plan to `docs/plans/completed/` when the task is done, and commits on the branch. `PROGRESS.md` is updated on `main` when the branch is merged.
 - Don't push or open PRs unless the user asks in that session: the repo is public.
 - Keep diffs focused on your task. `App.tsx`, `components.tsx` and the `src-tauri/src/commands/` modules are shared by several branches, so avoid reformatting or moving code you aren't changing.

@@ -1,7 +1,7 @@
 # Survey-fix pass
 
 This fixes what the 2026-11-08 codebase survey found. There's one task per worktree session, and each session writes its own `docs/plans/active/<task>.md`.
-This file is the backlog. It is only edited on `main`, when a branch is merged (see "Parallel task branches" in CLAUDE.md).
+This was the backlog. **Finished 2026-11-10:** every task below is merged and pushed, and CI is green on Linux and Windows.
 Line numbers are from commit `14c68bd` and drift, so search by name. Items marked *(inferred)* came from reading the code and haven't been reproduced yet; confirm them before fixing.
 
 ## Status

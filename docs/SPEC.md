@@ -23,7 +23,7 @@ glasshouse is a desktop file manager built with Tauri 2 (Rust backend) and React
 - `docs/` is also the GitHub Pages source (`docs/index.html` is the landing page).
 
 ## Current milestone
-The survey-fix pass (2026-11-08) fixes the defects found in the codebase survey, one task branch each. See `docs/plans/active/survey-fixes.md`.
+The survey-fix pass (2026-11-08 to 2026-11-10) fixed the defects found in the codebase survey, one task branch each. See `docs/plans/completed/survey-fixes.md`.
 
 ## Open questions (owner to confirm)
 - **Remote browsing:** the README mentions "remote-target browsing", but there's no remote filesystem backend, only ssh terminal profiles. Is that planned or dropped?
