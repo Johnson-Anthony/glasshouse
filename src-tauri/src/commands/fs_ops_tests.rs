@@ -272,7 +272,9 @@ fn copy_reports_bytes_up_to_the_total() {
     assert!(seen.iter().all(|p| p.total == Some(size)), "{:?}", seen);
     assert!(seen.windows(2).all(|w| w[0].done <= w[1].done));
     assert_eq!(seen.last().unwrap().done, size);
-    // The big file went in slices, so there's more than an event per file.
+    // On unix the big file went in slices, so there's more than an event per
+    // file. Windows' CopyFileW copies a file in one call and reports per file.
+    #[cfg(unix)]
     assert!(seen.len() > 4, "{} events", seen.len());
     assert_eq!(tree(&d.join("dst")), tree(&src));
 }

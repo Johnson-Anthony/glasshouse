@@ -113,7 +113,7 @@
 
 ## Next
 1. Merge task branches into `main` as they finish, in the merge order in `survey-fixes.md`. After each merge, rerun all checks and update this file and the task's status.
-2. The survey-fix backlog is done. Possible follow-ups: progress for cross-volume move, archives and compress; Esc in Miller columns.
+2. The survey-fix backlog is done. Possible follow-ups: progress for cross-volume move, archives and compress; progress inside one big file on Windows (CopyFileExW with a progress routine; today it reports per file); Esc in Miller columns.
 3. Settle the open questions in `docs/SPEC.md` (remote browsing, macOS, command-line path, `origin/feature`).
 4. (done) Windows CI is green since `d077734`: the pass's Windows-only code compiles and its tests pass on windows-latest.
 5. Tag a v0.2.0 release once the pass is merged and CI is green.
