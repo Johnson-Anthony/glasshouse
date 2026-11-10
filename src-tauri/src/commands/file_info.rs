@@ -1,5 +1,6 @@
 use serde::Serialize;
 use std::path::Path;
+use super::clamp_limit;
 #[cfg(windows)]
 use super::launch::CREATE_NO_WINDOW;
 
@@ -13,7 +14,7 @@ pub fn read_hex_dump(path: String, offset: u64, length: usize) -> Result<String,
     use std::fmt::Write as FmtWrite;
     use std::io::{Read, Seek, SeekFrom};
 
-    let cap = if length == 0 { 4096 } else { length.min(64 * 1024) };
+    let cap = clamp_limit(length, 4096, 64 * 1024);
     let mut f = std::fs::File::open(&path).map_err(|e| format!("open {}: {}", path, e))?;
     f.seek(SeekFrom::Start(offset))
         .map_err(|e| format!("seek {}: {}", path, e))?;

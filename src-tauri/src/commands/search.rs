@@ -1,6 +1,7 @@
 use serde::Serialize;
 use tauri::{AppHandle, State};
 
+use super::clamp_limit;
 use crate::ops::{Op, OpRegistry};
 
 // ---------- find in files (ripgrep-style content search) ----------
@@ -13,7 +14,7 @@ pub struct FindMatch {
 }
 
 const FIND_MAX_FILE_BYTES: u64 = 1 << 20; // 1 MiB per task spec
-const FIND_HARD_CAP: u32 = 10_000;
+const FIND_HARD_CAP: usize = 10_000;
 
 /// Search the files under `root` for `query`. With `op_id` it reports files
 /// searched and can be cancelled (see ops.rs); a cancelled search returns
@@ -47,11 +48,7 @@ fn search_contents(
     if query.is_empty() {
         return Ok(Vec::new());
     }
-    let cap = if max_results == 0 {
-        500
-    } else {
-        max_results.min(FIND_HARD_CAP)
-    } as usize;
+    let cap = clamp_limit(max_results as usize, 500, FIND_HARD_CAP);
 
     let pattern = regex::escape(query);
     let matcher = RegexMatcherBuilder::new()
@@ -187,7 +184,7 @@ fn search_names(root: &str, pattern: &str, max_results: u32, op: &Op) -> Result<
     if pattern.is_empty() {
         return Ok(Vec::new());
     }
-    let cap = if max_results == 0 { 500 } else { max_results.min(10_000) } as usize;
+    let cap = clamp_limit(max_results as usize, 500, FIND_HARD_CAP);
     let needle = pattern.to_ascii_lowercase();
 
     let results: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));

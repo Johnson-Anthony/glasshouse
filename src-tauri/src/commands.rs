@@ -15,3 +15,10 @@ pub mod wsl;
 
 #[cfg(test)]
 pub(crate) mod testing;
+
+/// The size or count limit a command was asked for: 0 means `default`, and
+/// the result is never above `cap`.
+fn clamp_limit(asked: usize, default: usize, cap: usize) -> usize {
+    let n = if asked == 0 { default } else { asked };
+    n.min(cap)
+}

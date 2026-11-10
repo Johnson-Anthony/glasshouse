@@ -1,4 +1,5 @@
 use std::path::{Path, PathBuf};
+use super::clamp_limit;
 #[cfg(not(windows))]
 use super::listing::home_dir_path;
 #[cfg(windows)]
@@ -514,7 +515,7 @@ pub fn read_text(path: String, max_bytes: usize) -> Result<String, String> {
     let f = std::fs::File::open(&path).map_err(|e| e.to_string())?;
     // Hard server-side ceiling regardless of what the frontend asks for —
     // an oversized cap would buffer the whole file in memory.
-    let cap = if max_bytes == 0 { 1_000_000 } else { max_bytes }.min(64 * 1024 * 1024);
+    let cap = clamp_limit(max_bytes, 1_000_000, 64 * 1024 * 1024);
     let mut buf = Vec::with_capacity(cap.min(1 << 20));
     f.take(cap as u64)
         .read_to_end(&mut buf)
@@ -550,7 +551,7 @@ const READ_IMAGE_MAX: usize = 64 * 1024 * 1024;
 pub fn read_image_b64(path: String, max_bytes: usize) -> Result<String, String> {
     use base64::{engine::general_purpose::STANDARD, Engine as _};
     use std::io::Read;
-    let cap = if max_bytes == 0 { 8 * 1024 * 1024 } else { max_bytes }.min(READ_IMAGE_MAX);
+    let cap = clamp_limit(max_bytes, 8 * 1024 * 1024, READ_IMAGE_MAX);
     let f = std::fs::File::open(&path).map_err(|e| e.to_string())?;
     let len = f.metadata().map_err(|e| e.to_string())?.len();
     if len > cap as u64 {
