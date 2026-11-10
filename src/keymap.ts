@@ -46,7 +46,9 @@ export const KEYMAP: KeyBinding[] = [
   { combo: "Ctrl+Shift+E", send: "Open in VS Code" },
   { combo: "Ctrl+Shift+R", send: "Bulk Rename…" },
   { combo: "Ctrl+Shift+D", send: "Folder" },
-  { combo: "Ctrl+`", any: ["Shift", "Alt"], inText: true, run: "terminal", cheat: { label: "Toggle terminal", group: "View" } },
+  { combo: "Ctrl+`", any: ["Alt"], inText: true, run: "terminal", cheat: { label: "Toggle terminal", group: "View" } },
+  // Shift+` is ~ on US layouts.
+  { combo: "Ctrl+Shift+`", alsoKeys: ["~"], any: ["Alt"], inText: true, send: "New Terminal Tab" },
   { combo: "Ctrl+,", any: ["Shift", "Alt"], inText: true, run: "tweaks" },
   // Panel/layout toggles work even while a text input has focus: they don't
   // insert text (VS Code treats Ctrl+B the same way).
@@ -67,6 +69,9 @@ export const KEYMAP: KeyBinding[] = [
   // Everything below is file and selection work, so none of it fires while
   // typing in a field.
   { combo: "Ctrl+G", run: "gitChord" },
+  // Not while typing: the terminal drawer has focus as a text field, and
+  // Ctrl+Q there is the shell's (XON, emacs quoted-insert).
+  { combo: "Ctrl+Q", send: "Quit" },
   { combo: "Space", when: "selection", unlessHandled: true, run: "quickLook" },
   { combo: "Ctrl+Z", send: "Undo" },
   { combo: "Ctrl+Y", send: "Redo" },
@@ -75,6 +80,10 @@ export const KEYMAP: KeyBinding[] = [
   { combo: "Ctrl+C", when: "selection", send: "Copy" },
   { combo: "Ctrl+X", when: "selection", send: "Cut" },
   { combo: "Ctrl+V", send: "Paste" },
+  { combo: "Ctrl+Shift+C", when: "selection", send: "Copy Path" },
+  { combo: "Ctrl+Shift+H", send: "Find & Replace in Files" },
+  // Shift+8 on many layouts, or the keypad *.
+  { combo: "*", any: ["Shift"], send: "Select by Pattern…" },
   { combo: "Ctrl+H", send: "Toggle Hidden Files" },
   { combo: "Ctrl+W", send: "Close Tab" },
   { combo: "Ctrl+T", send: "New Tab" },

@@ -91,7 +91,7 @@ export const MENUS: MenusData = {
       ] },
     { kind: "sep" },
     { kind: "item", ic: "", label: "Open…",              kb: "Ctrl+O" },
-    { kind: "item", ic: "", label: "Open in Terminal",   kb: "Ctrl+`" },
+    { kind: "item", ic: "", label: "Open in Terminal" },
     { kind: "item", ic: "", label: "Open in VS Code",    kb: "Ctrl+Shift+E" },
     { kind: "item", ic: "", label: "Open Parent",        kb: "Alt+↑" },
     { kind: "sub",  ic: "", label: "Open Recent",
@@ -227,7 +227,7 @@ export const MENUS: MenusData = {
     { kind: "item", ic: "", label: "Bulk Rename…",        kb: "Ctrl+Shift+R", mutates: true },
     { kind: "item", ic: "", label: "Batch Permissions…",  kb: "Ctrl+Shift+P", mutates: true },
     { kind: "item", ic: "", label: "Change Owner (chown)…", mutates: true },
-    { kind: "item", ic: "", label: "Find & Replace in Files", kb: "Ctrl+Shift+F" },
+    { kind: "item", ic: "", label: "Find & Replace in Files", kb: "Ctrl+Shift+H" },
     { kind: "sep" },
     { kind: "sub",  ic: "", label: "Compress",
       children: [
@@ -325,7 +325,7 @@ export const PALETTE: PaletteItem[] = [
   { g: "VIEW",     ic: "", label: "Switch Theme →"  },
   { g: "VIEW",     ic: "", label: "Toggle Hidden Files",   kb: ["Ctrl","H"] },
   { g: "VIEW",     ic: "", label: "Change Layout →" },
-  { g: "TOOLS",    ic: "", label: "Open in Terminal",       kb: ["Ctrl","`"] },
+  { g: "TOOLS",    ic: "", label: "Open in Terminal" },
   { g: "TOOLS",    ic: "", label: "Open in VS Code",        kb: ["Ctrl","Shift","E"] },
   { g: "TOOLS",    ic: "", label: "Run Script on Selection…", mutates: true },
 ];
