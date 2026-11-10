@@ -3,23 +3,18 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 
 export async function winClose(): Promise<void> {
-  if (!TAURI_AVAILABLE_SYNC()) return;
+  if (!TAURI_AVAILABLE) return;
   try { await getCurrentWindow().close(); } catch {}
 }
 
 export async function winMinimize(): Promise<void> {
-  if (!TAURI_AVAILABLE_SYNC()) return;
+  if (!TAURI_AVAILABLE) return;
   try { await getCurrentWindow().minimize(); } catch {}
 }
 
 export async function winToggleMaximize(): Promise<void> {
-  if (!TAURI_AVAILABLE_SYNC()) return;
+  if (!TAURI_AVAILABLE) return;
   try { await getCurrentWindow().toggleMaximize(); } catch {}
-}
-
-function TAURI_AVAILABLE_SYNC(): boolean {
-  return typeof window !== "undefined" &&
-    (window as unknown as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__ !== undefined;
 }
 
 export interface FileEntry {
@@ -234,8 +229,7 @@ export function readText(path: string, maxBytes: number): Promise<string> {
 }
 
 export function readImageB64(path: string, maxBytes: number = 0): Promise<string> {
-  if (!TAURI_AVAILABLE) return Promise.reject(new Error("tauri unavailable"));
-  return invoke<string>("read_image_b64", { path, maxBytes });
+  return mustInvoke<string>("read_image_b64", { path, maxBytes });
 }
 
 export function gitStatus(path: string): Promise<GitInfo | null> {
@@ -243,23 +237,19 @@ export function gitStatus(path: string): Promise<GitInfo | null> {
 }
 
 export function gitBlame(path: string, maxLines: number): Promise<BlameLine[]> {
-  if (!TAURI_AVAILABLE) return Promise.reject(new Error("tauri unavailable"));
-  return invoke<BlameLine[]>("git_blame", { path, maxLines });
+  return mustInvoke<BlameLine[]>("git_blame", { path, maxLines });
 }
 
 export function gitStage(paths: string[]): Promise<void> {
-  if (!TAURI_AVAILABLE) return Promise.reject(new Error("tauri unavailable"));
-  return invoke<void>("git_stage", { paths });
+  return mustInvoke<void>("git_stage", { paths });
 }
 
 export function gitUnstage(paths: string[]): Promise<void> {
-  if (!TAURI_AVAILABLE) return Promise.reject(new Error("tauri unavailable"));
-  return invoke<void>("git_unstage", { paths });
+  return mustInvoke<void>("git_unstage", { paths });
 }
 
 export function gitDiscard(paths: string[]): Promise<void> {
-  if (!TAURI_AVAILABLE) return Promise.reject(new Error("tauri unavailable"));
-  return invoke<void>("git_discard", { paths });
+  return mustInvoke<void>("git_discard", { paths });
 }
 
 export interface GitRunResult {
@@ -280,13 +270,11 @@ export interface GitBranch {
 }
 
 export function gitRun(cwd: string, args: string[]): Promise<GitRunResult> {
-  if (!TAURI_AVAILABLE) return Promise.reject(new Error("tauri unavailable"));
-  return invoke<GitRunResult>("git_run", { cwd, args });
+  return mustInvoke<GitRunResult>("git_run", { cwd, args });
 }
 
 export function gitBranchList(cwd: string): Promise<GitBranch[]> {
-  if (!TAURI_AVAILABLE) return Promise.reject(new Error("tauri unavailable"));
-  return invoke<GitBranch[]>("git_branch_list", { cwd });
+  return mustInvoke<GitBranch[]>("git_branch_list", { cwd });
 }
 
 /** Without `opId`, any failure is no matches. With one the search rejects
@@ -321,14 +309,12 @@ export function spawnVscode(path: string): Promise<void> {
 
 /** Throws on failure so callers can surface the error (e.g. alert on missing VS Code). */
 export function spawnVscodeStrict(path: string): Promise<void> {
-  if (!TAURI_AVAILABLE) return Promise.reject(new Error("tauri unavailable"));
-  return invoke<void>("spawn_vscode", { path });
+  return mustInvoke<void>("spawn_vscode", { path });
 }
 
 /** Throws on failure so callers can surface the error. */
 export function openWithDefaultStrict(path: string): Promise<void> {
-  if (!TAURI_AVAILABLE) return Promise.reject(new Error("tauri unavailable"));
-  return invoke<void>("open_with_default", { path });
+  return mustInvoke<void>("open_with_default", { path });
 }
 
 export function moveToTrash(path: string): Promise<void> {
@@ -381,8 +367,7 @@ export function writeTags(tags: Record<string, string[]>): Promise<void> {
 }
 
 export function compress(paths: string[], output: string): Promise<void> {
-  if (!TAURI_AVAILABLE) return Promise.reject(new Error("tauri unavailable"));
-  return invoke<void>("compress", { paths, output });
+  return mustInvoke<void>("compress", { paths, output });
 }
 
 export function archiveCreate(
@@ -390,13 +375,11 @@ export function archiveCreate(
   dest: string,
   format: "zip" | "tar.gz" | "tar.zst" | "7z",
 ): Promise<void> {
-  if (!TAURI_AVAILABLE) return Promise.reject(new Error("tauri unavailable"));
-  return invoke<void>("archive_create", { paths, dest, format });
+  return mustInvoke<void>("archive_create", { paths, dest, format });
 }
 
 export function archiveExtract(archive: string, destDir: string): Promise<void> {
-  if (!TAURI_AVAILABLE) return Promise.reject(new Error("tauri unavailable"));
-  return invoke<void>("archive_extract", { archive, destDir });
+  return mustInvoke<void>("archive_extract", { archive, destDir });
 }
 
 export function archiveCanHandle(
@@ -406,13 +389,11 @@ export function archiveCanHandle(
 }
 
 export function hashSha256(path: string, opId?: string): Promise<string> {
-  if (!TAURI_AVAILABLE) return Promise.reject(new Error("tauri unavailable"));
-  return invoke<string>("hash_sha256", { path, opId });
+  return mustInvoke<string>("hash_sha256", { path, opId });
 }
 
 export function setPermissions(path: string, mode: number): Promise<void> {
-  if (!TAURI_AVAILABLE) return Promise.reject(new Error("tauri unavailable"));
-  return invoke<void>("set_permissions", { path, mode });
+  return mustInvoke<void>("set_permissions", { path, mode });
 }
 
 export function readHexDump(
@@ -420,13 +401,11 @@ export function readHexDump(
   offset: number = 0,
   length: number = 0,
 ): Promise<string> {
-  if (!TAURI_AVAILABLE) return Promise.reject(new Error("tauri unavailable"));
-  return invoke<string>("read_hex_dump", { path, offset, length });
+  return mustInvoke<string>("read_hex_dump", { path, offset, length });
 }
 
 export function diffFiles(a: string, b: string): Promise<string> {
-  if (!TAURI_AVAILABLE) return Promise.reject(new Error("tauri unavailable"));
-  return invoke<string>("diff_files", { a, b });
+  return mustInvoke<string>("diff_files", { a, b });
 }
 
 /** Like findInFiles: with `opId` it rejects on failure or cancel. */
@@ -448,38 +427,31 @@ export function cancelOp(opId: string): Promise<void> {
 }
 
 export function createSymlink(target: string, linkPath: string): Promise<void> {
-  if (!TAURI_AVAILABLE) return Promise.reject(new Error("tauri unavailable"));
-  return invoke<void>("create_symlink", { target, linkPath });
+  return mustInvoke<void>("create_symlink", { target, linkPath });
 }
 
 export function createHardLink(target: string, linkPath: string): Promise<void> {
-  if (!TAURI_AVAILABLE) return Promise.reject(new Error("tauri unavailable"));
-  return invoke<void>("create_hard_link", { target, linkPath });
+  return mustInvoke<void>("create_hard_link", { target, linkPath });
 }
 
 export function createShortcut(target: string, linkPath: string): Promise<void> {
-  if (!TAURI_AVAILABLE) return Promise.reject(new Error("tauri unavailable"));
-  return invoke<void>("create_shortcut", { target, linkPath });
+  return mustInvoke<void>("create_shortcut", { target, linkPath });
 }
 
 export function shred(path: string, passes: number = 3): Promise<void> {
-  if (!TAURI_AVAILABLE) return Promise.reject(new Error("tauri unavailable"));
-  return invoke<void>("shred", { path, passes });
+  return mustInvoke<void>("shred", { path, passes });
 }
 
 export function verifySignature(path: string): Promise<string> {
-  if (!TAURI_AVAILABLE) return Promise.reject(new Error("tauri unavailable"));
-  return invoke<string>("verify_signature", { path });
+  return mustInvoke<string>("verify_signature", { path });
 }
 
 export function changeOwner(path: string, owner: string): Promise<void> {
-  if (!TAURI_AVAILABLE) return Promise.reject(new Error("tauri unavailable"));
-  return invoke<void>("change_owner", { path, owner });
+  return mustInvoke<void>("change_owner", { path, owner });
 }
 
 export function runScript(script: string, targets: string[]): Promise<string> {
-  if (!TAURI_AVAILABLE) return Promise.reject(new Error("tauri unavailable"));
-  return invoke<string>("run_script", { script, targets });
+  return mustInvoke<string>("run_script", { script, targets });
 }
 
 export function openUrl(url: string): Promise<void> {
@@ -520,8 +492,7 @@ export function ptySpawn(
   cols?: number,
   rows?: number,
 ): Promise<string> {
-  if (!TAURI_AVAILABLE) return Promise.reject(new Error("tauri unavailable"));
-  return invoke<string>("pty_spawn", { profile, cwd, cols, rows });
+  return mustInvoke<string>("pty_spawn", { profile, cwd, cols, rows });
 }
 
 export function ptyWrite(sessionId: string, data: string): Promise<void> {
@@ -582,13 +553,11 @@ export function fileStatExtended(path: string): Promise<FileStatExt | null> {
 }
 
 export function hashMd5(path: string, opId?: string): Promise<string> {
-  if (!TAURI_AVAILABLE) return Promise.reject(new Error("tauri unavailable"));
-  return invoke<string>("hash_md5", { path, opId });
+  return mustInvoke<string>("hash_md5", { path, opId });
 }
 
 export function hashCrc32(path: string, opId?: string): Promise<string> {
-  if (!TAURI_AVAILABLE) return Promise.reject(new Error("tauri unavailable"));
-  return invoke<string>("hash_crc32", { path, opId });
+  return mustInvoke<string>("hash_crc32", { path, opId });
 }
 
 export function gitFileInfo(cwd: string, path: string): Promise<GitFileInfo | null> {
