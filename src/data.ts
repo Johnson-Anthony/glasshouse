@@ -23,6 +23,8 @@ export interface FileRow {
   git: GitStatus | null;
   hidden: boolean;
   ext: string;
+  /** The entry is a symbolic link (kind/size describe its target). */
+  link: boolean;
 }
 
 /** Runtime payload attached to dynamically-generated items so the menu

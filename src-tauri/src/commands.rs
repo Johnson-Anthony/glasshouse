@@ -132,8 +132,10 @@ pub fn list_dir(path: String, show_hidden: bool) -> Result<Vec<FileEntry>, Strin
     // fields left None — we just don't show the column.
     if let Some(git_map) = scan_repo_statuses(&p) {
         for fe in out.iter_mut() {
-            let key = canonicalize_soft(&fe.path);
-            if let Some(flag) = git_map.get(&key) {
+            // `p` is canonical, so each entry path already matches the scan's
+            // keys. Canonicalizing it would resolve a symlink to its target
+            // and give the link its target's label.
+            if let Some(flag) = git_map.get(Path::new(&fe.path)) {
                 fe.git = Some(flag.clone());
             }
         }
@@ -175,13 +177,18 @@ fn git_status_code(flags: git2::Status) -> Option<&'static str> {
     }
 }
 
-/// Walk `repo.statuses()` once and return a map of absolute-canonicalized
-/// paths to a single-char status code. Returns None when we couldn't open
-/// a repo at all (treat as "outside-repo; don't annotate").
+/// Walk `repo.statuses()` once and return a map of absolute paths (canonical
+/// workdir + the repo-relative path) to a single-char status code. Returns
+/// None when we couldn't open a repo at all (treat as "outside-repo; don't
+/// annotate").
 fn scan_repo_statuses(dir: &Path) -> Option<HashMap<PathBuf, String>> {
     use git2::{Repository, StatusOptions};
     let repo = Repository::discover(dir).ok()?;
     let workdir = repo.workdir()?.to_path_buf();
+    // Only the workdir is canonicalized. Git never descends through a
+    // symlink, so every folder in a status path is real; canonicalizing the
+    // whole path would resolve a symlink entry to its target.
+    let root = dunce::canonicalize(&workdir).unwrap_or_else(|_| workdir.clone());
     let mut opts = StatusOptions::new();
     opts.include_untracked(true)
         .include_ignored(false)
@@ -202,11 +209,10 @@ fn scan_repo_statuses(dir: &Path) -> Option<HashMap<PathBuf, String>> {
             continue;
         };
         // `rel` can include a trailing slash for untracked directories. Trim
-        // it before joining so the resulting PathBuf lines up with the
-        // canonicalized FileEntry paths we look up against later.
+        // it, and push its `/`-separated parts one by one so the key uses the
+        // platform separator like the FileEntry paths looked up against it.
         let rel_trim = rel.trim_end_matches(['/', '\\']);
-        let abs = workdir.join(rel_trim);
-        let key = dunce::canonicalize(&abs).unwrap_or(abs);
+        let key = rel_trim.split('/').fold(root.clone(), |k, part| k.join(part));
         out.insert(key, code.to_string());
     }
     Some(out)
@@ -4564,6 +4570,51 @@ mod tests {
             .unwrap_err();
         assert!(err.starts_with("tar exited"), "{}", err);
         assert!(!failed.exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A symlink row's git label is the link's own status, never its
+    /// target's, and a target never inherits a link's status.
+    #[cfg(unix)]
+    #[test]
+    fn list_dir_git_labels_belong_to_the_link_not_its_target() {
+        use std::os::unix::fs::symlink;
+        let (dir, repo) = test_repo("gitlinks");
+        std::fs::write(dir.join("target.txt"), "v1").unwrap();
+        std::fs::write(dir.join("target2.txt"), "v1").unwrap();
+        symlink("target.txt", dir.join("link.txt")).unwrap();
+        // Committed while dangling; `fresh/` only appears afterwards.
+        symlink("fresh", dir.join("dirlink")).unwrap();
+        commit_all(&repo, "init");
+        std::fs::write(dir.join("target.txt"), "v2").unwrap();
+        symlink("target2.txt", dir.join("newlink")).unwrap();
+        std::fs::create_dir(dir.join("fresh")).unwrap();
+        std::fs::write(dir.join("fresh/f.txt"), "new").unwrap();
+
+        let labels: HashMap<String, Option<String>> = list_dir(s(&dir), true)
+            .unwrap()
+            .into_iter()
+            .map(|e| (e.name, e.git))
+            .collect();
+        let code = |c: &str| Some(c.to_string());
+        assert_eq!(labels["target.txt"], code("M"));
+        assert_eq!(labels["link.txt"], None, "clean link to a modified file");
+        assert_eq!(labels["newlink"], code("?"));
+        assert_eq!(labels["target2.txt"], None, "clean target of an untracked link");
+        assert_eq!(labels["fresh"], code("?"));
+        assert_eq!(labels["dirlink"], None, "clean link to an untracked folder");
+
+        // Listing the repo through a symlinked path gives the same labels.
+        let alias = dir.with_file_name(format!("{}-alias", dir.file_name().unwrap().to_string_lossy()));
+        let _ = std::fs::remove_file(&alias);
+        symlink(&dir, &alias).unwrap();
+        let via_alias: HashMap<String, Option<String>> = list_dir(s(&alias), true)
+            .unwrap()
+            .into_iter()
+            .map(|e| (e.name, e.git))
+            .collect();
+        assert_eq!(via_alias, labels);
+        let _ = std::fs::remove_file(&alias);
         let _ = std::fs::remove_dir_all(&dir);
     }
 
