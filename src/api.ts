@@ -367,10 +367,12 @@ export function writeTags(tags: Record<string, string[]>): Promise<void> {
   return safe(() => invoke<void>("write_tags", { tags }), undefined);
 }
 
+export type ArchiveFormat = "zip" | "tar.gz" | "tar.zst" | "7z";
+
 export function archiveCreate(
   paths: string[],
   dest: string,
-  format: "zip" | "tar.gz" | "tar.zst" | "7z",
+  format: ArchiveFormat,
 ): Promise<void> {
   return mustInvoke<void>("archive_create", { paths, dest, format });
 }
@@ -380,7 +382,7 @@ export function archiveExtract(archive: string, destDir: string): Promise<void> 
 }
 
 export function archiveCanHandle(
-  format: "zip" | "tar.gz" | "tar.zst" | "7z",
+  format: ArchiveFormat,
 ): Promise<boolean> {
   return safe(() => invoke<boolean>("archive_can_handle", { format }), false);
 }

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useLayoutEffect, useRef } from "react";
-import { MENUS, type MenuItemDef, type DynamicPayload } from "./data";
+import { MENUS, type MenuItemDef, type DynamicPayload, type DynamicSource } from "./data";
 import { gitBranchList, listShellProfiles, readPins, readRecent } from "./api";
 import { getVersion } from "@tauri-apps/api/app";
 import type { TweakState } from "./components";
@@ -11,8 +11,6 @@ import { DISPLAY_MODE_DEFAULT, DISPLAY_MODE_KEY, LAYOUT_DEFAULT, LAYOUT_KEY } fr
 // nodes with a `payload` field so the click handler knows whether to open a
 // path or run a terminal profile. Results are cached per-mount in component
 // state, so the menu only fetches once per open.
-
-type DynamicSource = "recent" | "bookmarks-pinned" | "terminal-profiles" | "ssh-hosts" | "git-branches";
 
 // Git branch resolver needs cwd; loadDynamic is cwd-agnostic, so App sets
 // this module-level ref on tab change. Hacky but avoids threading cwd

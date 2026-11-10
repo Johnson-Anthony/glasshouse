@@ -61,8 +61,10 @@ export type MenuItemDef =
   | {
       kind: "dynamic";
       /** Which runtime loader to use for expanding this node. */
-      source: "recent" | "bookmarks-pinned" | "terminal-profiles" | "ssh-hosts" | "git-branches";
+      source: DynamicSource;
     };
+
+export type DynamicSource = "recent" | "bookmarks-pinned" | "terminal-profiles" | "ssh-hosts" | "git-branches";
 
 export type MenusData = Record<string, MenuItemDef[]>;
 

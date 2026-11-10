@@ -4,6 +4,7 @@ import {
   archiveCreate,
   archiveExtract,
   archiveCanHandle,
+  type ArchiveFormat,
 } from "../api";
 import { dialogs } from "../dialogs/DialogHost";
 import { basename, joinPath } from "../paths";
@@ -38,7 +39,7 @@ function stripArchiveExt(name: string): string {
 
 async function doCreate(
   ctx: HandlerCtx,
-  format: "zip" | "tar.gz" | "tar.zst" | "7z",
+  format: ArchiveFormat,
   ext: string,
 ): Promise<void> {
   const paths = selectedOrFirst(ctx);

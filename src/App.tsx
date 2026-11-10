@@ -27,11 +27,11 @@ import { isCancelled, newOpId } from "./ops";
 import { FolderPickerDialog } from "./dialogs/FolderPicker";
 import { BookmarkManagerDialog } from "./dialogs/BookmarkManager";
 import { useEscapeClose } from "./dialogs/useEscapeClose";
-import { Inspector } from "./preview/Inspector";
+import { Inspector, type InspectableFile } from "./preview/Inspector";
 import { QuickLook } from "./preview/FilePreview";
 import { Sidebar, type SavedRemote, type SidebarRowKind } from "./Sidebar";
 import { Menubar, ContextMenu, setDynamicGitCwd } from "./menus";
-import { CONTEXT_FILE, CONTEXT_EMPTY, CONTEXT_SIDEBAR, CONTEXT_SIDEBAR_FOLDER, CONTEXT_SIDEBAR_DRIVE, CONTEXT_SIDEBAR_REMOTE, CONTEXT_TAB, CONTEXT_BREADCRUMB, GIT_CHORDS, type MenuItemDef, type DynamicPayload, type FileRow, type FileKind, type GitStatus } from "./data";
+import { CONTEXT_FILE, CONTEXT_EMPTY, CONTEXT_SIDEBAR, CONTEXT_SIDEBAR_FOLDER, CONTEXT_SIDEBAR_DRIVE, CONTEXT_SIDEBAR_REMOTE, CONTEXT_TAB, CONTEXT_BREADCRUMB, GIT_CHORDS, type MenuItemDef, type DynamicPayload, type FileKind, type GitStatus } from "./data";
 import {
   useTabState,
   pushUndo,
@@ -322,14 +322,10 @@ function normalizeGit(flag: string | null | undefined): GitStatus | null {
   return null;
 }
 
-export interface LiveFileRow extends FileRow {
-  entry: FileEntry;
-}
-
 function entryToRow(
   e: FileEntry,
   tagStore: Record<string, string[]>,
-): LiveFileRow {
+): InspectableFile {
   const kind = kindFromEntry(e.kind);
   const nameNoExt = e.ext && e.name.toLowerCase().endsWith("." + e.ext.toLowerCase())
     ? e.name.slice(0, -(e.ext.length + 1))
@@ -965,7 +961,7 @@ export function App() {
     openCtxMenu(e, CONTEXT_BREADCRUMB);
   };
 
-  const liveRows: LiveFileRow[] = useMemo(() => {
+  const liveRows: InspectableFile[] = useMemo(() => {
     if (!activeHandle) return [];
     return activeHandle.state.entries.map(e => entryToRow(e, tagStore));
   }, [activeHandle?.state.entries, tagStore]);
@@ -1011,7 +1007,7 @@ export function App() {
 
   const renderActivePane = () => {
     const handle = activeHandle;
-    const rows: LiveFileRow[] = handle
+    const rows: InspectableFile[] = handle
       ? handle.state.entries.map(e => entryToRow(e, tagStore))
       : [];
     const sel = handle?.state.selected ?? [];

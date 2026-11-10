@@ -5,6 +5,7 @@ import { PALETTE, THEMES, type FileRow, type FileKind } from "./data";
 import { netRate, pathFsType, systemInfo as apiSystemInfo, winClose, winMinimize, winToggleMaximize, type GitInfo, type NetRate, type SystemInfo } from "./api";
 import { fuzzyFilter } from "./fuzzy";
 import { splitBreadcrumb } from "./paths";
+import type { SortDir, SortKey } from "./state";
 
 // ============= Titlebar =============
 export interface TabDef {
@@ -214,8 +215,6 @@ function gitDotClass(code: string): string {
 
 export type ContextKind = "file" | "empty" | "sidebar" | "tab" | "breadcrumb";
 
-export type SortColumn = "name" | "size" | "modified" | "tag" | "git" | "type";
-export type SortDirection = "asc" | "desc";
 
 export interface FilePaneProps {
   files: FileRow[];
@@ -227,9 +226,9 @@ export interface FilePaneProps {
   setAnchorIndex: (i: number) => void;
   paneFocused: boolean;
   setPaneFocused: (v: boolean) => void;
-  sortKey: SortColumn;
-  sortDir: SortDirection;
-  onSortChange: (k: SortColumn) => void;
+  sortKey: SortKey;
+  sortDir: SortDir;
+  onSortChange: (k: SortKey) => void;
   foldersFirst?: boolean;
   showExtensions?: boolean;
   showGitGutters?: boolean;
@@ -584,7 +583,7 @@ export function FilePane({
     if (el) el.scrollIntoView({ block: "nearest" });
   }, [focusIndex, paneFocused, visiblePos]);
 
-  const sortArrow = (col: SortColumn) => (sortKey === col ? (sortDir === "asc" ? "↑" : "↓") : "");
+  const sortArrow = (col: SortKey) => (sortKey === col ? (sortDir === "asc" ? "↑" : "↓") : "");
 
   // Cancel marquee on Esc while one is active.
   useEffect(() => {
