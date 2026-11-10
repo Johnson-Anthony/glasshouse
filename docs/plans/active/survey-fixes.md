@@ -11,7 +11,8 @@ Line numbers are from commit `14c68bd` and drift, so search by name. Items marke
 | paste-conflicts | frontend | **merged** (2b26099) |
 | create-rename-conflicts | frontend | **merged** (ebd1571) |
 | no-clobber-fs | Rust, small | **merged** (7970a86) |
-| link-display | both, low priority | running (linux-parity session) |
+| link-display | both, low priority | **merged** (8d30fa1) |
+| miller-names | frontend, small | running (linux-parity session; found by link-display) |
 | ui-fixes | frontend | **merged** (dfe77ca) |
 | tab-state | frontend | **merged** (971da66) |
 | undo-redo | frontend | **merged** (e1b7067) |
@@ -32,7 +33,7 @@ Line numbers are from commit `14c68bd` and drift, so search by name. Items marke
 | dead-code | both | **merged** (frontend d61379a, Rust 27340c6) |
 | unsent-labels | frontend | **merged** (8828d97) |
 | test-coverage | both | **merged** (5a59187) |
-| copy-move-no-clobber | Rust, small; data loss | running (backend-bugs session; found by test-coverage) |
+| copy-move-no-clobber | Rust, small; data loss | running (backend-bugs session; resumed 2026-11-10 after the usage limit) |
 | bulk-rename-digits | frontend, small | running (test-coverage session; found by test-coverage) |
 | parser-fixes | Rust, tiny, low priority | queued (found by test-coverage) |
 | presentation | docs + small code | **merged**; GitHub text awaits the user |
@@ -174,6 +175,9 @@ The frontend now checks names before creating or renaming, but a few millisecond
 ## copy-move-no-clobber (Rust, small; data loss; found 2026-11-08 by test-coverage)
 - `copy_entry` and `move_entry` still replace what's at the target: `std::fs::copy` overwrites a file, `copy_dir_recursive` merges into an existing folder, and the rename replaces a file. The paste-conflict planner checks first, so what's left is a check-then-act race, plus any caller that skips the planner.
 - Do what no-clobber-fs did for `write_text`, `make_dir` and `rename_entry`: refuse an existing target by default (`create_new` for files, `create_dir` for the top folder, `RENAME_NOREPLACE` for moves), with an explicit replace mode for the planner's Replace choice. Check every caller.
+
+## miller-names (frontend, small; found 2026-11-08 by link-display)
+- Miller columns probably show "README.md.md". `src/Miller.tsx` renders `{e.name}` plus `.${e.ext}` in 4 places (3 columns and the preview title), but `FileEntry.name` is already the full name; only App.tsx's `entryToRow` strips the extension. Found by reading, not reproduced yet.
 
 ## bulk-rename-digits (frontend, small; found 2026-11-08 by test-coverage)
 - Bulk Rename's "digits" field does nothing: `numberDigits` is never read, so `{n}` always pads to 1 digit, and only `{n:03}` pads. Make `{n}` use the field, or remove the field. Add a test in `bulkRename.test.ts`.
