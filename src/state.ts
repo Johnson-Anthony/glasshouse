@@ -27,7 +27,6 @@ export interface TabState {
   sortKey: SortKey;
   sortDir: SortDir;
   showHidden: boolean;
-  foldersFirst: boolean;
   loading: boolean;
   error: string | null;
   historyBack: string[];
@@ -50,7 +49,6 @@ export interface TabActions {
   setFocusIndex: (i: number) => void;
   setAnchorIndex: (i: number) => void;
   setShowHidden: (v: boolean) => void;
-  setFoldersFirst: (v: boolean) => void;
   setSortKey: (k: SortKey) => void;
   setSortDir: (v: SortDir) => void;
   setTagFilter: (v: string | null) => void;
@@ -170,7 +168,6 @@ export function useTabState(initialPath: string, isPrivate: boolean = false): Us
   const [sortKey, setSortKey] = useState<SortKey>("name");
   const [sortDir, setSortDir] = useState<SortDir>("asc");
   const [showHidden, setShowHidden] = useState<boolean>(false);
-  const [foldersFirst, setFoldersFirst] = useState<boolean>(true);
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [refreshTick, setRefreshTick] = useState<number>(0);
@@ -326,14 +323,13 @@ export function useTabState(initialPath: string, isPrivate: boolean = false): Us
     sortKey,
     sortDir,
     showHidden,
-    foldersFirst,
     loading,
     error,
     historyBack,
     historyForward,
     tagFilter,
     private: isPrivate,
-  }), [path, entries, gitInfo, selected, focusIndex, anchorIndex, sortKey, sortDir, showHidden, foldersFirst, loading, error, historyBack, historyForward, tagFilter, isPrivate]);
+  }), [path, entries, gitInfo, selected, focusIndex, anchorIndex, sortKey, sortDir, showHidden, loading, error, historyBack, historyForward, tagFilter, isPrivate]);
 
   const actions: TabActions = useMemo(() => ({
     goTo,
@@ -345,7 +341,6 @@ export function useTabState(initialPath: string, isPrivate: boolean = false): Us
     setFocusIndex,
     setAnchorIndex,
     setShowHidden,
-    setFoldersFirst,
     setSortKey,
     setSortDir,
     setTagFilter,

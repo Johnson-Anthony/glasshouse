@@ -56,7 +56,7 @@ function makeCtx(names: string[], selected: number[]): HandlerCtx {
     actions: {
       goTo: vi.fn(), back: vi.fn(), forward: vi.fn(), up: vi.fn(), refresh: vi.fn(),
       setSelected: vi.fn(), setFocusIndex: vi.fn(), setAnchorIndex: vi.fn(),
-      setShowHidden: vi.fn(), setFoldersFirst: vi.fn(), setSortKey: vi.fn(),
+      setShowHidden: vi.fn(), setSortKey: vi.fn(),
       setSortDir: vi.fn(), setTagFilter: vi.fn(), clearHistory: vi.fn(),
     },
   } as unknown as UseTabResult;

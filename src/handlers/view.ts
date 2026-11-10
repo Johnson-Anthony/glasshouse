@@ -114,8 +114,6 @@ export const viewHandler: Handler = (label, ctx) => {
       if (ctx.tweaks && ctx.setTweaks) {
         ctx.setTweaks({ ...ctx.tweaks, foldersFirst: !ctx.tweaks.foldersFirst });
       }
-      const next = !(ctx.activeHandle?.state.foldersFirst ?? true);
-      ctx.activeHandle?.actions.setFoldersFirst(next);
       return true;
     }
 
