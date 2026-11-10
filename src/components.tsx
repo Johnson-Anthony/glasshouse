@@ -69,7 +69,6 @@ export interface ToolbarProps {
   onUp: () => void;
   onRefresh: () => void;
   onGoTo: (path: string) => void;
-  onSearchFocus?: () => void;
   searchQuery: string;
   onSearchChange: (q: string) => void;
   searchInputRef?: React.RefObject<HTMLInputElement>;
@@ -82,7 +81,7 @@ export interface ToolbarProps {
   onClearTagFilter?: () => void;
 }
 
-export function Toolbar({ path, gitInfo, canBack, canForward, onBack, onForward, onUp, onRefresh, onGoTo, onSearchFocus, searchQuery, onSearchChange, searchInputRef, showHidden, onToggleHidden, showInspector, onToggleInspector, onCrumbContext, tagFilter, onClearTagFilter }: ToolbarProps) {
+export function Toolbar({ path, gitInfo, canBack, canForward, onBack, onForward, onUp, onRefresh, onGoTo, searchQuery, onSearchChange, searchInputRef, showHidden, onToggleHidden, showInspector, onToggleInspector, onCrumbContext, tagFilter, onClearTagFilter }: ToolbarProps) {
   const parts = splitBreadcrumb(path);
   return (
     <div className="toolbar">
@@ -136,7 +135,7 @@ export function Toolbar({ path, gitInfo, canBack, canForward, onBack, onForward,
           >Tag: {tagFilter} <span style={{color:"var(--fg-3)", marginLeft:4}}>✕</span></span>
         )}
       </div>
-      <div className="search" onClick={onSearchFocus}>
+      <div className="search">
         <span style={{color: "var(--fg-3)"}}>⌕</span>
         <input
           ref={searchInputRef}

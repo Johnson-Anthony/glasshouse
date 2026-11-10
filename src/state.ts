@@ -13,7 +13,6 @@ import {
 import { normalizePath, parentPath } from "./paths";
 import { navBack, navClear, navForward, navGoTo, navInit, type NavState } from "./history";
 import { errText } from "./errors";
-export { normalizePath, parentPath } from "./paths";
 
 export type SortKey = "name" | "size" | "modified" | "tag" | "git" | "type";
 export type SortDir = "asc" | "desc";
