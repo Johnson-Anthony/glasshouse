@@ -12,7 +12,7 @@ Line numbers are from commit `14c68bd` and drift, so search by name. Items marke
 | create-rename-conflicts | frontend | **merged** (ebd1571) |
 | no-clobber-fs | Rust, small | **merged** (7970a86) |
 | link-display | both, low priority | **merged** (8d30fa1) |
-| miller-names | frontend, small | running (linux-parity session; found by link-display) |
+| miller-names | frontend, small | **merged** (b6db33d) |
 | ui-fixes | frontend | **merged** (dfe77ca) |
 | tab-state | frontend | **merged** (971da66) |
 | undo-redo | frontend | **merged** (e1b7067) |

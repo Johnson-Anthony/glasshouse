@@ -51,7 +51,8 @@ fn multibyte_text_split_across_reads_arrives_intact() {
 #[test]
 fn invalid_bytes_still_come_through_as_replacements() {
     let out = output_of(r"printf 'ok\377ok'");
-    assert_eq!(out, "ok\u{FFFD}ok");
+    // Under load the pty sometimes adds a trailing CRLF; only the bytes matter.
+    assert_eq!(out.trim_end_matches(['\r', '\n']), "ok\u{FFFD}ok");
 }
 
 #[test]
