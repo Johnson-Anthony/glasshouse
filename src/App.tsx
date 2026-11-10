@@ -34,11 +34,9 @@ import { Menubar, ContextMenu, setDynamicGitCwd } from "./menus";
 import { CONTEXT_FILE, CONTEXT_EMPTY, CONTEXT_SIDEBAR, CONTEXT_SIDEBAR_FOLDER, CONTEXT_SIDEBAR_DRIVE, CONTEXT_SIDEBAR_REMOTE, CONTEXT_TAB, CONTEXT_BREADCRUMB, GIT_CHORDS, type MenuItemDef, type DynamicPayload, type FileKind, type GitStatus } from "./data";
 import {
   useTabState,
-  pushUndo,
   undoLast,
   redoLast,
   registerTabListMutator,
-  moveTab as stateMoveTab,
   newTab as stateNewTab,
   type UseTabResult,
 } from "./state";
@@ -752,10 +750,8 @@ export function App() {
       setDiffView,
       setGitOutput,
       clipboardPaths: () => cmdState.clipboard?.paths ?? [],
-      pushUndo,
       undo: () => { void runUndoStep("undo"); },
       redo: () => { void runUndoStep("redo"); },
-      moveTab: stateMoveTab,
       newTab: stateNewTab,
       refresh,
       tweaks: state,

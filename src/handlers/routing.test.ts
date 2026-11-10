@@ -80,10 +80,8 @@ function makeCtx(names: string[], selected: number[]): HandlerCtx {
     setGitOutput: vi.fn(),
     clipboardPaths: vi.fn(() => []),
     refresh: vi.fn(),
-    pushUndo: vi.fn(),
     undo: vi.fn(),
     redo: vi.fn(),
-    moveTab: vi.fn(),
     newTab: vi.fn(),
   };
 }
