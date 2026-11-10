@@ -23,7 +23,7 @@ export interface UndoFs {
   list(dir: string): Promise<FileEntry[]>;
 }
 
-export const realFs: UndoFs = {
+const realFs: UndoFs = {
   rename: renameEntry,
   move: moveEntry,
   copy: copyEntry,
@@ -89,7 +89,7 @@ export function moveUndo(label: string, items: PathPair[], via: "rename" | "move
 
 /** Copied trees with more entries than this aren't fingerprinted, and their
  *  undo refuses: walking them means one synchronous list_dir per folder. */
-export const FINGERPRINT_LIMIT = 20_000;
+const FINGERPRINT_LIMIT = 20_000;
 
 /** A copy's entries by path relative to it ("" is the copy itself), each as
  *  kind + size + mtime. Folders are just "dir": their listing already shows

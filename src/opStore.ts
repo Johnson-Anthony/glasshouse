@@ -8,7 +8,7 @@
 import { errText } from "./errors";
 
 /** The error a cancelled backend op rejects with (ops.rs `CANCELLED`). */
-export const OP_CANCELLED = "cancelled";
+const OP_CANCELLED = "cancelled";
 
 export function isCancelled(err: unknown): boolean {
   return errText(err) === OP_CANCELLED;

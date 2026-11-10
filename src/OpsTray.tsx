@@ -15,7 +15,7 @@ function formatBytes(n: number): string {
 }
 
 /** "41% · 1.2 GB of 2.9 GB", or a count when the size isn't known. */
-export function progressText(op: Pick<RunningOp, "done" | "total" | "unit">): string {
+function progressText(op: Pick<RunningOp, "done" | "total" | "unit">): string {
   if (op.total === null) {
     return op.unit === "items" ? `${op.done.toLocaleString()} looked at` : formatBytes(op.done);
   }
