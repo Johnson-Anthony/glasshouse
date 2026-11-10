@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { bulkRenamePreview, type BulkRenameOptions } from "./components";
 
+// The dialog's defaults.
 const NONE: BulkRenameOptions = {
   find: "", replace: "", prefix: "", suffix: "",
-  numberEnabled: false, numberStart: 1, caseMode: "none",
+  numberEnabled: false, numberStart: 1, numberDigits: 3, caseMode: "none",
 };
 
 /** New names for `names` (all in /d) under `opts`. */
@@ -39,12 +40,21 @@ describe("bulkRenamePreview", () => {
     expect(rename(["a.txt"], { prefix: "pre-", suffix: "-post" })).toEqual(["pre-a-post.txt"]);
   });
 
-  it("numbers rows from the start value, padded by the token's width", () => {
-    expect(rename(["a.jpg", "b.jpg", "c.jpg"], { numberEnabled: true, numberStart: 9, prefix: "{n:03}_" }))
+  it("numbers rows from the start value, padded to the digits field", () => {
+    expect(rename(["a.jpg", "b.jpg", "c.jpg"], { numberEnabled: true, numberStart: 9, prefix: "{n}_" }))
       .toEqual(["009_a.jpg", "010_b.jpg", "011_c.jpg"]);
-    expect(rename(["a", "b"], { numberEnabled: true, suffix: "-{n}" })).toEqual(["a-1", "b-2"]);
+    expect(rename(["a", "b"], { numberEnabled: true, numberDigits: 1, suffix: "-{n}" })).toEqual(["a-1", "b-2"]);
+    expect(rename(["a"], { numberEnabled: true, numberDigits: 5, prefix: "{n}" })).toEqual(["00001a"]);
     // A number longer than the width isn't cut.
-    expect(rename(["a"], { numberEnabled: true, numberStart: 1234, prefix: "{n:2}" })).toEqual(["1234a"]);
+    expect(rename(["a"], { numberEnabled: true, numberStart: 1234, prefix: "{n}" })).toEqual(["1234a"]);
+  });
+
+  it("lets {n:W} override the digits field per token", () => {
+    expect(rename(["a"], { numberEnabled: true, numberStart: 7, prefix: "{n:2}-", suffix: "-{n}" }))
+      .toEqual(["07-a-007"]);
+    expect(rename(["a"], { numberEnabled: true, numberDigits: 1, prefix: "{n:04}" })).toEqual(["0001a"]);
+    // A width below 1 counts as 1.
+    expect(rename(["a"], { numberEnabled: true, numberStart: 5, prefix: "{n:0}" })).toEqual(["5a"]);
   });
 
   it("expands tokens from the replacement too", () => {
