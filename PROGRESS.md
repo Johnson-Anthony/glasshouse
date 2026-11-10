@@ -1,6 +1,7 @@
 # Progress
 
 ## Done
+- 2026-11-10: Merged `pty-drain` (2868b88). When a terminal session ends while its writer is blocked on a full pty, it's freed: a stop flag, plus on unix a helper that reopens the pty non-blocking and drains it. That covers kills and exits, and children that ignore SIGHUP. macOS is untested. See `docs/decisions/2026-11-10-pty-drain-unblock.md`.
 - 2026-11-10: Merged `parser-fixes` (dd12285).
   - ssh config accepts `Host=name` and `Host = name` in any case. Before, `Host = beta` made a bogus host named `=` that showed up in the terminal menu.
   - Of several mounts stacked on one mount point, the last listed (the visible one) gives the file-system type.
@@ -90,7 +91,6 @@
 ## Broken / known issues
 - Windows-only code that no machine here has compiled: CopyFileW in `copy_file_no_clobber`, plus the earlier command-security, no-clobber-fs and script-kill-tree pieces. Windows CI is their first build.
 - Renames can still race where `renameat2(RENAME_NOREPLACE)` isn't available (non-Linux unix, NFS, older FUSE), which falls back to check-then-rename. no-clobber-fs's Windows code (`MoveFileExW`, file-id identity) is uncompiled until Windows CI.
-- Unix: if a terminal session ends while its pty input is full, its writer thread and pty stay until the app exits (task `pty-drain`). The UI isn't affected.
 - Windows is untested for the scoped git-label scan. If `list_dir_git_labels_scan_only_the_listed_folder` fails on Windows CI after the first push, the scan falls back to the whole repo there: labels stay correct, but the test needs adjusting.
 - **command-security's Windows code has never been compiled**; the first windows-latest CI run is its first build. Worth trying by hand on Windows:
   - open a URL with `&` in it;
