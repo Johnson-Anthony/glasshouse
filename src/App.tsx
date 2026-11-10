@@ -2,7 +2,6 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Titlebar,
   Toolbar,
-  Sidebar,
   FilePane,
   Inspector,
   QuickLook,
@@ -26,12 +25,11 @@ import {
   dialogs,
   type BulkRenameItem,
   type PasteSpecialItem,
-  type SavedRemote,
   type TweakState,
   type ContextKind,
   type GitOutputState,
-  type SidebarRowKind,
 } from "./components";
+import { Sidebar, type SavedRemote, type SidebarRowKind } from "./Sidebar";
 import { Menubar, ContextMenu, setDynamicGitCwd } from "./menus";
 import { CONTEXT_FILE, CONTEXT_EMPTY, CONTEXT_SIDEBAR, CONTEXT_SIDEBAR_FOLDER, CONTEXT_SIDEBAR_DRIVE, CONTEXT_SIDEBAR_REMOTE, CONTEXT_TAB, CONTEXT_BREADCRUMB, GIT_CHORDS, MUTATING_LABELS, THEMES, type MenuItemDef, type DynamicPayload, type FileRow, type FileKind, type GitStatus } from "./data";
 import {
