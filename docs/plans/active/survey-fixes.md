@@ -29,7 +29,7 @@ Line numbers are from commit `14c68bd` and drift, so search by name. Items marke
 | async-commands | Rust | **merged** (053bde0) |
 | pty-writer | Rust, small | **merged** (fc29a03) |
 | pty-drain | Rust, small, low priority | **merged** (8ce779e) |
-| op-progress | both | running (async-commands session) |
+| op-progress | both | **merged** (1cd34b6) |
 | dead-code | both | **merged** (frontend 2968133, Rust f705c10) |
 | unsent-labels | frontend | **merged** (d92b73f) |
 | test-coverage | both | **merged** (9c0f668) |
