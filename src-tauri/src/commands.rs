@@ -2993,12 +2993,19 @@ fn parse_ssh_hosts(text: &str) -> Vec<String> {
         if line.is_empty() || line.starts_with('#') {
             continue;
         }
-        // Case-insensitive "Host " prefix.
-        let lower = line.to_ascii_lowercase();
-        if !lower.starts_with("host ") && !lower.starts_with("host\t") {
+        // ssh_config(5): the keyword (any case) ends at whitespace or `=`,
+        // and is followed by whitespace or by exactly one `=`.
+        let end = line
+            .find(|c: char| c.is_whitespace() || c == '=')
+            .unwrap_or(line.len());
+        if !line[..end].eq_ignore_ascii_case("host") {
             continue;
         }
-        let rest = line[4..].trim();
+        let rest = line[end..].trim_start();
+        let rest = rest.strip_prefix('=').unwrap_or(rest).trim_start();
+        if rest.starts_with('=') {
+            continue;
+        }
         for tok in rest.split_whitespace() {
             if tok.contains('*') || tok.contains('?') {
                 continue;
@@ -3664,7 +3671,10 @@ pub fn path_fs_type(path: String) -> Result<String, String> {
 }
 
 /// The filesystem type of the mount in `mounts` (`/proc/self/mounts` text)
-/// that holds `path`, or "" if none does.
+/// that holds `path`, or "" if none does. The deepest mount point wins. Of
+/// several mounts on that same point, the last listed is the one on top.
+/// Order alone can't decide between different points: mounts moved into
+/// the root at boot (`/proc`, `/sys`, `/run`) are listed before `/`.
 #[cfg(not(windows))]
 fn fs_type_for(mounts: &str, path: &str) -> String {
     let mut best_len = 0usize;
@@ -3676,7 +3686,7 @@ fn fs_type_for(mounts: &str, path: &str) -> String {
         };
         let mp = mp_raw.replace("\\040", " ");
         let matches = mp == "/" || path == mp || path.starts_with(&(mp.clone() + "/"));
-        if matches && mp.len() > best_len {
+        if matches && mp.len() >= best_len {
             best_len = mp.len();
             best_fs = fs.to_string();
         }

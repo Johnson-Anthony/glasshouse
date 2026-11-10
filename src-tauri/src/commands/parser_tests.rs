@@ -25,6 +25,34 @@ fn ssh_hosts_of_an_empty_or_wildcard_config_is_empty() {
     assert!(parse_ssh_hosts("Host *\n  ServerAliveInterval 30\n").is_empty());
 }
 
+// ssh_config(5): a keyword and its arguments are separated by whitespace,
+// or by optional whitespace and exactly one `=`.
+#[test]
+fn ssh_hosts_accepts_an_equals_sign_after_the_keyword() {
+    let config = "\
+Host=alpha
+host = beta gamma
+HOST =delta
+Host\t=\tepsilon
+Host= zeta
+";
+    assert_eq!(parse_ssh_hosts(config), ["alpha", "beta", "gamma", "delta", "epsilon", "zeta"]);
+}
+
+#[test]
+fn ssh_hosts_skips_other_keywords_and_malformed_lines() {
+    let config = "\
+Hostname=not-a-host
+HostKeyAlias = nope
+Host==twice
+Host = =twice
+Host
+Host =
+Match host=zeta
+";
+    assert!(parse_ssh_hosts(config).is_empty(), "{:?}", parse_ssh_hosts(config));
+}
+
 #[cfg(not(windows))]
 mod linux {
     use super::*;
@@ -130,6 +158,31 @@ garbage
     #[test]
     fn fs_type_decodes_spaces_in_mount_points() {
         assert_eq!(fs_type_for(MOUNTS, "/mnt/my disk/photo.jpg"), "vfat");
+    }
+
+    // A later mount on the same mount point hides the earlier one.
+    #[test]
+    fn fs_type_takes_the_last_of_mounts_stacked_on_one_point() {
+        // As on this machine: systemd's autofs, then binfmt_misc over it.
+        let mounts = "\
+/dev/root / ext4 rw 0 0
+systemd-1 /proc/sys/fs/binfmt_misc autofs rw 0 0
+binfmt_misc /proc/sys/fs/binfmt_misc binfmt_misc rw 0 0
+";
+        assert_eq!(fs_type_for(mounts, "/proc/sys/fs/binfmt_misc"), "binfmt_misc");
+        assert_eq!(fs_type_for(mounts, "/proc/sys/fs/binfmt_misc/status"), "binfmt_misc");
+        // Older kernels list the initial rootfs before the real root.
+        let mounts = "rootfs / rootfs rw 0 0\n/dev/sda2 / ext4 rw 0 0\n";
+        assert_eq!(fs_type_for(mounts, "/home/me"), "ext4");
+    }
+
+    #[test]
+    fn fs_type_prefers_the_deepest_mount_even_when_it_is_listed_first() {
+        // Mounts moved into the new root at boot are listed before `/`.
+        let mounts = "proc /proc proc rw 0 0\nrun /run tmpfs rw 0 0\n/dev/root / ext4 rw 0 0\n";
+        assert_eq!(fs_type_for(mounts, "/proc/self"), "proc");
+        assert_eq!(fs_type_for(mounts, "/run/user"), "tmpfs");
+        assert_eq!(fs_type_for(mounts, "/home"), "ext4");
     }
 
     #[test]
