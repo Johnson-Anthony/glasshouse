@@ -38,8 +38,8 @@ describe("canExtractArchive", () => {
     }
   });
 
-  it("matches what archive_extract in commands.rs dispatches on", () => {
-    const rs = readFileSync(new URL("../../src-tauri/src/commands.rs", import.meta.url), "utf8");
+  it("matches what archive_extract in commands/archive.rs dispatches on", () => {
+    const rs = readFileSync(new URL("../../src-tauri/src/commands/archive.rs", import.meta.url), "utf8");
     const start = rs.indexOf("pub fn archive_extract(");
     const end = rs.indexOf("\n}\n", start);
     expect(start).toBeGreaterThan(0);

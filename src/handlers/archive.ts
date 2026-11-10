@@ -8,7 +8,7 @@ import { dialogs } from "../dialogs/DialogHost";
 import { basename, joinPath } from "../paths";
 
 // Extensions the backend archive_extract command can actually unpack —
-// keep in sync with the dispatch in src-tauri/src/commands.rs.
+// keep in sync with the dispatch in src-tauri/src/commands/archive.rs.
 export const EXTRACT_EXTS = [
   ".zip", ".7z", ".tar",
   ".tar.gz", ".tgz",

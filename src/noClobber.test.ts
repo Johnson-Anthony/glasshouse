@@ -3,7 +3,7 @@ import { isAlreadyExists } from "./api";
 import { nameProblem, NameSet } from "./names";
 import { unlessTaken } from "./transferUi";
 
-// The backend's wording for a taken target (`no_clobber_err` in commands.rs).
+// The backend's wording for a taken target (`no_clobber_err` in commands/fs_ops.rs).
 // Tauri rejects with the bare string.
 const taken = '"notes.txt" already exists in /home/me/docs';
 
