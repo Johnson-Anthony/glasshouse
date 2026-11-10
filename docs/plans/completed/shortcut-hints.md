@@ -3,10 +3,12 @@
 Branch: `claude/exciting-davinci-df48b1` (worktree `exciting-davinci-df48b1`), reset to main bdd0682. Frontend only.
 
 ## Status
-- [ ] The seven `KNOWN_GAPS` resolved; `KNOWN_GAPS` removed
-- [ ] The hint check also covers the palette's hints
-- [ ] Decisions recorded
-- [ ] Checks: `pnpm build`, `pnpm test`, `pnpm check:wiring`, `pnpm site:build`
+**Done 2026-11-10.** Commits c01e3e0 (hints) and a8cb094 (stale context target). `pnpm build`, `pnpm test` (267), `pnpm check:wiring` (314 send sites, 213 cases, 0 problems) and `pnpm site:build` pass.
+- [x] The seven `KNOWN_GAPS` resolved; `KNOWN_GAPS` removed
+- [x] The hint check also covers the palette's hints (New Folder and Git: Commit… are aliases), and a precedence slip in it is fixed
+- [x] Decisions recorded: `docs/decisions/2026-11-10-shortcut-hints-bindings.md`
+- [x] Checks
+- [x] Stale context target fixed, and checked in the browser-only dev server: reproduced before the fix, gone after, and a chosen tab-menu command still acts on its tab
 
 ## Per gap
 | Hint | Resolution |
