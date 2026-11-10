@@ -1,6 +1,5 @@
 import { dialogs } from "../dialogs/DialogHost";
-import { spawnTerminal, spawnVscodeStrict, winToWsl, revealInExplorer, renameEntry, homeDir, moveToTrash, listDir } from "../api";
-import { winPathToWsl } from "../shellCd";
+import { spawnTerminal, spawnVscodeStrict, revealInExplorer, renameEntry, homeDir, moveToTrash, listDir } from "../api";
 import { basename, parentPath, joinPath, normalizePath } from "../paths";
 import { namesIn, unlessTaken, transferDeps, pushTransferUndo, reportTransfer } from "../transferUi";
 import { NameSet, nameProblem } from "../names";
@@ -9,6 +8,7 @@ import { pushUndo } from "../state";
 import { moveUndo } from "../undoActions";
 import { runTransfer } from "../transfer";
 import type { Handler } from "./types";
+import { copyWslPath } from "./helpers";
 import { cmdState } from "../commandState";
 import { sshProfileFor } from "../remotes";
 import { errText } from "../errors";
@@ -123,12 +123,7 @@ export const targetHandler: Handler = (label, ctx) => {
         case "Copy as WSL Path":
         case "Copy Path (WSL)":
           cmdState.contextTarget = null;
-          void (async () => {
-            let wsl = "";
-            try { wsl = await winToWsl(target); } catch { wsl = ""; }
-            if (!wsl) wsl = winPathToWsl(target);
-            await navigator.clipboard.writeText(wsl);
-          })();
+          void copyWslPath(target);
           return true;
         case "Copy as Command":
           cmdState.contextTarget = null;

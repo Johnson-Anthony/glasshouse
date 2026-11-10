@@ -1,6 +1,7 @@
-import { gitBlame, type BlameLine } from "../api";
+import { gitBlame, winToWsl, type BlameLine } from "../api";
 import { dialogs } from "../dialogs/DialogHost";
 import { errText } from "../errors";
+import { winPathToWsl } from "../shellCd";
 import type { HandlerCtx } from "./types";
 
 /** The selected paths, or the first entry's path when nothing else is. */
@@ -46,4 +47,13 @@ export async function showBlame(
     console.error("git blame:", msg);
     void dialogs.showAlert({ title: "git blame failed", variant: "error", message: msg });
   }
+}
+
+/** Copy `path` as a WSL path: the backend's conversion, or the local mapping
+ *  when that fails or comes back empty. */
+export async function copyWslPath(path: string): Promise<void> {
+  let wsl = "";
+  try { wsl = await winToWsl(path); } catch { wsl = ""; }
+  if (!wsl) wsl = winPathToWsl(path);
+  await navigator.clipboard.writeText(wsl);
 }

@@ -1,4 +1,4 @@
-import { type FileEntry, openWithDefault, renameEntry, deleteEntry, moveToTrash, makeDir, createTextFile, spawnTerminal, spawnVscodeStrict, revealInExplorer, winToWsl, writeTags, archiveCreate, hashSha256, homeDir, gitStage, gitUnstage, gitDiscard } from "../api";
+import { type FileEntry, openWithDefault, renameEntry, deleteEntry, moveToTrash, makeDir, createTextFile, spawnTerminal, spawnVscodeStrict, revealInExplorer, writeTags, archiveCreate, hashSha256, homeDir, gitStage, gitUnstage, gitDiscard } from "../api";
 import { MUTATING_LABELS } from "../data";
 import { dialogs } from "../dialogs/DialogHost";
 import { basename, parentPath, joinPath } from "../paths";
@@ -11,9 +11,8 @@ import { IS_WINDOWS } from "../platform";
 import { isCancelled, runOp } from "../ops";
 import { type TransferOp, runTransfer, type TransferItem, type TransferResult } from "../transfer";
 import type { PasteSpecialItem } from "../dialogs/PasteSpecial";
-import { winPathToWsl } from "../shellCd";
 import type { Handler } from "./types";
-import { selectedOrFirst, showBlame } from "./helpers";
+import { copyWslPath, selectedOrFirst, showBlame } from "./helpers";
 import { cmdState } from "../commandState";
 import { errText } from "../errors";
 
@@ -311,10 +310,7 @@ export const fileOpsHandler: Handler = async (label, ctx) => {
     case "Copy as WSL Path":
     case "Copy Path (WSL)": {
       if (!firstPath) return true;
-      let wsl = "";
-      try { wsl = await winToWsl(firstPath); } catch { wsl = ""; }
-      if (!wsl) wsl = winPathToWsl(firstPath);
-      await navigator.clipboard.writeText(wsl);
+      await copyWslPath(firstPath);
       return true;
     }
     case "Add Tag…": {
