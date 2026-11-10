@@ -9,6 +9,9 @@ import { archiveHandler } from "./archive";
 import { toolsHandler } from "./tools";
 import { navHandler } from "./nav";
 import { miscHandler } from "./misc";
+import { targetHandler } from "./target";
+import { appHandler } from "./app";
+import { fileOpsHandler } from "./fileOps";
 
 export const HANDLERS: Handler[] = [
   selectionHandler,
@@ -20,4 +23,14 @@ export const HANDLERS: Handler[] = [
   miscHandler,
 ];
 
-export type { Handler, HandlerCtx } from "./types";
+// Everything App routes a label through: the context-menu target first, then
+// App-level commands, then file ops for the active tab (which stops the chain
+// when there is no tab), then the feature handlers.
+export const COMMAND_CHAIN: Handler[] = [
+  targetHandler,
+  appHandler,
+  fileOpsHandler,
+  ...HANDLERS,
+];
+
+export type { AppCommands, Handler, HandlerCtx } from "./types";
