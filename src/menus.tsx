@@ -3,6 +3,7 @@ import { MENUS, type MenuItemDef, type DynamicPayload } from "./data";
 import { gitBranchList, listShellProfiles, readPins, readRecent } from "./api";
 import { getVersion } from "@tauri-apps/api/app";
 import type { TweakState } from "./components";
+import { DISPLAY_MODE_DEFAULT, DISPLAY_MODE_KEY, LAYOUT_DEFAULT, LAYOUT_KEY } from "./handlers/view";
 
 // ─── dynamic menu expansion ────────────────────────────────────────────────
 // Menu trees include `{ kind: "dynamic", source: … }` sentinel nodes. When a
@@ -155,11 +156,11 @@ const MenuToggleContext = React.createContext<MenuToggleState>({});
 function resolveChecked(item: MenuItemDef, toggles: MenuToggleState, parentLabel?: string): boolean {
   if (item.kind !== "item") return false;
   if (parentLabel === "Display Mode") {
-    const stored = localStorage.getItem("glasshouse.displayMode") ?? "Details (rows)";
+    const stored = localStorage.getItem(DISPLAY_MODE_KEY) ?? DISPLAY_MODE_DEFAULT;
     return item.label === stored;
   }
   if (parentLabel === "Layout") {
-    const stored = localStorage.getItem("glasshouse.layout") ?? "Tree + Pane + Inspector";
+    const stored = localStorage.getItem(LAYOUT_KEY) ?? LAYOUT_DEFAULT;
     return item.label === stored;
   }
   const tw = toggles.tweaks;

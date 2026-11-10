@@ -47,6 +47,7 @@ import { sshProfileFor } from "./remotes";
 import { findBinding, type KeyAction } from "./keymap";
 import { makeTab, closeTab, closeOtherTabs, moveTab as moveTabIn, tabLabel, type TabRecord } from "./tabs";
 import { canExtractArchive } from "./handlers/archive";
+import { DISPLAY_MODE_DEFAULT, DISPLAY_MODE_KEY, LAYOUT_KEY, slugify, storedZoom } from "./handlers/view";
 import { IS_WINDOWS } from "./platform";
 import { TerminalDrawer } from "./Terminal";
 import { NoticesHost } from "./Notices";
@@ -440,7 +441,7 @@ export function App() {
   // Miller columns needs a different pane component, so App mirrors the mode
   // in state (updated via the event setDisplayMode fires in handlers/view.ts).
   const [displayMode, setDisplayModeState] = useState<string>(
-    () => localStorage.getItem("glasshouse.displayMode") ?? "Details (rows)",
+    () => localStorage.getItem(DISPLAY_MODE_KEY) ?? DISPLAY_MODE_DEFAULT,
   );
   useEffect(() => {
     const h = (e: Event) => setDisplayModeState((e as CustomEvent<string>).detail);
@@ -449,16 +450,13 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    const slugify = (s: string) =>
-      s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
-    const mode = localStorage.getItem("glasshouse.displayMode");
+    const mode = localStorage.getItem(DISPLAY_MODE_KEY);
     if (mode) document.documentElement.setAttribute("data-display-mode", slugify(mode));
-    const layout = localStorage.getItem("glasshouse.layout");
+    const layout = localStorage.getItem(LAYOUT_KEY);
     if (layout) {
       document.documentElement.setAttribute("data-layout", slugify(layout));
     }
-    const zoom = localStorage.getItem("glasshouse.zoom");
-    const zoomPx = zoom ? parseInt(zoom, 10) : NaN;
+    const zoomPx = storedZoom();
     if (Number.isFinite(zoomPx)) {
       document.documentElement.style.setProperty("--fs-base", `${zoomPx}px`);
     }

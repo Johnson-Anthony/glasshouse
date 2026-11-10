@@ -4,13 +4,18 @@ import { dialogs } from "../dialogs/DialogHost";
 const ZOOM_KEY = "glasshouse.zoom";
 const ZOOM_DEFAULT = 13;
 
+/** The zoom saved in localStorage, or NaN when there's none. */
+export function storedZoom(): number {
+  const stored = localStorage.getItem(ZOOM_KEY);
+  return stored ? parseInt(stored, 10) : NaN;
+}
+
 function readZoom(): number {
   const el = document.documentElement;
   const fromVar = el.style.getPropertyValue("--fs-base").trim();
   const parsedVar = parseInt(fromVar, 10);
   if (Number.isFinite(parsedVar)) return parsedVar;
-  const stored = localStorage.getItem(ZOOM_KEY);
-  const parsedStored = stored ? parseInt(stored, 10) : NaN;
+  const parsedStored = storedZoom();
   return Number.isFinite(parsedStored) ? parsedStored : ZOOM_DEFAULT;
 }
 
@@ -29,13 +34,19 @@ function resetZoom(): void {
   localStorage.removeItem(ZOOM_KEY);
 }
 
-const DISPLAY_MODE_KEY = "glasshouse.displayMode";
-const LAYOUT_KEY = "glasshouse.layout";
+export const DISPLAY_MODE_KEY = "glasshouse.displayMode";
+export const DISPLAY_MODE_DEFAULT = "Details (rows)";
+export const LAYOUT_KEY = "glasshouse.layout";
+export const LAYOUT_DEFAULT = "Tree + Pane + Inspector";
+
+/** A Display Mode or Layout label as its <html> attribute value. */
+export function slugify(label: string): string {
+  return label.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
+}
 
 function setDisplayMode(mode: string): void {
   localStorage.setItem(DISPLAY_MODE_KEY, mode);
-  const slug = mode.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
-  document.documentElement.setAttribute("data-display-mode", slug);
+  document.documentElement.setAttribute("data-display-mode", slugify(mode));
   // Most modes are pure CSS off the attribute above, but Miller columns swaps
   // the pane component — App listens for this to re-render.
   window.dispatchEvent(new CustomEvent("glasshouse:display-mode", { detail: mode }));
@@ -43,8 +54,7 @@ function setDisplayMode(mode: string): void {
 
 function setLayout(layout: string): void {
   localStorage.setItem(LAYOUT_KEY, layout);
-  const slug = layout.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
-  document.documentElement.setAttribute("data-layout", slug);
+  document.documentElement.setAttribute("data-layout", slugify(layout));
 }
 
 export const viewHandler: Handler = (label, ctx) => {
