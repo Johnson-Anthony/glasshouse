@@ -1,6 +1,7 @@
 # Progress
 
 ## Done
+- 2026-11-10: **Windows CI is green.** The first windows-latest compile after the push found 13 errors, all from the `commands/` split (one lost `CREATE_NO_WINDOW` import, plus imports only unix code uses), and then 4 unix-only test helpers. Fixed in `e8f04ae` and `d077734`. All four CI jobs now pass, including the Windows tests for command-security, no-clobber rename/copy, the job-object kill and scoped git labels.
 - 2026-11-10: Merged `shortcut-hints` (b0e1852). Every shortcut shown in a menu or the palette now runs its command:
   - Ctrl+Q quits;
   - Ctrl+Shift+C copies the path when something is selected and focus isn't in a text field (the terminal keeps it);
@@ -109,7 +110,7 @@
 1. Merge task branches into `main` as they finish, in the merge order in `survey-fixes.md`. After each merge, rerun all checks and update this file and the task's status.
 2. Remaining tasks: `shortcut-hints` and `op-progress` (see the backlog).
 3. Settle the open questions in `docs/SPEC.md` (remote browsing, macOS, command-line path, `origin/feature`).
-4. After the first CI run on Windows, fix whatever the Windows-only code needs (it has never been compiled).
+4. (done) Windows CI is green since `d077734`: the pass's Windows-only code compiles and its tests pass on windows-latest.
 5. Tag a v0.2.0 release once the pass is merged and CI is green.
 
 ## Broken / known issues
