@@ -24,7 +24,7 @@ Line numbers are from commit `14c68bd` and drift, so search by name. Items marke
 | local-fonts | frontend, small | **merged** (ff0327c) |
 | font-licenses | assets, small | **merged** (19e7dd0) |
 | notices-screen | frontend, small | **merged** (c595720) |
-| dependency-notices | both, small | queued; needs a Rust slot for `cargo install cargo-about` (found by notices-screen) |
+| dependency-notices | both, small | running (backend-bugs session) |
 | script-kill-tree | Rust, small | **merged** (1fd8435) |
 | async-commands | Rust | **merged** (9c3eefe) |
 | pty-writer | Rust, small | **merged** (16293b0) |
@@ -35,7 +35,7 @@ Line numbers are from commit `14c68bd` and drift, so search by name. Items marke
 | test-coverage | both | **merged** (5a59187) |
 | copy-move-no-clobber | Rust, small; data loss | **merged** (86c6b52) |
 | bulk-rename-digits | frontend, small | **merged** (6cbc6dd) |
-| parser-fixes | Rust, tiny, low priority | running (test-coverage session) |
+| parser-fixes | Rust, tiny, low priority | **merged** (dd12285) |
 | presentation | docs + small code | **merged**; GitHub text awaits the user |
 | pages-site | site (big project) | **merged** (6f72fd7); live on the next push |
 | split-big-files | both | **wait until all the others are merged** |

@@ -1,6 +1,10 @@
 # Progress
 
 ## Done
+- 2026-11-10: Merged `parser-fixes` (dd12285).
+  - ssh config accepts `Host=name` and `Host = name` in any case. Before, `Host = beta` made a bogus host named `=` that showed up in the terminal menu.
+  - Of several mounts stacked on one mount point, the last listed (the visible one) gives the file-system type.
+  - See `docs/decisions/2026-11-10-parser-fixes-stacked-mounts.md`.
 - 2026-11-10: Merged `copy-move-no-clobber` (86c6b52). `copy_entry` and `move_entry` refuse an existing target: files are created new (CopyFileW with fail-if-exists on Windows), folders are never merged into, and moves use no-replace rename, including the cross-device copy fallback. There's no replace mode, because every caller trashes the old item first. Behavior change: moving a folder onto an existing empty folder now fails. See `docs/decisions/2026-11-10-copy-move-no-clobber-no-replace-mode.md`.
 - 2026-11-10: Merged `bulk-rename-digits` (6cbc6dd). Bulk Rename's `{n}` pads to the digits field (default 3, clamped to 1–9), and `{n:W}` still overrides it. Open design question for the user: turning numbering on without a `{n}` token does nothing. See `docs/decisions/2026-11-10-bulk-rename-digits-field.md`.
 - 2026-11-10: Merged `miller-names` (b6db33d). Miller columns show each file name once, not "README.md.md". `src/Miller.test.tsx` covers it, and the `?mockRows` mock entries now carry their extension like real entries do. Also loosened `pty::output_tests::invalid_bytes_still_come_through_as_replacements`, which failed once under load because of a trailing CRLF.
