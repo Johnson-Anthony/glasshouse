@@ -108,10 +108,7 @@ fn search_contents(
                     let line = String::from_utf8_lossy(bytes)
                         .trim_end_matches(['\n', '\r'])
                         .to_string();
-                    let mut guard = match self.out.lock() {
-                        Ok(g) => g,
-                        Err(p) => p.into_inner(),
-                    };
+                    let mut guard = crate::lock(self.out);
                     if guard.len() >= self.cap {
                         self.done.store(true, Ordering::Relaxed);
                         return Ok(false);

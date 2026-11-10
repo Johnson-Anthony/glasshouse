@@ -4,6 +4,17 @@ mod proc_tree;
 mod pty;
 mod watcher;
 
+use std::sync::{Mutex, MutexGuard, PoisonError};
+
+/// Lock `m` even if a thread panicked while holding it. The callers' data
+/// (the op and pty registries, a kill handle, captured output, search
+/// results) is never left half-updated by a panic, so it is still usable,
+/// and unwrapping would turn one panic into every later call panicking too.
+/// Release builds abort on panic, so this only matters in dev and test builds.
+pub(crate) fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
+    m.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())

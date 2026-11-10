@@ -1,12 +1,14 @@
 use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{mpsc, Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
 
 use portable_pty::{ChildKiller, CommandBuilder, MasterPty, PtySize, native_pty_system};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, State};
+
+use crate::lock;
 
 pub mod profiles;
 use profiles::{check_profile, detect_shells, ShellProfile};
@@ -64,15 +66,6 @@ pub struct PtyDataEvent {
 pub struct PtyExitEvent {
     pub session_id: String,
     pub exit_code: Option<i32>,
-}
-
-/// Lock `m` even if a thread panicked while holding it. Nothing these locks
-/// guard (the session map, the id counter, a kill handle) is left
-/// half-updated by a panic, so the data is still usable, and unwrapping would
-/// turn one panic into every later pty call panicking too. Release builds
-/// abort on panic, so this only matters in dev and test builds.
-fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
-    m.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
 fn next_session_id(reg: &PtyRegistry) -> String {

@@ -7,11 +7,13 @@
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, State};
+
+use crate::lock;
 
 /// The error a cancelled op fails with; `isCancelled` in the frontend's
 /// ops.ts matches it.
@@ -40,10 +42,6 @@ struct Entry {
 }
 
 type Entries = Arc<Mutex<HashMap<String, Entry>>>;
-
-fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
-    m.lock().unwrap_or_else(PoisonError::into_inner)
-}
 
 /// The ops currently running, by id; managed state.
 #[derive(Default)]

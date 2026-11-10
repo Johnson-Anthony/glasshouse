@@ -396,7 +396,7 @@ fn run_capped(
                 match r.read(&mut buf) {
                     Ok(0) => break,
                     Ok(n) => {
-                        let mut s = out.lock().unwrap_or_else(|e| e.into_inner());
+                        let mut s = crate::lock(&out);
                         let room = cap.saturating_sub(s.0.len());
                         s.0.extend_from_slice(&buf[..n.min(room)]);
                         s.1 |= n > room;
@@ -442,7 +442,7 @@ fn run_capped(
             Err(_) => break,
         }
     }
-    let take = |s: &Sink| std::mem::take(&mut *s.lock().unwrap_or_else(|e| e.into_inner()));
+    let take = |s: &Sink| std::mem::take(&mut *crate::lock(s));
     let (stdout, out_cut) = take(&out);
     let (stderr, err_cut) = take(&err);
     Ok(CappedRun {
