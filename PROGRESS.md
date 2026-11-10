@@ -1,6 +1,7 @@
 # Progress
 
 ## Done
+- 2026-11-10: Merged `bulk-rename-digits` (6cbc6dd). Bulk Rename's `{n}` pads to the digits field (default 3, clamped to 1–9), and `{n:W}` still overrides it. Open design question for the user: turning numbering on without a `{n}` token does nothing. See `docs/decisions/2026-11-10-bulk-rename-digits-field.md`.
 - 2026-11-10: Merged `miller-names` (b6db33d). Miller columns show each file name once, not "README.md.md". `src/Miller.test.tsx` covers it, and the `?mockRows` mock entries now carry their extension like real entries do. Also loosened `pty::output_tests::invalid_bytes_still_come_through_as_replacements`, which failed once under load because of a trailing CRLF.
 - 2026-11-10: Merged `link-display` (8d30fa1). A cyan ↪ marks symlinks in the file list and Miller columns. A symlink row gets its own git label, not its target's: the label scan no longer canonicalizes the leaf path. See `docs/decisions/2026-11-08-link-display-marker.md`. Known limit: on Windows, a file whose on-disk case differs from git's index loses its label.
 - 2026-11-08: Merged `test-coverage` (5a59187), bringing the totals to 231 vitest and 110 cargo tests.

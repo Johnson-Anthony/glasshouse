@@ -34,7 +34,7 @@ Line numbers are from commit `14c68bd` and drift, so search by name. Items marke
 | unsent-labels | frontend | **merged** (8828d97) |
 | test-coverage | both | **merged** (5a59187) |
 | copy-move-no-clobber | Rust, small; data loss | running (backend-bugs session; resumed 2026-11-10 after the usage limit) |
-| bulk-rename-digits | frontend, small | running (test-coverage session; found by test-coverage) |
+| bulk-rename-digits | frontend, small | **merged** (6cbc6dd) |
 | parser-fixes | Rust, tiny, low priority | queued (found by test-coverage) |
 | presentation | docs + small code | **merged**; GitHub text awaits the user |
 | pages-site | site (big project) | **merged** (6f72fd7); live on the next push |
