@@ -4,6 +4,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { listDir, type FileEntry } from "./api";
 import { normalizePath, parentPath } from "./paths";
+import { LinkMark } from "./components";
 
 export interface MillerViewProps {
   cwd: string;
@@ -134,6 +135,7 @@ export function MillerView({
                    onClick={() => { if (e.kind === "folder") onNavigate(e.path); }}>
                 <span className="mic">{rowIcon(e)}</span>
                 <span className="mname">{e.name}{e.ext && e.kind !== "folder" ? `.${e.ext}` : ""}</span>
+                {e.is_symlink && <LinkMark />}
               </div>
             ))}
       </div>
@@ -148,6 +150,7 @@ export function MillerView({
                }}>
             <span className="mic">{rowIcon(e)}</span>
             <span className="mname">{e.name}{e.ext && e.kind !== "folder" ? `.${e.ext}` : ""}</span>
+            {e.is_symlink && <LinkMark />}
             {e.kind !== "folder" && <span className="msize">{fmtBytes(e.size)}</span>}
           </div>
         ))}
@@ -164,6 +167,7 @@ export function MillerView({
                      onClick={() => onNavigate(focused.path)}>
                   <span className="mic">{rowIcon(e)}</span>
                   <span className="mname">{e.name}{e.ext && e.kind !== "folder" ? `.${e.ext}` : ""}</span>
+                  {e.is_symlink && <LinkMark />}
                 </div>
               ))
             : <div className="mrow dim">empty</div>

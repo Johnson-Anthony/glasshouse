@@ -1,6 +1,7 @@
 # Progress
 
 ## Done
+- 2026-11-10: Merged `link-display` (8d30fa1). A cyan ↪ marks symlinks in the file list and Miller columns. A symlink row gets its own git label, not its target's: the label scan no longer canonicalizes the leaf path. See `docs/decisions/2026-11-08-link-display-marker.md`. Known limit: on Windows, a file whose on-disk case differs from git's index loses its label.
 - 2026-11-08: Merged `test-coverage` (5a59187), bringing the totals to 231 vitest and 110 cargo tests.
   - New tests cover command routing through the real handler chain, Windows-only menu stripping, UNC paths, the Bulk Rename preview, list_dir, delete and trash (in a private XDG_DATA_HOME), every archive format with zip-slip containment, the ssh, mount and net parsers, terminal arguments, the watcher, and pty UTF-8 carry-over.
   - Fixed: with numbering off, Bulk Rename turned `{n}` into 0.
