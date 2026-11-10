@@ -1635,3 +1635,82 @@ html[data-focused-pane="terminal"] .term-drawer {
   background: color-mix(in oklch, var(--accent) 25%, transparent);
   outline: 1px solid var(--accent);
 }
+
+/* ------- Running ops (OpsTray): hash, copy, find with a Cancel ------- */
+.ops-tray {
+  position: fixed;
+  left: 16px;
+  bottom: 44px;
+  z-index: 340;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: min(320px, calc(100vw - 32px));
+}
+.ops-row {
+  background: var(--bg-2);
+  border: 1px solid var(--border-strong);
+  border-left: 3px solid var(--accent);
+  border-radius: 4px;
+  padding: 6px 10px 7px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--fg-1);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+}
+.ops-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.ops-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ops-cancel {
+  background: transparent;
+  border: 1px solid var(--border-strong);
+  border-radius: 3px;
+  color: var(--fg-2);
+  font: inherit;
+  padding: 1px 8px;
+  cursor: pointer;
+}
+.ops-cancel:hover:not(:disabled) {
+  border-color: var(--red);
+  color: var(--red);
+}
+.ops-cancel:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+.ops-bar {
+  margin-top: 5px;
+  height: 3px;
+  background: var(--bg-4);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.ops-bar > div {
+  height: 100%;
+  background: var(--accent);
+  transition: width 120ms linear;
+}
+.ops-bar[data-indeterminate] > div {
+  width: 30%;
+  animation: ops-sweep 1.2s ease-in-out infinite;
+}
+@keyframes ops-sweep {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(340%); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ops-bar[data-indeterminate] > div { animation: none; width: 100%; opacity: 0.5; }
+}
+.ops-detail {
+  margin-top: 3px;
+  color: var(--fg-3);
+}

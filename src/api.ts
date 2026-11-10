@@ -216,8 +216,9 @@ export function isAlreadyExists(err: unknown): boolean {
   return /^".*" already exists in /s.test(msg);
 }
 
-export function copyEntry(from: string, to: string): Promise<void> {
-  return mustInvoke<void>("copy_entry", { from, to });
+/** With `opId` the copy reports progress and can be cancelled (see ops.ts). */
+export function copyEntry(from: string, to: string, opId?: string): Promise<void> {
+  return mustInvoke<void>("copy_entry", { from, to, opId });
 }
 
 export function moveEntry(from: string, to: string): Promise<void> {
@@ -288,22 +289,18 @@ export function gitBranchList(cwd: string): Promise<GitBranch[]> {
   return invoke<GitBranch[]>("git_branch_list", { cwd });
 }
 
+/** Without `opId`, any failure is no matches. With one the search rejects
+ *  instead, so a cancel can be told apart from an empty result. */
 export function findInFiles(
   root: string,
   query: string,
   caseInsensitive: boolean,
   maxResults: number,
+  opId?: string,
 ): Promise<FindMatch[]> {
-  return safe(
-    () =>
-      invoke<FindMatch[]>("find_in_files", {
-        root,
-        query,
-        caseInsensitive,
-        maxResults,
-      }),
-    [],
-  );
+  const args = { root, query, caseInsensitive, maxResults, opId };
+  if (opId) return mustInvoke<FindMatch[]>("find_in_files", args);
+  return safe(() => invoke<FindMatch[]>("find_in_files", args), []);
 }
 
 export function openWithDefault(path: string): Promise<void> {
@@ -408,9 +405,9 @@ export function archiveCanHandle(
   return safe(() => invoke<boolean>("archive_can_handle", { format }), false);
 }
 
-export function hashSha256(path: string): Promise<string> {
+export function hashSha256(path: string, opId?: string): Promise<string> {
   if (!TAURI_AVAILABLE) return Promise.reject(new Error("tauri unavailable"));
-  return invoke<string>("hash_sha256", { path });
+  return invoke<string>("hash_sha256", { path, opId });
 }
 
 export function setPermissions(path: string, mode: number): Promise<void> {
@@ -432,15 +429,22 @@ export function diffFiles(a: string, b: string): Promise<string> {
   return invoke<string>("diff_files", { a, b });
 }
 
+/** Like findInFiles: with `opId` it rejects on failure or cancel. */
 export function findFileByName(
   root: string,
   pattern: string,
   maxResults: number = 0,
+  opId?: string,
 ): Promise<string[]> {
-  return safe(
-    () => invoke<string[]>("find_file_by_name", { root, pattern, maxResults }),
-    [],
-  );
+  const args = { root, pattern, maxResults, opId };
+  if (opId) return mustInvoke<string[]>("find_file_by_name", args);
+  return safe(() => invoke<string[]>("find_file_by_name", args), []);
+}
+
+/** Stop the hash, copy or search running as `opId`; it then rejects with
+ *  "cancelled" (`isCancelled` in ops.ts). */
+export function cancelOp(opId: string): Promise<void> {
+  return safe(() => invoke<void>("cancel_op", { opId }), undefined);
 }
 
 export function createSymlink(target: string, linkPath: string): Promise<void> {
@@ -577,14 +581,14 @@ export function fileStatExtended(path: string): Promise<FileStatExt | null> {
   );
 }
 
-export function hashMd5(path: string): Promise<string> {
+export function hashMd5(path: string, opId?: string): Promise<string> {
   if (!TAURI_AVAILABLE) return Promise.reject(new Error("tauri unavailable"));
-  return invoke<string>("hash_md5", { path });
+  return invoke<string>("hash_md5", { path, opId });
 }
 
-export function hashCrc32(path: string): Promise<string> {
+export function hashCrc32(path: string, opId?: string): Promise<string> {
   if (!TAURI_AVAILABLE) return Promise.reject(new Error("tauri unavailable"));
-  return invoke<string>("hash_crc32", { path });
+  return invoke<string>("hash_crc32", { path, opId });
 }
 
 export function gitFileInfo(cwd: string, path: string): Promise<GitFileInfo | null> {

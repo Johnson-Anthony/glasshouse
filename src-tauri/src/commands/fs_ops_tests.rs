@@ -3,6 +3,11 @@
 use crate::commands::testing::{put, read, s, tree, Scratch};
 use super::*;
 
+/// The copy_entry command without its Tauri arguments: untracked.
+fn copy_entry(from: String, to: String) -> Result<(), String> {
+    copy_path(&from, &to, &Op::untracked())
+}
+
 #[test]
 fn delete_entry_removes_a_file() {
     let d = Scratch::new("del-file");
@@ -243,4 +248,73 @@ fn move_entry_across_devices_refuses_an_existing_target() {
     assert_eq!(after, ("keep".to_string(), vec!["inner.txt".to_string()]));
     assert_eq!(read(&d.join("taken.txt")), "mine");
     assert_eq!(tree(&d.join("taken-dir")), ["mine.txt"]);
+}
+
+// ---------- progress and cancel (ops.rs) ----------
+
+/// A tree with one file big enough for several 4 MiB copy slices.
+fn tree_with_big_file(d: &Scratch) -> (PathBuf, u64) {
+    let src = d.join("src");
+    put(&src.join("small.txt"), "hello");
+    put(&src.join("sub/also.txt"), "x");
+    std::fs::write(src.join("sub/big.bin"), vec![1u8; 9 << 20]).unwrap();
+    (src, 5 + 1 + (9 << 20))
+}
+
+#[test]
+fn copy_reports_bytes_up_to_the_total() {
+    use crate::ops::testing::{events, recorded};
+    let d = Scratch::new("copy-progress");
+    let (src, size) = tree_with_big_file(&d);
+    let (_reg, op, seen) = recorded("c1");
+    copy_path(&s(&src), &s(&d.join("dst")), &op).unwrap();
+    let seen = events(&seen);
+    assert!(seen.iter().all(|p| p.total == Some(size)), "{:?}", seen);
+    assert!(seen.windows(2).all(|w| w[0].done <= w[1].done));
+    assert_eq!(seen.last().unwrap().done, size);
+    // The big file went in slices, so there's more than an event per file.
+    assert!(seen.len() > 4, "{} events", seen.len());
+    assert_eq!(tree(&d.join("dst")), tree(&src));
+}
+
+#[test]
+fn cancelled_copy_of_a_file_leaves_no_file() {
+    use crate::ops::testing::cancels_at_first_event;
+    let d = Scratch::new("copy-cancel-file");
+    let (src, _) = tree_with_big_file(&d);
+    let (_reg, op, _) = cancels_at_first_event("c2");
+    let dst = d.join("big-copy.bin");
+    assert_eq!(copy_path(&s(&src.join("sub/big.bin")), &s(&dst), &op), Err(CANCELLED.to_string()));
+    assert!(std::fs::symlink_metadata(&dst).is_err(), "half-written copy left behind");
+}
+
+#[test]
+fn cancelled_copy_of_a_folder_leaves_no_folder() {
+    use crate::ops::OpRegistry;
+    use std::sync::Arc;
+    use std::time::Duration;
+    let d = Scratch::new("copy-cancel-dir");
+    let (src, _) = tree_with_big_file(&d);
+    let before = tree(&src);
+    // Cancelled at the first event with bytes done: partway into the tree,
+    // so some files and folders already exist in the copy.
+    let reg = Arc::new(OpRegistry::default());
+    let canceller = Arc::clone(&reg);
+    let op = reg.start_with(Some("c3".into()), Duration::ZERO, move |p| {
+        if p.done > 0 {
+            canceller.cancel("c3");
+        }
+    });
+    let dst = d.join("dst");
+    assert_eq!(copy_path(&s(&src), &s(&dst), &op), Err(CANCELLED.to_string()));
+    assert!(std::fs::symlink_metadata(&dst).is_err(), "partial folder left behind");
+    assert_eq!(tree(&src), before);
+
+    // Cancelled before it started: stops while adding up the sizes, before
+    // anything is created.
+    let reg = OpRegistry::default();
+    reg.cancel("c4");
+    let op = reg.start_with(Some("c4".into()), Duration::ZERO, |_| {});
+    assert_eq!(copy_path(&s(&src), &s(&dst), &op), Err(CANCELLED.to_string()));
+    assert!(std::fs::symlink_metadata(&dst).is_err());
 }

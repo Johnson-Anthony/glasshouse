@@ -232,6 +232,26 @@ describe("runTransfer", () => {
     expect(calls).toEqual([]);
     expect(res?.failed).toEqual([{ src: "/s/a.txt", error: "can't read /d: EACCES" }]);
   });
+
+  it("stops at a cancelled copy and keeps what was done", async () => {
+    const { deps, calls } = fakeDeps([file("c.txt")], "skip");
+    const copy = deps.copy;
+    deps.copy = async (s, d) => {
+      if (s.endsWith("b.txt")) throw "cancelled"; // as the backend rejects
+      await copy(s, d);
+    };
+    const items = ["a.txt", "b.txt", "c.txt", "d.txt"].map(n => ({ path: `/s/${n}` }));
+    const res = await runTransfer(items, "/d", "copy", deps);
+    // a.txt was copied; b.txt was cancelled, so d.txt never started.
+    expect(calls).toEqual(["ask c.txt", "copy /s/a.txt /d/a.txt"]);
+    expect(res?.done).toEqual([{ src: "/s/a.txt", dst: "/d/a.txt" }]);
+    expect(res?.failed).toEqual([]);
+    expect(res?.cancelled).toBe(2);
+    // The skip after the cancel is still reported.
+    expect(res?.skipped).toEqual([{ src: "/s/c.txt", reason: "conflict" }]);
+    expect(summarize(res!, "copy", false).message)
+      .toBe("copied 1 item(s), skipped 1 that already exist, cancelled: 2 item(s) not copied");
+  });
 });
 
 describe("conflictMessage", () => {
@@ -260,5 +280,7 @@ describe("summarize", () => {
     }, "move", true).message).toBe(
       "moved 1 item(s), replaced 1 (old in the Recycle Bin), skipped 1: a folder can't go inside itself",
     );
+    expect(summarize({ done: [], replaced: [], skipped: [], failed: [], cancelled: 3 }, "move", false))
+      .toEqual({ message: "cancelled: 3 item(s) not moved", variant: "info" });
   });
 });

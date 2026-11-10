@@ -4,6 +4,8 @@
 import { copyEntry, isAlreadyExists, moveEntry, moveToTrash, readDir } from "./api";
 import { dialogs } from "./dialogs/DialogHost";
 import { NameSet, nameProblem, takenProblem } from "./names";
+import { runOp } from "./ops";
+import { basename } from "./paths";
 import { IS_WINDOWS } from "./platform";
 import { pushUndo } from "./state";
 import {
@@ -34,7 +36,9 @@ export const transferDeps: TransferDeps = {
     });
     return id === "skip" || id === "replace" || id === "keep-both" ? id : null;
   },
-  copy: copyEntry,
+  // Each copy is an op in the tray, with a Cancel; runTransfer stops there.
+  copy: (src, dst) =>
+    runOp(`copying ${basename(src)}`, track => copyEntry(src, dst, track())),
   move: moveEntry,
   trash: moveToTrash,
   windows: IS_WINDOWS,

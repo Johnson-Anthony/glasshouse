@@ -4,6 +4,7 @@ import { fileStatExtended, gitFileInfo, hashCrc32, hashMd5, hashSha256, setPermi
 import { parentPath } from "../paths";
 import { tagColor } from "../components";
 import { dialogs } from "../dialogs/DialogHost";
+import { isCancelled, runOp } from "../ops";
 import { AUDIO_EXTS, FilePreview } from "./FilePreview";
 
 // ============= Inspector =============
@@ -169,15 +170,15 @@ export function Inspector({ file, onQuickAction, onExpand }: InspectorProps) {
     setHashing(true);
     void (async () => {
       try {
-        const [shaHex, md5Hex, crcHex] = await Promise.all([
-          hashSha256(file.entry.path),
-          hashMd5(file.entry.path),
-          hashCrc32(file.entry.path),
-        ]);
+        const p = file.entry.path;
+        // Three reads of the same file: one row in the tray, one Cancel.
+        const [shaHex, md5Hex, crcHex] = await runOp(`hashing ${file.entry.name}`, track =>
+          Promise.all([hashSha256(p, track()), hashMd5(p, track()), hashCrc32(p, track())]));
         setSha256(shaHex);
         setMd5(md5Hex);
         setCrc32(crcHex);
       } catch (err) {
+        if (isCancelled(err)) return;
         const msg = err instanceof Error ? err.message : String(err);
         console.error("hash compute:", msg);
         void dialogs.showAlert({ title: "hash failed", variant: "error", message: msg });

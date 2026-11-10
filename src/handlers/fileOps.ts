@@ -8,6 +8,7 @@ import { nameProblem, freeNewName } from "../names";
 import { pushUndo } from "../state";
 import { moveUndo, createUndo } from "../undoActions";
 import { IS_WINDOWS } from "../platform";
+import { isCancelled, runOp } from "../ops";
 import { type TransferOp, runTransfer, type TransferItem, type TransferResult } from "../transfer";
 import type { PasteSpecialItem } from "../dialogs/PasteSpecial";
 import { winPathToWsl } from "../shellCd";
@@ -429,10 +430,11 @@ export const fileOpsHandler: Handler = async (label, ctx) => {
     case "Checksum (SHA256)": {
       if (!firstPath) return true;
       try {
-        const hex = await hashSha256(firstPath);
+        const hex = await runOp(`hashing ${basename(firstPath)}`, track => hashSha256(firstPath, track()));
         try { await navigator.clipboard.writeText(hex); } catch { /* clipboard unavailable */ }
         dialogs.showToast({ message: `sha256 copied: ${hex.slice(0, 16)}…`, variant: "success" });
       } catch (err) {
+        if (isCancelled(err)) return true;
         const msg = err instanceof Error ? err.message : String(err);
         console.error("hash_sha256 failed:", msg);
         void dialogs.showAlert({ title: "hash failed", variant: "error", message: msg });
