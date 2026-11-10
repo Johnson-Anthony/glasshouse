@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { bulkRenamePreview, type BulkRenameOptions } from "./components";
+import { bulkRenamePreview, type BulkRenameOptions } from "./dialogs/BulkRename";
 
 // The dialog's defaults.
 const NONE: BulkRenameOptions = {

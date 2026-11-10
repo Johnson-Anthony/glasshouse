@@ -6,27 +6,23 @@ import {
   StatusBar,
   Palette,
   Tweaks,
-  BulkRenameDialog,
-  PasteSpecialDialog,
-  BlameDialog,
-  GitOutputDialog,
-  DiffDialog,
-  ConnectServerDialog,
-  ManageRemotesDialog,
-  TagPickerDialog,
-  PropertiesDialog,
-  AboutDialog,
-  KeybindingsDialog,
-  DialogHost,
-  FolderPickerDialog,
-  BookmarkManagerDialog,
-  dialogs,
-  type BulkRenameItem,
-  type PasteSpecialItem,
   type TweakState,
   type ContextKind,
-  type GitOutputState,
 } from "./components";
+import { BulkRenameDialog, type BulkRenameItem } from "./dialogs/BulkRename";
+import { PasteSpecialDialog, type PasteSpecialItem } from "./dialogs/PasteSpecial";
+import { BlameDialog } from "./dialogs/Blame";
+import { GitOutputDialog, type GitOutputState } from "./dialogs/GitOutput";
+import { DiffDialog } from "./dialogs/Diff";
+import { ConnectServerDialog } from "./dialogs/ConnectServer";
+import { ManageRemotesDialog } from "./dialogs/ManageRemotes";
+import { TagPickerDialog } from "./dialogs/TagPicker";
+import { PropertiesDialog } from "./dialogs/Properties";
+import { AboutDialog } from "./dialogs/About";
+import { KeybindingsDialog } from "./dialogs/Keybindings";
+import { DialogHost, dialogs } from "./dialogs/DialogHost";
+import { FolderPickerDialog } from "./dialogs/FolderPicker";
+import { BookmarkManagerDialog } from "./dialogs/BookmarkManager";
 import { Inspector } from "./preview/Inspector";
 import { QuickLook } from "./preview/FilePreview";
 import { Sidebar, type SavedRemote, type SidebarRowKind } from "./Sidebar";

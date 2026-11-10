@@ -2,7 +2,7 @@
 // question, the toasts and undo entries every copy/move-into-a-folder shares,
 // and the name checks before creating or renaming.
 import { copyEntry, isAlreadyExists, moveEntry, moveToTrash, readDir } from "./api";
-import { dialogs } from "./components";
+import { dialogs } from "./dialogs/DialogHost";
 import { NameSet, nameProblem, takenProblem } from "./names";
 import { IS_WINDOWS } from "./platform";
 import { pushUndo } from "./state";

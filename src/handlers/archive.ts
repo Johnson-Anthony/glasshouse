@@ -4,7 +4,7 @@ import {
   archiveExtract,
   archiveCanHandle,
 } from "../api";
-import { dialogs } from "../components";
+import { dialogs } from "../dialogs/DialogHost";
 import { basename, joinPath } from "../paths";
 
 // Extensions the backend archive_extract command can actually unpack —

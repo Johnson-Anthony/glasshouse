@@ -2,7 +2,8 @@ import React, { useState, useEffect } from "react";
 import type { FileRow, FileKind } from "../data";
 import { fileStatExtended, gitFileInfo, hashCrc32, hashMd5, hashSha256, setPermissions, type FileEntry, type FileStatExt, type GitFileInfo } from "../api";
 import { parentPath } from "../paths";
-import { tagColor, dialogs } from "../components";
+import { tagColor } from "../components";
+import { dialogs } from "../dialogs/DialogHost";
 import { AUDIO_EXTS, FilePreview } from "./FilePreview";
 
 // ============= Inspector =============
