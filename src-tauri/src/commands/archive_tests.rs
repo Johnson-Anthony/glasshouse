@@ -1,7 +1,7 @@
 //! archive_create / archive_extract through tar and 7-Zip, and extraction
 //! never writing outside the destination folder.
 
-use super::testing::{put, s, tree, Scratch};
+use crate::commands::testing::{put, s, tree, Scratch};
 use super::*;
 use std::io::Write;
 

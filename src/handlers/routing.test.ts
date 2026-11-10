@@ -22,7 +22,7 @@ const dialogs = vi.hoisted(() => ({
   showChoice: vi.fn(async (): Promise<string | null> => null),
   showToast: vi.fn(),
 }));
-vi.mock("../components", () => ({ dialogs }));
+vi.mock("../dialogs/DialogHost", () => ({ dialogs }));
 
 const BY_FILE: Array<[string, Handler]> = [
   ["selection", selectionHandler],

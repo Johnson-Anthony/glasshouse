@@ -1,5 +1,5 @@
 import type { Handler } from "./types";
-import { dialogs } from "../components";
+import { dialogs } from "../dialogs/DialogHost";
 import { IS_WINDOWS } from "../platform";
 import { parseOctalMode } from "../octal";
 import { joinPath } from "../paths";

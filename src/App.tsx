@@ -1,40 +1,32 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Titlebar,
-  Menubar,
   Toolbar,
-  Sidebar,
   FilePane,
-  Inspector,
-  QuickLook,
   StatusBar,
   Palette,
-  ContextMenu,
   Tweaks,
-  BulkRenameDialog,
-  PasteSpecialDialog,
-  BlameDialog,
-  GitOutputDialog,
-  DiffDialog,
-  ConnectServerDialog,
-  ManageRemotesDialog,
-  TagPickerDialog,
-  PropertiesDialog,
-  AboutDialog,
-  KeybindingsDialog,
-  DialogHost,
-  FolderPickerDialog,
-  BookmarkManagerDialog,
-  dialogs,
-  type BulkRenameItem,
-  type PasteSpecialItem,
-  type SavedRemote,
   type TweakState,
   type ContextKind,
-  type GitOutputState,
-  type SidebarRowKind,
-  setDynamicGitCwd,
 } from "./components";
+import { BulkRenameDialog, type BulkRenameItem } from "./dialogs/BulkRename";
+import { PasteSpecialDialog, type PasteSpecialItem } from "./dialogs/PasteSpecial";
+import { BlameDialog } from "./dialogs/Blame";
+import { GitOutputDialog, type GitOutputState } from "./dialogs/GitOutput";
+import { DiffDialog } from "./dialogs/Diff";
+import { ConnectServerDialog } from "./dialogs/ConnectServer";
+import { ManageRemotesDialog } from "./dialogs/ManageRemotes";
+import { TagPickerDialog } from "./dialogs/TagPicker";
+import { PropertiesDialog } from "./dialogs/Properties";
+import { AboutDialog } from "./dialogs/About";
+import { KeybindingsDialog } from "./dialogs/Keybindings";
+import { DialogHost, dialogs } from "./dialogs/DialogHost";
+import { FolderPickerDialog } from "./dialogs/FolderPicker";
+import { BookmarkManagerDialog } from "./dialogs/BookmarkManager";
+import { Inspector } from "./preview/Inspector";
+import { QuickLook } from "./preview/FilePreview";
+import { Sidebar, type SavedRemote, type SidebarRowKind } from "./Sidebar";
+import { Menubar, ContextMenu, setDynamicGitCwd } from "./menus";
 import { CONTEXT_FILE, CONTEXT_EMPTY, CONTEXT_SIDEBAR, CONTEXT_SIDEBAR_FOLDER, CONTEXT_SIDEBAR_DRIVE, CONTEXT_SIDEBAR_REMOTE, CONTEXT_TAB, CONTEXT_BREADCRUMB, GIT_CHORDS, MUTATING_LABELS, THEMES, type MenuItemDef, type DynamicPayload, type FileRow, type FileKind, type GitStatus } from "./data";
 import {
   useTabState,

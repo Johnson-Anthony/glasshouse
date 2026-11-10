@@ -1,5 +1,5 @@
 import type { Handler, HandlerCtx } from "./types";
-import { dialogs } from "../components";
+import { dialogs } from "../dialogs/DialogHost";
 import { IS_WINDOWS } from "../platform";
 import { basename, joinPath, parentPath } from "../paths";
 import { getVersion } from "@tauri-apps/api/app";

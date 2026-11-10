@@ -8,7 +8,8 @@ use portable_pty::{ChildKiller, CommandBuilder, MasterPty, PtySize, native_pty_s
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, State};
 
-use crate::commands::{check_profile, detect_shells, ShellProfile};
+pub mod profiles;
+use profiles::{check_profile, detect_shells, ShellProfile};
 
 /// One live PTY session — keeps the master handle (for resize), the queue
 /// feeding its writer thread (keystrokes) and a kill handle. The child itself

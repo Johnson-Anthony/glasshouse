@@ -1,5 +1,5 @@
 import type { Handler } from "./types";
-import { dialogs } from "../components";
+import { dialogs } from "../dialogs/DialogHost";
 
 const ZOOM_KEY = "glasshouse.zoom";
 const ZOOM_DEFAULT = 13;

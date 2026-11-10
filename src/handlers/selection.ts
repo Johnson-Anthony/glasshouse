@@ -1,4 +1,4 @@
-import { dialogs } from "../components";
+import { dialogs } from "../dialogs/DialogHost";
 import { readTags } from "../api";
 import type { Handler } from "./types";
 

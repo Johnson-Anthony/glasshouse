@@ -60,7 +60,7 @@ function emit(event: string, payload: unknown): void {
 export const backend = createBackend({
   emit,
   notice: message => {
-    void import("../../../src/components").then(({ dialogs }) =>
+    void import("../../../src/dialogs/DialogHost").then(({ dialogs }) =>
       dialogs.showToast({ message, variant: "info" }));
   },
   fetchDataUrl,

@@ -68,3 +68,33 @@ pub(crate) fn tree(root: &Path) -> Vec<String> {
     out.sort();
     out
 }
+
+pub(crate) fn temp_dir(name: &str) -> PathBuf {
+    let d = std::env::temp_dir().join(format!("glasshouse-test-{}-{}", std::process::id(), name));
+    let _ = std::fs::remove_dir_all(&d);
+    std::fs::create_dir_all(&d).unwrap();
+    d
+}
+
+pub(crate) fn test_repo(name: &str) -> (PathBuf, git2::Repository) {
+    let dir = temp_dir(name);
+    let mut opts = git2::RepositoryInitOptions::new();
+    opts.initial_head("main");
+    let repo = git2::Repository::init_opts(&dir, &opts).unwrap();
+    (dir, repo)
+}
+
+/// Stage the work tree's files and commit them on HEAD.
+pub(crate) fn commit_all(repo: &git2::Repository, msg: &str) -> git2::Oid {
+    let mut index = repo.index().unwrap();
+    index
+        .add_all(["*"], git2::IndexAddOption::DEFAULT, None)
+        .unwrap();
+    index.write().unwrap();
+    let tree = repo.find_tree(index.write_tree().unwrap()).unwrap();
+    let sig = git2::Signature::now("test", "test@example.com").unwrap();
+    let parent = repo.head().ok().and_then(|h| h.peel_to_commit().ok());
+    let parents: Vec<&git2::Commit> = parent.iter().collect();
+    repo.commit(Some("HEAD"), &sig, &sig, msg, &tree, &parents)
+        .unwrap()
+}

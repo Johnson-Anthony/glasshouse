@@ -6,7 +6,8 @@
 
 import type { UndoEntry, UseTabResult } from "../state";
 import type { FileEntry, BlameLine } from "../api";
-import type { TweakState, GitOutputState } from "../components";
+import type { TweakState } from "../components";
+import type { GitOutputState } from "../dialogs/GitOutput";
 
 export interface HandlerCtx {
   activeHandle: UseTabResult | undefined;

@@ -1,0 +1,90 @@
+// ---------- sha256 hash ----------
+
+/// Stream the file at `path` through `update` in 64 KB chunks. Shared by
+/// the hash_* commands.
+fn read_chunks(path: &str, mut update: impl FnMut(&[u8])) -> Result<(), String> {
+    use std::io::Read;
+
+    let mut f = std::fs::File::open(path).map_err(|e| format!("open {}: {}", path, e))?;
+    let mut buf = [0u8; 64 * 1024];
+    loop {
+        let n = f.read(&mut buf).map_err(|e| e.to_string())?;
+        if n == 0 {
+            return Ok(());
+        }
+        update(&buf[..n]);
+    }
+}
+
+/// Lowercase hex digest of the file at `path` with hasher `D`.
+fn digest_file<D: sha2::Digest>(path: &str) -> Result<String, String> {
+    use std::fmt::Write;
+
+    let mut hasher = D::new();
+    read_chunks(path, |chunk| hasher.update(chunk))?;
+    let digest = hasher.finalize();
+    let mut hex = String::with_capacity(digest.len() * 2);
+    for byte in digest {
+        let _ = write!(&mut hex, "{:02x}", byte);
+    }
+    Ok(hex)
+}
+
+/// Lowercase hex SHA-256 digest of the file at `path`.
+#[tauri::command(async)]
+pub fn hash_sha256(path: String) -> Result<String, String> {
+    digest_file::<sha2::Sha256>(&path)
+}
+
+// ---------- additional checksums ----------
+
+#[tauri::command(async)]
+pub fn hash_md5(path: String) -> Result<String, String> {
+    digest_file::<md5::Md5>(&path)
+}
+
+#[tauri::command(async)]
+pub fn hash_crc32(path: String) -> Result<String, String> {
+    let mut hasher = crc32fast::Hasher::new();
+    read_chunks(&path, |chunk| hasher.update(chunk))?;
+    Ok(format!("{:08x}", hasher.finalize()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::commands::testing::{temp_dir, s};
+
+    #[test]
+    fn hashes_match_known_digests_across_chunks() {
+        use sha2::Digest;
+        let dir = temp_dir("hashes");
+        let abc = dir.join("abc.txt");
+        std::fs::write(&abc, "abc").unwrap();
+        assert_eq!(
+            hash_sha256(s(&abc)).unwrap(),
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+        );
+        assert_eq!(hash_md5(s(&abc)).unwrap(), "900150983cd24fb0d6963f7d28e17f72");
+        assert_eq!(hash_crc32(s(&abc)).unwrap(), "352441c2");
+
+        let empty = dir.join("empty");
+        std::fs::write(&empty, "").unwrap();
+        assert_eq!(hash_md5(s(&empty)).unwrap(), "d41d8cd98f00b204e9800998ecf8427e");
+        assert_eq!(hash_crc32(s(&empty)).unwrap(), "00000000");
+
+        // Three and a bit 64 KB chunks, against one-shot digests of the bytes.
+        let data: Vec<u8> = (0..200_000u32).map(|i| (i % 251) as u8).collect();
+        let big = dir.join("big.bin");
+        std::fs::write(&big, &data).unwrap();
+        let sha: String = sha2::Sha256::digest(&data).iter().map(|b| format!("{:02x}", b)).collect();
+        let md5: String = md5::Md5::digest(&data).iter().map(|b| format!("{:02x}", b)).collect();
+        assert_eq!(hash_sha256(s(&big)).unwrap(), sha);
+        assert_eq!(hash_md5(s(&big)).unwrap(), md5);
+        assert_eq!(hash_crc32(s(&big)).unwrap(), format!("{:08x}", crc32fast::hash(&data)));
+
+        let err = hash_sha256(s(&dir.join("missing"))).unwrap_err();
+        assert!(err.starts_with("open "), "{}", err);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}
