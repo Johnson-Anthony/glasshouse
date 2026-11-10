@@ -12,7 +12,7 @@ Branch: `claude/exciting-davinci-df48b1` (worktree `exciting-davinci-df48b1`). T
 - [x] Decision on jsdom + Testing Library: `docs/decisions/2026-11-08-test-coverage-component-tests.md` (not now)
 - [x] Checks
 
-## Measured before starting (main at 7b94d09)
+## Measured before starting (main at bc5a919)
 The survey-time scope was stale: main had 183 vitest and 63 cargo tests. Already covered, so left alone: `splitBreadcrumb` and `basename` (`paths.test.ts`), `move_entry` (5 tests), the tar.zst path and `--` member names, pty spawn/exit/input queue (`pty.rs`), `xdg_trash_files`, `list_dir` symlink kind and git labels, shell profile checks.
 
 ## What was added

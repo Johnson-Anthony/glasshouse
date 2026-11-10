@@ -37,7 +37,7 @@ Out of scope:
 - Tests: `src/names.test.ts`.
 
 ## Status
-Done. Merged with `main` at `d745256`, which includes undo-redo. The only conflict was the import line in `transferUi.ts`. My checks sit in front of undo-redo's `createUndo` / `moveUndo` calls, and no `pushUndo` line was changed.
+Done. Merged with `main` at `a0ee531`, which includes undo-redo. The only conflict was the import line in `transferUi.ts`. My checks sit in front of undo-redo's `createUndo` / `moveUndo` calls, and no `pushUndo` line was changed.
 - `pnpm build` passes. `pnpm test` passes: 11 files, 143 tests, 17 of them new in `src/names.test.ts`.
 - Checked in the Vite dev server with `?mockRows`, where `readDir` returns the mock rows:
   - New Folder with a taken name keeps the prompt open with `"file-1" already exists here`.

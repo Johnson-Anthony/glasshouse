@@ -33,7 +33,7 @@ Backlog entry: `## pty-writer` in `docs/plans/active/survey-fixes.md`.
 
 ## Status
 **Done** (2026-11-08).
-- [x] Merged `main` (`caedf75`); read the pty code fresh
+- [x] Merged `main` (`b86cd25`); read the pty code fresh
 - [x] Writer thread, plus `queue_input` (pty_write's body)
 - [x] Tests: 2 fake-writer tests on all platforms, 1 unix real-pty test, plus the negative check
 - [x] Checks: build, test, check:wiring, clippy `-D warnings`, cargo test

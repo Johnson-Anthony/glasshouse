@@ -16,5 +16,5 @@ Remove all five: `ping`, `wsl_to_win`, `set_always_on_top`, `git_dirty_count`, `
 
 ## Consequences
 - 69 commands are registered, and `build.rs` checks them against `permissions/app.toml`.
-- Showing a repo-read error or a Wayland always-on-top failure would now mean adding the command back. The removed code is in git history: `0297c68` (git pair), `a7ce809` (always-on-top), `95af85f` (wsl_to_win).
+- Showing a repo-read error or a Wayland always-on-top failure would now mean adding the command back. The removed code is in git history: `ddc6c9b` (git pair), `503f61c` (always-on-top), `ce27696` (wsl_to_win).
 - The command-security decision record still lists seven permission groups; there are six now, without `window`.

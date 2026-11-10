@@ -8,37 +8,37 @@ Line numbers are from commit `14c68bd` and drift, so search by name. Items marke
 | Task | Area | Status |
 |---|---|---|
 | symlink-safety | Rust | **merged** (60e4eef) |
-| paste-conflicts | frontend | **merged** (2b26099) |
-| create-rename-conflicts | frontend | **merged** (ebd1571) |
-| no-clobber-fs | Rust, small | **merged** (7970a86) |
-| link-display | both, low priority | **merged** (8d30fa1) |
-| miller-names | frontend, small | **merged** (b6db33d) |
+| paste-conflicts | frontend | **merged** (3d23016) |
+| create-rename-conflicts | frontend | **merged** (e3f434b) |
+| no-clobber-fs | Rust, small | **merged** (e44d8b9) |
+| link-display | both, low priority | **merged** (1ae6a0d) |
+| miller-names | frontend, small | **merged** (5998a76) |
 | ui-fixes | frontend | **merged** (dfe77ca) |
 | tab-state | frontend | **merged** (971da66) |
-| undo-redo | frontend | **merged** (e1b7067) |
-| copy-undo-guard | frontend | **merged** (58daee0) |
+| undo-redo | frontend | **merged** (d6da1f2) |
+| copy-undo-guard | frontend | **merged** (91838d8) |
 | platform-paths | frontend | **merged** (2d9fcaf) |
 | backend-bugs | Rust | **merged** (3ece93d) |
-| linux-parity | Rust + a little frontend | **merged** (8d2b0a2) |
-| command-security | Rust + config | **merged** (885bd2a) |
-| local-fonts | frontend, small | **merged** (ff0327c) |
-| font-licenses | assets, small | **merged** (19e7dd0) |
-| notices-screen | frontend, small | **merged** (c595720) |
-| dependency-notices | both, small | **merged** (d78c583) |
-| script-kill-tree | Rust, small | **merged** (1fd8435) |
-| async-commands | Rust | **merged** (9c3eefe) |
-| pty-writer | Rust, small | **merged** (16293b0) |
-| pty-drain | Rust, small, low priority | **merged** (2868b88) |
+| linux-parity | Rust + a little frontend | **merged** (990c160) |
+| command-security | Rust + config | **merged** (a035aa3) |
+| local-fonts | frontend, small | **merged** (bfefd9a) |
+| font-licenses | assets, small | **merged** (79dd94a) |
+| notices-screen | frontend, small | **merged** (b548ce8) |
+| dependency-notices | both, small | **merged** (b2ee05c) |
+| script-kill-tree | Rust, small | **merged** (14c1a93) |
+| async-commands | Rust | **merged** (053bde0) |
+| pty-writer | Rust, small | **merged** (fc29a03) |
+| pty-drain | Rust, small, low priority | **merged** (8ce779e) |
 | op-progress | both | queued; unblocked (found by async-commands) |
-| dead-code | both | **merged** (frontend d61379a, Rust 27340c6) |
-| unsent-labels | frontend | **merged** (8828d97) |
-| test-coverage | both | **merged** (5a59187) |
-| copy-move-no-clobber | Rust, small; data loss | **merged** (86c6b52) |
-| bulk-rename-digits | frontend, small | **merged** (6cbc6dd) |
-| parser-fixes | Rust, tiny, low priority | **merged** (dd12285) |
+| dead-code | both | **merged** (frontend 2968133, Rust f705c10) |
+| unsent-labels | frontend | **merged** (d92b73f) |
+| test-coverage | both | **merged** (9c0f668) |
+| copy-move-no-clobber | Rust, small; data loss | **merged** (76342be) |
+| bulk-rename-digits | frontend, small | **merged** (5c2a577) |
+| parser-fixes | Rust, tiny, low priority | **merged** (51b5ac9) |
 | presentation | docs + small code | **merged**; GitHub text awaits the user |
-| pages-site | site (big project) | **merged** (6f72fd7); live on the next push |
-| split-big-files | both | **merged** (phase 1 4ba4550, phase 2 d028dfb) |
+| pages-site | site (big project) | **merged** (041e487); live on the next push |
+| split-big-files | both | **merged** (phase 1 df0378c, phase 2 228733d) |
 | shortcut-hints | frontend, small | queued (found by split-big-files) |
 
 Merge order is the table order: small, contained fixes go first, and broad changes go last, so the broad ones absorb the conflicts.

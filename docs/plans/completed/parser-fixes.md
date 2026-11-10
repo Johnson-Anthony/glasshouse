@@ -1,6 +1,6 @@
 # parser-fixes
 
-Branch: `claude/exciting-davinci-df48b1` (worktree `exciting-davinci-df48b1`), from main def0fb0. Rust only, in `commands.rs`, with tests in `commands/parser_tests.rs`.
+Branch: `claude/exciting-davinci-df48b1` (worktree `exciting-davinci-df48b1`), from main e730069. Rust only, in `commands.rs`, with tests in `commands/parser_tests.rs`.
 
 ## Status
 **Done 2026-11-10.** `pnpm build`, `pnpm test` (234), `pnpm check:wiring`, clippy `-D warnings` and `cargo test` (122 passed, 1 ignored; 4 new) pass on Linux arm64.

@@ -1,7 +1,7 @@
 # linux-parity
 
 Branch: `claude/elastic-heisenberg-27fb3b` · Backlog entry: `## linux-parity` in `survey-fixes.md`
-Started 2026-11-08 from `main` at `ee1dd9b`, which includes symlink-safety, ui-fixes and platform-paths.
+Started 2026-11-08 from `main` at `1c18c44`, which includes symlink-safety, ui-fixes and platform-paths.
 
 ## Status
 **Done 2026-11-08.** All seven items are implemented, with 10 new Rust unit tests (32 in total). The choices are recorded in `docs/decisions/2026-11-08-linux-parity-choices.md`. The lead session approved going ahead without a separate OK.

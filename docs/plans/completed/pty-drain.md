@@ -1,6 +1,6 @@
 # pty-drain
 
-Branch: `claude/cool-gauss-d234ca` (worktree `cool-gauss-d234ca`), started 2026-11-10 after `pty-writer` merged (`0805647`).
+Branch: `claude/cool-gauss-d234ca` (worktree `cool-gauss-d234ca`), started 2026-11-10 after `pty-writer` merged (`756052b`).
 Backlog entry: `## pty-drain` in `docs/plans/active/survey-fixes.md`. Sketch: "Known gap" in `docs/decisions/2026-11-08-pty-writer-queue.md`.
 
 ## Problem
@@ -31,7 +31,7 @@ On unix, a session can end (tab killed, or the program and shell exit) while its
 
 ## Status
 **Done** (2026-11-10).
-- [x] Merged `main` (`def0fb0`); verified the approach in Python
+- [x] Merged `main` (`e730069`); verified the approach in Python
 - [x] Stop flag, 4 KB pieces and `done` in `spawn_writer`
 - [x] `Drop for PtySession` and `unblock_writer`
 - [x] Tests: `killing_a_session_frees_a_writer_stuck_on_a_full_pty`, `exiting_frees_a_writer_stuck_on_a_full_pty` and `stop_ends_the_writer_after_its_current_piece`, plus the negative check

@@ -1,7 +1,7 @@
 # link-display
 
 Branch: `claude/elastic-heisenberg-27fb3b` · Backlog entry: `## link-display` in `survey-fixes.md`
-Started 2026-11-08 from `main` at `dc7628e`. It's a follow-up found by linux-parity.
+Started 2026-11-08 from `main` at `e79b362`. It's a follow-up found by linux-parity.
 
 ## Status
 **Done 2026-11-08.** Checks: `pnpm build` OK, `pnpm test` 183/183, `check:wiring` clean, clippy `-D warnings` clean, `cargo test` 67/67. In `pnpm tauri:dev` (stopped afterwards), a fixture repo showed `↪` on every link, kept it visible on a truncated long name, and put git dots only on the modified target and the untracked links. Miller columns weren't checked live.
@@ -9,7 +9,7 @@ Started 2026-11-08 from `main` at `dc7628e`. It's a follow-up found by linux-par
 ## Scope and approach
 
 ### 1. A symlink row shows its target's git status *(confirmed)*
-**Confirmed** with a failing test on `dc7628e`: a clean link to a modified file was labeled "M". Both sides of the lookup canonicalized the leaf path, which resolves a link to its target:
+**Confirmed** with a failing test on `e79b362`: a clean link to a modified file was labeled "M". Both sides of the lookup canonicalized the leaf path, which resolves a link to its target:
 - `list_dir` looked rows up by `canonicalize_soft(&fe.path)`;
 - `scan_repo_statuses` keyed entries by `dunce::canonicalize(workdir.join(rel))`.
 

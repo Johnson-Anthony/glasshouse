@@ -1,6 +1,6 @@
 # dependency-notices
 
-Branch: `claude/bold-haibt-91d29a` (worktree `bold-haibt-91d29a`). Backlog entry: `## dependency-notices` in `survey-fixes.md`, the follow-up from notices-screen (`docs/decisions/2026-11-08-notices-screen-dependency-licenses.md`). Assigned by the lead on 2026-11-10, starting from `main` at `3eedcfa`.
+Branch: `claude/bold-haibt-91d29a` (worktree `bold-haibt-91d29a`). Backlog entry: `## dependency-notices` in `survey-fixes.md`, the follow-up from notices-screen (`docs/decisions/2026-11-08-notices-screen-dependency-licenses.md`). Assigned by the lead on 2026-11-10, starting from `main` at `c9d2f86`.
 
 ## Scope
 - Add "npm packages" and "Rust crates" groups to Help → Third-party Notices, filtered to what ships for each platform.
@@ -31,7 +31,7 @@ Branch: `claude/bold-haibt-91d29a` (worktree `bold-haibt-91d29a`). Backlog entry
 - **This machine:** cargo-about 0.9.3 installed (`--features cli`), recorded in `~/.claude/environment.md`.
 
 ## Status
-Done 2026-11-10. `main` `3eedcfa` merged in at the start, then pty-drain before the final checks.
+Done 2026-11-10. `main` `c9d2f86` merged in at the start, then pty-drain before the final checks.
 - **New:** `scripts/gen-notices.mjs`, `src-tauri/about.toml`, the generated `src/assets/third-party.json`, the `notices` job in `ci.yml`, and the `pnpm notices` script.
 - **Changed:** `notices.ts` (group, label, `dependencyNotices`), `noticesData.ts` (imports the JSON), `Notices.tsx` (groups, filter box, links only in font files), `src-tauri/Cargo.toml` (`license = "MIT"`).
 - **Tests:** `src/notices.test.ts` has 13. The 5 new ones check the data's shape, the platform tags (`tauri` on both, `webkit2gtk` Linux-only, `webview2-com` Windows-only), libgit2's bundled license, the per-platform filter, and the notice text format.

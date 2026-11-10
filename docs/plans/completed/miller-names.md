@@ -1,7 +1,7 @@
 # miller-names
 
 Branch: `claude/elastic-heisenberg-27fb3b` · Backlog entry: `## miller-names` in `survey-fixes.md`
-Found 2026-11-08 by link-display. Fixed in `b6db33d`, which the lead merged as `d2b0e32`. These docs follow on top of that.
+Found 2026-11-08 by link-display. Fixed in `5998a76`, which the lead merged as `de88afe`. These docs follow on top of that.
 
 ## Status
 **Done 2026-11-10.** Checks: `pnpm build` OK, `pnpm test` 233/233, `check:wiring` clean. This is a frontend-only change; cargo wasn't run.

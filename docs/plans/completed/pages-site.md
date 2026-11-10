@@ -1,6 +1,6 @@
 # pages-site
 
-Turn the GitHub Pages site (`docs/index.html`) into an interactive showcase that sells the app with its visuals. Backlog entry: `## pages-site` in `survey-fixes.md` (main commit 62013c8).
+Turn the GitHub Pages site (`docs/index.html`) into an interactive showcase that sells the app with its visuals. Backlog entry: `## pages-site` in `survey-fixes.md` (main commit a531619).
 
 ## Status
 **Done** (2026-11-08). All six milestones are complete. `pnpm build`, `pnpm test` (171 tests, including 21 for the demo's mock) and `pnpm site:build` pass, and `pnpm site:capture check` passes 18 behavior checks in headless Chromium: tour playback, theme sync both ways, the live demo and walkthroughs, Esc twice out of the demo, reduced motion, phones at 320/375/414 px, no console errors, Jekyll-safe names, and a first view of 143 KB.

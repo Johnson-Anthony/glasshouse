@@ -1,6 +1,6 @@
 # bulk-rename-digits
 
-Branch: `claude/exciting-davinci-df48b1` (worktree `exciting-davinci-df48b1`), from main 5ec205c. Frontend only.
+Branch: `claude/exciting-davinci-df48b1` (worktree `exciting-davinci-df48b1`), from main 06f1295. Frontend only.
 
 ## Status
 **Done 2026-11-10.** `pnpm build`, `pnpm test` (232 passed, was 231) and `pnpm check:wiring` pass. Checked in the browser-only dev server (`vite` with `?mockRows=4`): the preview goes `001_` → `01_` → `000000001_` as digits goes 3 → 2 → 20 (clamped to 9). No console errors.

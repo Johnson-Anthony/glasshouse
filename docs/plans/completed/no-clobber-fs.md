@@ -1,6 +1,6 @@
 # no-clobber-fs
 
-Branch: `claude/bold-haibt-91d29a` (worktree `bold-haibt-91d29a`, the backend-bugs session). Backlog entry: `## no-clobber-fs` in `survey-fixes.md`. Assigned by the lead on 2026-11-08, starting from `main` at `eaa5e44`.
+Branch: `claude/bold-haibt-91d29a` (worktree `bold-haibt-91d29a`, the backend-bugs session). Backlog entry: `## no-clobber-fs` in `survey-fixes.md`. Assigned by the lead on 2026-11-08, starting from `main` at `7eb4511`.
 
 ## Scope
 The frontend checks a name (create-rename-conflicts) and then writes, and a few milliseconds pass in between. This task makes the backend refuse an existing target atomically, so nothing that appears in that gap gets emptied, replaced or reused:
@@ -69,7 +69,7 @@ The frontend checks a name (create-rename-conflicts) and then writes, and a few 
 - **Seen in passing (mock mode only):** with `?mockRows`, the palette's Enter that runs New Folder also submits the prompt it opens, because the mock listing resolves within the same key event. Real IPC resolves later, and this was the same before this change.
 
 ## Status
-Done 2026-11-08. `main` merged in twice: `eaa5e44` at the start, and `edc3684` (command-security, unsent-labels, local-fonts) before the final checks. The only conflict was at the end of the `commands.rs` tests module, where both sides had appended tests; both sets are kept.
+Done 2026-11-08. `main` merged in twice: `7eb4511` at the start, and `73d472a` (command-security, unsent-labels, local-fonts) before the final checks. The only conflict was at the end of the `commands.rs` tests module, where both sides had appended tests; both sets are kept.
 - Rust (`commands.rs`): `no_clobber_err`, `rename_no_replace` with `rename_no_replace_os` (Linux, Windows, other unix), `rename_after_check`, `is_case_only_self_rename` and `same_entry`; new bodies for `write_text`, `make_dir` and `rename_entry`. `libc` became a direct Linux dependency (already in the lock file). Seven new tests.
 - Frontend: `api.ts` (`createTextFile`, `ensureDir`, `isAlreadyExists`), `components.tsx` (prompt `submit`), `transferUi.ts` (`unlessTaken`), `names.ts` (`takenProblem`), and the call sites in `App.tsx`, `handlers/misc.ts`, `handlers/tools.ts` and `undoActions.ts`. Five new vitest tests in `src/noClobber.test.ts`.
 - Checks on the merged tree (Linux arm64): `pnpm build` ok · `pnpm test` 160 passed · `pnpm check:wiring` 0 unwired, 0 unsent · `RUSTFLAGS="-D warnings" cargo clippy --all-targets` clean · `cargo test` 63 passed.

@@ -5,8 +5,8 @@ Backlog section: `## dead-code` in `docs/plans/active/survey-fixes.md`.
 
 ## Status
 **Done 2026-11-08.** The lead approved implementing without a user check-in, and approved the Rust list.
-- Frontend part: merged into main as `b46f53b` (branch commit `d61379a`).
-- Rust part: `be03654`..`d5a23e9` on this branch, on top of main `833959e` (merged in at `42f69dd`). Shared hash loop, five dependencies dropped, rust-version 1.88, five uncalled commands removed (with `discover_repo`, `gtk_uses_wayland` and the `window` permission group), Cargo.lock updated.
+- Frontend part: merged into main as `ad66d6e` (branch commit `2968133`).
+- Rust part: `b653e4e`..`8e11937` on this branch, on top of main `718bca5` (merged in at `9b88ea7`). Shared hash loop, five dependencies dropped, rust-version 1.88, five uncalled commands removed (with `discover_repo`, `gtk_uses_wayland` and the `window` permission group), Cargo.lock updated.
 - Checks on the final commit: `pnpm build` OK, `pnpm test` 151/151, `pnpm check:wiring` 0 in every category, `RUSTFLAGS="-D warnings" cargo clippy --all-targets` clean, `cargo test` 53/53 (new `hashes_match_known_digests_across_chunks`; reworked `upstream_ahead_behind_counts_and_nothing_to_compare`, `git_status_outside_a_repo_is_none`). Linux only: `cfg(windows)` code wasn't compiled, but none of it changed.
 - Beyond the backlog: Select by Tag now works (the audit flagged it as theater); cut rows dim again (dead `dimmed` inline opacity); the dead `Go to Path:<target>` dispatch is gone; unused `HandlerCtx.openTweaks`/`openPalette` removed. The follow-up `unsent-labels` ran on this branch too (`docs/plans/completed/unsent-labels.md`).
 

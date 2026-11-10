@@ -34,7 +34,7 @@ Out of scope:
 - Tests: `src/transfer.test.ts`, 28 tests (names, path containment, planning on both platforms, the run loop with fake deps, messages).
 
 ## Status
-Done, and merged with `main` at `75de4a9` (conflicts in App.tsx, api.ts, components.tsx and both handlers, resolved onto main's `paths.ts` helpers and `readDir`). `pnpm build` and `pnpm test` pass after the merge (9 files, 108 tests). `transfer.ts` now uses `pathOps(windows)` from main's `paths.ts` instead of its own path key. Checked in the Vite dev server: the conflict dialog renders; Enter, Esc and the buttons resolve correctly; `runTransfer` with stubbed fs calls trashes then copies on replace and reports a failed trash without touching the item; and Edit → Paste with no backend refuses with "can't read /" instead of copying. Not run against the real Tauri backend (frontend-only task, no cargo build).
+Done, and merged with `main` at `4882c08` (conflicts in App.tsx, api.ts, components.tsx and both handlers, resolved onto main's `paths.ts` helpers and `readDir`). `pnpm build` and `pnpm test` pass after the merge (9 files, 108 tests). `transfer.ts` now uses `pathOps(windows)` from main's `paths.ts` instead of its own path key. Checked in the Vite dev server: the conflict dialog renders; Enter, Esc and the buttons resolve correctly; `runTransfer` with stubbed fs calls trashes then copies on replace and reports a failed trash without touching the item; and Edit → Paste with no backend refuses with "can't read /" instead of copying. Not run against the real Tauri backend (frontend-only task, no cargo build).
 
 ## For review
 - [Conflict policy](../../decisions/2026-11-08-paste-conflicts-policy.md):

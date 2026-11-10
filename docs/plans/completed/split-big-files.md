@@ -1,15 +1,15 @@
 # split-big-files
 
-Branch: `claude/exciting-davinci-df48b1` (worktree `exciting-davinci-df48b1`), from main 54a1e15. Both frontend and Rust; the only session running.
+Branch: `claude/exciting-davinci-df48b1` (worktree `exciting-davinci-df48b1`), from main c61fb3c. Both frontend and Rust; the only session running.
 
 ## Status
 **Done 2026-11-10.** Phase 1 (pure moves) and phase 2 (App.tsx routing) are both done. All checks pass after every commit: build, vitest (262), check:wiring, site:build, notices --check, clippy `-D warnings`, cargo test (124 + 1 ignored).
 
-- [x] Phase 1a: `components.tsx` → `menus.tsx`, `Sidebar.tsx`, `preview/`, `dialogs/` (one commit each: 07ed7c4, dbb3ef7, 2a08bb4, a2018de). `components.tsx` 6132 → 1127 lines. UI smoke-tested in the browser-only dev server (menus, Bulk Rename, About, Keybindings, Inspector preview).
-- [x] Phase 1b: `commands.rs` → `commands/` modules; shell profiles → `pty/profiles.rs` (3efa85d). `commands.rs` 5381 → 17 lines.
+- [x] Phase 1a: `components.tsx` → `menus.tsx`, `Sidebar.tsx`, `preview/`, `dialogs/` (one commit each: 77c3fc7, 0d1dbd5, 1b939f0, 391616b). `components.tsx` 6132 → 1127 lines. UI smoke-tested in the browser-only dev server (menus, Bulk Rename, About, Keybindings, Inspector preview).
+- [x] Phase 1b: `commands.rs` → `commands/` modules; shell profiles → `pty/profiles.rs` (bae2d12). `commands.rs` 5381 → 17 lines.
 - [x] Phase 1 reported to the lead
-- [x] Phase 2a: keymap table, `src/keymap.ts` (7858ab2)
-- [x] Phase 2b: `handleMenuCommand`/`doFileOp` → `COMMAND_CHAIN` handlers (699bf29). App.tsx went from 2301 to 1366 lines over the two commits.
+- [x] Phase 2a: keymap table, `src/keymap.ts` (821adf7)
+- [x] Phase 2b: `handleMenuCommand`/`doFileOp` → `COMMAND_CHAIN` handlers (73a4714). App.tsx went from 2301 to 1366 lines over the two commits.
 
 ### How the moves were made
 - **Frontend:** a throwaway script on the TypeScript compiler API moved line ranges verbatim and used the type checker to write each file's imports and to add `export` where another file now needs a declaration (`SEED_TAGS`, `TAG_COLOR_MAP`, `kindIcon`, `tagColor`, `AUDIO_EXTS`). It also rewrote importers. Hand edits: `routing.test.ts`'s `vi.mock` path and the demo's dynamic `import()` of `dialogs`.

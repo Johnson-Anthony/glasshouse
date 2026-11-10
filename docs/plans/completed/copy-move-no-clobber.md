@@ -1,6 +1,6 @@
 # copy-move-no-clobber
 
-Branch: `claude/bold-haibt-91d29a` (worktree `bold-haibt-91d29a`). Backlog entry: `## copy-move-no-clobber` in `survey-fixes.md`. Assigned by the lead on 2026-11-08; `main` `5ec205c` is merged in.
+Branch: `claude/bold-haibt-91d29a` (worktree `bold-haibt-91d29a`). Backlog entry: `## copy-move-no-clobber` in `survey-fixes.md`. Assigned by the lead on 2026-11-08; `main` `06f1295` is merged in.
 
 ## Scope (from the lead)
 - `copy_entry` and `move_entry` refuse an existing target by default, as no-clobber-fs did for `write_text`, `make_dir` and `rename_entry`:
@@ -36,7 +36,7 @@ Branch: `claude/bold-haibt-91d29a` (worktree `bold-haibt-91d29a`). Backlog entry
 - **Behavior change:** moving a folder onto an existing *empty* folder now fails. On Linux, `fs::rename` used to replace the empty folder.
 
 ## Status
-Done 2026-11-10. `main` `dff95f7` merged in, then miller-names before the final checks.
+Done 2026-11-10. `main` `0e2cffb` merged in, then miller-names before the final checks.
 - **`commands.rs`:**
   - `copy_entry` creates the top entry itself (`create_dir`, no-clobber file copy, or symlink), and only that gets `no_clobber_err`;
   - `copy_dir_recursive` / `copy_dir_contents` use `create_dir`;

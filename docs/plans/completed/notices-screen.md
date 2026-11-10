@@ -1,6 +1,6 @@
 # notices-screen
 
-Branch: `claude/bold-haibt-91d29a` (worktree `bold-haibt-91d29a`, same session as backend-bugs and no-clobber-fs). Backlog entry: `## notices-screen` in `survey-fixes.md`. Assigned by the lead on 2026-11-08, starting from `main` at `7b94d09`. Frontend only: no cargo, no tauri dev.
+Branch: `claude/bold-haibt-91d29a` (worktree `bold-haibt-91d29a`, same session as backend-bugs and no-clobber-fs). Backlog entry: `## notices-screen` in `survey-fixes.md`. Assigned by the lead on 2026-11-08, starting from `main` at `bc5a919`. Frontend only: no cargo, no tauri dev.
 
 ## Scope
 - An About → Third-party notices view that shows the bundled font licenses in `src/assets/fonts`, with `LICENSES.md` as the index.
@@ -27,7 +27,7 @@ Branch: `claude/bold-haibt-91d29a` (worktree `bold-haibt-91d29a`, same session a
 - **Plain text, no Markdown rendering:** only links to other bundled notices are clickable; web links stay text (the app makes no third-party requests).
 
 ## Status
-Done 2026-11-08, on `main` `7b94d09`, then `7d9eedb` (script-kill-tree, Rust only) merged before the final checks.
+Done 2026-11-08, on `main` `bc5a919`, then `c8c52d2` (script-kill-tree, Rust only) merged before the final checks.
 - **New files:**
   - `src/notices.ts`: ordering, folder groups, link resolution;
   - `src/noticesData.ts`: the `?raw` glob, a lazy chunk of 92 KB (19 KB gzipped) that the main bundle doesn't contain;
