@@ -134,7 +134,7 @@ export function MillerView({
                    className={"mrow" + (normalizePath(e.path) === cwdNorm ? " hilite" : "") + (e.hidden ? " dim" : "")}
                    onClick={() => { if (e.kind === "folder") onNavigate(e.path); }}>
                 <span className="mic">{rowIcon(e)}</span>
-                <span className="mname">{e.name}{e.ext && e.kind !== "folder" ? `.${e.ext}` : ""}</span>
+                <span className="mname">{e.name}</span>
                 {e.is_symlink && <LinkMark />}
               </div>
             ))}
@@ -149,7 +149,7 @@ export function MillerView({
                  else onOpenFile(e.path);
                }}>
             <span className="mic">{rowIcon(e)}</span>
-            <span className="mname">{e.name}{e.ext && e.kind !== "folder" ? `.${e.ext}` : ""}</span>
+            <span className="mname">{e.name}</span>
             {e.is_symlink && <LinkMark />}
             {e.kind !== "folder" && <span className="msize">{fmtBytes(e.size)}</span>}
           </div>
@@ -166,7 +166,7 @@ export function MillerView({
                      className={"mrow" + (e.hidden ? " dim" : "")}
                      onClick={() => onNavigate(focused.path)}>
                   <span className="mic">{rowIcon(e)}</span>
-                  <span className="mname">{e.name}{e.ext && e.kind !== "folder" ? `.${e.ext}` : ""}</span>
+                  <span className="mname">{e.name}</span>
                   {e.is_symlink && <LinkMark />}
                 </div>
               ))
@@ -174,7 +174,7 @@ export function MillerView({
         )}
         {focused && focused.kind !== "folder" && (
           <div className="mpreview">
-            <div className="mp-name">{focused.name}{focused.ext ? `.${focused.ext}` : ""}</div>
+            <div className="mp-name">{focused.name}</div>
             <div className="mp-line">kind <span>{focused.kind}</span></div>
             <div className="mp-line">size <span>{fmtBytes(focused.size)}</span></div>
             <div className="mp-line">modified <span>{new Date(focused.modified_ms).toLocaleString()}</span></div>
