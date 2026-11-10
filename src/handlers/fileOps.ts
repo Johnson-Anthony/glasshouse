@@ -6,7 +6,7 @@ import type { BulkRenameItem } from "../dialogs/BulkRename";
 import { namesIn, unlessTaken, asItems, transferDeps, pushTransferUndo, reportTransfer } from "../transferUi";
 import { nameProblem, freeNewName } from "../names";
 import { pushUndo } from "../state";
-import { moveUndo, createUndo } from "../undoActions";
+import { moveUndo, createUndo, type Created } from "../undoActions";
 import { IS_WINDOWS } from "../platform";
 import { isCancelled, runOp } from "../ops";
 import { type TransferOp, runTransfer, type TransferItem, type TransferResult } from "../transfer";
@@ -16,6 +16,30 @@ import type { Handler } from "./types";
 import { selectedOrFirst } from "./helpers";
 import { cmdState } from "../commandState";
 import { errText } from "../errors";
+
+/** New Folder, Text File, Markdown Note and Script: prompt for a free name in
+ *  `cwd`, create it, and push an undo entry that removes it. */
+async function createNew(
+  cwd: string,
+  refresh: () => void,
+  what: Created,
+  text: { title: string; message: string; base: string; placeholder: string; noun: string },
+): Promise<void> {
+  const taken = await namesIn(cwd);
+  const name = await dialogs.showPrompt({
+    title: text.title,
+    message: text.message,
+    initialValue: freeNewName(text.base, what.kind === "folder", taken.has),
+    placeholder: text.placeholder,
+    validate: (v) => nameProblem(v, taken),
+    submit: (v) => unlessTaken(v, () =>
+      what.kind === "folder" ? makeDir(joinPath(cwd, v)) : createTextFile(joinPath(cwd, v), what.content)),
+  });
+  if (!name) return;
+  const dst = joinPath(cwd, name);
+  pushUndo(createUndo(`new ${text.noun} ${name}`, dst, what));
+  refresh();
+}
 
 // File and selection commands for the active tab: open, rename, delete,
 // clipboard, new files, tags, git per-file. With no tab it takes every
@@ -215,71 +239,26 @@ export const fileOpsHandler: Handler = async (label, ctx) => {
       return true;
     }
     case "New Folder":
-    case "Folder": {
-      const taken = await namesIn(cwd);
-      const name = await dialogs.showPrompt({
-        title: "new folder",
-        message: "folder name:",
-        initialValue: freeNewName("new-folder", true, taken.has),
-        placeholder: "folder-name",
-        validate: (v) => nameProblem(v, taken),
-        submit: (v) => unlessTaken(v, () => makeDir(joinPath(cwd, v))),
+    case "Folder":
+      await createNew(cwd, refresh, { kind: "folder" }, {
+        title: "new folder", message: "folder name:", base: "new-folder", placeholder: "folder-name", noun: "folder",
       });
-      if (!name) return true;
-      const dst = joinPath(cwd, name);
-      pushUndo(createUndo(`new folder ${name}`, dst, { kind: "folder" }));
-      refresh();
       return true;
-    }
-    case "Text File": {
-      const taken = await namesIn(cwd);
-      const name = await dialogs.showPrompt({
-        title: "new text file",
-        message: "file name:",
-        initialValue: freeNewName("untitled.txt", false, taken.has),
-        placeholder: "name.txt",
-        validate: (v) => nameProblem(v, taken),
-        submit: (v) => unlessTaken(v, () => createTextFile(joinPath(cwd, v), "")),
+    case "Text File":
+      await createNew(cwd, refresh, { kind: "file", content: "" }, {
+        title: "new text file", message: "file name:", base: "untitled.txt", placeholder: "name.txt", noun: "file",
       });
-      if (!name) return true;
-      const dst = joinPath(cwd, name);
-      pushUndo(createUndo(`new file ${name}`, dst, { kind: "file", content: "" }));
-      refresh();
       return true;
-    }
-    case "Markdown Note": {
-      const taken = await namesIn(cwd);
-      const name = await dialogs.showPrompt({
-        title: "new markdown note",
-        message: "note name:",
-        initialValue: freeNewName("note.md", false, taken.has),
-        placeholder: "note.md",
-        validate: (v) => nameProblem(v, taken),
-        submit: (v) => unlessTaken(v, () => createTextFile(joinPath(cwd, v), "")),
+    case "Markdown Note":
+      await createNew(cwd, refresh, { kind: "file", content: "" }, {
+        title: "new markdown note", message: "note name:", base: "note.md", placeholder: "note.md", noun: "note",
       });
-      if (!name) return true;
-      const dst = joinPath(cwd, name);
-      pushUndo(createUndo(`new note ${name}`, dst, { kind: "file", content: "" }));
-      refresh();
       return true;
-    }
-    case "Script (.sh)": {
-      const script = "#!/usr/bin/env bash\n";
-      const taken = await namesIn(cwd);
-      const name = await dialogs.showPrompt({
-        title: "new shell script",
-        message: "script name:",
-        initialValue: freeNewName("script.sh", false, taken.has),
-        placeholder: "script.sh",
-        validate: (v) => nameProblem(v, taken),
-        submit: (v) => unlessTaken(v, () => createTextFile(joinPath(cwd, v), script)),
+    case "Script (.sh)":
+      await createNew(cwd, refresh, { kind: "file", content: "#!/usr/bin/env bash\n" }, {
+        title: "new shell script", message: "script name:", base: "script.sh", placeholder: "script.sh", noun: "script",
       });
-      if (!name) return true;
-      const dst = joinPath(cwd, name);
-      pushUndo(createUndo(`new script ${name}`, dst, { kind: "file", content: script }));
-      refresh();
       return true;
-    }
     case "Duplicate": {
       if (selectedPaths.length === 0) return true;
       // Each item is copied next to itself, so it always gets a free
