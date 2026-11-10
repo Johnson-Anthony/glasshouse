@@ -325,8 +325,11 @@ function entryToRow(
   tagStore: Record<string, string[]>,
 ): InspectableFile {
   const kind = kindFromEntry(e.kind);
-  const nameNoExt = e.ext && e.name.toLowerCase().endsWith("." + e.ext.toLowerCase())
-    ? e.name.slice(0, -(e.ext.length + 1))
+  // A folder's name is shown whole: `list_dir` gives `foo.d` the extension
+  // "d", but it isn't one, and the pane never draws a folder's extension.
+  const ext = kind === "folder" ? "" : e.ext;
+  const nameNoExt = ext && e.name.toLowerCase().endsWith("." + ext.toLowerCase())
+    ? e.name.slice(0, -(ext.length + 1))
     : e.name;
   const rowTags = tagStore[e.path];
   const firstTag = rowTags && rowTags.length > 0 ? rowTags[0] : null;
@@ -338,7 +341,7 @@ function entryToRow(
     tag: firstTag,
     git: normalizeGit(e.git),
     hidden: e.hidden,
-    ext: e.ext,
+    ext,
     link: e.is_symlink,
     entry: e,
   };
