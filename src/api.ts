@@ -149,7 +149,8 @@ function mockRows(): FileEntry[] {
   for (let i = 0; i < n; i++) {
     const dir = i % 10 === 0;
     out.push({
-      name: dir ? `folder-${i}` : `file-${i}`,
+      // Real entries' names include the extension; match that shape.
+      name: dir ? `folder-${i}` : `file-${i}.${exts[i % exts.length]}`,
       path: `/mock/${i}`,
       kind: dir ? "folder" : kinds[i % kinds.length],
       size: (i * 37) % 1_000_000,

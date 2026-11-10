@@ -35,6 +35,9 @@ The async-commands pathspec scoping is unchanged.
 - **Miller columns:** the same marker on rows in all three columns.
 - **Not included:** the sidebar folder tree.
 
+### 3. Miller double extension
+Found here and fixed as its own task, `miller-names`; see `docs/plans/completed/miller-names.md`.
+
 ## Files
 `src-tauri/src/commands.rs` (list_dir, scan_repo_statuses, one test), `src/data.ts`, `src/App.tsx` (entryToRow), `src/components.tsx` (PaneRow), `src/Miller.tsx`, `src/styles/app.css`. Docs: this plan and `docs/decisions/2026-11-08-link-display-marker.md`.
 
@@ -43,4 +46,4 @@ The async-commands pathspec scoping is unchanged.
 
 ## For review
 - Marker glyph and color: `↪` in `--cyan`, after the name.
-- Out of scope, sent to the lead: Miller shows the extension twice (`README.md.md`), because it appends `.ext` to a `FileEntry.name` that already includes it.
+- The Miller double-extension bug, found here, became the `miller-names` task.

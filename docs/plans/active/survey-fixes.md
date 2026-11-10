@@ -12,7 +12,7 @@ Line numbers are from commit `14c68bd` and drift, so search by name. Items marke
 | create-rename-conflicts | frontend | **merged** (ebd1571) |
 | no-clobber-fs | Rust, small | **merged** (7970a86) |
 | link-display | both, low priority | **merged** (8d30fa1) |
-| miller-names | frontend, small | running (linux-parity session; found by link-display) |
+| miller-names | frontend, small | **merged** (b6db33d) |
 | ui-fixes | frontend | **merged** (dfe77ca) |
 | tab-state | frontend | **merged** (971da66) |
 | undo-redo | frontend | **merged** (e1b7067) |
@@ -34,7 +34,7 @@ Line numbers are from commit `14c68bd` and drift, so search by name. Items marke
 | unsent-labels | frontend | **merged** (8828d97) |
 | test-coverage | both | **merged** (5a59187) |
 | copy-move-no-clobber | Rust, small; data loss | running (backend-bugs session; resumed 2026-11-10 after the usage limit) |
-| bulk-rename-digits | frontend, small | running (test-coverage session; found by test-coverage) |
+| bulk-rename-digits | frontend, small | **merged** (6cbc6dd) |
 | parser-fixes | Rust, tiny, low priority | queued (found by test-coverage) |
 | presentation | docs + small code | **merged**; GitHub text awaits the user |
 | pages-site | site (big project) | **merged** (6f72fd7); live on the next push |
