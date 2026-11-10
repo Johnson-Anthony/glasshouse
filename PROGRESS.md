@@ -1,6 +1,7 @@
 # Progress
 
 ## Done
+- 2026-11-10: Merged `copy-move-no-clobber` (86c6b52). `copy_entry` and `move_entry` refuse an existing target: files are created new (CopyFileW with fail-if-exists on Windows), folders are never merged into, and moves use no-replace rename, including the cross-device copy fallback. There's no replace mode, because every caller trashes the old item first. Behavior change: moving a folder onto an existing empty folder now fails. See `docs/decisions/2026-11-10-copy-move-no-clobber-no-replace-mode.md`.
 - 2026-11-10: Merged `bulk-rename-digits` (6cbc6dd). Bulk Rename's `{n}` pads to the digits field (default 3, clamped to 1–9), and `{n:W}` still overrides it. Open design question for the user: turning numbering on without a `{n}` token does nothing. See `docs/decisions/2026-11-10-bulk-rename-digits-field.md`.
 - 2026-11-10: Merged `miller-names` (b6db33d). Miller columns show each file name once, not "README.md.md". `src/Miller.test.tsx` covers it, and the `?mockRows` mock entries now carry their extension like real entries do. Also loosened `pty::output_tests::invalid_bytes_still_come_through_as_replacements`, which failed once under load because of a trailing CRLF.
 - 2026-11-10: Merged `link-display` (8d30fa1). A cyan ↪ marks symlinks in the file list and Miller columns. A symlink row gets its own git label, not its target's: the label scan no longer canonicalizes the leaf path. See `docs/decisions/2026-11-08-link-display-marker.md`. Known limit: on Windows, a file whose on-disk case differs from git's index loses its label.
@@ -83,7 +84,7 @@
 5. Tag a v0.2.0 release once the pass is merged and CI is green.
 
 ## Broken / known issues
-- `copy_entry` and `move_entry` can still replace an item that appears at the destination after the paste planner's check (task `copy-move-no-clobber`).
+- Windows-only code that no machine here has compiled: CopyFileW in `copy_file_no_clobber`, plus the earlier command-security, no-clobber-fs and script-kill-tree pieces. Windows CI is their first build.
 - Renames can still race where `renameat2(RENAME_NOREPLACE)` isn't available (non-Linux unix, NFS, older FUSE), which falls back to check-then-rename. no-clobber-fs's Windows code (`MoveFileExW`, file-id identity) is uncompiled until Windows CI.
 - Unix: if a terminal session ends while its pty input is full, its writer thread and pty stay until the app exits (task `pty-drain`). The UI isn't affected.
 - Windows is untested for the scoped git-label scan. If `list_dir_git_labels_scan_only_the_listed_folder` fails on Windows CI after the first push, the scan falls back to the whole repo there: labels stay correct, but the test needs adjusting.

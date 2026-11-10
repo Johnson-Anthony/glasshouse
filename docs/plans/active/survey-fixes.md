@@ -33,7 +33,7 @@ Line numbers are from commit `14c68bd` and drift, so search by name. Items marke
 | dead-code | both | **merged** (frontend d61379a, Rust 27340c6) |
 | unsent-labels | frontend | **merged** (8828d97) |
 | test-coverage | both | **merged** (5a59187) |
-| copy-move-no-clobber | Rust, small; data loss | running (backend-bugs session; resumed 2026-11-10 after the usage limit) |
+| copy-move-no-clobber | Rust, small; data loss | **merged** (86c6b52) |
 | bulk-rename-digits | frontend, small | **merged** (6cbc6dd) |
 | parser-fixes | Rust, tiny, low priority | queued (found by test-coverage) |
 | presentation | docs + small code | **merged**; GitHub text awaits the user |
