@@ -591,9 +591,11 @@ export function App() {
         }
       }
 
-      // Escape closes overlays without consuming the key.
+      // Escape closes overlays without consuming the key. A dismissed context
+      // menu's target goes too, so a later key can't act on it.
       if (e.key === "Escape") {
         setPalOpen(false); setCtx(null); setQuickLookOpen(false);
+        cmdState.contextTarget = null;
       }
 
       // ── Pane cycling (Tab / Shift+Tab / F6 / Shift+F6) ──────────────────
@@ -1252,7 +1254,7 @@ export function App() {
       />
 
       {palOpen && <Palette onClose={() => setPalOpen(false)} onCommand={handleMenuCommand} />}
-      {ctx && <ContextMenu items={ctx.items} x={ctx.x} y={ctx.y} onClose={() => setCtx(null)} onCommand={handleMenuCommand} onPayload={handleMenuPayload} />}
+      {ctx && <ContextMenu items={ctx.items} x={ctx.x} y={ctx.y} onClose={() => { setCtx(null); cmdState.contextTarget = null; }} onCommand={handleMenuCommand} onPayload={handleMenuPayload} />}
       {quickLookOpen && selectedFile && (
         <QuickLook file={selectedFile} onClose={() => setQuickLookOpen(false)} />
       )}
