@@ -3,6 +3,7 @@ import type { FileKind } from "../data";
 import { listDir, readHexDump, readImageB64, readText, type FileEntry } from "../api";
 import { kindIcon } from "../components";
 import type { InspectableFile } from "./Inspector";
+import { errText } from "../errors";
 
 // Heuristic: text-like if kind is text/code OR extension matches a plain-text
 // family. Used so the preview can attempt to render small config files that
@@ -187,7 +188,7 @@ function HexPreview({ path, large }: { path: string; large: boolean }) {
         const d = await readHexDump(path, 0, large ? 4096 : 512);
         if (!cancelled) setDump(d);
       } catch (e) {
-        if (!cancelled) setErr(e instanceof Error ? e.message : String(e));
+        if (!cancelled) setErr(errText(e));
       }
     })();
     return () => { cancelled = true; };
@@ -347,7 +348,7 @@ function PdfPreview({ file, large }: { file: InspectableFile; large: boolean }) 
       } catch (e) {
         if (!cancelled) {
           setLoading(false);
-          setErr(e instanceof Error ? e.message : String(e));
+          setErr(errText(e));
         }
       }
     })();
@@ -386,7 +387,7 @@ function AudioPreview({ file }: { file: InspectableFile }) {
         const url = await readImageB64(file.entry.path, AUDIO_CAP);
         if (!cancelled) setSrc(url);
       } catch (e) {
-        if (!cancelled) setErr(e instanceof Error ? e.message : String(e));
+        if (!cancelled) setErr(errText(e));
       }
     })();
     return () => { cancelled = true; };
@@ -449,7 +450,7 @@ export function FilePreview({ file: f, large = false, onExpand }: FilePreviewPro
         if (looksBinary(t)) setSniffedBinary(true);
         else setText(t);
       } catch (err) {
-        if (!cancelled) setTextErr(err instanceof Error ? err.message : String(err));
+        if (!cancelled) setTextErr(errText(err));
       } finally {
         if (!cancelled) setTextLoading(false);
       }
@@ -472,7 +473,7 @@ export function FilePreview({ file: f, large = false, onExpand }: FilePreviewPro
         const dataUrl = await readImageB64(f.entry.path, 8 * 1024 * 1024);
         if (!cancelled) setImgSrc(dataUrl);
       } catch (err) {
-        if (!cancelled) setImgErr(err instanceof Error ? err.message : String(err));
+        if (!cancelled) setImgErr(errText(err));
       } finally {
         if (!cancelled) setImgLoading(false);
       }
@@ -489,7 +490,7 @@ export function FilePreview({ file: f, large = false, onExpand }: FilePreviewPro
         const dataUrl = await readImageB64(f.entry.path, 64 * 1024 * 1024);
         setImgSrc(dataUrl);
       } catch (err) {
-        setImgErr(err instanceof Error ? err.message : String(err));
+        setImgErr(errText(err));
       } finally {
         setImgLoading(false);
       }

@@ -20,6 +20,7 @@ import {
 import { runTransfer, type TransferItem } from "../transfer";
 import { transferDeps } from "../transferUi";
 import { isCancelled, runOp } from "../ops";
+import { errText } from "../errors";
 
 const clipboardStack: string[][] = [];
 
@@ -60,7 +61,7 @@ export const toolsHandler: Handler = async (label, ctx) => {
       try {
         await openWithDefaultStrict(p);
       } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
+        const msg = errText(e);
         console.log(`[tools] openWithDefault failed for ${p}:`, e);
         void dialogs.showAlert({ title: `${label} failed`, message: msg, variant: "error" });
       }
@@ -92,7 +93,7 @@ export const toolsHandler: Handler = async (label, ctx) => {
         const output = await runScript(cmd.trim(), [p]);
         void dialogs.showAlert({ title: cmd, message: output || "(no output)" });
       } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
+        const msg = errText(e);
         console.log(`[tools] Custom Command failed (cmd=${cmd}):`, e);
         void dialogs.showAlert({ title: "command failed", variant: "error", message: msg });
       }
@@ -120,7 +121,7 @@ export const toolsHandler: Handler = async (label, ctx) => {
           } catch (e) {
             if (isCancelled(e)) return true;
             failed++;
-            const msg = e instanceof Error ? e.message : String(e);
+            const msg = errText(e);
             lines.push(`${p}\n(failed: ${msg})`);
           }
         }
@@ -225,7 +226,7 @@ export const toolsHandler: Handler = async (label, ctx) => {
         const output = await runScript(script, targets);
         void dialogs.showAlert({ title: "script output", message: output || "(no output)" });
       } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
+        const msg = errText(e);
         console.log(`[tools] runScript failed (script=${script}):`, e);
         void dialogs.showAlert({ title: "script failed", variant: "error", message: msg });
       }
@@ -276,7 +277,7 @@ export const toolsHandler: Handler = async (label, ctx) => {
       } catch (e) {
         if (isCancelled(e)) return true;
         console.log("[tools] findInFiles failed:", e);
-        const msg = e instanceof Error ? e.message : String(e);
+        const msg = errText(e);
         void dialogs.showAlert({ title: "find failed", variant: "error", message: msg });
       }
       return true;
@@ -360,7 +361,7 @@ export const toolsHandler: Handler = async (label, ctx) => {
       } catch (e) {
         if (isCancelled(e)) return true;
         console.log(`[tools] findFileByName failed (pattern=${pattern}):`, e);
-        const msg = e instanceof Error ? e.message : String(e);
+        const msg = errText(e);
         void dialogs.showAlert({ title: "find failed", variant: "error", message: msg });
       }
       return true;

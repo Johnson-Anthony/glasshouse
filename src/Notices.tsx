@@ -6,6 +6,7 @@
 // with openNotices().
 import { useEffect, useMemo, useState } from "react";
 import { groupNotices, linkSegments, NOTICES_INDEX, type Notice } from "./notices";
+import { errText } from "./errors";
 
 let openRef: (() => void) | null = null;
 
@@ -36,7 +37,7 @@ export function NoticesHost() {
     if (!open || notices) return;
     import("./noticesData").then(
       (m) => setNotices(m.NOTICES),
-      (err: unknown) => setLoadError(err instanceof Error ? err.message : String(err)),
+      (err: unknown) => setLoadError(errText(err)),
     );
   }, [open, notices]);
 

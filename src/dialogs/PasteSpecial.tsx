@@ -3,6 +3,7 @@ import { hashSha256 } from "../api";
 import { isCancelled, runOp } from "../ops";
 import { basename } from "../paths";
 import type { SkipReason, TransferItem, TransferOp, TransferStep } from "../transfer";
+import { errText } from "../errors";
 
 // ============= Paste Special dialog =============
 
@@ -94,7 +95,7 @@ export function PasteSpecialDialog({
         mode === "move" ? "move" : "copy",
       );
     } catch (e) {
-      const msg = `can't read ${dstDir}: ${e instanceof Error ? e.message : String(e)}`;
+      const msg = `can't read ${dstDir}: ${errText(e)}`;
       setRows(rows.map(r => ({ ...r, state: "fail", message: msg })));
       setRunning(false);
       return;
@@ -154,7 +155,7 @@ export function PasteSpecialDialog({
           setRows(working.slice());
           break;
         }
-        const msg = e instanceof Error ? e.message : String(e);
+        const msg = errText(e);
         working[i] = { ...working[i], state: "fail", message: msg };
       }
       setRows(working.slice());

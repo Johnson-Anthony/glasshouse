@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { hashSha256, type FileEntry } from "../api";
 import { isCancelled, runOp } from "../ops";
+import { errText } from "../errors";
 
 // ============= PropertiesDialog =============
 export interface PropertiesDialogProps {
@@ -49,7 +50,7 @@ export function PropertiesDialog({ entry, onClose }: PropertiesDialogProps) {
       const hex = await runOp(`hashing ${entry.name}`, track => hashSha256(entry.path, track()));
       setSha(hex);
     } catch (err) {
-      if (!isCancelled(err)) setHashErr(err instanceof Error ? err.message : String(err));
+      if (!isCancelled(err)) setHashErr(errText(err));
     } finally {
       setHashing(false);
     }

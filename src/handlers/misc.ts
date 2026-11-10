@@ -22,6 +22,7 @@ import {
   renameEntry,
   hashSha256,
 } from "../api";
+import { errText } from "../errors";
 const REPO_URL = "https://github.com/Johnson-Anthony/glasshouse";
 
 async function promptAndCreate(ctx: HandlerCtx, defaultName: string, body = ""): Promise<void> {
@@ -217,7 +218,7 @@ export const miscHandler: Handler = async (label, ctx) => {
       try {
         parsed = JSON.parse(await readText(source, 1_000_000));
       } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
+        const msg = errText(e);
         await dialogs.showAlert({
           title: "import layout",
           message: `could not read ${source}\n\n${msg}`,
@@ -401,7 +402,7 @@ export const miscHandler: Handler = async (label, ctx) => {
       } catch (e) {
         await dialogs.showAlert({
           title: "clipboard read failed",
-          message: e instanceof Error ? e.message : String(e),
+          message: errText(e),
           variant: "error",
         });
         return true;
@@ -420,7 +421,7 @@ export const miscHandler: Handler = async (label, ctx) => {
       } catch (e) {
         await dialogs.showAlert({
           title: "can't rename",
-          message: isAlreadyExists(e) ? takenProblem(name) : e instanceof Error ? e.message : String(e),
+          message: isAlreadyExists(e) ? takenProblem(name) : errText(e),
           variant: "error",
         });
         return true;

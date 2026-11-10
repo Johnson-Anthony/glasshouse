@@ -6,6 +6,7 @@ import { tagColor } from "../components";
 import { dialogs } from "../dialogs/DialogHost";
 import { isCancelled, runOp } from "../ops";
 import { AUDIO_EXTS, FilePreview } from "./FilePreview";
+import { errText } from "../errors";
 
 // ============= Inspector =============
 export interface InspectableFile extends FileRow {
@@ -179,7 +180,7 @@ export function Inspector({ file, onQuickAction, onExpand }: InspectorProps) {
         setCrc32(crcHex);
       } catch (err) {
         if (isCancelled(err)) return;
-        const msg = err instanceof Error ? err.message : String(err);
+        const msg = errText(err);
         console.error("hash compute:", msg);
         void dialogs.showAlert({ title: "hash failed", variant: "error", message: msg });
       } finally {

@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
+import { errText } from "../errors";
 
 // ============= DialogHost (themed prompt / alert / confirm + toast) =============
 // Replaces window.prompt / window.alert / window.confirm at key callsites.
@@ -197,7 +198,7 @@ export function DialogHost() {
     const current = state;
     promptBusy.current = true;
     submit(v)
-      .catch((err: unknown) => (err instanceof Error ? err.message : String(err)) || "failed")
+      .catch((err: unknown) => errText(err) || "failed")
       .then((err) => {
         promptBusy.current = false;
         if (err) {

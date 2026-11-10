@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
+import { errText } from "./errors";
 
 export async function winClose(): Promise<void> {
   if (!TAURI_AVAILABLE) return;
@@ -207,7 +208,7 @@ export function renameEntry(from: string, to: string): Promise<void> {
  *  when the target name is already taken. The backend words it
  *  `"<name>" already exists in <folder>` (`no_clobber_err`). */
 export function isAlreadyExists(err: unknown): boolean {
-  const msg = err instanceof Error ? err.message : String(err);
+  const msg = errText(err);
   return /^".*" already exists in /s.test(msg);
 }
 

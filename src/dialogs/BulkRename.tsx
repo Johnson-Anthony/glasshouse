@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useMemo } from "react";
 import { joinPath, parentPath } from "../paths";
 import { checkRenames, orderRenames } from "../names";
 import { IS_WINDOWS } from "../platform";
+import { errText } from "../errors";
 
 // ============= Bulk rename dialog =============
 
@@ -150,7 +151,7 @@ export function BulkRenameDialog({ items, onClose, renameOne, listNames, onDone 
     let cancelled = false;
     Promise.all(dirs.map(async d => [d, await listNames(d)] as const))
       .then(entries => { if (!cancelled) setListings(new Map(entries)); })
-      .catch(e => { if (!cancelled) setErr(`can't read the folder: ${e instanceof Error ? e.message : String(e)}`); });
+      .catch(e => { if (!cancelled) setErr(`can't read the folder: ${errText(e)}`); });
     return () => { cancelled = true; };
   }, [dirs, listNames]);
 
@@ -202,7 +203,7 @@ export function BulkRenameDialog({ items, onClose, renameOne, listNames, onDone 
         for (const s of orderRenames(moves, names, IS_WINDOWS)) steps.push({ dir, ...s });
       }
     } catch (e) {
-      setErr(e instanceof Error ? e.message : String(e));
+      setErr(errText(e));
       setRunning(false);
       return;
     }
@@ -217,7 +218,7 @@ export function BulkRenameDialog({ items, onClose, renameOne, listNames, onDone 
       onDone();
       onClose();
     } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
+      const msg = errText(e);
       // Put back what already ran, newest first, so nothing is left half
       // renamed or under a temporary name.
       let undone = true;

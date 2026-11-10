@@ -14,6 +14,7 @@ import type { PasteSpecialItem } from "../dialogs/PasteSpecial";
 import { winPathToWsl } from "../shellCd";
 import type { Handler } from "./types";
 import { cmdState } from "../commandState";
+import { errText } from "../errors";
 
 // File and selection commands for the active tab: open, rename, delete,
 // clipboard, new files, tags, git per-file. With no tab it takes every
@@ -313,7 +314,7 @@ export const fileOpsHandler: Handler = async (label, ctx) => {
       try {
         await spawnVscodeStrict(firstPath ?? cwd);
       } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
+        const msg = errText(err);
         void dialogs.showAlert({
           title: "open in VS Code failed",
           variant: "error",
@@ -420,7 +421,7 @@ export const fileOpsHandler: Handler = async (label, ctx) => {
         refresh();
         dialogs.showToast({ message: `compressed to ${name}`, variant: "success" });
       } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
+        const msg = errText(err);
         console.error("compress failed:", msg);
         void dialogs.showAlert({ title: "compress failed", variant: "error", message: msg });
       }
@@ -435,7 +436,7 @@ export const fileOpsHandler: Handler = async (label, ctx) => {
         dialogs.showToast({ message: `sha256 copied: ${hex.slice(0, 16)}…`, variant: "success" });
       } catch (err) {
         if (isCancelled(err)) return true;
-        const msg = err instanceof Error ? err.message : String(err);
+        const msg = errText(err);
         console.error("hash_sha256 failed:", msg);
         void dialogs.showAlert({ title: "hash failed", variant: "error", message: msg });
       }
@@ -513,7 +514,7 @@ export const fileOpsHandler: Handler = async (label, ctx) => {
         const lines = await gitBlame(firstEntry.path, 2000);
         setBlame({ path: firstEntry.path, lines });
       } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
+        const msg = errText(err);
         console.error("git blame:", msg);
         void dialogs.showAlert({ title: "git blame failed", variant: "error", message: msg });
       }

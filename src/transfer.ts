@@ -7,6 +7,7 @@
 // Policy notes: docs/decisions/2026-11-08-paste-conflicts-policy.md
 import { pathOps } from "./paths";
 import { isCancelled } from "./opStore";
+import { errText } from "./errors";
 
 // Path rules follow the `windows` flag each entry point is given (the app
 // passes IS_WINDOWS), so both flavors can be tested on any host.
@@ -212,10 +213,6 @@ export interface TransferResult {
   /** Set when the user cancelled a copy or move partway: how many items
    *  didn't happen, the cancelled one included. Steps before it stand. */
   cancelled?: number;
-}
-
-function errText(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
 }
 
 /** List the destination, ask about conflicts, and plan. Null = cancelled.

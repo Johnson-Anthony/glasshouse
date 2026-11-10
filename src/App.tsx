@@ -74,6 +74,7 @@ import {
 } from "./api";
 import { runTransfer, planTransfer, type TransferOp } from "./transfer";
 import { transferDeps, reportTransfer, pushTransferUndo, asItems, listNames } from "./transferUi";
+import { errText } from "./errors";
 
 const TWEAK_DEFAULTS: TweakState = {
   theme: "gruvbox-dark",
@@ -723,7 +724,7 @@ export function App() {
     if (r.status === "done") {
       dialogs.showToast({ message: `${which === "undo" ? "undid" : "redid"}: ${r.label}`, variant: "success" });
     } else {
-      const msg = r.error instanceof Error ? r.error.message : String(r.error);
+      const msg = errText(r.error);
       void dialogs.showAlert({
         title: `${which} failed`,
         message: `${r.label}: ${msg}\n\nThis step was removed from the ${which} history.`,
@@ -831,7 +832,7 @@ export function App() {
         variant: "warning",
       });
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
+      const msg = errText(err);
       console.error("file op failed", label, err);
       void dialogs.showAlert({ title: "error", variant: "error", message: msg });
     }
@@ -1236,7 +1237,7 @@ export function App() {
                       const lines = await gitBlame(path, 2000);
                       setBlame({ path, lines });
                     } catch (err) {
-                      const msg = err instanceof Error ? err.message : String(err);
+                      const msg = errText(err);
                       console.error("git blame:", msg);
                       void dialogs.showAlert({
                         title: "git blame failed",

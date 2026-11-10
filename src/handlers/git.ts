@@ -9,6 +9,7 @@ import {
   gitBranchList,
   type GitRunResult,
 } from "../api";
+import { errText } from "../errors";
 
 function summarize(title: string, r: GitRunResult): string {
   const body = r.stdout.trim() || r.stderr.trim() || "(no output)";
@@ -25,7 +26,7 @@ async function runAndShow(
   try {
     r = await gitRun(ctx.cwd, args);
   } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
+    const msg = errText(e);
     if (ctx.setGitOutput) ctx.setGitOutput({ title, output: msg, ok: false });
     else void dialogs.showAlert({ title, variant: "error", message: msg });
     return;

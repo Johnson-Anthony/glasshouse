@@ -10,6 +10,7 @@
 import { copyEntry, createTextFile, deleteEntry, makeDir, moveEntry, readDir, renameEntry, type FileEntry } from "./api";
 import { basename, normalizePath, parentPath } from "./paths";
 import type { UndoEntry } from "./state";
+import { errText } from "./errors";
 
 export interface UndoFs {
   rename(from: string, to: string): Promise<void>;
@@ -117,7 +118,7 @@ async function fingerprint(fs: UndoFs, path: string, limit: number): Promise<Fin
     }
     return print;
   } catch (err) {
-    return `couldn't be read (${err instanceof Error ? err.message : String(err)})`;
+    return `couldn't be read (${errText(err)})`;
   }
 }
 

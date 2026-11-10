@@ -11,6 +11,7 @@ import { runTransfer } from "../transfer";
 import type { Handler } from "./types";
 import { cmdState } from "../commandState";
 import { sshProfileFor } from "../remotes";
+import { errText } from "../errors";
 
 // Commands from a context menu opened on a tab, a saved remote, or a
 // sidebar/breadcrumb folder. Runs first; the menu's target is in
@@ -111,7 +112,7 @@ export const targetHandler: Handler = (label, ctx) => {
           void (async () => {
             try { await spawnVscodeStrict(target); }
             catch (err) {
-              const msg = err instanceof Error ? err.message : String(err);
+              const msg = errText(err);
               void dialogs.showAlert({ title: "open in VS Code failed", variant: "error", message: msg });
             }
           })();
@@ -157,7 +158,7 @@ export const targetHandler: Handler = (label, ctx) => {
               pushUndo(moveUndo(`rename ${base} → ${next}`, [{ src: target, dst }], "rename"));
               activeHandle?.actions.refresh();
             } catch (err) {
-              const msg = err instanceof Error ? err.message : String(err);
+              const msg = errText(err);
               void dialogs.showAlert({ message: `rename failed: ${msg}`, variant: "error" });
             }
           })();
@@ -191,7 +192,7 @@ export const targetHandler: Handler = (label, ctx) => {
               await moveToTrash(target);
               activeHandle?.actions.refresh();
             } catch (err) {
-              const msg = err instanceof Error ? err.message : String(err);
+              const msg = errText(err);
               void dialogs.showAlert({ message: `trash failed: ${msg}`, variant: "error" });
             }
           })();

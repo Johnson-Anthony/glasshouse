@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { drives as apiDrives, homeDir as apiHomeDir, listDir, type Drive, type FileEntry } from "../api";
 import { parentPath, splitBreadcrumb } from "../paths";
+import { errText } from "../errors";
 
 // ============= FolderPickerDialog =============
 // In-app folder picker modal. Replaces the Tauri native open-directory dialog
@@ -42,7 +43,7 @@ export function FolderPickerDialog({ initialPath, title, onClose, onPick }: Fold
         if (cancelled) return;
         setEntries(list.filter(e => e.kind === "folder"));
       } catch (e) {
-        if (!cancelled) setErr(e instanceof Error ? e.message : String(e));
+        if (!cancelled) setErr(errText(e));
       } finally {
         if (!cancelled) setBusy(false);
       }

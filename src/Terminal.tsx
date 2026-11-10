@@ -13,6 +13,7 @@ import {
   type ShellProfile,
 } from "./api";
 import { makeCdCommand } from "./shellCd";
+import { errText } from "./errors";
 
 export interface TerminalDrawerProps {
   open: boolean;
@@ -185,7 +186,7 @@ function TermPane({ profile, cwd, visible, open, height, onExit }: TermPaneProps
         pendingExits.length = 0;
         if (exited) showExit(exited.exit_code);
       } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
+        const msg = errText(e);
         if (!disposed) term.write(`\x1b[31mpty spawn failed: ${msg}\x1b[0m\r\n`);
       }
     })();

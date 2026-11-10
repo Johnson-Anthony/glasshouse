@@ -12,6 +12,7 @@ import {
 
 import { normalizePath, parentPath } from "./paths";
 import { navBack, navClear, navForward, navGoTo, navInit, type NavState } from "./history";
+import { errText } from "./errors";
 export { normalizePath, parentPath } from "./paths";
 
 export type SortKey = "name" | "size" | "modified" | "tag" | "git" | "type";
@@ -205,7 +206,7 @@ export function useTabState(initialPath: string, isPrivate: boolean = false): Us
       setGitInfo(info);
     } catch (e) {
       if (seq !== fetchSeq.current) return;
-      setError(e instanceof Error ? e.message : String(e));
+      setError(errText(e));
       setEntries([]);
       setGitInfo(null);
     } finally {
