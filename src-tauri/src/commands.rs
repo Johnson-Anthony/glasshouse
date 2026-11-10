@@ -645,7 +645,9 @@ fn same_entry(a: &Path, b: &Path) -> bool {
 }
 
 /// Copy a file, folder or symlink. Symlinks are recreated as links, never
-/// followed, whether selected directly or found inside a folder.
+/// followed, whether selected directly or found inside a folder. A target
+/// that already exists is refused, never overwritten or merged into: the
+/// paste planner frees a name (Replace trashes the old item) before copying.
 #[tauri::command(async)]
 pub fn copy_entry(from: String, to: String) -> Result<(), String> {
     let src = Path::new(&from);
@@ -653,18 +655,30 @@ pub fn copy_entry(from: String, to: String) -> Result<(), String> {
     let meta = std::fs::symlink_metadata(src).map_err(|e| format!("stat {}: {}", from, e))?;
     check_not_into_self(src, dst, &meta, false)?;
     let ty = meta.file_type();
-    let res = if ty.is_symlink() {
+    // Create the top entry here, so only a taken top-level name gets the
+    // standard "already exists" error; a failure deeper down keeps its own.
+    let created = if ty.is_symlink() {
         copy_symlink(src, dst)
     } else if ty.is_dir() {
-        copy_dir_recursive(src, dst)
+        std::fs::create_dir(dst)
     } else {
         copy_regular_file(src, dst, &ty)
     };
-    res.map_err(|e| e.to_string())
+    created.map_err(|e| no_clobber_err(&to, e))?;
+    if ty.is_dir() {
+        copy_dir_contents(src, dst).map_err(|e| e.to_string())?;
+    }
+    Ok(())
 }
 
+/// Copy the folder `src` to `dst`, which must not exist yet.
 fn copy_dir_recursive(src: &Path, dst: &Path) -> std::io::Result<()> {
-    std::fs::create_dir_all(dst)?;
+    std::fs::create_dir(dst)?;
+    copy_dir_contents(src, dst)
+}
+
+/// Copy what's inside `src` into the new, empty folder `dst`.
+fn copy_dir_contents(src: &Path, dst: &Path) -> std::io::Result<()> {
     for entry in std::fs::read_dir(src)? {
         let entry = entry?;
         // file_type() doesn't follow links, so a link is seen as a link here
@@ -681,8 +695,9 @@ fn copy_dir_recursive(src: &Path, dst: &Path) -> std::io::Result<()> {
     Ok(())
 }
 
-/// `fs::copy`, refusing FIFOs, sockets and devices: reading a FIFO blocks
-/// until something writes to it, which would hang the command.
+/// Copy a regular file to a `dst` that must not exist yet, refusing FIFOs,
+/// sockets and devices: reading a FIFO blocks until something writes to it,
+/// which would hang the command.
 fn copy_regular_file(src: &Path, dst: &Path, ty: &std::fs::FileType) -> std::io::Result<()> {
     if !ty.is_file() {
         return Err(std::io::Error::new(
@@ -690,7 +705,40 @@ fn copy_regular_file(src: &Path, dst: &Path, ty: &std::fs::FileType) -> std::io:
             format!("can't copy {}: not a regular file", src.display()),
         ));
     }
-    std::fs::copy(src, dst).map(|_| ())
+    copy_file_no_clobber(src, dst)
+}
+
+/// `fs::copy` that fails with AlreadyExists instead of overwriting `dst`.
+#[cfg(windows)]
+fn copy_file_no_clobber(src: &Path, dst: &Path) -> std::io::Result<()> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows::core::PCWSTR;
+    use windows::Win32::Foundation::TRUE;
+    use windows::Win32::Storage::FileSystem::CopyFileW;
+    let wide = |p: &Path| -> Vec<u16> { p.as_os_str().encode_wide().chain(Some(0)).collect() };
+    let (s, d) = (wide(src), wide(dst));
+    // The Win32 copy fs::copy uses, with bFailIfExists set: a taken target
+    // fails with ERROR_FILE_EXISTS. SAFETY: both strings are NUL-terminated
+    // and outlive the call.
+    let copied = unsafe { CopyFileW(PCWSTR(s.as_ptr()), PCWSTR(d.as_ptr()), TRUE) };
+    // A Win32 error HRESULT carries the Win32 code in its low 16 bits.
+    copied.map_err(|e| std::io::Error::from_raw_os_error(e.code().0 & 0xFFFF))
+}
+
+/// `fs::copy` that fails with AlreadyExists instead of overwriting `dst`.
+#[cfg(not(windows))]
+fn copy_file_no_clobber(src: &Path, dst: &Path) -> std::io::Result<()> {
+    let mut from = std::fs::File::open(src)?;
+    let perms = from.metadata()?.permissions();
+    let mut to = std::fs::File::create_new(dst)?;
+    // io::copy between files is copy_file_range on Linux, like fs::copy.
+    let res = std::io::copy(&mut from, &mut to).and_then(|_| to.set_permissions(perms));
+    if res.is_err() {
+        // Don't leave a partial copy behind; this file is ours.
+        drop(to);
+        let _ = std::fs::remove_file(dst);
+    }
+    res
 }
 
 /// Recreate the symlink `src` at `dst` with the same target text, so a
@@ -794,18 +842,19 @@ pub fn move_entry(from: String, to: String) -> Result<(), String> {
     if src == dst {
         return Ok(());
     }
-    // Rename is the whole move on one volume. Only a cross-volume move falls
-    // back to copy + delete: after any other rename error (destination not
-    // empty, access denied, file in use) the fallback would merge into the
-    // destination and delete the source. The delete must be recursive or a
-    // directory's source is left behind after a full copy.
-    match std::fs::rename(src, dst) {
+    // Rename is the whole move on one volume, and never replaces an existing
+    // target. Only a cross-volume move falls back to copy + delete: after any
+    // other rename error (target taken, access denied, file in use) the
+    // fallback would merge into the destination and delete the source. The
+    // copy refuses a taken target too, so the source is never deleted then.
+    // The delete must be recursive or a directory's source is left behind.
+    match rename_no_replace(src, dst) {
         Ok(()) => Ok(()),
         Err(e) if is_cross_device(&e) => {
             copy_entry(from.clone(), to)?;
             delete_entry(from, true)
         }
-        Err(e) => Err(e.to_string()),
+        Err(e) => Err(no_clobber_err(&to, e)),
     }
 }
 
