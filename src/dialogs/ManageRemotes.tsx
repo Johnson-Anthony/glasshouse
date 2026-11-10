@@ -1,6 +1,7 @@
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import type { SavedRemote } from "../Sidebar";
 import { dialogs } from "./DialogHost";
+import { useEscapeClose } from "./useEscapeClose";
 
 // ============= ManageRemotesDialog =============
 export interface ManageRemotesDialogProps {
@@ -15,13 +16,7 @@ export function ManageRemotesDialog({ remotes, onClose, onRemove, onEdit, onAdd 
   const [editingIdx, setEditingIdx] = useState<number | null>(null);
   const [draft, setDraft] = useState<SavedRemote>({ label: "", host: "", path: "" });
 
-  useEffect(() => {
-    const h = (e: KeyboardEvent) => {
-      if (e.key === "Escape") { e.preventDefault(); onClose(); }
-    };
-    window.addEventListener("keydown", h);
-    return () => window.removeEventListener("keydown", h);
-  }, [onClose]);
+  useEscapeClose(onClose);
 
   const beginEdit = (i: number) => {
     const r = remotes[i];

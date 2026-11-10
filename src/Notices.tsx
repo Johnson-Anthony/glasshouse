@@ -4,9 +4,10 @@
 // Links in the font files that point at another one are clickable, so
 // LICENSES.md works as the index. Mounted once as <NoticesHost />; open it
 // with openNotices().
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { groupNotices, linkSegments, NOTICES_INDEX, type Notice } from "./notices";
 import { errText } from "./errors";
+import { useEscapeClose } from "./dialogs/useEscapeClose";
 
 let openRef: (() => void) | null = null;
 
@@ -41,14 +42,8 @@ export function NoticesHost() {
     );
   }, [open, notices]);
 
-  useEffect(() => {
-    if (!open) return;
-    const h = (e: KeyboardEvent) => {
-      if (e.key === "Escape") { e.preventDefault(); setOpen(false); }
-    };
-    window.addEventListener("keydown", h);
-    return () => window.removeEventListener("keydown", h);
-  }, [open]);
+  const close = useCallback(() => setOpen(false), []);
+  useEscapeClose(close, open);
 
   const known = useMemo(() => new Set(notices?.filter((n) => n.links).map((n) => n.path)), [notices]);
   const groups = useMemo(() => {
@@ -59,7 +54,6 @@ export function NoticesHost() {
   const shown = notices?.find((n) => n.path === current) ?? null;
 
   if (!open) return null;
-  const close = () => setOpen(false);
 
   return (
     <div onClick={close} style={{

@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEscapeClose } from "./useEscapeClose";
 
 // ============= GitOutputDialog =============
 export interface GitOutputState {
@@ -15,16 +15,7 @@ export interface GitOutputDialogProps {
 }
 
 export function GitOutputDialog({ state, onClose }: GitOutputDialogProps) {
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        e.preventDefault();
-        onClose();
-      }
-    };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, [onClose]);
+  useEscapeClose(onClose);
 
   const statusColor = state.ok ? "var(--green, #9ece6a)" : "var(--red, #f7768e)";
   const statusLabel = state.ok ? "ok" : `exit ${state.exit ?? "?"}`;

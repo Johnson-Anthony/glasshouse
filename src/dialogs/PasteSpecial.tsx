@@ -1,9 +1,10 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { hashSha256 } from "../api";
 import { isCancelled, runOp } from "../ops";
 import { basename } from "../paths";
 import type { SkipReason, TransferItem, TransferOp, TransferStep } from "../transfer";
 import { errText } from "../errors";
+import { useEscapeClose } from "./useEscapeClose";
 
 // ============= Paste Special dialog =============
 
@@ -73,13 +74,7 @@ export function PasteSpecialDialog({
     })),
   );
 
-  useEffect(() => {
-    const h = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && !running) { e.preventDefault(); onClose(); }
-    };
-    window.addEventListener("keydown", h);
-    return () => window.removeEventListener("keydown", h);
-  }, [onClose, running]);
+  useEscapeClose(onClose, !running);
 
   const preview = items.slice(0, 5).map(it => basename(it.path));
   const extra = items.length > 5 ? items.length - 5 : 0;

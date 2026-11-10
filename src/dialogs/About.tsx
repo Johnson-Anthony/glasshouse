@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { TAURI_VERSION } from "../data";
 import { getVersion } from "@tauri-apps/api/app";
 import { openNotices } from "../Notices";
+import { useEscapeClose } from "./useEscapeClose";
 
 // ============= AboutDialog =============
 export interface AboutDialogProps {
@@ -12,14 +13,7 @@ export interface AboutDialogProps {
 export function AboutDialog({ open, onClose }: AboutDialogProps) {
   const [version, setVersion] = useState("…");
 
-  useEffect(() => {
-    if (!open) return;
-    const h = (e: KeyboardEvent) => {
-      if (e.key === "Escape") { e.preventDefault(); onClose(); }
-    };
-    window.addEventListener("keydown", h);
-    return () => window.removeEventListener("keydown", h);
-  }, [open, onClose]);
+  useEscapeClose(onClose, open);
 
   useEffect(() => {
     if (!open) return;

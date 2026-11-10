@@ -1,4 +1,5 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
+import { useEscapeClose } from "./useEscapeClose";
 
 // ============= BookmarkManagerDialog =============
 export interface BookmarkManagerDialogProps {
@@ -11,13 +12,7 @@ export interface BookmarkManagerDialogProps {
 export function BookmarkManagerDialog({ pins, onClose, onSave, onGoTo }: BookmarkManagerDialogProps) {
   const [working, setWorking] = useState<string[]>(() => [...pins]);
 
-  useEffect(() => {
-    const h = (e: KeyboardEvent) => {
-      if (e.key === "Escape") { e.preventDefault(); onClose(); }
-    };
-    window.addEventListener("keydown", h);
-    return () => window.removeEventListener("keydown", h);
-  }, [onClose]);
+  useEscapeClose(onClose);
 
   const move = (idx: number, delta: number) => {
     setWorking(prev => {

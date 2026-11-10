@@ -25,6 +25,7 @@ import { OpsTray } from "./OpsTray";
 import { isCancelled, newOpId } from "./ops";
 import { FolderPickerDialog } from "./dialogs/FolderPicker";
 import { BookmarkManagerDialog } from "./dialogs/BookmarkManager";
+import { useEscapeClose } from "./dialogs/useEscapeClose";
 import { Inspector } from "./preview/Inspector";
 import { QuickLook } from "./preview/FilePreview";
 import { Sidebar, type SavedRemote, type SidebarRowKind } from "./Sidebar";
@@ -123,16 +124,7 @@ function FindInFilesModal({ root, onClose, onPick }: FindInFilesModalProps) {
     inputRef.current?.focus();
   }, []);
 
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        e.preventDefault();
-        onClose();
-      }
-    };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, [onClose]);
+  useEscapeClose(onClose);
 
   useEffect(() => {
     if (!query.trim()) {

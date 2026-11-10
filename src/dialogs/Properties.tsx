@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import { hashSha256, type FileEntry } from "../api";
 import { isCancelled, runOp } from "../ops";
 import { errText } from "../errors";
+import { useEscapeClose } from "./useEscapeClose";
 
 // ============= PropertiesDialog =============
 export interface PropertiesDialogProps {
@@ -30,14 +31,7 @@ export function PropertiesDialog({ entry, onClose }: PropertiesDialogProps) {
     setHashErr(null);
   }, [entry?.path]);
 
-  useEffect(() => {
-    if (!entry) return;
-    const h = (e: KeyboardEvent) => {
-      if (e.key === "Escape") { e.preventDefault(); onClose(); }
-    };
-    window.addEventListener("keydown", h);
-    return () => window.removeEventListener("keydown", h);
-  }, [entry, onClose]);
+  useEscapeClose(onClose, !!entry);
 
   if (!entry) return null;
 

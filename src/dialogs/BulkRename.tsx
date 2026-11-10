@@ -3,6 +3,7 @@ import { joinPath, parentPath } from "../paths";
 import { checkRenames, orderRenames } from "../names";
 import { IS_WINDOWS } from "../platform";
 import { errText } from "../errors";
+import { useEscapeClose } from "./useEscapeClose";
 
 // ============= Bulk rename dialog =============
 
@@ -155,13 +156,7 @@ export function BulkRenameDialog({ items, onClose, renameOne, listNames, onDone 
     return () => { cancelled = true; };
   }, [dirs, listNames]);
 
-  useEffect(() => {
-    const h = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && !running) { e.preventDefault(); onClose(); }
-    };
-    window.addEventListener("keydown", h);
-    return () => window.removeEventListener("keydown", h);
-  }, [onClose, running]);
+  useEscapeClose(onClose, !running);
 
   const preview = useMemo(
     () => bulkRenamePreview(items, { find, replace, prefix, suffix, numberEnabled, numberStart, numberDigits, caseMode }),

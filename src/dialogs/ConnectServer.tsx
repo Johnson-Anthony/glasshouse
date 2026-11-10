@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import type { SavedRemote } from "../Sidebar";
+import { useEscapeClose } from "./useEscapeClose";
 
 // ============= ConnectServerDialog =============
 export interface ConnectServerDialogProps {
@@ -15,13 +16,7 @@ export function ConnectServerDialog({ onClose, onSave }: ConnectServerDialogProp
 
   useEffect(() => { labelRef.current?.focus(); }, []);
 
-  useEffect(() => {
-    const h = (e: KeyboardEvent) => {
-      if (e.key === "Escape") { e.preventDefault(); onClose(); }
-    };
-    window.addEventListener("keydown", h);
-    return () => window.removeEventListener("keydown", h);
-  }, [onClose]);
+  useEscapeClose(onClose);
 
   const canSave = label.trim().length > 0 && host.trim().length > 0;
   const submit = () => {

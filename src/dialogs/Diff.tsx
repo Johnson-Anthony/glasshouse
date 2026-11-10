@@ -1,5 +1,5 @@
-import { useEffect } from "react";
 import { basename } from "../paths";
+import { useEscapeClose } from "./useEscapeClose";
 
 // ============= DiffDialog =============
 export interface DiffDialogProps {
@@ -10,13 +10,7 @@ export interface DiffDialogProps {
 }
 
 export function DiffDialog({ a, b, diff, onClose }: DiffDialogProps) {
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape") { e.preventDefault(); onClose(); }
-    };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, [onClose]);
+  useEscapeClose(onClose);
 
   const lines = diff.split("\n");
 

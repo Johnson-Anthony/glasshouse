@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import { readTags, writeTags } from "../api";
 import { SEED_TAGS, TAG_COLOR_MAP } from "../Sidebar";
+import { useEscapeClose } from "./useEscapeClose";
 
 // ============= TagPickerDialog =============
 export interface TagPickerDialogProps {
@@ -24,13 +25,7 @@ export function TagPickerDialog({ path, onClose, onSaved }: TagPickerDialogProps
     })();
   }, []);
 
-  useEffect(() => {
-    const h = (e: KeyboardEvent) => {
-      if (e.key === "Escape") { e.preventDefault(); onClose(); }
-    };
-    window.addEventListener("keydown", h);
-    return () => window.removeEventListener("keydown", h);
-  }, [onClose]);
+  useEscapeClose(onClose);
 
   const allTags = useMemo(() => {
     const set = new Set<string>();

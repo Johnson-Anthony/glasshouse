@@ -1,6 +1,6 @@
-import { useEffect } from "react";
 import type { BlameLine } from "../api";
 import { basename } from "../paths";
+import { useEscapeClose } from "./useEscapeClose";
 
 // ============= BlameDialog =============
 export interface BlameDialogProps {
@@ -9,16 +9,7 @@ export interface BlameDialogProps {
 }
 
 export function BlameDialog({ blame, onClose }: BlameDialogProps) {
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        e.preventDefault();
-        onClose();
-      }
-    };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, [onClose]);
+  useEscapeClose(onClose);
 
   const shortName = basename(blame.path);
 

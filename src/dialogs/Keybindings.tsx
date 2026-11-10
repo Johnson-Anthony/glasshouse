@@ -1,6 +1,7 @@
-import { useEffect, useMemo } from "react";
+import { useMemo } from "react";
 import { MENUS, type MenuItemDef } from "../data";
 import { CHEATSHEET } from "../keymap";
+import { useEscapeClose } from "./useEscapeClose";
 
 // ============= KeybindingsDialog =============
 // Read-only reference for every keybind the app exposes. Grouped by category,
@@ -36,14 +37,7 @@ function collectMenuBinds(): KbEntry[] {
 }
 
 export function KeybindingsDialog({ open, onClose }: KeybindingsDialogProps) {
-  useEffect(() => {
-    if (!open) return;
-    const h = (e: KeyboardEvent) => {
-      if (e.key === "Escape") { e.preventDefault(); onClose(); }
-    };
-    window.addEventListener("keydown", h);
-    return () => window.removeEventListener("keydown", h);
-  }, [open, onClose]);
+  useEscapeClose(onClose, open);
 
   const binds = useMemo(() => {
     const all = [...collectMenuBinds(), ...CHEATSHEET];
