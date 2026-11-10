@@ -28,7 +28,7 @@ Line numbers are from commit `14c68bd` and drift, so search by name. Items marke
 | script-kill-tree | Rust, small | **merged** (1fd8435) |
 | async-commands | Rust | **merged** (9c3eefe) |
 | pty-writer | Rust, small | **merged** (16293b0) |
-| pty-drain | Rust, small, low priority | running (async-commands session) |
+| pty-drain | Rust, small, low priority | **merged** (2868b88) |
 | op-progress | both | queued; after dead-code's Rust part and split-big-files (found by async-commands) |
 | dead-code | both | **merged** (frontend d61379a, Rust 27340c6) |
 | unsent-labels | frontend | **merged** (8828d97) |

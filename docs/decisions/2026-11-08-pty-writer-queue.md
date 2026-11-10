@@ -15,6 +15,8 @@ I measured this with a Python pty experiment on this machine (kernel 7.3).
 - **Raw mode** (editors, REPLs, ssh, full-screen programs): the pty holds about 64 KB of unread input, and then a write blocks until the program reads.
 
 ## Known gap: a session that ends while its pty is full (unix)
+**Fixed on 2026-11-10 by `pty-drain`**: a stop flag plus a drain of the slave side. See `2026-11-10-pty-drain-unblock.md`, which also corrects one detail below: when the child exits, the hangup does flush the pty once, but a writer that hasn't been stopped refills it.
+
 If a raw-mode program has stopped reading, a paste of more than about 64 KB is pending, and then the session ends (the tab is killed, or the program and shell exit), the kernel never wakes the blocked write. Not even after the child is gone, and the writer's own handle keeps the master open. One writer thread, one pty and the queued bytes then stay around until the app exits. Before this change, the same write blocked the main thread, so the whole app hung for good. On Windows, closing the ConPTY breaks its input pipe, so the write fails and the thread ends.
 
 **The fix, not built:** in `PtySession`'s `Drop`, when the writer is mid-write, a helper thread reopens the slave (`tty_name()`) with `O_NOCTTY | O_NONBLOCK` and reads and discards input until the write returns. A stop flag then keeps the writer from writing the rest of the queue. That needs a direct `libc` dependency, and it relies on kernel pty details: reopening a closed slave, unthrottling waking the master's writer, and macOS behaving differently. That's too much risk for a rare case, so it's left as a follow-up.
