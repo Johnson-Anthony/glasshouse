@@ -6,8 +6,9 @@
 // running the app:
 //
 //   unwired   a label something sends (the menus, palette and context menus
-//             in src/data.ts, the Ctrl+G chords, menu items built in code,
-//             dispatch("…") calls) that no switch handles, so clicking it
+//             in src/data.ts, the Ctrl+G chords, keyboard bindings in
+//             src/keymap.ts, menu items built in code, dispatch("…") calls)
+//             that no switch handles, so clicking it
 //             shows "not yet wired";
 //   shadowed  a handler case that never runs, because App.tsx's own switches
 //             or an earlier handler in src/handlers/index.ts take the label
@@ -34,6 +35,7 @@ const SRC = path.join(ROOT, "src");
 const DATA = path.join(SRC, "data.ts");
 const APP = path.join(SRC, "App.tsx");
 const HANDLERS_INDEX = path.join(SRC, "handlers", "index.ts");
+const KEYMAP = path.join(SRC, "keymap.ts");
 
 // Functions in App.tsx that switch on the label before the handler chain runs.
 const APP_ROUTERS = ["handleMenuCommand", "doFileOp"];
@@ -218,6 +220,17 @@ function inlineItem(node) {
   return sent && ts.isStringLiteralLike(sent) ? sent.text : null;
 }
 
+// A keyboard binding in keymap.ts: `{ combo: "Ctrl+B", send: "Sidebar" }`.
+function keymapSend(node) {
+  if (!ts.isObjectLiteralExpression(node)) return null;
+  for (const p of node.properties) {
+    if (ts.isPropertyAssignment(p) && ts.isIdentifier(p.name) && p.name.text === "send" && ts.isStringLiteralLike(p.initializer)) {
+      return p.initializer.text;
+    }
+  }
+  return null;
+}
+
 function codeSenders() {
   const sent = [];
   for (const file of sourceFiles(SRC)) {
@@ -234,6 +247,8 @@ function codeSenders() {
     const visit = (node) => {
       const item = file === DATA ? null : inlineItem(node);
       if (item) sent.push({ label: item, where: `${rel(file)}:${lineOf(sf, node)}` });
+      const key = file === KEYMAP ? keymapSend(node) : null;
+      if (key) sent.push({ label: key, where: `${rel(file)}:${lineOf(sf, node)}` });
       if (ts.isCallExpression(node) && node.arguments.length > 0) {
         const callee = node.expression.getText(sf).replace(/\?\.?/g, ".").replace(/\.\./g, ".");
         if (SEND_CALLEES.test(callee)) {

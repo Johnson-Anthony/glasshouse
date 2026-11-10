@@ -1,5 +1,6 @@
 import { useEffect, useMemo } from "react";
 import { MENUS, type MenuItemDef } from "../data";
+import { CHEATSHEET } from "../keymap";
 
 // ============= KeybindingsDialog =============
 // Read-only reference for every keybind the app exposes. Grouped by category,
@@ -34,17 +35,6 @@ function collectMenuBinds(): KbEntry[] {
   return out;
 }
 
-const GLOBAL_BINDS: KbEntry[] = [
-  { label: "Focus search",          keys: "/",            group: "Navigate" },
-  { label: "Toggle terminal",       keys: "Ctrl+`",       group: "View" },
-  { label: "Open parent",           keys: "Backspace",    group: "Navigate" },
-  { label: "Open selected",         keys: "Enter",        group: "File" },
-  { label: "Delete permanently",    keys: "Shift+Del",    group: "Edit" },
-  { label: "Close modal / palette", keys: "Esc",          group: "View" },
-  { label: "Next Tab",              keys: "Ctrl+Tab",     group: "Navigate" },
-  { label: "Previous Tab",          keys: "Ctrl+Shift+Tab", group: "Navigate" },
-];
-
 export function KeybindingsDialog({ open, onClose }: KeybindingsDialogProps) {
   useEffect(() => {
     if (!open) return;
@@ -56,7 +46,7 @@ export function KeybindingsDialog({ open, onClose }: KeybindingsDialogProps) {
   }, [open, onClose]);
 
   const binds = useMemo(() => {
-    const all = [...collectMenuBinds(), ...GLOBAL_BINDS];
+    const all = [...collectMenuBinds(), ...CHEATSHEET];
     const byGroup = new Map<string, KbEntry[]>();
     for (const b of all) {
       const arr = byGroup.get(b.group) ?? [];

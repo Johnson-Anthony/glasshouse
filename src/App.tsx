@@ -39,6 +39,7 @@ import {
   type UseTabResult,
 } from "./state";
 import { HANDLERS, type HandlerCtx } from "./handlers";
+import { findBinding, type KeyAction } from "./keymap";
 import { moveUndo, createUndo } from "./undoActions";
 import { makeTab, closeTab, closeOtherTabs, moveTab as moveTabIn, tabLabel, type TabRecord } from "./tabs";
 import { canExtractArchive } from "./handlers/archive";
@@ -602,6 +603,23 @@ export function App() {
   // Time of the Ctrl+G that opened a pending git chord; 0 when none.
   const gitChordAt = useRef(0);
 
+  // The keymap's App-local actions (bindings that aren't commands).
+  const runKeyAction = (a: KeyAction) => {
+    switch (a) {
+      case "palette": setPalOpen(v => !v); return;
+      case "findInFiles": setShowFindModal(v => !v); return;
+      case "terminal": setTermOpen(v => !v); return;
+      case "tweaks": setTweaksOpen(v => !v); return;
+      case "cheatsheet": setCheatsheetOpen(v => !v); return;
+      case "focusSearch":
+        searchInputRef.current?.focus();
+        searchInputRef.current?.select();
+        return;
+      case "gitChord": gitChordAt.current = Date.now(); return;
+      case "quickLook": setQuickLookOpen(v => !v); return;
+    }
+  };
+
   useEffect(() => {
     const isTextInput = (t: EventTarget | null): boolean => {
       const el = t as HTMLElement | null;
@@ -631,13 +649,9 @@ export function App() {
         }
       }
 
-      // ── Next / Prev Tab (Ctrl+Tab / Ctrl+Shift+Tab) ─────────────────────
-      // Must run before the Tab/F6 pane-cycle handler below, otherwise the
-      // pane-cycle preventDefaults Ctrl+Tab and our tab-cycle never fires.
-      if ((e.ctrlKey || e.metaKey) && e.key === "Tab") {
-        e.preventDefault();
-        dispatch(e.shiftKey ? "Prev Tab" : "Next Tab");
-        return;
+      // Escape closes overlays without consuming the key.
+      if (e.key === "Escape") {
+        setPalOpen(false); setCtx(null); setQuickLookOpen(false);
       }
 
       // ── Pane cycling (Tab / Shift+Tab / F6 / Shift+F6) ──────────────────
@@ -673,170 +687,12 @@ export function App() {
         }
       }
 
-      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === "p") {
-        e.preventDefault(); setPalOpen(v => !v); return;
-      }
-      if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === "f") {
-        e.preventDefault(); setShowFindModal(v => !v); return;
-      }
-      if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === "g") {
-        e.preventDefault(); dispatch("Connect to Server…"); return;
-      }
-      if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === "v") {
-        if (inText) return;
-        e.preventDefault(); dispatch("Paste Special…"); return;
-      }
-      // Menu-advertised Ctrl+Shift bindings (audit: hints existed, keys didn't).
-      if ((e.ctrlKey || e.metaKey) && e.shiftKey && !e.altKey) {
-        const k = e.key.toLowerCase();
-        if (k === "n") { e.preventDefault(); dispatch("New Private Session"); return; }
-        if (k === "p") { e.preventDefault(); dispatch("Batch Permissions…"); return; }
-        if (!inText) {
-          if (k === "e") { e.preventDefault(); dispatch("Open in VS Code"); return; }
-          if (k === "r") { e.preventDefault(); dispatch("Bulk Rename…"); return; }
-          if (k === "d") { e.preventDefault(); dispatch("Folder"); return; }
-        }
-      }
-      if ((e.ctrlKey || e.metaKey) && e.key === "`") {
-        e.preventDefault();
-        setTermOpen(v => !v);
-        return;
-      }
-      if ((e.ctrlKey || e.metaKey) && e.key === ",") {
-        e.preventDefault(); setTweaksOpen(v => !v); return;
-      }
-      // Panel/layout toggles work even while a text input has focus — they
-      // don't insert text and shouldn't die just because the path bar or a
-      // search box is focused (VS Code treats Ctrl+B the same way).
-      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey) {
-        const k = e.key.toLowerCase();
-        if (k === "b") { e.preventDefault(); dispatch("Sidebar"); return; }
-        if (k === "j") { e.preventDefault(); dispatch("Inspector"); return; }
-        if (k === "l") { e.preventDefault(); dispatch("Go to Path…"); return; }
-        if (k === "[") { e.preventDefault(); dispatch("Previous Location"); return; }
-        if (k === "]") { e.preventDefault(); dispatch("Next Location"); return; }
-        if (k >= "1" && k <= "7") {
-          const modes = ["Details (rows)", "Compact List", "Icons", "Tiles", "Grid (thumbs)", "Tree Flat", "Miller Columns (ranger)"];
-          e.preventDefault(); dispatch(modes[Number(k) - 1]); return;
-        }
-      }
-      if (e.key === "Escape") {
-        setPalOpen(false); setCtx(null); setQuickLookOpen(false);
-      }
-      if (e.key === "/" && !e.ctrlKey && !e.metaKey && !e.altKey) {
-        if (inText) return;
-        e.preventDefault();
-        searchInputRef.current?.focus();
-        searchInputRef.current?.select();
-        return;
-      }
-
-      // File-op shortcuts — all route through handleMenuCommand so one place
-      // owns the behaviour. Skip anything fired while focus is in a text input
-      // so typing into fields doesn't nuke files.
-      if (inText) return;
-
-      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "g") {
-        e.preventDefault(); gitChordAt.current = Date.now(); return;
-      }
-
-      // Space — Quick Look toggle for the selected file. defaultPrevented
-      // means a focused widget (e.g. a sidebar group title) already consumed
-      // the key for its own activation.
-      if (e.key === " " && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) {
-        if (e.defaultPrevented) return;
-        if ((activeHandle?.state.selected.length ?? 0) > 0) {
-          e.preventDefault();
-          setQuickLookOpen(v => !v);
-        }
-        return;
-      }
-
-      // Ctrl+Z / Ctrl+Y / Ctrl+Shift+Z — Undo / Redo. Routed through dispatch
-      // so the misc.ts handler's undo/redo entry point handles both keyboard
-      // and Edit menu paths uniformly.
-      if ((e.ctrlKey || e.metaKey) && !e.altKey) {
-        const k = e.key.toLowerCase();
-        if (k === "z" && !e.shiftKey) { e.preventDefault(); dispatch("Undo"); return; }
-        if ((k === "y" && !e.shiftKey) || (k === "z" && e.shiftKey)) {
-          e.preventDefault(); dispatch("Redo"); return;
-        }
-      }
-
-      // Ctrl+X / Ctrl+C / Ctrl+V — only intercept when there IS a file-pane
-      // selection; otherwise let the browser handle normal text clipboard.
-      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey) {
-        const k = e.key.toLowerCase();
-        const hasSelection = (activeHandle?.state.selected.length ?? 0) > 0;
-        if (k === "c" && hasSelection) { e.preventDefault(); dispatch("Copy"); return; }
-        if (k === "x" && hasSelection) { e.preventDefault(); dispatch("Cut"); return; }
-        if (k === "v") { e.preventDefault(); dispatch("Paste"); return; }
-        if (k === "h") { e.preventDefault(); dispatch("Toggle Hidden Files"); return; }
-        if (k === "w") { e.preventDefault(); dispatch("Close Tab"); return; }
-        if (k === "t") { e.preventDefault(); dispatch("New Tab"); return; }
-        if (k === "=" || k === "+") { e.preventDefault(); dispatch("Zoom In"); return; }
-        if (k === "-" || k === "_") { e.preventDefault(); dispatch("Zoom Out"); return; }
-        if (k === "0") { e.preventDefault(); dispatch("Reset Zoom"); return; }
-        // Menu-advertised bindings (audit: hints existed, keys didn't).
-        // Panel/layout toggles live above the inText guard; these are file
-        // and selection ops, so they stay suppressed while typing.
-        if (k === "o") { e.preventDefault(); dispatch("Open…"); return; }
-        if (k === "n") { e.preventDefault(); dispatch("New Window"); return; }
-        if (k === "i") { e.preventDefault(); dispatch("Invert Selection"); return; }
-        if (k === "u") { e.preventDefault(); dispatch("Duplicate"); return; }
-        if (k === "d") { e.preventDefault(); dispatch("Bookmark This Folder"); return; }
-        if (e.key === "Home") { e.preventDefault(); dispatch("Home"); return; }
-      }
-
-      if (e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey) {
-        if (e.key === "ArrowLeft") { e.preventDefault(); dispatch("Back"); return; }
-        if (e.key === "ArrowRight") { e.preventDefault(); dispatch("Forward"); return; }
-        if (e.key === "ArrowUp") { e.preventDefault(); dispatch("Open Parent"); return; }
-        if (e.key === "Enter") { e.preventDefault(); dispatch("Properties"); return; }
-      }
-
-      if (e.key === "F5") { e.preventDefault(); dispatch("Refresh"); return; }
-      if (e.key === "F11") { e.preventDefault(); dispatch("Full Screen"); return; }
-      if (e.key === "F3") { e.preventDefault(); dispatch("Tree + Pane + Inspector"); return; }
-      if (e.key === "F7") { e.preventDefault(); dispatch("Single Pane"); return; }
-
-      if (e.key === "F2") {
-        e.preventDefault();
-        const n = activeHandle?.state.selected.length ?? 0;
-        dispatch(n > 1 ? "Bulk Rename…" : "Rename");
-        return;
-      }
-
-      if (e.key === "F1" || ((e.ctrlKey || e.metaKey) && e.key === "?")) {
-        e.preventDefault();
-        setCheatsheetOpen(v => !v);
-        return;
-      }
-
-      // F6 is handled above as pane-cycling — the prior "Move to…" binding
-      // conflicted with the standard file-manager convention of F6 to switch
-      // between panes. Use the palette or context menu for Move to…
-
-      if (e.key === "Delete") {
-        e.preventDefault();
-        if (e.shiftKey) dispatch("Delete Permanently");
-        else dispatch("Move to Trash");
-        return;
-      }
-
-      if (e.key === "Backspace" && !e.ctrlKey && !e.metaKey && !e.altKey) {
-        e.preventDefault();
-        dispatch("Up");
-        return;
-      }
-
-      if (e.key === "Enter" && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) {
-        if ((activeHandle?.state.selected.length ?? 0) > 0) {
-          e.preventDefault();
-          dispatch("Open");
-        }
-        return;
-      }
+      // Everything else is in the keymap (src/keymap.ts).
+      const b = findBinding(e, { inText, selected: activeHandle?.state.selected.length ?? 0 });
+      if (!b) return;
+      e.preventDefault();
+      if (b.send) dispatch(b.send);
+      else if (b.run) runKeyAction(b.run);
     };
     window.addEventListener("keydown", h);
     return () => window.removeEventListener("keydown", h);
