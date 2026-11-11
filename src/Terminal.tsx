@@ -12,13 +12,15 @@ import {
   spawnTerminalProfile,
   type ShellProfile,
 } from "./api";
-import { makeCdCommand } from "./shellCd";
+import { PromptTracker, followDecision, makeCdCommand } from "./shellCd";
 import { errText } from "./errors";
 
 export interface TerminalDrawerProps {
   open: boolean;
   cwd: string;
   profile: ShellProfile | null;
+  /** Follow Folder: type a `cd` when the active tab's folder changes. */
+  follow: boolean;
   height: number;
   onHeightChange: (h: number) => void;
   onClose: () => void;
@@ -87,16 +89,20 @@ interface TermPaneProps {
   cwd: string;
   visible: boolean;
   open: boolean;
+  follow: boolean;
   height: number;
   onExit: () => void;
 }
+
+// Whether a DECSET/DECRST's parameters include `mode`.
+const hasMode = (params: (number | number[])[], mode: number) => params.some(p => p === mode);
 
 /** One xterm + one PTY session, alive for the lifetime of its tab. Closing
  *  the tab unmounts the pane, which kills the PTY. Inactive panes stay
  *  mounted (their sessions keep running) and are hidden with
  *  visibility:hidden rather than display:none, so the element stays
  *  measurable and FitAddon stays accurate on hidden tabs. */
-function TermPane({ profile, cwd, visible, open, height, onExit }: TermPaneProps) {
+function TermPane({ profile, cwd, visible, open, follow, height, onExit }: TermPaneProps) {
   const hostRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
@@ -104,6 +110,33 @@ function TermPane({ profile, cwd, visible, open, height, onExit }: TermPaneProps
   const lastCwdRef = useRef<string>(cwd);
   const onExitRef = useRef(onExit);
   onExitRef.current = onExit;
+  const promptRef = useRef(new PromptTracker());
+  // The folder a busy shell should cd to at its next prompt.
+  const pendingCdRef = useRef<string | null>(null);
+
+  // Follow-folder: type a `cd` into the shell, but only while it waits at an
+  // empty prompt in the open drawer's active tab (see followDecision). Reads
+  // props through a ref so the parser hook below always sees current ones.
+  const followRef = useRef<(path: string) => void>(() => {});
+  followRef.current = (path: string) => {
+    const term = termRef.current;
+    const id = sessionRef.current;
+    pendingCdRef.current = null;
+    if (!term || !id) return;
+    const tracker = promptRef.current;
+    const decision = followDecision({
+      enabled: follow,
+      drawerOpen: open,
+      visible,
+      altScreen: term.buffer.active.type === "alternate",
+      prompt: tracker.state,
+      signals: tracker.signals,
+    });
+    if (decision === "wait") pendingCdRef.current = path;
+    if (decision !== "send") return;
+    const cmd = makeCdCommand(profile, path);
+    if (cmd !== null) void ptyWrite(id, cmd + "\r");
+  };
 
   // Create the terminal, register pty event routing, then spawn the PTY —
   // strictly in that order. The Rust reader thread starts emitting pty-data
@@ -131,7 +164,24 @@ function TermPane({ profile, cwd, visible, open, height, onExit }: TermPaneProps
     fitRef.current = fit;
     try { fit.fit(); } catch { /* ignore */ }
 
-    term.onData(d => { const id = sessionRef.current; if (id) void ptyWrite(id, d); });
+    term.onData(d => {
+      promptRef.current.input(d, term.buffer.active.type === "alternate");
+      const id = sessionRef.current; if (id) void ptyWrite(id, d);
+    });
+    // Bracketed paste on/off is how bash, zsh and fish show they are reading
+    // a line (PromptTracker). Returning false leaves xterm to apply the mode.
+    term.parser.registerCsiHandler({ prefix: "?", final: "h" }, params => {
+      if (hasMode(params, 2004)) {
+        promptRef.current.editorStarted();
+        const pending = pendingCdRef.current;
+        if (pending !== null) followRef.current(pending);
+      }
+      return false;
+    });
+    term.parser.registerCsiHandler({ prefix: "?", final: "l" }, params => {
+      if (hasMode(params, 2004)) promptRef.current.editorStopped();
+      return false;
+    });
     term.onResize(({ cols, rows }) => {
       const id = sessionRef.current; if (id) void ptyResize(id, cols, rows);
     });
@@ -212,17 +262,15 @@ function TermPane({ profile, cwd, visible, open, height, onExit }: TermPaneProps
     return () => obs.disconnect();
   }, []);
 
-  // cd-follow: only the visible pane chases the browser cwd. Hidden panes
-  // record the change without emitting, so switching tabs never retro-cds
-  // a shell you left somewhere on purpose.
+  // A folder change is followed or dropped as it happens. A skipped one is
+  // never replayed, so opening the drawer or switching tabs doesn't cd a
+  // shell you left somewhere on purpose; only a busy shell catches up, at
+  // its next prompt.
   useEffect(() => {
     if (!cwd || cwd === lastCwdRef.current) return;
-    if (visible && sessionRef.current) {
-      const cmd = makeCdCommand(profile, cwd);
-      if (cmd !== null) void ptyWrite(sessionRef.current, cmd + "\r");
-    }
     lastCwdRef.current = cwd;
-  }, [cwd, visible]);
+    followRef.current(cwd);
+  }, [cwd]);
 
   useEffect(() => {
     const t = window.setTimeout(() => {
@@ -255,7 +303,7 @@ function TermPane({ profile, cwd, visible, open, height, onExit }: TermPaneProps
   );
 }
 
-export function TerminalDrawer({ open, cwd, profile, height, onHeightChange, onClose }: TerminalDrawerProps) {
+export function TerminalDrawer({ open, cwd, profile, follow, height, onHeightChange, onClose }: TerminalDrawerProps) {
   const [profiles, setProfiles] = useState<ShellProfile[]>([]);
   const [tabs, setTabs] = useState<TermTab[]>([]);
   const [activeKey, setActiveKey] = useState(0);
@@ -311,23 +359,8 @@ export function TerminalDrawer({ open, cwd, profile, height, onHeightChange, onC
     }
   }, [open, profile, profiles]);
 
-  // Ctrl+Shift+` opens a new tab with the active tab's profile (VS Code
-  // convention). Capture phase so it beats xterm's own key handling; App's
-  // Ctrl+` toggle is unaffected (with Shift the key produces "~" there).
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (!open) return;
-      if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.code === "Backquote") {
-        e.preventDefault();
-        const p = tabsRef.current.find(t => t.key === activeKey)?.profile ?? profiles[0];
-        if (p) addTab(p);
-      }
-    };
-    window.addEventListener("keydown", onKey, true);
-    return () => window.removeEventListener("keydown", onKey, true);
-  }, [open, profiles, activeKey]);
-
-  // "New Terminal Tab" menu item — App can't reach into drawer state, so it
+  // "New Terminal Tab" (the menu item, and Ctrl+Shift+` through keymap.ts,
+  // which xterm lets through) — App can't reach into drawer state, so it
   // opens the drawer and signals via a window event. No `open` check: the
   // dispatch that fires this is also the one flipping the drawer open.
   useEffect(() => {
@@ -442,6 +475,7 @@ export function TerminalDrawer({ open, cwd, profile, height, onHeightChange, onC
             cwd={cwd}
             visible={t.key === activeKey}
             open={open}
+            follow={follow}
             height={height}
             onExit={() => markDead(t.key)}
           />

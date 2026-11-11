@@ -86,6 +86,7 @@ const TWEAK_DEFAULTS: TweakState = {
   showExtensions: true,
   showGitGutters: true,
   foldersFirst: true,
+  termFollow: true,
 };
 
 interface CtxState {
@@ -1226,6 +1227,7 @@ export function App() {
         open={termOpen}
         cwd={activeHandle?.state.path ?? ""}
         profile={termProfile}
+        follow={state.termFollow}
         height={termHeight}
         onHeightChange={setTermHeight}
         onClose={() => setTermOpen(false)}

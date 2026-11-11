@@ -1050,6 +1050,8 @@ export interface TweakState {
   showExtensions: boolean;
   showGitGutters: boolean;
   foldersFirst: boolean;
+  /** The terminal types a `cd` when the active tab's folder changes. */
+  termFollow: boolean;
 }
 
 export interface TweaksProps {
@@ -1130,6 +1132,13 @@ export function Tweaks({ state, setState, onClose }: TweaksProps) {
           <div className="segmented">
             <button className={state.foldersFirst ? "" : "active"} onClick={() => setState({...state, foldersFirst: false})}>off</button>
             <button className={state.foldersFirst ? "active" : ""} onClick={() => setState({...state, foldersFirst: true})}>on</button>
+          </div>
+        </div>
+        <div className="tweak">
+          <label>terminal follows folder</label>
+          <div className="segmented">
+            <button className={state.termFollow ? "" : "active"} onClick={() => setState({...state, termFollow: false})}>off</button>
+            <button className={state.termFollow ? "active" : ""} onClick={() => setState({...state, termFollow: true})}>on</button>
           </div>
         </div>
       </div>

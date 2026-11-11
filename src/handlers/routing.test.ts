@@ -211,6 +211,13 @@ describe("routed commands", () => {
     expect(api.gitStage).not.toHaveBeenCalled();
   });
 
+  it("Follow Folder flips the terminal's follow setting", async () => {
+    const setTweaks = vi.fn();
+    const tweaks = { termFollow: true } as NonNullable<HandlerCtx["tweaks"]>;
+    expect(await owner("Follow Folder", { ...makeCtx([], []), tweaks, setTweaks })).toBe(viewHandler);
+    expect(setTweaks).toHaveBeenCalledWith(expect.objectContaining({ termFollow: false }));
+  });
+
   it("Copy as UNC puts the admin-share path on the clipboard", async () => {
     const writeText = vi.fn(async () => {});
     vi.stubGlobal("navigator", { clipboard: { writeText } });

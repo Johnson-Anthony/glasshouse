@@ -117,6 +117,13 @@ export const viewHandler: Handler = (label, ctx) => {
       return true;
     }
 
+    case "Follow Folder": {
+      if (ctx.tweaks && ctx.setTweaks) {
+        ctx.setTweaks({ ...ctx.tweaks, termFollow: !ctx.tweaks.termFollow });
+      }
+      return true;
+    }
+
     case "Show File Extensions":
       if (ctx.tweaks && ctx.setTweaks) {
         ctx.setTweaks({ ...ctx.tweaks, showExtensions: !ctx.tweaks.showExtensions });
