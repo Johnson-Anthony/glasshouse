@@ -1,10 +1,7 @@
 import type { Handler } from "./types";
-import { pickNumbered } from "./helpers";
+import { pickNumbered, runGitAction } from "./helpers";
 import { dialogs } from "../dialogs/DialogHost";
 import {
-  gitStage,
-  gitUnstage,
-  gitDiscard,
   gitBlame,
   gitRun,
   gitBranchList,
@@ -46,37 +43,27 @@ async function runAndShow(
   if (refreshAfter && r.ok) ctx.refresh();
 }
 
+/** Switch to `branch`. The `--` makes git read it as a branch only: plain
+ *  `git checkout docs` restores the folder `docs` when no branch has that
+ *  name, throwing away its edits. */
+function checkoutBranch(ctx: Parameters<Handler>[1], branch: string): Promise<void> {
+  return runAndShow(ctx, `git checkout ${branch}`, ["checkout", branch, "--"], true);
+}
+
 export const gitHandler: Handler = async (label, ctx) => {
+  const entries = ctx.activeHandle?.state.entries ?? [];
   switch (label) {
     case "Stage Selected":
     case "Git: Stage Selected": {
-      if (ctx.selectedPaths.length > 0) {
-        await gitStage(ctx.selectedPaths);
-        ctx.refresh();
-      }
+      await runGitAction("stage", ctx.selectedPaths, entries, ctx.refresh);
       return true;
     }
     case "Unstage Selected": {
-      if (ctx.selectedPaths.length > 0) {
-        await gitUnstage(ctx.selectedPaths);
-        ctx.refresh();
-      }
+      await runGitAction("unstage", ctx.selectedPaths, entries, ctx.refresh);
       return true;
     }
     case "Discard Changes": {
-      if (ctx.selectedPaths.length > 0) {
-        const n = ctx.selectedPaths.length;
-        const ok = await dialogs.showConfirm({
-          title: "discard changes",
-          message: `Discard local changes to ${n} item(s)?`,
-          danger: true,
-          okLabel: "discard",
-        });
-        if (ok) {
-          await gitDiscard(ctx.selectedPaths);
-          ctx.refresh();
-        }
-      }
+      await runGitAction("discard", ctx.selectedPaths, entries, ctx.refresh);
       return true;
     }
     case "Blame Selected": {
@@ -157,7 +144,7 @@ export const gitHandler: Handler = async (label, ctx) => {
         validate: (v) => v.trim() ? null : "branch required",
       });
       if (branch == null || branch.trim() === "") return true;
-      await runAndShow(ctx, `git checkout ${branch}`, ["checkout", branch.trim()], true);
+      await checkoutBranch(ctx, branch.trim());
       return true;
     }
     case "New Branch…": {
@@ -214,14 +201,13 @@ export const gitHandler: Handler = async (label, ctx) => {
         return true;
       }
       const b = await pickNumbered("git checkout", branches, b => `${b.current ? "* " : "  "}${b.name}`, 20);
-      if (b) await runAndShow(ctx, `git checkout ${b.name}`, ["checkout", b.name], true);
+      if (b) await checkoutBranch(ctx, b.name);
       return true;
     }
     default: {
       const m = /^git-branch:(.+)$/.exec(label);
       if (m) {
-        const branch = m[1];
-        await runAndShow(ctx, `git checkout ${branch}`, ["checkout", branch], true);
+        await checkoutBranch(ctx, m[1]);
         return true;
       }
       return false;

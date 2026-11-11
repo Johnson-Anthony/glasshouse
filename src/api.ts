@@ -249,8 +249,18 @@ export function gitUnstage(paths: string[]): Promise<void> {
   return mustInvoke<void>("git_unstage", { paths });
 }
 
-export function gitDiscard(paths: string[]): Promise<void> {
-  return mustInvoke<void>("git_discard", { paths });
+/** What Discard did (commands/git.rs `DiscardResult`). */
+export interface GitDiscardResult {
+  /** Files put back as the last commit has them. */
+  restored: number;
+  /** Untracked files and folders moved to the trash. */
+  trashed: number;
+  /** Paths left as they were: repo-relative, `/`-separated, with why. */
+  skipped: Array<{ path: string; reason: string }>;
+}
+
+export function gitDiscard(paths: string[]): Promise<GitDiscardResult> {
+  return mustInvoke<GitDiscardResult>("git_discard", { paths });
 }
 
 export interface GitRunResult {

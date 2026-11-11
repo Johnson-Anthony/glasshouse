@@ -1,4 +1,4 @@
-import { type FileEntry, openWithDefault, renameEntry, deleteEntry, moveToTrash, makeDir, createTextFile, spawnTerminal, spawnVscodeStrict, revealInExplorer, writeTags, archiveCreate, hashSha256, homeDir, gitStage, gitUnstage, gitDiscard } from "../api";
+import { type FileEntry, openWithDefault, renameEntry, deleteEntry, moveToTrash, makeDir, createTextFile, spawnTerminal, spawnVscodeStrict, revealInExplorer, writeTags, archiveCreate, hashSha256, homeDir } from "../api";
 import { MUTATING_LABELS } from "../data";
 import { dialogs } from "../dialogs/DialogHost";
 import { basename, parentPath, joinPath } from "../paths";
@@ -12,7 +12,7 @@ import { isCancelled, runOp } from "../ops";
 import { type TransferOp, runTransfer, type TransferItem, type TransferResult } from "../transfer";
 import type { PasteSpecialItem } from "../dialogs/PasteSpecial";
 import type { Handler } from "./types";
-import { copyWslPath, selectedOrFirst, showBlame } from "./helpers";
+import { copyWslPath, runGitAction, selectedOrFirst, showBlame } from "./helpers";
 import { cmdState } from "../commandState";
 import { errText } from "../errors";
 
@@ -437,40 +437,15 @@ export const fileOpsHandler: Handler = async (label, ctx) => {
       return true;
     }
     case "Git: Stage": {
-      const targets = selectedPaths.filter((_, idx) => {
-        const e = st.entries[st.selected[idx]];
-        return !!e && e.git !== null;
-      });
-      if (targets.length === 0) return true;
-      await gitStage(targets);
-      refresh();
+      await runGitAction("stage", selectedPaths, st.entries, refresh);
       return true;
     }
     case "Git: Unstage": {
-      const targets = selectedPaths.filter((_, idx) => {
-        const e = st.entries[st.selected[idx]];
-        return !!e && e.git !== null && e.git !== "?";
-      });
-      if (targets.length === 0) return true;
-      await gitUnstage(targets);
-      refresh();
+      await runGitAction("unstage", selectedPaths, st.entries, refresh);
       return true;
     }
     case "Git: Discard changes": {
-      const targets = selectedPaths.filter((_, idx) => {
-        const e = st.entries[st.selected[idx]];
-        return !!e && e.git !== null;
-      });
-      if (targets.length === 0) return true;
-      const ok = await dialogs.showConfirm({
-        title: "discard changes",
-        message: `Discard local changes for ${targets.length} item(s)? This cannot be undone.`,
-        danger: true,
-        okLabel: "discard",
-      });
-      if (!ok) return true;
-      await gitDiscard(targets);
-      refresh();
+      await runGitAction("discard", selectedPaths, st.entries, refresh);
       return true;
     }
     case "Git: Blame": {
