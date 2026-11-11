@@ -6,11 +6,11 @@ On 2026-11-11, four read-only agents surveyed the app (at `45ea31b`): frontend b
 | # | Task | Area | Size | Status |
 |---|---|---|---|---|
 | **Wave 1: data loss and security** |||||
-| 1 | archive-safety | Rust + `handlers/archive.ts` | M | queued |
-| 2 | git-safety | Rust + `handlers/git.ts` | S–M | queued |
-| 3 | selection-integrity | frontend | M | queued |
-| 4 | terminal-cd | frontend | S | queued |
-| 5 | focus-and-targets | frontend | M | queued |
+| 1 | archive-safety | Rust + `handlers/archive.ts` | M | **running** (`recursing-allen-a7ecf9`) |
+| 2 | git-safety | Rust + `handlers/git.ts` | S–M | **running** (`cool-gauss-d234ca`) |
+| 3 | selection-integrity | frontend | M | **running** (`cool-satoshi-4102fc`) |
+| 4 | terminal-cd | frontend | S | **running** (`youthful-shtern-2ac1c5`) |
+| 5 | focus-and-targets | frontend | M | **running** (`exciting-rubin-44f4c0`) |
 | 6 | inspector-perms | both | M | queued |
 | 7 | find-replace-safety | both | S | queued |
 | 8 | fs-robustness | Rust + `handlers/fileOps.ts` | S–M | queued |
