@@ -189,17 +189,113 @@ describe("routed commands", () => {
 
   it("Zip (.zip) archives the selection next to it, then refreshes", async () => {
     const ctx = makeCtx(files, [1, 2]);
+    vi.mocked(api.archiveCreate).mockResolvedValueOnce({ skipped: [] });
     expect(await owner("Zip (.zip)", ctx)).toBe(archiveHandler);
     expect(api.archiveCreate).toHaveBeenCalledWith(["/w/app.ts", "/w/lib.ts"], "/w/app.ts.zip", "zip");
     expect(ctx.refresh).toHaveBeenCalled();
+    expect(dialogs.showAlert).not.toHaveBeenCalled();
   });
 
-  it("Extract to Folder… offers the name without its archive extension", async () => {
-    const ctx = makeCtx(["photos.TAR.GZ"], [0]);
-    dialogs.showPrompt.mockResolvedValueOnce("pics");
-    expect(await owner("Extract to Folder…", ctx)).toBe(archiveHandler);
-    expect(dialogs.showPrompt).toHaveBeenCalledWith(expect.objectContaining({ initialValue: "photos" }));
-    expect(api.archiveExtract).toHaveBeenCalledWith("/w/photos.TAR.GZ", "/w/pics");
+  it("Zip (.zip) lists what it left out", async () => {
+    const ctx = makeCtx(files, [1]);
+    vi.mocked(api.archiveCreate).mockResolvedValueOnce({
+      skipped: [{ path: "/w/app.ts", reason: "symbolic link" }],
+    });
+    await owner("Zip (.zip)", ctx);
+    expect(dialogs.showAlert).toHaveBeenCalledWith(expect.objectContaining({
+      variant: "warning",
+      message: "/w/app.ts: symbolic link",
+    }));
+  });
+
+  describe("extracting", () => {
+    const staging = "/w/.glasshouse-extract-1-0";
+    const staged = (skipped: api.ArchiveSkip[] = []) => ({ staging, skipped });
+    const inStaging = (name: string, kind = "text") => ({ ...entry(name, kind), path: `${staging}/${name}` });
+    /** readDir lists `staged` for the staging folder and `existing` for /w. */
+    function listing(staged: FileEntry[], existing: FileEntry[]) {
+      vi.mocked(api.readDir).mockImplementation(async dir => (dir === staging ? staged : existing));
+    }
+    afterEach(() => vi.mocked(api.readDir).mockReset());
+
+    it("Extract to Folder… offers the name without its archive extension", async () => {
+      const ctx = makeCtx(["photos.TAR.GZ"], [0]);
+      dialogs.showPrompt.mockResolvedValueOnce("pics");
+      expect(await owner("Extract to Folder…", ctx)).toBe(archiveHandler);
+      expect(dialogs.showPrompt).toHaveBeenCalledWith(expect.objectContaining({ initialValue: "photos" }));
+      expect(api.archiveExtract).toHaveBeenCalledWith("/w/photos.TAR.GZ", "/w/pics");
+    });
+
+    it("Extract Here moves the staged entries in, then discards the staging folder", async () => {
+      const ctx = makeCtx(["a.zip"], [0]);
+      vi.mocked(api.archiveExtract).mockResolvedValueOnce(staged());
+      listing([inStaging("payload", "folder"), inStaging("top.txt")], [entry("a.zip", "archive")]);
+      await owner("Extract Here", ctx);
+      expect(api.moveEntry).toHaveBeenCalledWith(`${staging}/payload`, "/w/payload");
+      expect(api.moveEntry).toHaveBeenCalledWith(`${staging}/top.txt`, "/w/top.txt");
+      expect(dialogs.showChoice).not.toHaveBeenCalled();
+      expect(api.archiveDiscardStaging).toHaveBeenCalledWith(staging);
+      expect(dialogs.showToast).toHaveBeenCalledWith({ message: "extracted 2 item(s)", variant: "success" });
+      expect(ctx.refresh).toHaveBeenCalled();
+    });
+
+    it("asks before using a taken name, and cancelling moves nothing", async () => {
+      const ctx = makeCtx(["a.zip"], [0]);
+      vi.mocked(api.archiveExtract).mockResolvedValueOnce(staged());
+      listing([inStaging("payload", "folder")], [entry("a.zip", "archive"), entry("payload", "folder")]);
+      await owner("Extract Here", ctx); // showChoice answers null: cancel
+      expect(dialogs.showChoice).toHaveBeenCalledTimes(1);
+      expect(api.moveEntry).not.toHaveBeenCalled();
+      expect(api.moveToTrash).not.toHaveBeenCalled();
+      expect(api.archiveDiscardStaging).toHaveBeenCalledWith(staging);
+      expect(dialogs.showToast).toHaveBeenCalledWith(expect.objectContaining({ message: "extract cancelled: nothing changed" }));
+    });
+
+    it("keep both gives the extracted entry a copy name", async () => {
+      const ctx = makeCtx(["a.zip"], [0]);
+      vi.mocked(api.archiveExtract).mockResolvedValueOnce(staged());
+      listing([inStaging("payload", "folder")], [entry("payload", "folder")]);
+      dialogs.showChoice.mockResolvedValueOnce("keep-both");
+      await owner("Extract Here", ctx);
+      expect(api.moveEntry).toHaveBeenCalledWith(`${staging}/payload`, "/w/payload (copy)");
+      expect(api.archiveDiscardStaging).toHaveBeenCalledWith(staging);
+    });
+
+    it("discards the staging folder even when listing it fails", async () => {
+      const ctx = makeCtx(["a.zip"], [0]);
+      vi.mocked(api.archiveExtract).mockResolvedValueOnce(staged());
+      vi.mocked(api.readDir).mockRejectedValueOnce(new Error("gone"));
+      await owner("Extract Here", ctx);
+      expect(dialogs.showAlert).toHaveBeenCalledWith(expect.objectContaining({ title: "extract failed", message: "gone" }));
+      expect(api.archiveDiscardStaging).toHaveBeenCalledWith(staging);
+    });
+
+    it("a failed extraction alerts and has nothing to discard", async () => {
+      const ctx = makeCtx(["a.zip"], [0]);
+      vi.mocked(api.archiveExtract).mockRejectedValueOnce("extract a.zip: invalid checksum");
+      await owner("Extract Here", ctx);
+      expect(dialogs.showAlert).toHaveBeenCalledWith(expect.objectContaining({
+        title: "extract failed",
+        message: "extract a.zip: invalid checksum",
+      }));
+      expect(api.archiveDiscardStaging).not.toHaveBeenCalled();
+      expect(api.moveEntry).not.toHaveBeenCalled();
+    });
+
+    it("lists archive entries the backend left out", async () => {
+      const ctx = makeCtx(["a.zip"], [0]);
+      vi.mocked(api.archiveExtract).mockResolvedValueOnce(staged([{ path: "up", reason: "its target .. is outside the archive" }]));
+      listing([inStaging("top.txt")], []);
+      await owner("Extract Here", ctx);
+      expect(dialogs.showToast).toHaveBeenCalledWith({
+        message: "extracted 1 item(s), left out 1 archive entry",
+        variant: "warning",
+      });
+      expect(dialogs.showAlert).toHaveBeenCalledWith(expect.objectContaining({
+        variant: "warning",
+        message: "up: its target .. is outside the archive",
+      }));
+    });
   });
 
   it("Stage Selected stages the selection, and does nothing without one", async () => {

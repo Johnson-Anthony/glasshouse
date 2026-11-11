@@ -52,6 +52,7 @@ commands.allow = [
   "compress",
   "archive_create",
   "archive_extract",
+  "archive_discard_staging",
   "set_permissions",
   "create_symlink",
   "create_hard_link",
