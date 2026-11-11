@@ -290,6 +290,7 @@ export const MENUS: MenusData = {
       children: [
         { kind: "dynamic", source: "terminal-profiles" },
       ] },
+    { kind: "item", ic: "", label: "Follow Folder",       check: true },
     { kind: "sep" },
     // Split Horizontal/Vertical removed: never implemented, and their
     // advertised shortcuts collided with Paste Special. Re-add with the

@@ -12,6 +12,7 @@ import { clearAllTags, copyWslPath, removeTagPrompt } from "./helpers";
 import { cmdState } from "../commandState";
 import { sshProfileFor } from "../remotes";
 import { errText } from "../errors";
+import { cdCommand } from "../shellCd";
 
 // Commands from a context menu opened on a tab, a saved remote, or a
 // sidebar/breadcrumb row. Runs first; the menu's target is in
@@ -130,10 +131,17 @@ export const targetHandler: Handler = (label, ctx) => {
           cmdState.contextTarget = null;
           void copyWslPath(target);
           return true;
-        case "Copy as Command":
+        case "Copy as Command": {
           cmdState.contextTarget = null;
-          void navigator.clipboard.writeText(`cd ${JSON.stringify(target)}`);
+          // PowerShell is Windows' default terminal shell.
+          const cmd = cdCommand(IS_WINDOWS ? "pwsh" : "posix", target);
+          if (cmd === null) {
+            void dialogs.showToast({ message: "can't copy as a command: the path has control characters", variant: "info" });
+          } else {
+            void navigator.clipboard.writeText(cmd);
+          }
           return true;
+        }
         case "Reveal in Explorer":
           cmdState.contextTarget = null;
           void revealInExplorer(target); return true;

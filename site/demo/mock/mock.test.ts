@@ -4,6 +4,7 @@ import { HOME, REPO } from "./content";
 import { FakeShell, tokenize } from "./shell";
 import { GitRepo } from "./git";
 import { Vfs, basename, join, parent } from "./vfs";
+import { cdCommand } from "../../../src/shellCd";
 
 const quietHooks = () => {
   const events: Array<[string, unknown]> = [];
@@ -111,6 +112,7 @@ describe("FakeShell", () => {
   it("tokenizes quotes like a shell", () => {
     expect(tokenize(`cd "/home/demo/My Files"`)).toEqual(["cd", "/home/demo/My Files"]);
     expect(tokenize(`echo 'a b' c ""`)).toEqual(["echo", "a b", "c", ""]);
+    expect(tokenize(`cd '/home/demo/it'\\''s'`)).toEqual(["cd", "/home/demo/it's"]);
   });
 
   const shell = () => {
@@ -123,7 +125,7 @@ describe("FakeShell", () => {
 
   it("follows the app's cd command and runs ls", () => {
     const { sh, read } = shell();
-    sh.write(`cd "${HOME}/Downloads"\r`);
+    sh.write(cdCommand("posix", `${HOME}/Downloads`) + "\r");
     expect(sh.cwd).toBe(`${HOME}/Downloads`);
     read();
     sh.write("ls\r");

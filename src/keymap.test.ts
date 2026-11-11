@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { CONTEXT_EMPTY, CONTEXT_FILE, GIT_CHORDS, MENUS, PALETTE, type MenuItemDef } from "./data";
 import { CHEATSHEET, KEYMAP, findBinding, matches, parseCombo, type KeyAction, type KeyEventLike, type KeyState } from "./keymap";
@@ -215,6 +216,14 @@ describe("bindings for advertised keys", () => {
     expect(sends("Ctrl+Shift+~")).toBe("New Terminal Tab"); // US layout: Shift+` is ~
     expect(sends("Ctrl+Shift+`", { inText: true })).toBe("New Terminal Tab");
     expect(sends("Ctrl+`")).toBe("run:terminal");
+  });
+
+  it("leaves Ctrl+Shift+` to the keymap alone, so one press opens one terminal tab", () => {
+    // xterm lets the key through to the window, so a listener of the drawer's
+    // own would add a second tab on top of the keymap's "New Terminal Tab".
+    const src = readFileSync(new URL("./Terminal.tsx", import.meta.url), "utf8");
+    expect(src).not.toMatch(/addEventListener\(\s*["']key(down|up|press)["']/);
+    expect(src).not.toMatch(/Backquote/);
   });
 
   it("Ctrl+Shift+H is Find & Replace in Files; Ctrl+Shift+F stays Find in Files", () => {

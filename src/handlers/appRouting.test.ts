@@ -152,6 +152,24 @@ describe("targetHandler", () => {
     expect(ctx.app!.setTermProfile).toHaveBeenCalledWith(expect.objectContaining({ kind: "ssh", args: ["example.com"] }));
     expect(ctx.app!.setTermOpen).toHaveBeenCalledWith(true);
   });
+
+  it("Copy as Command quotes the right-clicked folder so pasting it runs nothing else", async () => {
+    const writeText = vi.fn(async () => {});
+    vi.stubGlobal("navigator", { clipboard: { writeText } });
+    cmdState.contextTarget = { kind: "breadcrumb", path: "/w/$(touch PWNED)'`x`" };
+    expect(await owner("Copy as Command", makeCtx([entry("a.txt")]))).toBe(targetHandler);
+    expect(writeText).toHaveBeenCalledWith("cd '/w/$(touch PWNED)'\\''`x`'");
+    expect(cmdState.contextTarget).toBeNull();
+  });
+
+  it("Copy as Command copies nothing for a path with control characters", async () => {
+    const writeText = vi.fn(async () => {});
+    vi.stubGlobal("navigator", { clipboard: { writeText } });
+    cmdState.contextTarget = { kind: "sidebar", path: "/w/a\nrm -rf ~" };
+    expect(await owner("Copy as Command", makeCtx([entry("a.txt")]))).toBe(targetHandler);
+    expect(writeText).not.toHaveBeenCalled();
+    expect(dialogs.showToast).toHaveBeenCalled();
+  });
 });
 
 describe("context-menu targets", () => {

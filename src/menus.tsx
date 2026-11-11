@@ -172,6 +172,8 @@ function resolveChecked(item: MenuItemDef, toggles: MenuToggleState, parentLabel
       return !!tw?.showGitGutters;
     case "Folders First":
       return !!tw?.foldersFirst;
+    case "Follow Folder":
+      return !!tw?.termFollow;
     case "Sidebar":
       return toggles.sidebarVisible !== undefined ? toggles.sidebarVisible : !!item.check;
     case "Status Bar":
