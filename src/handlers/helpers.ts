@@ -1,8 +1,10 @@
-import { gitBlame, winToWsl, type BlameLine } from "../api";
+import { gitBlame, winToWsl, writeTags, type BlameLine } from "../api";
 import { dialogs } from "../dialogs/DialogHost";
 import { errText } from "../errors";
 import { winPathToWsl } from "../shellCd";
-import type { HandlerCtx } from "./types";
+import type { AppCommands, HandlerCtx } from "./types";
+
+type TagAccess = Pick<AppCommands, "tagStore" | "setTagStore">;
 
 /** The selected paths, or the first entry's path when nothing else is. */
 export function selectedOrFirst(ctx: HandlerCtx): string[] {
@@ -56,4 +58,49 @@ export async function copyWslPath(path: string): Promise<void> {
   try { wsl = await winToWsl(path); } catch { wsl = ""; }
   if (!wsl) wsl = winPathToWsl(path);
   await navigator.clipboard.writeText(wsl);
+}
+
+/** Asks which of `path`'s tags to remove, then removes it. */
+export async function removeTagPrompt(path: string, { tagStore, setTagStore }: TagAccess): Promise<void> {
+  const existing = tagStore[path] ?? [];
+  if (existing.length === 0) return;
+  const raw = await dialogs.showPrompt({
+    title: "remove tag",
+    message: `Remove which tag? (current: ${existing.join(", ")})`,
+    initialValue: existing[0],
+    placeholder: "tag",
+    validate: (v) => existing.includes(v.trim()) ? null : `not a current tag`,
+  });
+  if (raw === null) return;
+  const tag = raw.trim();
+  if (!tag || !existing.includes(tag)) return;
+  setTagStore(prev => {
+    const cur = prev[path] ?? [];
+    const filtered = cur.filter(t => t !== tag);
+    const next = { ...prev };
+    if (filtered.length === 0) delete next[path];
+    else next[path] = filtered;
+    void writeTags(next);
+    return next;
+  });
+}
+
+/** Asks, then removes every tag from `paths`. "none" when none had tags. */
+export async function clearAllTags(paths: string[], { tagStore, setTagStore }: TagAccess): Promise<"none" | "cancelled" | "cleared"> {
+  const tagged = paths.filter(p => (tagStore[p]?.length ?? 0) > 0);
+  if (tagged.length === 0) return "none";
+  const ok = await dialogs.showConfirm({
+    title: "Remove all tags",
+    message: `Remove all tags from ${tagged.length} item(s)?`,
+    danger: true,
+    okLabel: "remove",
+  });
+  if (!ok) return "cancelled";
+  setTagStore(prev => {
+    const next = { ...prev };
+    for (const p of tagged) delete next[p];
+    void writeTags(next);
+    return next;
+  });
+  return "cleared";
 }

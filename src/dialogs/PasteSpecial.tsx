@@ -5,6 +5,7 @@ import { basename } from "../paths";
 import type { SkipReason, TransferItem, TransferOp, TransferStep } from "../transfer";
 import { errText } from "../errors";
 import { useEscapeClose } from "./useEscapeClose";
+import { useModal } from "./modal";
 
 // ============= Paste Special dialog =============
 
@@ -75,6 +76,7 @@ export function PasteSpecialDialog({
   );
 
   useEscapeClose(onClose, !running);
+  useModal();
 
   const preview = items.slice(0, 5).map(it => basename(it.path));
   const extra = items.length > 5 ? items.length - 5 : 0;

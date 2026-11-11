@@ -31,7 +31,7 @@ import { Inspector, type InspectableFile } from "./preview/Inspector";
 import { QuickLook } from "./preview/FilePreview";
 import { Sidebar, type SavedRemote, type SidebarRowKind } from "./Sidebar";
 import { Menubar, ContextMenu, setDynamicGitCwd } from "./menus";
-import { CONTEXT_FILE, CONTEXT_EMPTY, CONTEXT_SIDEBAR, CONTEXT_SIDEBAR_FOLDER, CONTEXT_SIDEBAR_DRIVE, CONTEXT_SIDEBAR_REMOTE, CONTEXT_TAB, CONTEXT_BREADCRUMB, GIT_CHORDS, type MenuItemDef, type DynamicPayload, type FileKind, type GitStatus } from "./data";
+import { CONTEXT_FILE, CONTEXT_EMPTY, CONTEXT_SIDEBAR, CONTEXT_SIDEBAR_FOLDER, CONTEXT_SIDEBAR_FILE, CONTEXT_SIDEBAR_DRIVE, CONTEXT_SIDEBAR_REMOTE, CONTEXT_TAB, CONTEXT_BREADCRUMB, GIT_CHORDS, type MenuItemDef, type DynamicPayload, type FileKind, type GitStatus } from "./data";
 import {
   useTabState,
   undoLast,
@@ -44,6 +44,7 @@ import { COMMAND_CHAIN, type HandlerCtx } from "./handlers";
 import { cmdState } from "./commandState";
 import { sshProfileFor } from "./remotes";
 import { findBinding, type KeyAction } from "./keymap";
+import { isModalOpen, useModal } from "./dialogs/modal";
 import { makeTab, closeTab, closeOtherTabs, moveTab as moveTabIn, tabLabel, type TabRecord } from "./tabs";
 import { canExtractArchive } from "./handlers/archive";
 import { showBlame } from "./handlers/helpers";
@@ -125,6 +126,7 @@ function FindInFilesModal({ root, onClose, onPick }: FindInFilesModalProps) {
   }, []);
 
   useEscapeClose(onClose);
+  useModal();
 
   useEffect(() => {
     if (!query.trim()) {
@@ -578,6 +580,8 @@ export function App() {
     const h = (e: KeyboardEvent) => {
       const dispatch = (label: string) => handleMenuCommandRef.current(label);
       const inText = isTextInput(e.target);
+      // A modal dialog owns the keyboard: nothing here acts behind it.
+      if (isModalOpen()) return;
 
       // ── Git chords (Ctrl+G then S / A / C / P, per the Git menu hints) ──
       // Checked first so the second key wins over its own binding, with or
@@ -637,9 +641,17 @@ export function App() {
       }
 
       // Everything else is in the keymap (src/keymap.ts).
-      const b = findBinding(e, { inText, selected: activeHandle?.state.selected.length ?? 0 });
+      const b = findBinding(e, {
+        inText,
+        selected: activeHandle?.state.selected.length ?? 0,
+        sidebar: !!sidebarRootRef.current?.contains(e.target as Node),
+        textSelected: !!window.getSelection()?.toString(),
+      });
       if (!b) return;
       e.preventDefault();
+      // Keys act on the pane, never on an open context menu's target.
+      setCtx(null);
+      cmdState.contextTarget = null;
       if (b.send) dispatch(b.send);
       else if (b.run) runKeyAction(b.run);
     };
@@ -910,7 +922,8 @@ export function App() {
     cmdState.contextTarget = { kind: "sidebar", path, rowKind };
     let menu: MenuItemDef[];
     switch (rowKind) {
-      case "pinned": {
+      case "pinned":
+      case "pinned-file": {
         // Previously this rendered a four-item stub menu. Users
         // expect the full folder right-click here (most pins are folders)
         // plus pin-management — inject Unpin on top, reorder items next,
@@ -920,18 +933,18 @@ export function App() {
         const reorder: MenuItemDef[] = [];
         if (idx > 0) reorder.push({ kind: "item", ic: "", label: "Move pin up" });
         if (idx >= 0 && idx < pins.length - 1) reorder.push({ kind: "item", ic: "", label: "Move pin down" });
+        const body = rowKind === "pinned-file" ? CONTEXT_SIDEBAR_FILE : CONTEXT_SIDEBAR_FOLDER;
         menu = [
           { kind: "item", ic: "", label: "Unpin" },
           ...reorder,
           { kind: "sep" },
-          ...CONTEXT_SIDEBAR_FOLDER.filter(it => !(it.kind === "item" && it.label === "Pin")),
+          ...body.filter(it => !(it.kind === "item" && it.label === "Pin")),
         ];
         break;
       }
       case "tree-file":
-        // Extract dispatches on the pane selection, not the sidebar path —
-        // hide it here so it can't act on the wrong file.
-        menu = CONTEXT_FILE.filter(it => !(it.kind === "sub" && it.label === "Extract →"));
+        // Its own menu: every item runs on this path (handlers/target.ts).
+        menu = CONTEXT_SIDEBAR_FILE;
         break;
       case "tree-folder":
         menu = CONTEXT_SIDEBAR_FOLDER;
@@ -1152,6 +1165,7 @@ export function App() {
           onActivate={() => setFocusedPane("sidebar")}
           activePath={activeHandle?.state.path ?? ""}
           onGoTo={(p) => activeHandle?.actions.goTo(p)}
+          onOpenFile={(p) => { void openWithDefault(p); }}
           onRowContext={onSidebarContext}
           pins={pins}
           onAddPin={() => {

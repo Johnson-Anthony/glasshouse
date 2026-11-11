@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { drives as apiDrives, homeDir as apiHomeDir, listDir, type Drive, type FileEntry } from "../api";
 import { parentPath, splitBreadcrumb } from "../paths";
+import { useModal } from "./modal";
 
 // ============= FolderPickerDialog =============
 // In-app folder picker modal. Replaces the Tauri native open-directory dialog
@@ -19,6 +20,7 @@ export function FolderPickerDialog({ initialPath, title, onClose, onPick }: Fold
   const [entries, setEntries] = useState<FileEntry[]>([]);
   const [driveList, setDriveList] = useState<Drive[]>([]);
   const [busy, setBusy] = useState(false);
+  useModal();
 
   useEffect(() => {
     void (async () => {

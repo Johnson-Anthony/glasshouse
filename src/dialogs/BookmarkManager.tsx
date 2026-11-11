@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useEscapeClose } from "./useEscapeClose";
+import { useModal } from "./modal";
 
 // ============= BookmarkManagerDialog =============
 export interface BookmarkManagerDialogProps {
@@ -13,6 +14,7 @@ export function BookmarkManagerDialog({ pins, onClose, onSave, onGoTo }: Bookmar
   const [working, setWorking] = useState<string[]>(() => [...pins]);
 
   useEscapeClose(onClose);
+  useModal();
 
   const move = (idx: number, delta: number) => {
     setWorking(prev => {

@@ -1,5 +1,5 @@
 import { dialogs } from "../dialogs/DialogHost";
-import { spawnTerminal, spawnVscodeStrict, revealInExplorer, renameEntry, homeDir, moveToTrash, listDir } from "../api";
+import { spawnTerminal, spawnVscodeStrict, revealInExplorer, renameEntry, homeDir, moveToTrash, listDir, openWithDefault } from "../api";
 import { basename, parentPath, joinPath, normalizePath } from "../paths";
 import { namesIn, unlessTaken, transferDeps, pushTransferUndo, reportTransfer } from "../transferUi";
 import { NameSet, nameProblem } from "../names";
@@ -8,15 +8,17 @@ import { pushUndo } from "../state";
 import { moveUndo } from "../undoActions";
 import { runTransfer } from "../transfer";
 import type { Handler } from "./types";
-import { copyWslPath } from "./helpers";
+import { clearAllTags, copyWslPath, removeTagPrompt } from "./helpers";
 import { cmdState } from "../commandState";
 import { sshProfileFor } from "../remotes";
 import { errText } from "../errors";
 
 // Commands from a context menu opened on a tab, a saved remote, or a
-// sidebar/breadcrumb folder. Runs first; the menu's target is in
-// cmdState.contextTarget, and a case consumes it. Moved from App.tsx's
-// handleMenuCommand.
+// sidebar/breadcrumb row. Runs first; the menu's target is in
+// cmdState.contextTarget, and a case consumes it. A label with a target but
+// no case here is refused rather than passed on, because the later handlers
+// act on the pane's selection, not on the right-clicked row. Moved from
+// App.tsx's handleMenuCommand.
 export const targetHandler: Handler = (label, ctx) => {
   if (!ctx.app) return false;
   const { activeHandle } = ctx;
@@ -94,10 +96,13 @@ export const targetHandler: Handler = (label, ctx) => {
       }
     } else if ((ctxT.kind === "sidebar" || ctxT.kind === "breadcrumb") && ctxT.path) {
       const target = ctxT.path;
+      const isFile = ctxT.rowKind === "tree-file" || ctxT.rowKind === "pinned-file";
       switch (label) {
         case "Open":
           cmdState.contextTarget = null;
-          activeHandle?.actions.goTo(target); return true;
+          if (isFile) void openWithDefault(target);
+          else activeHandle?.actions.goTo(target);
+          return true;
         case "Open in New Tab":
           cmdState.contextTarget = null;
           openPathInNewTab(target); return true;
@@ -225,6 +230,20 @@ export const targetHandler: Handler = (label, ctx) => {
           cmdState.contextTarget = null;
           setTagPickerPath(target);
           return true;
+        case "Remove Tag…":
+          cmdState.contextTarget = null;
+          void removeTagPrompt(target, ctx.app);
+          return true;
+        case "Clear All Tags": {
+          cmdState.contextTarget = null;
+          const app = ctx.app;
+          void (async () => {
+            if (await clearAllTags([target], app) === "none") {
+              dialogs.showToast({ message: `${basename(target) || target} has no tags`, variant: "info" });
+            }
+          })();
+          return true;
+        }
         case "Unpin": {
           cmdState.contextTarget = null;
           if (!pins.includes(target)) return true;
@@ -245,6 +264,13 @@ export const targetHandler: Handler = (label, ctx) => {
         }
       }
     }
+    // Every item on the target menus is handled above. Passing anything else
+    // on would run it on the pane's selection instead of the right-clicked
+    // row (Git: Discard on a sidebar file once discarded the pane's files).
+    cmdState.contextTarget = null;
+    console.warn("no context-menu handler for this target:", label, ctxT);
+    dialogs.showToast({ message: `"${label}" isn't available here`, variant: "warning" });
+    return true;
   }
   return false;
 };

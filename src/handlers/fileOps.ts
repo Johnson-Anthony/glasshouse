@@ -1,4 +1,4 @@
-import { type FileEntry, openWithDefault, renameEntry, deleteEntry, moveToTrash, makeDir, createTextFile, spawnTerminal, spawnVscodeStrict, revealInExplorer, writeTags, archiveCreate, hashSha256, homeDir, gitStage, gitUnstage, gitDiscard } from "../api";
+import { type FileEntry, openWithDefault, renameEntry, deleteEntry, moveToTrash, makeDir, createTextFile, spawnTerminal, spawnVscodeStrict, revealInExplorer, archiveCreate, hashSha256, homeDir, gitStage, gitUnstage, gitDiscard } from "../api";
 import { MUTATING_LABELS } from "../data";
 import { dialogs } from "../dialogs/DialogHost";
 import { basename, parentPath, joinPath } from "../paths";
@@ -12,7 +12,7 @@ import { isCancelled, runOp } from "../ops";
 import { type TransferOp, runTransfer, type TransferItem, type TransferResult } from "../transfer";
 import type { PasteSpecialItem } from "../dialogs/PasteSpecial";
 import type { Handler } from "./types";
-import { copyWslPath, selectedOrFirst, showBlame } from "./helpers";
+import { clearAllTags, copyWslPath, removeTagPrompt, selectedOrFirst, showBlame } from "./helpers";
 import { cmdState } from "../commandState";
 import { errText } from "../errors";
 
@@ -70,8 +70,6 @@ export const fileOpsHandler: Handler = async (label, ctx) => {
     setPasteSpecial,
     setPropsEntry,
     setTagPickerPath,
-    setTagStore,
-    tagStore,
   } = ctx.app;
   if (!activeHandle) return true;
   const st = activeHandle.state;
@@ -318,50 +316,13 @@ export const fileOpsHandler: Handler = async (label, ctx) => {
     }
     case "Remove Tag…": {
       if (!firstPath) return true;
-      const existing = tagStore[firstPath] ?? [];
-      if (existing.length === 0) return true;
-      const raw = await dialogs.showPrompt({
-        title: "remove tag",
-        message: `Remove which tag? (current: ${existing.join(", ")})`,
-        initialValue: existing[0],
-        placeholder: "tag",
-        validate: (v) => existing.includes(v.trim()) ? null : `not a current tag`,
-      });
-      if (raw === null) return true;
-      const tag = raw.trim();
-      if (!tag || !existing.includes(tag)) return true;
-      setTagStore(prev => {
-        const cur = prev[firstPath] ?? [];
-        const filtered = cur.filter(t => t !== tag);
-        const next = { ...prev };
-        if (filtered.length === 0) delete next[firstPath];
-        else next[firstPath] = filtered;
-        void writeTags(next);
-        return next;
-      });
+      await removeTagPrompt(firstPath, ctx.app);
       return true;
     }
     case "Clear All Tags": {
-      const targets = selectedOrFirst(ctx);
-      const tagged = targets.filter(p => (tagStore[p]?.length ?? 0) > 0);
-      if (tagged.length === 0) {
-        dialogs.showToast({ message: "no tagged items in selection", variant: "info" });
-        return true;
-      }
-      const ok = await dialogs.showConfirm({
-        title: "Remove all tags",
-        message: `Remove all tags from ${tagged.length} item(s)?`,
-        danger: true,
-        okLabel: "remove",
-      });
-      if (!ok) return true;
-      setTagStore(prev => {
-        const next = { ...prev };
-        for (const p of tagged) delete next[p];
-        void writeTags(next);
-        return next;
-      });
-      refresh();
+      const r = await clearAllTags(selectedOrFirst(ctx), ctx.app);
+      if (r === "none") dialogs.showToast({ message: "no tagged items in selection", variant: "info" });
+      if (r === "cleared") refresh();
       return true;
     }
     case "Compress to ZIP…": {
