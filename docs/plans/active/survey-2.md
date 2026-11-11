@@ -18,7 +18,7 @@ On 2026-11-11, four read-only agents surveyed the app (at `45ea31b`): frontend b
 | **Wave 2: release** |||||
 | 10 | release-prep | config + CI | S | **running** (`exciting-rubin-44f4c0`; the tag itself is the user's call) |
 | **Wave 3: undo and trash** |||||
-| 11 | undo-coverage | frontend | M | queued |
+| 11 | undo-coverage | frontend | M | **running** (`youthful-shtern-2ac1c5`; Find & Replace, Extract and Trash undo left to tasks 7, 1, 12) |
 | 12 | trash-restore | both | M | queued |
 | **Wave 4: performance** |||||
 | 13 | pane-perf | frontend | L | queued (after 3 and 5) |
