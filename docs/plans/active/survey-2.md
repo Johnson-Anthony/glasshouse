@@ -10,7 +10,7 @@ On 2026-11-11, four read-only agents surveyed the app (at `45ea31b`): frontend b
 | 2 | git-safety | Rust + `handlers/git.ts` | S–M | **running** (`cool-gauss-d234ca`) |
 | 3 | selection-integrity | frontend | M | **running** (`cool-satoshi-4102fc`) |
 | 4 | terminal-cd | frontend | S | **running** (`youthful-shtern-2ac1c5`) |
-| 5 | focus-and-targets | frontend | M | **running** (`exciting-rubin-44f4c0`) |
+| 5 | focus-and-targets | frontend | M | **merged** (8a3dfc8) |
 | 6 | inspector-perms | both | M | queued |
 | 7 | find-replace-safety | both | S | queued |
 | 8 | fs-robustness | Rust + `handlers/fileOps.ts` | S–M | queued |
@@ -255,6 +255,10 @@ These items do nothing, or something else. Make each work, or remove it. For the
 - **Frontend.** Vite 5.4 brings esbuild 0.21.5, which has a dev-server-only advisory (GHSA-67mh-4wv8-2f99). Vitest 2.1 is behind.
 - **Rust.** git2 0.19 and notify 7 are a major version behind.
 - Every lockfile change needs `pnpm notices`.
+
+## Found by tasks (not yet scheduled)
+- *(from focus-and-targets)* The sidebar tree doesn't re-list after file ops in the pane: delete `Documents` in the pane and the tree still shows it. Seen in the demo; not yet checked in the real app. Small.
+- *(from focus-and-targets)* Pinned files show the folder icon. The sidebar now knows which pins are files (`pinFiles`). Cosmetic, small.
 
 ## Unconfirmed: check before fixing
 - The terminal has no flow control: `yes` or `cat bigfile` sends one `pty-data` event per 4 KiB read and may freeze the webview (`pty.rs`).

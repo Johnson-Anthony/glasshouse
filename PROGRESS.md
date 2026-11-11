@@ -32,7 +32,8 @@
 - 2026-11-08: Set up as a long-running project with a lead session running task sessions in worktrees (`lead` skill, `git config claude.lead`). The Linux arm64 build env is in `~/.claude/environment.md`, and the release build is linked into the fuzzel launcher.
 
 ## In progress
-- 2026-11-11: **Second survey.** Four read-only agents (frontend bugs, backend bugs and security, spec vs app, tests/release/perf) found about 60 issues. The deduplicated backlog is 28 tasks in six waves: `docs/plans/active/survey-2.md`. Wave 1 (data loss and security) is next; no task started yet.
+- 2026-11-11: **Second survey.** Four read-only agents (frontend bugs, backend bugs and security, spec vs app, tests/release/perf) found about 60 issues. The deduplicated backlog is 28 tasks in six waves: `docs/plans/active/survey-2.md`. Wave 1 (data loss and security) is running.
+  - Merged so far: `focus-and-targets` (8a3dfc8). Enter in dialogs no longer opens the selection, file keys only act when the pane has focus, and sidebar file rows get their own menu. Behavior changes: Tab-to-Cancel then Enter now cancels, Ctrl+Shift+F no longer closes Find in Files (Esc does), and dialogs return focus on close.
 
 ## Next
 1. **User decisions:**
