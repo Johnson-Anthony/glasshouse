@@ -16,7 +16,7 @@ On 2026-11-11, four read-only agents surveyed the app (at `45ea31b`): frontend b
 | 8 | fs-robustness | Rust + `handlers/fileOps.ts` | S–M | queued |
 | 9 | watcher-fixes | Rust | S | queued |
 | **Wave 2: release** |||||
-| 10 | release-prep | config + CI | S | queued (the tag itself is the user's call) |
+| 10 | release-prep | config + CI | S | **running** (`exciting-rubin-44f4c0`; the tag itself is the user's call) |
 | **Wave 3: undo and trash** |||||
 | 11 | undo-coverage | frontend | M | queued |
 | 12 | trash-restore | both | M | queued |
