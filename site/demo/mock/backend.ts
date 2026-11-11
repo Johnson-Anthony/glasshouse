@@ -256,17 +256,29 @@ export function createBackend(hooks: BackendHooks) {
       delete n.text;
       n.size = Math.max(1024, Math.round(size * 0.6));
       changed(parent(dest));
-      return null;
+      return { skipped: [] };
     },
+    // As the real backend: everything goes into a staging folder inside the
+    // destination, which the frontend empties and then discards.
     archive_extract: a => {
       const archive = str(a.archive);
       const dest = str(a.destDir);
       const stem = basename(archive).replace(/\.(tar\.gz|tar\.zst|zip|7z|gz|zst)$/i, "");
-      const dir = join(dest, stem);
-      if (!vfs.exists(dir)) vfs.mkdir(dir, now());
+      if (!vfs.exists(dest)) vfs.mkdir(dest, now());
+      let staging = join(dest, ".glasshouse-extract-0");
+      for (let i = 1; vfs.exists(staging); i++) staging = join(dest, `.glasshouse-extract-${i}`);
+      vfs.mkdir(staging, now());
+      const dir = join(staging, stem);
+      vfs.mkdir(dir, now());
       vfs.write(join(dir, "README.txt"), `Extracted from ${basename(archive)} (demo content).\n`, now());
       vfs.write(join(dir, "data.csv"), "id,name,value\n1,alpha,0.42\n2,beta,0.17\n3,gamma,0.93\n", now());
       changed(dest);
+      return { staging, skipped: [] };
+    },
+    archive_discard_staging: a => {
+      const p = str(a.staging);
+      if (vfs.exists(p)) vfs.remove(p);
+      changed(parent(p));
       return null;
     },
 

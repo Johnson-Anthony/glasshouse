@@ -1,53 +1,107 @@
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
+use std::sync::Mutex;
 use super::fs_ops::no_clobber_err;
 use super::launch::{find_tool, require_tool};
 #[cfg(windows)]
 use super::launch::CREATE_NO_WINDOW;
+use crate::lock;
+
+/// An input or archive entry that was left out, and why. Shown to the user.
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+pub struct Skipped {
+    pub path: String,
+    pub reason: String,
+}
+
+/// What `archive_create` left out of the archive.
+#[derive(Debug, Default, serde::Serialize)]
+pub struct CreateReport {
+    pub skipped: Vec<Skipped>,
+}
+
+impl CreateReport {
+    fn skip(&mut self, path: &Path, reason: impl Into<String>) {
+        self.skipped.push(Skipped { path: path.to_string_lossy().into_owned(), reason: reason.into() });
+    }
+}
 
 // ---------- compress (zip) ----------
 
-/// Create a ZIP archive at `output` containing every path in `paths`. Files
-/// are added at their basename; directories are walked recursively and their
-/// children stored with paths rooted at the directory's basename so the
-/// archive keeps a recognisable structure.
+/// Create a ZIP archive at `output` containing every path in `paths`. See
+/// `zip_create`; this older command drops its report.
 #[tauri::command(async)]
 pub fn compress(paths: Vec<String>, output: String) -> Result<(), String> {
-    use std::io::BufWriter;
+    zip_create(&paths, &output).map(drop)
+}
+
+/// Write a new zip at `output`. Files are added at their basename; folders
+/// are walked and their children stored under the folder's basename, so the
+/// archive keeps a recognisable structure. Symlinks and entries that can't
+/// be read are left out and listed in the report. On any error the output
+/// is removed: the writer's Drop would otherwise finish it into a valid-
+/// looking zip that's missing entries.
+fn zip_create(paths: &[String], output: &str) -> Result<CreateReport, String> {
+    use std::io::{BufWriter, Write};
 
     if paths.is_empty() {
         return Err("compress: no input paths".to_string());
     }
 
-    let out_file = create_new_file(&output)?;
+    let out_file = create_new_file(output)?;
     let mut zipw = zip::ZipWriter::new(BufWriter::new(out_file));
-    let options: zip::write::FileOptions<'_, ()> =
-        zip::write::FileOptions::default().compression_method(zip::CompressionMethod::Deflated);
-
-    for src in &paths {
-        let src_path = Path::new(src);
-        let meta = std::fs::symlink_metadata(src_path)
-            .map_err(|e| format!("stat {}: {}", src_path.display(), e))?;
-        if meta.is_dir() {
-            // Archive-side root is the directory's own basename so extraction
-            // produces a sibling folder rather than dumping its contents at
-            // the archive root.
-            let root_name = src_path
-                .file_name()
-                .map(|s| s.to_string_lossy().into_owned())
-                .unwrap_or_else(|| "dir".to_string());
-            add_dir_recursive(&mut zipw, src_path, &root_name, &options)?;
-        } else {
-            let name = src_path
-                .file_name()
-                .map(|s| s.to_string_lossy().into_owned())
-                .ok_or_else(|| format!("bad filename: {}", src_path.display()))?;
-            zipw.start_file(name, options)
-                .map_err(|e| format!("start_file: {}", e))?;
-            copy_file_into(&mut zipw, src_path)?;
+    let mut report = CreateReport::default();
+    let added = paths
+        .iter()
+        .try_for_each(|src| add_input(&mut zipw, Path::new(src), &mut report));
+    let res = match added {
+        // Flush here: dropping the BufWriter would ignore a write error.
+        Ok(()) => zipw
+            .finish()
+            .map_err(|e| format!("finish zip: {}", e))
+            .and_then(|mut w| w.flush().map_err(|e| format!("write {}: {}", output, e))),
+        Err(e) => {
+            drop(zipw);
+            Err(e)
         }
+    };
+    if res.is_err() {
+        let _ = std::fs::remove_file(output);
     }
+    res.map(|()| report)
+}
 
-    zipw.finish().map_err(|e| format!("finish zip: {}", e))?;
+/// Options for a file entry of `len` bytes. An entry of 4 GiB or more needs
+/// the zip64 fields, or the writer fails partway through it.
+fn file_options(len: u64) -> zip::write::SimpleFileOptions {
+    zip::write::SimpleFileOptions::default()
+        .compression_method(zip::CompressionMethod::Deflated)
+        .large_file(len >= u64::from(u32::MAX))
+}
+
+/// Add one selected path at the archive root.
+fn add_input<W: std::io::Write + std::io::Seek>(
+    zipw: &mut zip::ZipWriter<W>,
+    src: &Path,
+    report: &mut CreateReport,
+) -> Result<(), String> {
+    let meta = std::fs::symlink_metadata(src)
+        .map_err(|e| format!("stat {}: {}", src.display(), e))?;
+    let name = src.file_name().map(|s| s.to_string_lossy().into_owned());
+    if meta.file_type().is_symlink() {
+        // Left out like the links inside a folder, rather than followed.
+        report.skip(src, "symbolic link");
+    } else if meta.is_dir() {
+        // Archive-side root is the directory's own basename so extraction
+        // produces a sibling folder rather than dumping its contents at
+        // the archive root.
+        let root_name = name.unwrap_or_else(|| "dir".to_string());
+        add_dir_recursive(zipw, src, &root_name, report)?;
+    } else {
+        let name = name.ok_or_else(|| format!("bad filename: {}", src.display()))?;
+        zipw.start_file(name, file_options(meta.len()))
+            .map_err(|e| format!("start_file: {}", e))?;
+        copy_file_into(zipw, src)?;
+    }
     Ok(())
 }
 
@@ -64,8 +118,8 @@ fn create_new_file(dest: &str) -> Result<std::fs::File, String> {
         })
 }
 
-/// For the archivers that open `dest` themselves: `tar -czf` would replace
-/// an existing file and `7z a` would add to it. This leaves a small race.
+/// For 7-Zip, which opens `dest` itself: `7z a` would add to an existing
+/// archive. This leaves a small race.
 fn refuse_existing(dest: &str) -> Result<(), String> {
     match std::fs::symlink_metadata(dest) {
         Ok(_) => Err(no_clobber_err(dest, std::io::ErrorKind::AlreadyExists.into())),
@@ -77,32 +131,43 @@ fn add_dir_recursive<W: std::io::Write + std::io::Seek>(
     zipw: &mut zip::ZipWriter<W>,
     abs_dir: &Path,
     archive_prefix: &str,
-    options: &zip::write::FileOptions<'_, ()>,
+    report: &mut CreateReport,
 ) -> Result<(), String> {
     // Write the directory entry itself so empty dirs survive round-trip.
     let dir_entry = format!("{}/", archive_prefix);
-    zipw.add_directory(dir_entry, *options)
+    zipw.add_directory(dir_entry, file_options(0))
         .map_err(|e| format!("add_directory: {}", e))?;
 
     let rd = std::fs::read_dir(abs_dir)
         .map_err(|e| format!("read_dir {}: {}", abs_dir.display(), e))?;
-    for entry in rd.flatten() {
+    for entry in rd {
+        let entry = match entry {
+            Ok(entry) => entry,
+            Err(e) => {
+                report.skip(abs_dir, format!("an entry couldn't be listed: {}", e));
+                continue;
+            }
+        };
         let child = entry.path();
         let name = entry.file_name().to_string_lossy().into_owned();
         let child_prefix = format!("{}/{}", archive_prefix, name);
         let meta = match entry.metadata() {
             Ok(m) => m,
-            Err(_) => continue,
+            Err(e) => {
+                report.skip(&child, format!("its details couldn't be read: {}", e));
+                continue;
+            }
         };
         if meta.file_type().is_symlink() {
-            // Skip symlinks — stored as files would duplicate content and
-            // stored as links needs unix-only extra fields. Safer to skip.
+            // Stored as files would duplicate content, and stored as links
+            // needs unix-only extra fields, so links are left out.
+            report.skip(&child, "symbolic link");
             continue;
         }
         if meta.is_dir() {
-            add_dir_recursive(zipw, &child, &child_prefix, options)?;
+            add_dir_recursive(zipw, &child, &child_prefix, report)?;
         } else {
-            zipw.start_file(&child_prefix, *options)
+            zipw.start_file(&child_prefix, file_options(meta.len()))
                 .map_err(|e| format!("start_file {}: {}", child_prefix, e))?;
             copy_file_into(zipw, &child)?;
         }
@@ -250,6 +315,23 @@ fn tar_zst_create(dest: &str, parent: &str, members: &[String]) -> Result<(), St
     res
 }
 
+/// tar writes the gzip stream to stdout, into a file opened with
+/// `create_new`, so an existing file is refused with no check-then-create
+/// race, and a failed run removes only what it wrote.
+fn tar_gz_create(dest: &str, parent: &str, members: &[String]) -> Result<(), String> {
+    use std::process::Stdio;
+    let file = create_new_file(dest)?;
+    // `--` keeps a member named like an option a file name.
+    let mut args = vec!["-czf", "-", "-C", parent, "--"];
+    args.extend(members.iter().map(String::as_str));
+    let res = PipedTar::spawn(&args, Stdio::null(), Stdio::from(file))
+        .and_then(|tar| tar.finish(dest, Ok(())));
+    if res.is_err() {
+        let _ = std::fs::remove_file(dest);
+    }
+    res
+}
+
 /// See `tar_zst_create`.
 fn tar_zst_extract(archive: &str, dest_dir: &str) -> Result<(), String> {
     use std::process::Stdio;
@@ -288,20 +370,22 @@ pub fn archive_can_handle(format: String) -> bool {
 /// Create an archive at `dest` containing `paths`. Format is one of
 /// "zip" | "tar.gz" | "tar.zst" | "7z". Relative entries are archived using
 /// each input's basename (`tar -C <parent> <basename>`) so the resulting
-/// archive mirrors the structure produced by the existing zip path.
+/// archive mirrors the structure produced by the existing zip path. A failed
+/// create leaves no partial archive. Only zip leaves anything out (links,
+/// unreadable entries); the report lists it.
 #[tauri::command(async)]
 pub fn archive_create(
     paths: Vec<String>,
     dest: String,
     format: String,
-) -> Result<(), String> {
+) -> Result<CreateReport, String> {
     if paths.is_empty() {
         return Err("archive_create: no input paths".to_string());
     }
 
     if format == "zip" {
         // Reuse the in-process zip writer.
-        return compress(paths, dest);
+        return zip_create(&paths, &dest);
     }
 
     // For tar-based formats we invoke tar once per unique parent, passing
@@ -330,16 +414,8 @@ pub fn archive_create(
     let (parent, members) = by_parent.into_iter().next().unwrap();
     let parent_str = parent.to_string_lossy().into_owned();
 
-    match format.as_str() {
-        "tar.gz" => {
-            refuse_existing(&dest)?;
-            // `--` keeps a member named like an option a file name.
-            let mut args: Vec<&str> = vec!["-czf", &dest, "-C", &parent_str, "--"];
-            for m in &members {
-                args.push(m);
-            }
-            run_archive_tool("tar", &args)
-        }
+    let res = match format.as_str() {
+        "tar.gz" => tar_gz_create(&dest, &parent_str, &members),
         "tar.zst" => tar_zst_create(&dest, &parent_str, &members),
         "7z" => {
             refuse_existing(&dest)?;
@@ -359,36 +435,143 @@ pub fn archive_create(
             for m in &abs_members {
                 args.push(m);
             }
-            run_archive_tool(&program, &args)
+            let res = run_archive_tool(&program, &args);
+            if res.is_err() {
+                // 7z opens `dest` itself, so this could only remove a file
+                // that appeared after refuse_existing's check.
+                let _ = std::fs::remove_file(&dest);
+            }
+            res
         }
         other => Err(format!("archive_create: unsupported format '{}'", other)),
+    };
+    res.map(|()| CreateReport::default())
+}
+
+/// An extraction waiting in its staging folder for the frontend to move its
+/// top-level entries into place (`runTransfer`, with the paste conflict
+/// question), after which it calls `archive_discard_staging`.
+#[derive(Debug, serde::Serialize)]
+pub struct Staged {
+    pub staging: String,
+    /// Archive entries that weren't extracted (unsafe or unsupported links).
+    pub skipped: Vec<Skipped>,
+}
+
+/// Staging folders this process made, so `archive_discard_staging` only
+/// ever deletes one of those.
+static STAGED: Mutex<Vec<PathBuf>> = Mutex::new(Vec::new());
+
+/// Extract `archive` into a new staging folder inside `dest_dir` (created
+/// if missing) and return it. Nothing outside the staging folder is
+/// written, so existing files are never replaced: the frontend moves the
+/// entries in with the no-clobber moves. A failed extraction removes the
+/// staging folder, and `dest_dir` too if this call created it.
+#[tauri::command(async)]
+pub fn archive_extract(archive: String, dest_dir: String) -> Result<Staged, String> {
+    let dest = Path::new(&dest_dir);
+    let created = std::fs::symlink_metadata(dest).is_err();
+    std::fs::create_dir_all(dest).map_err(|e| format!("create_dir_all {}: {}", dest_dir, e))?;
+    let res = make_staging(dest).and_then(|staging| {
+        match extract_into(&archive, &staging) {
+            Ok(skipped) => Ok((staging, skipped)),
+            Err(e) => {
+                let _ = std::fs::remove_dir_all(&staging);
+                Err(e)
+            }
+        }
+    });
+    let (staging, skipped) = match res {
+        Ok(done) => done,
+        Err(e) => {
+            if created {
+                let _ = std::fs::remove_dir(dest); // only if still empty
+            }
+            return Err(e);
+        }
+    };
+    #[cfg(windows)]
+    copy_mark_of_the_web(Path::new(&archive), &staging);
+    lock(&STAGED).push(staging.clone());
+    Ok(Staged { staging: staging.to_string_lossy().into_owned(), skipped })
+}
+
+/// Delete a staging folder `archive_extract` returned, with whatever is
+/// still in it (entries the user skipped, or that failed to move).
+#[tauri::command(async)]
+pub fn archive_discard_staging(staging: String) -> Result<(), String> {
+    let path = PathBuf::from(&staging);
+    {
+        let mut staged = lock(&STAGED);
+        let Some(i) = staged.iter().position(|p| *p == path) else {
+            return Err(format!("{} isn't an extraction staging folder", staging));
+        };
+        staged.swap_remove(i);
+    }
+    std::fs::remove_dir_all(&path).map_err(|e| format!("remove {}: {}", staging, e))
+}
+
+/// A new, empty folder in `dest` to extract into: on the same volume, so
+/// moving entries out is a rename, and hidden on unix by its leading dot.
+fn make_staging(dest: &Path) -> Result<PathBuf, String> {
+    use std::sync::atomic::{AtomicU32, Ordering};
+    static NEXT: AtomicU32 = AtomicU32::new(0);
+    for _ in 0..1000 {
+        let n = NEXT.fetch_add(1, Ordering::Relaxed);
+        let p = dest.join(format!(".glasshouse-extract-{}-{}", std::process::id(), n));
+        match std::fs::create_dir(&p) {
+            Ok(()) => return Ok(p),
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(e) => return Err(format!("create {}: {}", p.display(), e)),
+        }
+    }
+    Err(format!("couldn't make a staging folder in {}", dest.display()))
+}
+
+/// Give every regular file under `dir` the archive's `Zone.Identifier`
+/// stream, the Mark-of-the-Web that makes Windows warn before running a
+/// downloaded file, as Explorer does when it extracts. Best effort: an
+/// archive without the mark has nothing to copy, and a file system without
+/// streams (FAT, exFAT) or a read-only file is skipped. Only called on
+/// Windows, where `name:stream` is a stream, not a file name.
+#[cfg_attr(not(windows), allow(dead_code))]
+fn copy_mark_of_the_web(archive: &Path, dir: &Path) {
+    fn zone(p: &Path) -> PathBuf {
+        let mut s = p.as_os_str().to_owned();
+        s.push(":Zone.Identifier");
+        PathBuf::from(s)
+    }
+    fn walk(dir: &Path, mark: &[u8]) {
+        let Ok(rd) = std::fs::read_dir(dir) else { return };
+        for entry in rd.flatten() {
+            // file_type() doesn't follow links, so links are neither
+            // marked nor walked into.
+            match entry.file_type() {
+                Ok(t) if t.is_dir() => walk(&entry.path(), mark),
+                Ok(t) if t.is_file() => {
+                    let _ = std::fs::write(zone(&entry.path()), mark);
+                }
+                _ => {}
+            }
+        }
+    }
+    if let Ok(mark) = std::fs::read(zone(archive)) {
+        walk(dir, &mark);
     }
 }
 
-/// Extract `archive` into `dest_dir`, which must already exist or will be
-/// created. Dispatches on extension:
-///   .zip → in-process zip crate (GNU tar on Linux can't read zip)
+/// Extract `archive` into the empty folder `dir`. Dispatches on extension:
+///   .zip → in-process (`zip_extract`; GNU tar on Linux can't read zip)
 ///   .tar/.tar.gz/.tgz/.tar.bz2 → `tar -xf ...`
 ///   .tar.zst/.tzst → in-process zstd piped into `tar -xf -`
-///   .7z → `7z.exe x archive -o<dest_dir> -y`
-#[tauri::command(async)]
-pub fn archive_extract(archive: String, dest_dir: String) -> Result<(), String> {
-    // Ensure destination exists.
-    if let Err(e) = std::fs::create_dir_all(&dest_dir) {
-        return Err(format!("create_dir_all {}: {}", dest_dir, e));
-    }
-
+///   .7z → `7z.exe x archive -o<dir> -y` (`-y` only answers for entries the
+///   archive itself repeats, since `dir` starts empty)
+fn extract_into(archive: &str, dir: &Path) -> Result<Vec<Skipped>, String> {
+    let dest_dir = dir.to_string_lossy().into_owned();
     let lower = archive.to_ascii_lowercase();
 
     if lower.ends_with(".zip") {
-        let f = std::fs::File::open(&archive)
-            .map_err(|e| format!("open {}: {}", archive, e))?;
-        let mut za = zip::ZipArchive::new(std::io::BufReader::new(f))
-            .map_err(|e| format!("read zip {}: {}", archive, e))?;
-        // ZipArchive::extract sanitises entry names (rejects traversal).
-        return za
-            .extract(&dest_dir)
-            .map_err(|e| format!("extract {}: {}", archive, e));
+        return zip_extract(archive, dir);
     }
 
     let is_7z = lower.ends_with(".7z");
@@ -405,8 +588,8 @@ pub fn archive_extract(archive: String, dest_dir: String) -> Result<(), String> 
     if is_7z {
         let program = find_7z()?;
         let out_flag = format!("-o{}", dest_dir);
-        let args = ["x", &out_flag, "-y", "--", &archive];
-        return run_archive_tool(&program, &args);
+        let args = ["x", &out_flag, "-y", "--", archive];
+        return run_archive_tool(&program, &args).map(|()| Vec::new());
     }
 
     if is_tar_family {
@@ -414,16 +597,189 @@ pub fn archive_extract(archive: String, dest_dir: String) -> Result<(), String> 
             return Err("tar.exe not found on PATH".to_string());
         }
         if is_tar_zst {
-            return tar_zst_extract(&archive, &dest_dir);
+            return tar_zst_extract(archive, &dest_dir).map(|()| Vec::new());
         }
-        let args = ["-xf", archive.as_str(), "-C", dest_dir.as_str()];
-        return run_archive_tool("tar", &args);
+        let args = ["-xf", archive, "-C", dest_dir.as_str()];
+        return run_archive_tool("tar", &args).map(|()| Vec::new());
     }
 
     Err(format!(
         "archive_extract: unsupported archive extension for '{}'",
         archive
     ))
+}
+
+/// Extract a zip into the empty folder `dir`. Our own loop rather than
+/// `ZipArchive::extract`, which creates archived symlinks pointing anywhere
+/// and stops at the first link Windows won't create:
+/// - an entry whose name climbs out of `dir` fails the extraction;
+/// - links are made last, so nothing is ever written through one, and only
+///   when `link_stays_inside` (else skipped and reported, as is a link
+///   Windows refuses for want of the symlink privilege);
+/// - unix mode bits are applied at the end, without setuid, setgid or
+///   sticky, and folders stay writable by their owner so they can be moved
+///   into place and cleaned up.
+fn zip_extract(archive: &str, dir: &Path) -> Result<Vec<Skipped>, String> {
+    use std::io::Read;
+    let fail = |e: &dyn std::fmt::Display| format!("extract {}: {}", archive, e);
+    let f = std::fs::File::open(archive).map_err(|e| format!("open {}: {}", archive, e))?;
+    let mut za = zip::ZipArchive::new(std::io::BufReader::new(f))
+        .map_err(|e| format!("read zip {}: {}", archive, e))?;
+
+    let mut links: Vec<(PathBuf, Vec<u8>)> = Vec::new();
+    let mut modes: Vec<(PathBuf, u32, bool)> = Vec::new();
+    for i in 0..za.len() {
+        let mut entry = za.by_index(i).map_err(|e| fail(&e))?;
+        let rel = entry_path(&entry)
+            .ok_or_else(|| fail(&format!("entry \"{}\" points outside the folder", entry.name())))?;
+        if entry.is_symlink() {
+            let mut target = Vec::new();
+            entry.read_to_end(&mut target).map_err(|e| fail(&e))?;
+            links.push((rel, target));
+            continue;
+        }
+        let out = dir.join(&rel);
+        if entry.is_dir() {
+            std::fs::create_dir_all(&out).map_err(|e| fail(&e))?;
+        } else {
+            if let Some(parent) = out.parent() {
+                std::fs::create_dir_all(parent).map_err(|e| fail(&e))?;
+            }
+            // `create` replaces only an earlier entry of the same archive
+            // with the same name; `dir` started empty and holds no links yet.
+            let mut file = std::fs::File::create(&out).map_err(|e| fail(&e))?;
+            std::io::copy(&mut entry, &mut file).map_err(|e| fail(&e))?;
+        }
+        if let Some(mode) = entry.unix_mode() {
+            modes.push((out, mode, entry.is_dir()));
+        }
+    }
+
+    let mut skipped = Vec::new();
+    for (rel, target) in &links {
+        if let Err(reason) = make_archived_link(dir, rel, target) {
+            skipped.push(Skipped { path: rel.to_string_lossy().into_owned(), reason });
+        }
+    }
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        // Deepest first, so a folder made read-only doesn't block its children.
+        modes.sort_by_key(|(p, _, _)| std::cmp::Reverse(p.components().count()));
+        for (path, mode, is_dir) in modes {
+            let mode = if is_dir { mode & 0o777 | 0o700 } else { mode & 0o777 };
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(mode))
+                .map_err(|e| fail(&e))?;
+        }
+    }
+    Ok(skipped)
+}
+
+/// The entry's path inside the extraction folder, with `.` and `..` folded
+/// away, or None if it's absolute, has a drive or climbs above the folder.
+fn entry_path(entry: &zip::read::ZipFile<'_>) -> Option<PathBuf> {
+    let mut out = PathBuf::new();
+    for c in entry.enclosed_name()?.components() {
+        match c {
+            Component::Normal(name) => out.push(name),
+            Component::ParentDir => {
+                if !out.pop() {
+                    return None;
+                }
+            }
+            Component::CurDir => {}
+            Component::RootDir | Component::Prefix(_) => return None,
+        }
+    }
+    (!out.as_os_str().is_empty()).then_some(out)
+}
+
+/// A link target from the archive stays inside the extraction when it's
+/// relative and climbs (`..`) only at its start, never above the root, from
+/// the link's own folder. A `..` after a name ("a/../..") could climb out
+/// through another archived link (`a` → `.`), so it's refused even when it
+/// looks harmless.
+fn link_stays_inside(rel: &Path, target: &Path) -> bool {
+    let mut depth = rel.parent().map_or(0, |p| p.components().count());
+    let mut climbing = true;
+    for c in target.components() {
+        match c {
+            Component::CurDir => {}
+            Component::ParentDir if climbing => {
+                if depth == 0 {
+                    return false;
+                }
+                depth -= 1;
+            }
+            Component::Normal(_) => climbing = false,
+            _ => return false, // absolute, a drive, or `..` after a name
+        }
+    }
+    !target.as_os_str().is_empty()
+}
+
+/// Create the archived link `rel` → `target` under `root`, or say why not.
+fn make_archived_link(root: &Path, rel: &Path, target: &[u8]) -> Result<(), String> {
+    let target = std::str::from_utf8(target).map_err(|_| "its target isn't valid UTF-8".to_string())?;
+    #[cfg(windows)]
+    let target = target.replace('/', "\\");
+    let target = Path::new(&target);
+    if !link_stays_inside(rel, target) {
+        return Err(format!("its target {} is outside the archive", target.display()));
+    }
+    // The link's folders must be real folders: under another link, `..`
+    // would climb from wherever that link points.
+    let mut ancestor = root.to_path_buf();
+    for c in rel.parent().into_iter().flat_map(Path::components) {
+        ancestor.push(c);
+        match std::fs::symlink_metadata(&ancestor) {
+            Ok(m) if m.file_type().is_symlink() => {
+                return Err("it's inside another archived link".to_string())
+            }
+            Ok(_) => {}
+            Err(_) => std::fs::create_dir(&ancestor).map_err(|e| e.to_string())?,
+        }
+    }
+    let at = root.join(rel);
+    #[cfg(unix)]
+    let res = std::os::unix::fs::symlink(target, &at);
+    #[cfg(windows)]
+    let res = {
+        let points_at = at.parent().unwrap_or(root).join(target);
+        if points_at.is_dir() {
+            std::os::windows::fs::symlink_dir(target, &at)
+        } else {
+            std::os::windows::fs::symlink_file(target, &at)
+        }
+    };
+    res.map_err(|e| match e.raw_os_error() {
+        Some(1314) if cfg!(windows) => {
+            "Windows needs Developer Mode or admin rights to create symlinks".to_string()
+        }
+        _ if e.kind() == std::io::ErrorKind::AlreadyExists => {
+            "the archive has another entry with its name".to_string()
+        }
+        _ => e.to_string(),
+    })
+}
+
+/// `archive_extract`, then what the frontend does when nothing conflicts:
+/// move every staged entry into `dest` and discard the staging folder.
+#[cfg(test)]
+pub(super) fn extract_to(archive: &Path, dest: &Path) -> Result<Vec<Skipped>, String> {
+    let staged = archive_extract(
+        archive.to_string_lossy().into_owned(),
+        dest.to_string_lossy().into_owned(),
+    )?;
+    for entry in std::fs::read_dir(&staged.staging).unwrap() {
+        let entry = entry.unwrap();
+        let to = dest.join(entry.file_name());
+        assert!(std::fs::symlink_metadata(&to).is_err(), "{} is taken", to.display());
+        std::fs::rename(entry.path(), to).unwrap();
+    }
+    archive_discard_staging(staged.staging).unwrap();
+    Ok(staged.skipped)
 }
 
 #[cfg(test)]
@@ -447,11 +803,7 @@ mod tests {
         .unwrap();
 
         let out = dir.join("out");
-        archive_extract(
-            zip_path.to_string_lossy().into_owned(),
-            out.to_string_lossy().into_owned(),
-        )
-        .unwrap();
+        extract_to(&zip_path, &out).unwrap();
 
         let root = out.join("payload");
         assert_eq!(std::fs::read_to_string(root.join("top.txt")).unwrap(), "top");
@@ -487,7 +839,7 @@ mod tests {
         );
 
         let out = dir.join("out");
-        archive_extract(s(&archive), s(&out)).unwrap();
+        extract_to(&archive, &out).unwrap();
         assert_eq!(
             std::fs::read_to_string(out.join("payload/top.txt")).unwrap(),
             "top"
@@ -531,7 +883,7 @@ mod tests {
             let archive = dir.join(format!("a.{}", format));
             archive_create(paths.clone(), s(&archive), format.into()).unwrap();
             let out = dir.join(format!("out-{}", format));
-            archive_extract(s(&archive), s(&out)).unwrap();
+            extract_to(&archive, &out).unwrap();
             for n in names {
                 assert_eq!(std::fs::read_to_string(out.join(n)).unwrap(), n, "{} {}", format, n);
             }

@@ -13,6 +13,7 @@ import { type TransferOp, runTransfer, type TransferItem, type TransferResult } 
 import type { PasteSpecialItem } from "../dialogs/PasteSpecial";
 import type { Handler } from "./types";
 import { clearAllTags, copyWslPath, removeTagPrompt, selectedOrFirst, showBlame } from "./helpers";
+import { showLeftOut } from "./archive";
 import { cmdState } from "../commandState";
 import { errText } from "../errors";
 
@@ -345,9 +346,10 @@ export const fileOpsHandler: Handler = async (label, ctx) => {
       if (!/\.zip$/i.test(name)) name += ".zip";
       const outPath = joinPath(cwd, name);
       try {
-        await archiveCreate(active, outPath, "zip");
+        const report = await archiveCreate(active, outPath, "zip");
         refresh();
         dialogs.showToast({ message: `compressed to ${name}`, variant: "success" });
+        showLeftOut(report.skipped, "left out of the archive");
       } catch (err) {
         const msg = errText(err);
         console.error("compress failed:", msg);
