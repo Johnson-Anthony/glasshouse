@@ -217,11 +217,12 @@ describe("POSIX quoting in real shells", () => {
   });
 
   it.skipIf(!has("pwsh"))("pwsh lands in each folder and runs nothing", () => {
-    const lines = dirs.map(d => `${cdCommand("pwsh", d)}; [Console]::Out.Write((Get-Location).ProviderPath + "|")`);
+    // NUL separates the paths: it's the one character no folder name has (one is `a|touch PWNED`).
+    const lines = dirs.map(d => `${cdCommand("pwsh", d)}; [Console]::Out.Write((Get-Location).ProviderPath + [char]0)`);
     const r = spawnSync("pwsh", ["-NoProfile", "-NonInteractive", "-Command", "-"], {
       cwd: root, encoding: "utf8", input: lines.join("\n") + "\n",
     });
-    expect(r.stdout.split("|").slice(0, -1)).toEqual(dirs);
+    expect(r.stdout.split("\0").slice(0, -1)).toEqual(dirs);
     expect(pwned()).toEqual([]);
   });
 });
