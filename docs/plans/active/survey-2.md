@@ -9,7 +9,7 @@ On 2026-11-11, four read-only agents surveyed the app (at `45ea31b`): frontend b
 | 1 | archive-safety | Rust + `handlers/archive.ts` | M | **running** (`recursing-allen-a7ecf9`) |
 | 2 | git-safety | Rust + `handlers/git.ts` | S–M | **running** (`cool-gauss-d234ca`) |
 | 3 | selection-integrity | frontend | M | **running** (`cool-satoshi-4102fc`) |
-| 4 | terminal-cd | frontend | S | **running** (`youthful-shtern-2ac1c5`) |
+| 4 | terminal-cd | frontend | S | **merged** (3d23a8b) |
 | 5 | focus-and-targets | frontend | M | **merged** (8a3dfc8) |
 | 6 | inspector-perms | both | M | queued |
 | 7 | find-replace-safety | both | S | queued |
@@ -259,6 +259,10 @@ These items do nothing, or something else. Make each work, or remove it. For the
 ## Found by tasks (not yet scheduled)
 - *(from focus-and-targets)* The sidebar tree doesn't re-list after file ops in the pane: delete `Documents` in the pane and the tree still shows it. Seen in the demo; not yet checked in the real app. Small.
 - *(from focus-and-targets)* Pinned files show the folder icon. The sidebar now knows which pins are files (`pinFiles`). Cosmetic, small.
+
+- *(from terminal-cd)* **pty-foreground** (Rust + a little frontend): follow-folder still sends a (harmless, failing) `cd` when ssh or a Python REPL started from the local shell owns the terminal. The backend could report whether the shell is the pty's foreground process: `tcgetpgrp` on the master vs the child pid on unix (portable-pty's `process_group_leader`), child processes on Windows.
+- *(from terminal-cd)* **git-bash-paths** (frontend, S): on Windows `winPathToWsl` turns `C:\x` into `/mnt/c/x` for every POSIX shell, but Git Bash wants `/c/x`. Tell it apart from WSL's `bash.exe` by its exec path. Predates terminal-cd.
+- *(from terminal-cd)* The zsh, fish and pwsh real-shell tests are skipped locally (not installed). CI's Ubuntu runner has pwsh, so CI is that test's first run.
 
 ## Unconfirmed: check before fixing
 - The terminal has no flow control: `yes` or `cat bigfile` sends one `pty-data` event per 4 KiB read and may freeze the webview (`pty.rs`).

@@ -33,7 +33,7 @@
 
 ## In progress
 - 2026-11-11: **Second survey.** Four read-only agents (frontend bugs, backend bugs and security, spec vs app, tests/release/perf) found about 60 issues. The deduplicated backlog is 28 tasks in six waves: `docs/plans/active/survey-2.md`. Wave 1 (data loss and security) is running.
-  - Merged so far: `focus-and-targets` (8a3dfc8). Enter in dialogs no longer opens the selection, file keys only act when the pane has focus, and sidebar file rows get their own menu. Behavior changes: Tab-to-Cancel then Enter now cancels, Ctrl+Shift+F no longer closes Find in Files (Esc does), and dialogs return focus on close.
+  - Merged so far: `terminal-cd` (3d23a8b): the follow-folder `cd` is quoted per shell (tested with hostile names in sh, dash and bash) and only typed at an idle prompt with the drawer open, with a Follow Folder setting; Copy as Command on Windows is now PowerShell syntax. `focus-and-targets` (8a3dfc8). Enter in dialogs no longer opens the selection, file keys only act when the pane has focus, and sidebar file rows get their own menu. Behavior changes: Tab-to-Cancel then Enter now cancels, Ctrl+Shift+F no longer closes Find in Files (Esc does), and dialogs return focus on close.
 
 ## Next
 1. **User decisions:**
