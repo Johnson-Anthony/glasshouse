@@ -8,6 +8,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { groupNotices, linkSegments, NOTICES_INDEX, type Notice } from "./notices";
 import { errText } from "./errors";
 import { useEscapeClose } from "./dialogs/useEscapeClose";
+import { useModal } from "./dialogs/modal";
 
 let openRef: (() => void) | null = null;
 
@@ -44,6 +45,7 @@ export function NoticesHost() {
 
   const close = useCallback(() => setOpen(false), []);
   useEscapeClose(close, open);
+  useModal(open);
 
   const known = useMemo(() => new Set(notices?.filter((n) => n.links).map((n) => n.path)), [notices]);
   const groups = useMemo(() => {

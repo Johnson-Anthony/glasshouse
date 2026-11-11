@@ -1,4 +1,5 @@
 import { useEscapeClose } from "./useEscapeClose";
+import { useModal } from "./modal";
 
 // ============= GitOutputDialog =============
 export interface GitOutputState {
@@ -16,6 +17,7 @@ export interface GitOutputDialogProps {
 
 export function GitOutputDialog({ state, onClose }: GitOutputDialogProps) {
   useEscapeClose(onClose);
+  useModal();
 
   const statusColor = state.ok ? "var(--green, #9ece6a)" : "var(--red, #f7768e)";
   const statusLabel = state.ok ? "ok" : `exit ${state.exit ?? "?"}`;

@@ -4,6 +4,7 @@ import { checkRenames, orderRenames } from "../names";
 import { IS_WINDOWS } from "../platform";
 import { errText } from "../errors";
 import { useEscapeClose } from "./useEscapeClose";
+import { useModal } from "./modal";
 
 // ============= Bulk rename dialog =============
 
@@ -157,6 +158,7 @@ export function BulkRenameDialog({ items, onClose, renameOne, listNames, onDone 
   }, [dirs, listNames]);
 
   useEscapeClose(onClose, !running);
+  useModal();
 
   const preview = useMemo(
     () => bulkRenamePreview(items, { find, replace, prefix, suffix, numberEnabled, numberStart, numberDigits, caseMode }),

@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { listDir, type FileEntry } from "./api";
 import { normalizePath, parentPath } from "./paths";
 import { LinkMark } from "./components";
+import { isModalOpen } from "./dialogs/modal";
 
 export interface MillerViewProps {
   cwd: string;
@@ -102,6 +103,7 @@ export function MillerView({
   };
 
   const onKeyDown = (ev: React.KeyboardEvent) => {
+    if (isModalOpen()) return;
     const pos = view.findIndex(v => v.orig === focusIndex);
     if (ev.key === "ArrowDown" || ev.key === "j") {
       ev.preventDefault();

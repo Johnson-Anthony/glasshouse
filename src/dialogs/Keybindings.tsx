@@ -1,7 +1,8 @@
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import { MENUS, type MenuItemDef } from "../data";
-import { CHEATSHEET } from "../keymap";
+import { CHEATSHEET, KEYMAP, matches } from "../keymap";
 import { useEscapeClose } from "./useEscapeClose";
+import { useModal } from "./modal";
 
 // ============= KeybindingsDialog =============
 // Read-only reference for every keybind the app exposes. Grouped by category,
@@ -38,6 +39,17 @@ function collectMenuBinds(): KbEntry[] {
 
 export function KeybindingsDialog({ open, onClose }: KeybindingsDialogProps) {
   useEscapeClose(onClose, open);
+  useModal(open);
+  // App's keymap is off while a modal is open, so the keys that opened the
+  // cheatsheet (F1, Ctrl+?) close it here.
+  useEffect(() => {
+    if (!open) return;
+    const h = (e: KeyboardEvent) => {
+      if (KEYMAP.some(b => b.run === "cheatsheet" && matches(b, e))) { e.preventDefault(); onClose(); }
+    };
+    window.addEventListener("keydown", h);
+    return () => window.removeEventListener("keydown", h);
+  }, [open, onClose]);
 
   const binds = useMemo(() => {
     const all = [...collectMenuBinds(), ...CHEATSHEET];

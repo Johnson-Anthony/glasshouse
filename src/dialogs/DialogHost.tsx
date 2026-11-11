@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { errText } from "../errors";
+import { useModal } from "./modal";
 
 // ============= DialogHost (themed prompt / alert / confirm + toast) =============
 // Replaces window.prompt / window.alert / window.confirm at key callsites.
@@ -102,6 +103,12 @@ interface ToastState {
   variant: DialogVariant;
 }
 
+/** Enter on a button inside the dialog activates that button (Tab to
+ *  "cancel", Enter cancels); anywhere else it's the dialog's primary action. */
+export function enterActivatesFocused(el: Element | null, panel: Element | null): boolean {
+  return !!el && !!panel && el.tagName === "BUTTON" && panel.contains(el);
+}
+
 function variantColor(v: DialogVariant | undefined): string {
   switch (v) {
     case "success": return "var(--green, #9ece6a)";
@@ -119,6 +126,17 @@ export function DialogHost() {
   const [toasts, setToasts] = useState<ToastState[]>([]);
   const toastIdRef = useRef(0);
   const inputRef = useRef<HTMLInputElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const primaryRef = useRef<HTMLButtonElement>(null);
+  const open = state !== null;
+  useModal(open);
+
+  // Focus goes back to what had it (usually the file pane) on close.
+  useEffect(() => {
+    if (!open) return;
+    const prev = document.activeElement as HTMLElement | null;
+    return () => { if (prev?.isConnected) prev.focus(); };
+  }, [open]);
 
   useEffect(() => {
     const api: DialogApi = {
@@ -168,7 +186,12 @@ export function DialogHost() {
       }, 0);
       return () => window.clearTimeout(id);
     }
-  }, [state?.kind]);
+    if (state) {
+      // Off the file pane, so its keys don't act behind the dialog.
+      const id = window.setTimeout(() => primaryRef.current?.focus(), 0);
+      return () => window.clearTimeout(id);
+    }
+  }, [state]);
 
   const close = () => {
     if (!state || promptBusy.current) return;
@@ -234,6 +257,7 @@ export function DialogHost() {
       if (e.key === "Escape") { e.preventDefault(); close(); return; }
       if (e.key === "Enter") {
         if (e.shiftKey) return;
+        if (enterActivatesFocused(document.activeElement, panelRef.current)) return;
         e.preventDefault();
         if (state.kind === "prompt") submitPrompt();
         else if (state.kind === "confirm") confirmOk();
@@ -296,7 +320,7 @@ export function DialogHost() {
     <>
       {state?.kind === "prompt" && (
         <div onClick={close} style={overlay}>
-          <div onClick={(e) => e.stopPropagation()} style={panel}>
+          <div ref={panelRef} onClick={(e) => e.stopPropagation()} style={panel}>
             <div style={header}>
               <span style={{ color: "var(--accent)" }}>{state.opts.title ?? "input"}</span>
               <button onClick={close} style={closeBtn}>×</button>
@@ -333,7 +357,7 @@ export function DialogHost() {
 
       {state?.kind === "alert" && (
         <div onClick={alertOk} style={overlay}>
-          <div onClick={(e) => e.stopPropagation()} style={{ ...panel, borderColor: variantColor(state.opts.variant) }}>
+          <div ref={panelRef} onClick={(e) => e.stopPropagation()} style={{ ...panel, borderColor: variantColor(state.opts.variant) }}>
             <div style={header}>
               <span style={{ color: variantColor(state.opts.variant) }}>
                 {state.opts.title ?? (state.opts.variant === "error" ? "error" : state.opts.variant === "warning" ? "warning" : "info")}
@@ -344,7 +368,7 @@ export function DialogHost() {
               {state.opts.message}
             </div>
             <div style={footer}>
-              <button onClick={alertOk} style={btn(true)}>{state.opts.okLabel ?? "ok"}</button>
+              <button ref={primaryRef} onClick={alertOk} style={btn(true)}>{state.opts.okLabel ?? "ok"}</button>
             </div>
           </div>
         </div>
@@ -352,7 +376,7 @@ export function DialogHost() {
 
       {state?.kind === "confirm" && (
         <div onClick={close} style={overlay}>
-          <div onClick={(e) => e.stopPropagation()} style={{ ...panel, borderColor: state.opts.danger ? "var(--red, #f7768e)" : "var(--accent)" }}>
+          <div ref={panelRef} onClick={(e) => e.stopPropagation()} style={{ ...panel, borderColor: state.opts.danger ? "var(--red, #f7768e)" : "var(--accent)" }}>
             <div style={header}>
               <span style={{ color: state.opts.danger ? "var(--red, #f7768e)" : "var(--accent)" }}>
                 {state.opts.title ?? "confirm"}
@@ -364,7 +388,7 @@ export function DialogHost() {
             </div>
             <div style={footer}>
               <button onClick={close} style={btn(false)}>{state.opts.cancelLabel ?? "cancel"}</button>
-              <button onClick={confirmOk} style={btn(true, !!state.opts.danger)}>
+              <button ref={primaryRef} onClick={confirmOk} style={btn(true, !!state.opts.danger)}>
                 {state.opts.okLabel ?? (state.opts.danger ? "delete" : "ok")}
               </button>
             </div>
@@ -374,7 +398,7 @@ export function DialogHost() {
 
       {state?.kind === "choice" && (
         <div onClick={close} style={overlay}>
-          <div onClick={(e) => e.stopPropagation()} style={panel}>
+          <div ref={panelRef} onClick={(e) => e.stopPropagation()} style={panel}>
             <div style={header}>
               <span style={{ color: "var(--accent)" }}>{state.opts.title ?? "choose"}</span>
               <button onClick={close} style={closeBtn}>×</button>
@@ -385,7 +409,7 @@ export function DialogHost() {
             <div style={footer}>
               <button onClick={close} style={btn(false)}>{state.opts.cancelLabel ?? "cancel"}</button>
               {state.opts.choices.map(c => (
-                <button key={c.id} onClick={() => choose(c.id)} style={btn(!!c.primary)}>{c.label}</button>
+                <button key={c.id} ref={c.primary ? primaryRef : undefined} onClick={() => choose(c.id)} style={btn(!!c.primary)}>{c.label}</button>
               ))}
             </div>
           </div>

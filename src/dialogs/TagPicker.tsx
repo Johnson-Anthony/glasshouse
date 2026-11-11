@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useMemo } from "react";
 import { readTags, writeTags } from "../api";
 import { SEED_TAGS, TAG_COLOR_MAP } from "../Sidebar";
 import { useEscapeClose } from "./useEscapeClose";
+import { useModal } from "./modal";
 
 // ============= TagPickerDialog =============
 export interface TagPickerDialogProps {
@@ -26,6 +27,7 @@ export function TagPickerDialog({ path, onClose, onSaved }: TagPickerDialogProps
   }, []);
 
   useEscapeClose(onClose);
+  useModal();
 
   const allTags = useMemo(() => {
     const set = new Set<string>();

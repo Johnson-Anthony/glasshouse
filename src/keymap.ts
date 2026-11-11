@@ -8,7 +8,8 @@
 // Matching: modifiers named in `combo` must be down, the others must be up
 // unless listed in `any`. "Ctrl" means Ctrl or ⌘. Keys compare
 // case-insensitively; `alsoKeys` are other e.key values for the same binding.
-// Order matters: the first match wins.
+// Order matters: the first match wins. Nothing matches while a modal dialog
+// is open: the dialog owns the keyboard.
 
 export type KeyAction =
   | "palette" | "findInFiles" | "terminal" | "tweaks" | "cheatsheet"
@@ -27,6 +28,11 @@ export interface KeyBinding {
   when?: "selection" | "multi";
   /** Skip the event if a focused widget already handled it. */
   unlessHandled?: boolean;
+  /** Acts on the file pane's selection or folder, so it doesn't fire while
+   *  the sidebar (which has its own row cursor) has focus. */
+  pane?: boolean;
+  /** Leave the key to the browser while text is selected on the page. */
+  unlessText?: boolean;
   send?: string;
   run?: KeyAction;
   /** Listed in the Keybindings cheatsheet (menu items list their own keys). */
@@ -39,12 +45,12 @@ export const KEYMAP: KeyBinding[] = [
   { combo: "Ctrl+P", any: ["Alt"], inText: true, run: "palette" },
   { combo: "Ctrl+Shift+F", any: ["Alt"], inText: true, run: "findInFiles" },
   { combo: "Ctrl+Shift+G", any: ["Alt"], inText: true, send: "Connect to Server…" },
-  { combo: "Ctrl+Shift+V", any: ["Alt"], send: "Paste Special…" },
+  { combo: "Ctrl+Shift+V", any: ["Alt"], pane: true, send: "Paste Special…" },
   // Menu-advertised Ctrl+Shift bindings.
   { combo: "Ctrl+Shift+N", inText: true, send: "New Private Session" },
-  { combo: "Ctrl+Shift+P", inText: true, send: "Batch Permissions…" },
-  { combo: "Ctrl+Shift+E", send: "Open in VS Code" },
-  { combo: "Ctrl+Shift+R", send: "Bulk Rename…" },
+  { combo: "Ctrl+Shift+P", inText: true, pane: true, send: "Batch Permissions…" },
+  { combo: "Ctrl+Shift+E", pane: true, send: "Open in VS Code" },
+  { combo: "Ctrl+Shift+R", pane: true, send: "Bulk Rename…" },
   { combo: "Ctrl+Shift+D", send: "Folder" },
   { combo: "Ctrl+`", any: ["Alt"], inText: true, run: "terminal", cheat: { label: "Toggle terminal", group: "View" } },
   // Shift+` is ~ on US layouts.
@@ -72,18 +78,19 @@ export const KEYMAP: KeyBinding[] = [
   // Not while typing: the terminal drawer has focus as a text field, and
   // Ctrl+Q there is the shell's (XON, emacs quoted-insert).
   { combo: "Ctrl+Q", send: "Quit" },
-  { combo: "Space", when: "selection", unlessHandled: true, run: "quickLook" },
+  { combo: "Space", when: "selection", unlessHandled: true, pane: true, run: "quickLook" },
   { combo: "Ctrl+Z", send: "Undo" },
   { combo: "Ctrl+Y", send: "Redo" },
   { combo: "Ctrl+Shift+Z", send: "Redo" },
-  // Copy/Cut only with a selection, so the browser keeps plain text copy.
-  { combo: "Ctrl+C", when: "selection", send: "Copy" },
-  { combo: "Ctrl+X", when: "selection", send: "Cut" },
-  { combo: "Ctrl+V", send: "Paste" },
-  { combo: "Ctrl+Shift+C", when: "selection", send: "Copy Path" },
+  // Copy/Cut only with a selection and no selected text, so the browser
+  // keeps plain text copy (the Inspector preview, Properties, Blame).
+  { combo: "Ctrl+C", when: "selection", unlessText: true, pane: true, send: "Copy" },
+  { combo: "Ctrl+X", when: "selection", unlessText: true, pane: true, send: "Cut" },
+  { combo: "Ctrl+V", pane: true, send: "Paste" },
+  { combo: "Ctrl+Shift+C", when: "selection", pane: true, send: "Copy Path" },
   { combo: "Ctrl+Shift+H", send: "Find & Replace in Files" },
   // Shift+8 on many layouts, or the keypad *.
-  { combo: "*", any: ["Shift"], send: "Select by Pattern…" },
+  { combo: "*", any: ["Shift"], pane: true, send: "Select by Pattern…" },
   { combo: "Ctrl+H", send: "Toggle Hidden Files" },
   { combo: "Ctrl+W", send: "Close Tab" },
   { combo: "Ctrl+T", send: "New Tab" },
@@ -92,27 +99,28 @@ export const KEYMAP: KeyBinding[] = [
   { combo: "Ctrl+0", send: "Reset Zoom" },
   { combo: "Ctrl+O", send: "Open…" },
   { combo: "Ctrl+N", send: "New Window" },
-  { combo: "Ctrl+I", send: "Invert Selection" },
-  { combo: "Ctrl+U", send: "Duplicate" },
+  { combo: "Ctrl+I", pane: true, send: "Invert Selection" },
+  { combo: "Ctrl+U", pane: true, send: "Duplicate" },
   { combo: "Ctrl+D", send: "Bookmark This Folder" },
   { combo: "Ctrl+Home", send: "Home" },
   { combo: "Alt+ArrowLeft", send: "Back" },
   { combo: "Alt+ArrowRight", send: "Forward" },
   { combo: "Alt+ArrowUp", send: "Open Parent" },
-  { combo: "Alt+Enter", send: "Properties" },
+  { combo: "Alt+Enter", pane: true, send: "Properties" },
   { combo: "F5", any: ["Ctrl", "Shift", "Alt"], send: "Refresh" },
   { combo: "F11", any: ["Ctrl", "Shift", "Alt"], send: "Full Screen" },
   { combo: "F3", any: ["Ctrl", "Shift", "Alt"], send: "Tree + Pane + Inspector" },
   { combo: "F7", any: ["Ctrl", "Shift", "Alt"], send: "Single Pane" },
-  { combo: "F2", any: ["Ctrl", "Shift", "Alt"], when: "multi", send: "Bulk Rename…" },
-  { combo: "F2", any: ["Ctrl", "Shift", "Alt"], send: "Rename" },
+  { combo: "F2", any: ["Ctrl", "Shift", "Alt"], when: "multi", pane: true, send: "Bulk Rename…" },
+  { combo: "F2", any: ["Ctrl", "Shift", "Alt"], pane: true, send: "Rename" },
   { combo: "F1", any: ["Ctrl", "Shift", "Alt"], run: "cheatsheet" },
   { combo: "Ctrl+?", any: ["Shift", "Alt"], run: "cheatsheet" },
   // F6 cycles panes (in App), so Move to… has no key.
-  { combo: "Shift+Delete", any: ["Ctrl", "Alt"], send: "Delete Permanently", cheat: { label: "Delete permanently", group: "Edit", keys: "Shift+Del" } },
-  { combo: "Delete", any: ["Ctrl", "Alt"], send: "Move to Trash" },
+  { combo: "Shift+Delete", any: ["Ctrl", "Alt"], pane: true, send: "Delete Permanently", cheat: { label: "Delete permanently", group: "Edit", keys: "Shift+Del" } },
+  { combo: "Delete", any: ["Ctrl", "Alt"], pane: true, send: "Move to Trash" },
   { combo: "Backspace", any: ["Shift"], send: "Up", cheat: { label: "Open parent", group: "Navigate" } },
-  { combo: "Enter", when: "selection", send: "Open", cheat: { label: "Open selected", group: "File" } },
+  // unlessHandled: Miller and the dialogs handle Enter themselves.
+  { combo: "Enter", when: "selection", unlessHandled: true, pane: true, send: "Open", cheat: { label: "Open selected", group: "File" } },
 ];
 
 /** Keys App handles in code rather than through KEYMAP, for the cheatsheet. */
@@ -163,12 +171,28 @@ export function matches(b: KeyBinding, e: KeyEventLike): boolean {
   return ok("Ctrl", p.ctrl, e.ctrlKey || e.metaKey) && ok("Shift", p.shift, e.shiftKey) && ok("Alt", p.alt, e.altKey);
 }
 
-/** The binding `e` triggers, if any. `selected` is the active tab's selection size. */
-export function findBinding(e: KeyEventLike, state: { inText: boolean; selected: number }): KeyBinding | undefined {
+export interface KeyState {
+  /** Focus is in a text field. */
+  inText: boolean;
+  /** The active tab's selection size. */
+  selected: number;
+  /** A modal dialog is open. */
+  modal?: boolean;
+  /** The event's target is inside the sidebar. */
+  sidebar?: boolean;
+  /** The page has a text selection. */
+  textSelected?: boolean;
+}
+
+/** The binding `e` triggers, if any. */
+export function findBinding(e: KeyEventLike, state: KeyState): KeyBinding | undefined {
+  if (state.modal) return undefined;
   for (const b of KEYMAP) {
     if (state.inText && !b.inText) continue;
     if (!matches(b, e)) continue;
     if (b.unlessHandled && e.defaultPrevented) continue;
+    if (b.pane && state.sidebar) continue;
+    if (b.unlessText && state.textSelected) continue;
     if (b.when === "selection" && state.selected < 1) continue;
     if (b.when === "multi" && state.selected < 2) continue;
     return b;
