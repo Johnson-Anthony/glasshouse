@@ -16,7 +16,7 @@ glasshouse is a desktop file manager built with Tauri 2 (Rust backend) and React
 
 ## Platforms and constraints
 - **Windows:** WebView2 and an msi/nsis bundle. **Linux:** WebKitGTK 4.1, AppImage/deb built in CI. Development also happens on Linux arm64 under Wayland (niri).
-- **Toolchain:** pnpm 9 (pinned in `packageManager`), Node 20+ (CI uses 22), Rust stable. `Cargo.lock` needs rustc 1.88 or newer, even though `rust-version` says 1.77.
+- **Toolchain:** pnpm 9 (pinned in `packageManager`), Node 20+ (CI uses 22), Rust stable. `rust-version` is 1.90, the oldest rustc that builds `Cargo.lock` (tauri 2.12 needs it).
 - **CI** (`.github/workflows/ci.yml`): frontend build and vitest on Ubuntu; `cargo clippy -D warnings` and `cargo test` on Ubuntu and Windows. Both must stay green.
 - **Releases:** pushing a `v*` tag builds them with tauri-action (`release.yml`).
 - Local-only app: no accounts, no network services.
