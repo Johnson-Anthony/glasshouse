@@ -7,7 +7,7 @@ On 2026-11-11, four read-only agents surveyed the app (at `45ea31b`): frontend b
 |---|---|---|---|---|
 | **Wave 1: data loss and security** |||||
 | 1 | archive-safety | Rust + `handlers/archive.ts` | M | **merged** (4c535a0) |
-| 2 | git-safety | Rust + `handlers/git.ts` | S–M | **running** (`cool-gauss-d234ca`) |
+| 2 | git-safety | Rust + `handlers/git.ts` | S–M | **merged** (3756be3) |
 | 3 | selection-integrity | frontend | M | **running** (`cool-satoshi-4102fc`) |
 | 4 | terminal-cd | frontend | S | **merged** (3d23a8b) |
 | 5 | focus-and-targets | frontend | M | **merged** (8a3dfc8) |
@@ -267,6 +267,9 @@ These items do nothing, or something else. Make each work, or remove it. For the
 - *(from archive-safety)* **tar/7z link check** (Rust, S): tar and 7z extraction don't check where archived symlinks point (zip extraction now does). Scan the staging folder after extraction and skip and report links that point outside it.
 - *(from archive-safety)* **read-only staged folders** (Rust, S): a tar whose top-level folder is mode 0555 can't be moved out of staging on Linux (rename needs write permission on it). Make staged folders owner-writable before the move, as the zip path does.
 - *(from archive-safety)* On Windows the staging folder (`.glasshouse-extract-<pid>-<n>`) is visible while extraction runs, and is left behind if the app dies mid-extract. Set the hidden attribute, and clean up stale staging folders on start.
+
+- *(from git-safety)* `launch::tests::run_capped_kills_the_whole_tree_at_the_timeout` failed once at load average ~7 ("background child outlived the timeout"), then passed alone and in three full runs. Possibly flaky under load; for test-gaps or ci-hygiene.
+- *(from git-safety)* git2 0.19's `add_all`/`update_all` callback crashes (null CStr) on an empty pathspec. We no longer hit that path; deps-bump should check whether a newer git2 fixes it.
 
 ## Unconfirmed: check before fixing
 - The terminal has no flow control: `yes` or `cat bigfile` sends one `pty-data` event per 4 KiB read and may freeze the webview (`pty.rs`).
