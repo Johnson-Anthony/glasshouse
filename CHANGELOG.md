@@ -6,8 +6,8 @@ What changed in each release, for people using glasshouse. Downloads are on the 
 
 <!-- TODO(release): before tagging v0.2.0,
   1. add the rest of wave 1 as it merges (docs/plans/active/survey-2.md:
-     inspector-perms, find-replace-safety, fs-robustness, watcher-fixes)
-     under the headings below; selection-integrity is in;
+     find-replace-safety, fs-robustness, watcher-fixes) under the headings
+     below; selection-integrity and inspector-perms are in;
   2. replace "unreleased" in the heading with the release date (YYYY-MM-DD);
   3. delete this comment.
   The release workflow (scripts/release-check.mjs) refuses the tag until all three are done. -->
@@ -48,6 +48,7 @@ This release is mostly about safety: several ways to lose files are fixed, and t
   - a link inside a zip can't point outside the folder it's extracted to;
   - extracted files lose setuid and setgid bits;
   - on Windows, files extracted from a downloaded archive keep its "downloaded from the internet" mark.
+- **Permissions in the Inspector:** the permission grid showed a made-up `rwxr----- 0740` for every file, and one click ran chmod from that value (owner-exec on a private key made it group-readable). It now shows the file's real mode, including setuid, setgid and sticky, and changes it only after you edit, apply and confirm the old and new modes. On Windows it shows read-only.
 - **Scripts:** a script that times out is stopped together with every program it started.
 - **No requests to Google:** the font picker's fonts are bundled, so the app makes no Google Fonts request at startup.
 

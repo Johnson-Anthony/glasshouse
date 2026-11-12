@@ -11,7 +11,7 @@ On 2026-11-11, four read-only agents surveyed the app (at `45ea31b`): frontend b
 | 3 | selection-integrity | frontend | M | **merged** (ee32e5b) |
 | 4 | terminal-cd | frontend | S | **merged** (3d23a8b) |
 | 5 | focus-and-targets | frontend | M | **merged** (8a3dfc8) |
-| 6 | inspector-perms | both | M | **running** (`cool-gauss-d234ca`) |
+| 6 | inspector-perms | both | M | **merged** (41bde85) |
 | 7 | find-replace-safety | both | S | queued |
 | 8 | fs-robustness | Rust + `handlers/fileOps.ts` | S–M | **running** (`recursing-allen-a7ecf9`; plus the tar/7z link check and read-only staged folders) |
 | 9 | watcher-fixes | Rust | S | queued |
