@@ -68,6 +68,7 @@ A Tauri 2 app. The window is a React 18 UI (`src/`) that calls Rust commands (`s
 - **File writes never clobber.** Create, rename, copy and move refuse an existing target (`create_new`, `RENAME_NOREPLACE` or `MoveFileExW` without replace, `CopyFileW` with fail-if-exists). The frontend's Replace choice trashes the old item first.
 - **Launching never builds a shell command line from user strings.** Arguments are checked (`check_profile`, `check_git_args`, `open_url`'s scheme list), and Windows paths go through the opener, direct spawns or environment variables. See `docs/decisions/2026-11-08-command-security-design.md`.
 - Git uses libgit2 for status and numstat, and the `git` CLI for history and for running menu commands (`git_run`, limited to `GIT_RUN_ALLOWED`).
+  - Stage, Unstage and Discard use libgit2. Discard never deletes: it restores tracked files from HEAD, moves untracked items to the trash, and leaves staged-only and ignored ones alone. Branch switches end with `--`. See `docs/decisions/2026-11-11-git-safety-design.md`.
 - Platform splits: `cfg(windows)` covers Win32 drives, hidden attributes, WSL, shortcuts, signatures, job objects and `CREATE_NO_WINDOW`. `cfg(not(windows))` covers sysinfo drives, `xdg-open` and FileManager1 reveal, terminal discovery, XDG trash and the `/proc` parsers.
 - Pins, tags and recents are JSON in the app config dir, written atomically.
 

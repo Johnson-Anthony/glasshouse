@@ -1,6 +1,7 @@
 use serde::Serialize;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use super::file_info::read_capped;
 use super::listing::canonicalize_soft;
 #[cfg(windows)]
 use super::launch::CREATE_NO_WINDOW;
@@ -93,10 +94,7 @@ fn status_pathspec(workdir: &Path, dir: &Path) -> Option<String> {
         return None;
     }
     let spec = parts.join("/");
-    let literal = !spec.contains(['*', '?', '[', ']', '\\'])
-        && !spec.starts_with(['!', '#'])
-        && !spec.ends_with(char::is_whitespace);
-    literal.then_some(spec)
+    literal_pathspec(&spec).then_some(spec)
 }
 
 // ---------- git status ----------
@@ -202,23 +200,25 @@ const BLAME_MAX_CAP: u32 = 2000;
 #[tauri::command(async)]
 pub fn git_blame(path: String, max_lines: u32) -> Result<Vec<BlameLine>, String> {
     use git2::BlameOptions;
+    // A linked file is blamed as the file it points to.
     let abs = canonicalize_soft(&path);
-    let (repo, _, rels) = open_repo_and_relpaths(std::slice::from_ref(&path))?;
+    let (repo, _, rels) = open_repo_and_relpaths(&[abs.to_string_lossy().into_owned()])?;
     let rel = &rels[0];
+
+    // The text gives each line its content. Read it first: the size cap and
+    // the binary check also spare a blame of a file that can't be shown.
+    let raw = read_capped(&abs)?;
+    // Simple binary check: any NUL in the first 8K means binary.
+    let probe_end = raw.len().min(8192);
+    if raw[..probe_end].contains(&0u8) {
+        return Err("file appears to be binary".to_string());
+    }
 
     let mut opts = BlameOptions::new();
     opts.track_copies_same_file(true);
     let blame = repo
         .blame_file(rel, Some(&mut opts))
         .map_err(|e| format!("blame_file: {}", e))?;
-
-    // Pull the file text to attach content per line. Keep this bounded.
-    let raw = std::fs::read(&abs).map_err(|e| format!("read {}: {}", abs.display(), e))?;
-    // Simple binary check: any NUL in the first 8K means binary.
-    let probe_end = raw.len().min(8192);
-    if raw[..probe_end].contains(&0u8) {
-        return Err("file appears to be binary".to_string());
-    }
     let text = String::from_utf8_lossy(&raw);
     let lines: Vec<&str> = text.split('\n').collect();
 
@@ -259,8 +259,21 @@ pub fn git_blame(path: String, max_lines: u32) -> Result<Vec<BlameLine>, String>
 
 // ---------- git per-row actions (stage / unstage / discard) ----------
 
+/// `p` made absolute with its folders resolved but not its last part, so a
+/// symlink stays the link, which is what git tracks, not its target.
+fn resolve_folders(p: &str) -> PathBuf {
+    let p = Path::new(p);
+    match (p.parent(), p.file_name()) {
+        (Some(parent), Some(name)) if !parent.as_os_str().is_empty() => {
+            canonicalize_soft(parent).join(name)
+        }
+        _ => canonicalize_soft(p),
+    }
+}
+
 /// Open the repo containing `paths[0]` and return it with its workdir and
-/// each path relative to that workdir.
+/// each path relative to that workdir. A symlink in `paths` stands for
+/// itself, not its target.
 fn open_repo_and_relpaths(
     paths: &[String],
 ) -> Result<(git2::Repository, PathBuf, Vec<PathBuf>), String> {
@@ -268,15 +281,19 @@ fn open_repo_and_relpaths(
     if paths.is_empty() {
         return Err("no paths".to_string());
     }
-    let first = canonicalize_soft(&paths[0]);
-    let repo = Repository::discover(&first).map_err(|e| format!("not a git repo: {}", e))?;
-    let workdir = repo
-        .workdir()
-        .ok_or_else(|| "bare repo has no workdir".to_string())?
-        .to_path_buf();
+    let first = resolve_folders(&paths[0]);
+    // libgit2 resolves the path it starts from, so a link starts from its
+    // folder. A real folder starts from itself, since it may be the root.
+    let real_dir = std::fs::symlink_metadata(&first).is_ok_and(|m| m.is_dir());
+    let start = if real_dir { first.as_path() } else { first.parent().unwrap_or(&first) };
+    let repo = Repository::discover(start).map_err(|e| format!("not a git repo: {}", e))?;
+    let workdir = canonicalize_soft(
+        repo.workdir()
+            .ok_or_else(|| "bare repo has no workdir".to_string())?,
+    );
     let mut rels = Vec::with_capacity(paths.len());
     for p in paths {
-        let abs = canonicalize_soft(p);
+        let abs = resolve_folders(p);
         let rel = abs
             .strip_prefix(&workdir)
             .map_err(|_| format!("{} is not inside repo {}", abs.display(), workdir.display()))?
@@ -286,41 +303,153 @@ fn open_repo_and_relpaths(
     Ok((repo, workdir, rels))
 }
 
+/// `rel` as git writes paths, `/`-separated; `None` if it isn't UTF-8.
+fn git_path(rel: &Path) -> Option<String> {
+    let parts = rel
+        .components()
+        .map(|c| match c {
+            std::path::Component::Normal(s) => s.to_str(),
+            _ => None,
+        })
+        .collect::<Option<Vec<_>>>()?;
+    Some(parts.join("/"))
+}
+
+/// Whether git path `p` is `dir` or inside it. `""` is the repo's root.
+fn git_path_under(p: &str, dir: &str) -> bool {
+    dir.is_empty()
+        || p.strip_prefix(dir)
+            .is_some_and(|rest| rest.is_empty() || rest.starts_with('/'))
+}
+
+/// Whether libgit2 reads pathspec `spec` as the plain path it is, which
+/// also matches what's under it when it's a folder. Glob characters, a
+/// leading `!` or `#`, a line break and trailing whitespace make it mean
+/// something else.
+fn literal_pathspec(spec: &str) -> bool {
+    !spec.is_empty()
+        && !spec.contains(['*', '?', '[', ']', '\\', '\n', '\x0b', '\x0c'])
+        && !spec.starts_with(['!', '#'])
+        && !spec.ends_with(char::is_whitespace)
+}
+
+/// Pathspecs that match exactly `path` (`""` is the repo's root) and, for a
+/// folder, what's under it. libgit2 reads a pathspec as a pattern, so
+/// `a[1].txt` would also match `a1.txt`; an unusual name is escaped.
+fn exact_pathspecs(path: &str, is_dir: bool) -> Vec<String> {
+    if path.is_empty() {
+        return vec!["*".to_string()];
+    }
+    if literal_pathspec(path) {
+        return vec![path.to_string()];
+    }
+    let mut esc = String::with_capacity(path.len() * 2);
+    for c in path.chars() {
+        if c.is_ascii() && !c.is_ascii_alphanumeric() && c != '/' {
+            esc.push('\\');
+        }
+        esc.push(c);
+    }
+    // An escaped name no longer matches as a folder prefix.
+    let under = is_dir.then(|| format!("{}/*", esc));
+    std::iter::once(esc).chain(under).collect()
+}
+
+/// The status of `dir` and everything under it (`""` is the whole repo), as
+/// (git path, flags). An untracked folder comes back as one `sub/` entry
+/// unless `recurse_untracked`. Ignored files and submodules aren't listed.
+fn statuses_under(
+    repo: &git2::Repository,
+    dir: &str,
+    recurse_untracked: bool,
+) -> Result<Vec<(String, git2::Status)>, String> {
+    let mut opts = git2::StatusOptions::new();
+    opts.include_untracked(true)
+        .include_ignored(false)
+        .exclude_submodules(true)
+        .recurse_untracked_dirs(recurse_untracked);
+    // The pathspec only narrows the scan; the filter below decides.
+    if literal_pathspec(dir) {
+        opts.pathspec(dir);
+    }
+    let statuses = repo
+        .statuses(Some(&mut opts))
+        .map_err(|e| format!("git status: {}", e))?;
+    Ok(statuses
+        .iter()
+        .filter_map(|s| {
+            let p = s.path()?;
+            git_path_under(p.trim_end_matches('/'), dir).then(|| (p.to_string(), s.status()))
+        })
+        .collect())
+}
+
 #[tauri::command(async)]
 pub fn git_stage(paths: Vec<String>) -> Result<(), String> {
     let (repo, workdir, rels) = open_repo_and_relpaths(&paths)?;
     let mut index = repo.index().map_err(|e| e.to_string())?;
     for rel in &rels {
-        let abs = workdir.join(rel);
-        if abs.exists() {
-            index.add_path(rel).map_err(|e| format!("add_path {}: {}", rel.display(), e))?;
-        } else {
-            // File was deleted on disk — stage the removal.
-            index
+        match std::fs::symlink_metadata(workdir.join(rel)) {
+            Ok(m) if m.is_dir() => stage_folder(&mut index, &workdir, rel)?,
+            Ok(_) => index
+                .add_path(rel)
+                .map_err(|e| format!("add_path {}: {}", rel.display(), e))?,
+            // Gone from disk: stage the removal.
+            Err(_) => index
                 .remove_path(rel)
-                .map_err(|e| format!("remove_path {}: {}", rel.display(), e))?;
+                .map_err(|e| format!("remove_path {}: {}", rel.display(), e))?,
         }
     }
     index.write().map_err(|e| format!("index.write: {}", e))?;
     Ok(())
 }
 
+/// `git add <folder>`: add the new and changed files under `rel`, skipping
+/// ignored ones (libgit2's `add_path` takes files only), and stage the
+/// removal of tracked files under it that are gone from disk.
+fn stage_folder(index: &mut git2::Index, workdir: &Path, rel: &Path) -> Result<(), String> {
+    let dir = git_path(rel).ok_or_else(|| format!("{}: name isn't valid UTF-8", rel.display()))?;
+    index
+        .add_all(exact_pathspecs(&dir, true), git2::IndexAddOption::DEFAULT, None)
+        .map_err(|e| format!("add_all {}: {}", dir, e))?;
+    let gone: Vec<PathBuf> = index
+        .iter()
+        .filter_map(|e| String::from_utf8(e.path).ok())
+        .filter(|p| git_path_under(p, &dir))
+        .map(|p| p.split('/').collect::<PathBuf>())
+        .filter(|p| std::fs::symlink_metadata(workdir.join(p)).is_err())
+        .collect();
+    for p in gone {
+        index
+            .remove_path(&p)
+            .map_err(|e| format!("remove_path {}: {}", p.display(), e))?;
+    }
+    Ok(())
+}
+
 #[tauri::command(async)]
 pub fn git_unstage(paths: Vec<String>) -> Result<(), String> {
-    let (repo, _, rels) = open_repo_and_relpaths(&paths)?;
+    let (repo, workdir, rels) = open_repo_and_relpaths(&paths)?;
     // Equivalent of `git reset HEAD -- path`: reset the index entries for
     // these paths to match HEAD. If there is no HEAD yet (fresh repo with no
     // commits), fall back to removing the entries from the index instead.
     match repo.head().and_then(|h| h.peel_to_commit()) {
         Ok(commit) => {
-            let rel_refs: Vec<&Path> = rels.iter().map(|p| p.as_path()).collect();
-            repo.reset_default(Some(commit.as_object()), rel_refs.iter())
+            let mut specs = Vec::new();
+            for rel in &rels {
+                let path = git_path(rel)
+                    .ok_or_else(|| format!("{}: name isn't valid UTF-8", rel.display()))?;
+                let is_dir = std::fs::symlink_metadata(workdir.join(rel)).is_ok_and(|m| m.is_dir());
+                specs.extend(exact_pathspecs(&path, is_dir));
+            }
+            repo.reset_default(Some(commit.as_object()), specs.iter())
                 .map_err(|e| format!("reset_default: {}", e))?;
         }
         Err(_) => {
             let mut index = repo.index().map_err(|e| e.to_string())?;
             for rel in &rels {
                 let _ = index.remove_path(rel);
+                let _ = index.remove_dir(rel, 0);
             }
             index.write().map_err(|e| format!("index.write: {}", e))?;
         }
@@ -328,55 +457,134 @@ pub fn git_unstage(paths: Vec<String>) -> Result<(), String> {
     Ok(())
 }
 
-#[tauri::command(async)]
-pub fn git_discard(paths: Vec<String>) -> Result<(), String> {
-    use git2::build::CheckoutBuilder;
-    let (repo, workdir, rels) = open_repo_and_relpaths(&paths)?;
+/// What `git_discard` did, for the frontend's report.
+#[derive(Debug, Serialize, Default)]
+pub struct DiscardResult {
+    /// Files put back as HEAD has them, in the index and on disk.
+    pub restored: usize,
+    /// Untracked files and folders moved to the trash.
+    pub trashed: usize,
+    /// Paths left as they were.
+    pub skipped: Vec<DiscardSkip>,
+}
 
-    // Partition: untracked files (no index entry, no HEAD entry) get deleted;
-    // everything else gets `checkout HEAD -- path` treatment.
+#[derive(Debug, Serialize)]
+pub struct DiscardSkip {
+    /// Relative to the repo's root and `/`-separated, as `git status` prints
+    /// it; `.` for the root.
+    pub path: String,
+    pub reason: String,
+}
+
+fn discard_skip(path: &str, reason: impl Into<String>) -> DiscardSkip {
+    let path = path.trim_end_matches('/');
+    DiscardSkip {
+        path: if path.is_empty() { ".".into() } else { path.into() },
+        reason: reason.into(),
+    }
+}
+
+#[tauri::command(async)]
+pub fn git_discard(paths: Vec<String>) -> Result<DiscardResult, String> {
+    discard_paths(&paths, |p| trash::delete(p).map_err(|e| e.to_string()))
+}
+
+/// Discard makes each path match HEAD, but never destroys what git can't
+/// give back:
+/// - files in HEAD with a change are restored from HEAD;
+/// - untracked files and folders go to `trash`, a folder whole only when
+///   nothing under it is in the index;
+/// - files staged but never committed, ignored paths and nested repos are
+///   left alone and reported.
+fn discard_paths(
+    paths: &[String],
+    trash: impl Fn(&Path) -> Result<(), String>,
+) -> Result<DiscardResult, String> {
+    use git2::{build::CheckoutBuilder, Status};
+    let (repo, workdir, rels) = open_repo_and_relpaths(paths)?;
     let index = repo.index().map_err(|e| e.to_string())?;
     let head_tree = repo.head().and_then(|h| h.peel_to_tree()).ok();
+    let in_head = |p: &str| head_tree.as_ref().is_some_and(|t| t.get_path(Path::new(p)).is_ok());
+    let abs = |p: &str| {
+        p.trim_end_matches('/')
+            .split('/')
+            .fold(workdir.clone(), |a, part| a.join(part))
+    };
+    let nested_repo = |p: &str| std::fs::symlink_metadata(abs(p).join(".git")).is_ok();
 
-    let mut tracked_rels: Vec<&Path> = Vec::new();
-    let mut to_delete: Vec<PathBuf> = Vec::new();
+    let mut out = DiscardResult::default();
+    let mut restore: Vec<String> = Vec::new();
+    let mut to_trash: Vec<String> = Vec::new();
     for rel in &rels {
-        let in_index = index.get_path(rel, 0).is_some();
-        let in_head = head_tree
-            .as_ref()
-            .and_then(|t| t.get_path(rel).ok())
-            .is_some();
-        if !in_index && !in_head {
-            to_delete.push(workdir.join(rel));
-        } else {
-            tracked_rels.push(rel.as_path());
+        let Some(path) = git_path(rel) else {
+            out.skipped.push(discard_skip(&rel.to_string_lossy(), "name isn't valid UTF-8"));
+            continue;
+        };
+        let tracked = path.is_empty()
+            || in_head(&path)
+            || (0..=3).any(|stage| index.get_path(rel, stage).is_some())
+            || index.find_prefix(format!("{}/", path)).is_ok();
+        if !tracked {
+            // Nothing of it is in git, so only the trash can give it back.
+            let reason = match std::fs::symlink_metadata(workdir.join(rel)) {
+                Err(_) => Some("not found"),
+                Ok(_) if repo.is_path_ignored(rel).unwrap_or(false) => Some("ignored"),
+                Ok(m) if m.is_dir() && nested_repo(&path) => Some("a separate git repository"),
+                Ok(_) if statuses_under(&repo, &path, true)?.is_empty() => {
+                    Some("no changes (only ignored files)")
+                }
+                Ok(_) => None,
+            };
+            match reason {
+                Some(r) => out.skipped.push(discard_skip(&path, r)),
+                None => to_trash.push(path),
+            }
+            continue;
+        }
+        let entries = statuses_under(&repo, &path, false)?;
+        if entries.is_empty() {
+            out.skipped.push(discard_skip(&path, "no changes"));
+        }
+        for (p, st) in entries {
+            if st == Status::WT_NEW {
+                if p.ends_with('/') && nested_repo(&p) {
+                    out.skipped.push(discard_skip(&p, "a separate git repository"));
+                } else {
+                    to_trash.push(p);
+                }
+            } else if st.contains(Status::INDEX_NEW) {
+                out.skipped.push(discard_skip(&p, "staged but never committed; unstage it first"));
+            } else if in_head(&p) {
+                restore.push(p);
+            } else {
+                out.skipped.push(discard_skip(&p, "not in the last commit"));
+            }
         }
     }
+    restore.sort();
+    restore.dedup();
+    to_trash.sort();
+    to_trash.dedup();
 
-    if !tracked_rels.is_empty() {
+    if !restore.is_empty() {
         let mut opts = CheckoutBuilder::new();
         opts.force();
-        for p in &tracked_rels {
-            opts.path(p);
+        for p in &restore {
+            for spec in exact_pathspecs(p, false) {
+                opts.path(spec);
+            }
         }
         repo.checkout_head(Some(&mut opts))
             .map_err(|e| format!("checkout_head: {}", e))?;
+        out.restored = restore.len();
     }
-
-    for abs in to_delete {
-        let meta = match std::fs::symlink_metadata(&abs) {
-            Ok(m) => m,
-            Err(_) => continue,
-        };
-        if meta.is_dir() {
-            std::fs::remove_dir_all(&abs)
-                .map_err(|e| format!("remove_dir_all {}: {}", abs.display(), e))?;
-        } else {
-            std::fs::remove_file(&abs)
-                .map_err(|e| format!("remove_file {}: {}", abs.display(), e))?;
+    for p in to_trash {
+        match trash(&abs(&p)) {
+            Ok(()) => out.trashed += 1,
+            Err(e) => out.skipped.push(discard_skip(&p, format!("couldn't move it to the trash: {}", e))),
         }
     }
-    Ok(())
+    Ok(out)
 }
 
 // ---------- per-file git info ----------
@@ -533,7 +741,7 @@ const GIT_RUN_ALLOWED: &[GitRunSpec] = &[
         positionals: 0,
     },
     GitRunSpec { name: "clean", flags: &["-fd"], valued: &[], positionals: 0 },
-    GitRunSpec { name: "checkout", flags: &[], valued: &["-b"], positionals: 1 },
+    GitRunSpec { name: "checkout", flags: &["--"], valued: &["-b"], positionals: 1 },
     GitRunSpec { name: "merge", flags: &["--no-edit"], valued: &[], positionals: 1 },
     GitRunSpec { name: "rebase", flags: &[], valued: &[], positionals: 1 },
 ];
@@ -542,6 +750,10 @@ const GIT_RUN_ALLOWED: &[GitRunSpec] = &[
 /// come first, so no global option gets in (`-c core.sshCommand=…`, `-C`,
 /// `--exec-path`), and a plain argument can't start with `-`, so neither can
 /// an option that runs a command (`fetch --upload-pack=…`, `rebase --exec`).
+///
+/// No paths either: `--` is taken only last, and `checkout` must end with
+/// it, because `git checkout docs` restores the folder `docs` when there's
+/// no branch of that name, and `git checkout docs --` only switches.
 fn check_git_args(args: &[String]) -> Result<(), String> {
     let (sub, rest) = args.split_first().ok_or("git_run: no git subcommand")?;
     let spec = GIT_RUN_ALLOWED
@@ -552,6 +764,9 @@ fn check_git_args(args: &[String]) -> Result<(), String> {
     let mut it = rest.iter();
     while let Some(a) = it.next() {
         if spec.flags.contains(&a.as_str()) {
+            if a == "--" && it.len() > 0 {
+                return Err(format!("git_run: `git {}` takes no paths after `--`", sub));
+            }
             continue;
         }
         if spec.valued.contains(&a.as_str()) {
@@ -567,6 +782,9 @@ fn check_git_args(args: &[String]) -> Result<(), String> {
         if positionals > spec.positionals {
             return Err(format!("git_run: too many arguments for `git {}`", sub));
         }
+    }
+    if spec.name == "checkout" && positionals > 0 && rest.last().is_none_or(|a| a != "--") {
+        return Err("git_run: `git checkout <branch>` must end with `--`".to_string());
     }
     Ok(())
 }
@@ -656,7 +874,7 @@ fn parse_upstream_track(track: &str) -> (u32, u32, bool) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::commands::testing::{temp_dir, test_repo, commit_all, s};
+    use crate::commands::testing::{commit_all, put, read, s, temp_dir, test_repo, tree};
 
     fn args(a: &[&str]) -> Vec<String> {
         a.iter().map(|x| x.to_string()).collect()
@@ -850,9 +1068,9 @@ mod tests {
             &["stash", "push", "-u"],
             &["log", "--oneline", "--graph", "--decorate", "--all", "-n", "200"],
             &["clean", "-fd"],
-            &["checkout", "main"],
-            &["checkout", "feature/x"],
-            &["checkout", "-"],
+            &["checkout", "main", "--"],
+            &["checkout", "feature/x", "--"],
+            &["checkout", "-", "--"],
             &["checkout", "-b", "feature/new"],
             &["merge", "main", "--no-edit"],
             &["rebase", "main"],
@@ -877,7 +1095,13 @@ mod tests {
             &["rebase", "-x", "calc", "main"],
             &["log", "--output=/tmp/x"],
             &["commit", "-m"],
-            &["checkout", "a", "b"],
+            &["checkout", "a", "b", "--"],
+            // Paths: what `git checkout` restores.
+            &["checkout", "docs"],
+            &["checkout", "-"],
+            &["checkout", "--", "docs"],
+            &["checkout", "main", "--", "docs"],
+            &["status", "--"],
             &["merge", "--no-edit", "-s", "evil", "main"],
             &["clean", "-fdx"],
         ];
@@ -965,6 +1189,285 @@ mod tests {
         // A relative path, as from cwd, gives the same answer.
         let rel = git_file_info(s(&dir), "a.txt".into()).unwrap();
         assert_eq!((rel.added, rel.removed), (2, 0));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // ---------- stage / unstage / discard ----------
+
+    /// Stands in for the system trash: moves each path into `bin`.
+    fn fake_trash(bin: &Path) -> impl Fn(&Path) -> Result<(), String> + '_ {
+        move |p| {
+            std::fs::rename(p, bin.join(p.file_name().unwrap())).map_err(|e| e.to_string())
+        }
+    }
+
+    /// The index's paths, read fresh from disk.
+    fn staged(dir: &Path) -> Vec<String> {
+        let repo = git2::Repository::open(dir).unwrap();
+        let index = repo.index().unwrap();
+        index.iter().map(|e| String::from_utf8(e.path).unwrap()).collect()
+    }
+
+    /// One file's status, read fresh from disk.
+    fn status_of(dir: &Path, p: &str) -> git2::Status {
+        git2::Repository::open(dir).unwrap().status_file(Path::new(p)).unwrap()
+    }
+
+    fn stage_now(repo: &git2::Repository, paths: &[&str]) {
+        let mut index = repo.index().unwrap();
+        for p in paths {
+            index.add_path(Path::new(p)).unwrap();
+        }
+        index.write().unwrap();
+    }
+
+    fn skips(r: &DiscardResult) -> Vec<(String, String)> {
+        let mut v: Vec<_> = r.skipped.iter().map(|k| (k.path.clone(), k.reason.clone())).collect();
+        v.sort();
+        v
+    }
+
+    #[test]
+    fn discard_restores_tracked_files_and_trashes_untracked_ones() {
+        let (dir, repo) = test_repo("discard-basic");
+        let bin = temp_dir("discard-basic-bin");
+        put(&dir.join("tracked.txt"), "v1");
+        put(&dir.join("src/edit.txt"), "v1");
+        put(&dir.join("src/keep.txt"), "v1");
+        commit_all(&repo, "init");
+        put(&dir.join("tracked.txt"), "v2");
+        put(&dir.join("src/edit.txt"), "v2");
+        put(&dir.join("src/new.txt"), "new");
+        put(&dir.join("src/staged.txt"), "staged");
+        stage_now(&repo, &["src/staged.txt"]);
+        put(&dir.join("untracked.txt"), "new");
+        put(&dir.join("untracked_dir/a.txt"), "new");
+        put(&dir.join("untracked_dir/b/c.txt"), "new");
+
+        let paths = ["tracked.txt", "untracked.txt", "untracked_dir", "src"].map(|p| s(&dir.join(p)));
+        let r = discard_paths(&paths, fake_trash(&bin)).unwrap();
+
+        assert_eq!((r.restored, r.trashed), (2, 3));
+        assert_eq!(read(&dir.join("tracked.txt")), "v1");
+        assert_eq!(read(&dir.join("src/edit.txt")), "v1");
+        assert_eq!(tree(&bin), ["new.txt", "untracked.txt", "untracked_dir/", "untracked_dir/a.txt", "untracked_dir/b/", "untracked_dir/b/c.txt"]);
+        // Staged but never committed: only the index has it, so it stays.
+        assert_eq!(read(&dir.join("src/staged.txt")), "staged");
+        assert!(staged(&dir).contains(&"src/staged.txt".to_string()));
+        assert_eq!(
+            skips(&r),
+            [("src/staged.txt".into(), "staged but never committed; unstage it first".into())]
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+        let _ = std::fs::remove_dir_all(&bin);
+    }
+
+    #[test]
+    fn discard_leaves_ignored_staged_and_nested_repos_alone() {
+        let (dir, repo) = test_repo("discard-keep");
+        let bin = temp_dir("discard-keep-bin");
+        put(&dir.join(".gitignore"), "build/\n*.log\n");
+        put(&dir.join("clean.txt"), "v1");
+        commit_all(&repo, "init");
+        put(&dir.join("build/out.bin"), "ignored");
+        put(&dir.join("debug.log"), "ignored");
+        put(&dir.join("only_ignored/z.log"), "ignored");
+        put(&dir.join("staged.txt"), "staged");
+        put(&dir.join("staged_dir/x.txt"), "staged");
+        put(&dir.join("staged_dir/y.txt"), "untracked beside a staged file");
+        stage_now(&repo, &["staged.txt", "staged_dir/x.txt"]);
+        let nested = git2::Repository::init(dir.join("nested")).unwrap();
+        put(&dir.join("nested/inner.txt"), "its own repo");
+        drop(nested);
+
+        let names = ["build", "debug.log", "only_ignored", "staged.txt", "staged_dir", "nested", "clean.txt"];
+        let before = tree(&dir);
+        let r = discard_paths(&names.map(|p| s(&dir.join(p))), fake_trash(&bin)).unwrap();
+
+        assert_eq!((r.restored, r.trashed), (0, 1), "{:?}", r);
+        assert_eq!(tree(&bin), ["y.txt"]);
+        let mut after = tree(&dir);
+        after.push("staged_dir/y.txt".into());
+        after.sort();
+        assert_eq!(after, before);
+        assert!(staged(&dir).contains(&"staged_dir/x.txt".to_string()));
+        let staged_note = "staged but never committed; unstage it first";
+        assert_eq!(
+            skips(&r),
+            [
+                ("build", "ignored"),
+                ("clean.txt", "no changes"),
+                ("debug.log", "ignored"),
+                ("nested", "a separate git repository"),
+                ("only_ignored", "no changes (only ignored files)"),
+                ("staged.txt", staged_note),
+                ("staged_dir/x.txt", staged_note),
+            ]
+            .map(|(p, why)| (p.to_string(), why.to_string()))
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+        let _ = std::fs::remove_dir_all(&bin);
+    }
+
+    #[test]
+    fn a_failed_trash_is_reported_and_the_rest_goes_on() {
+        let (dir, repo) = test_repo("discard-trashfail");
+        put(&dir.join("tracked.txt"), "v1");
+        commit_all(&repo, "init");
+        put(&dir.join("tracked.txt"), "v2");
+        put(&dir.join("stuck.txt"), "new");
+        let paths = ["stuck.txt", "tracked.txt"].map(|p| s(&dir.join(p)));
+        let r = discard_paths(&paths, |_| Err("no trash here".into())).unwrap();
+        assert_eq!((r.restored, r.trashed), (1, 0));
+        assert_eq!(read(&dir.join("tracked.txt")), "v1");
+        assert!(dir.join("stuck.txt").exists());
+        assert_eq!(
+            skips(&r),
+            [("stuck.txt".into(), "couldn't move it to the trash: no trash here".into())]
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// libgit2 reads paths as patterns: unescaped, `a[1].txt` also matches
+    /// `a1.txt`. A leading `#` starts a comment in a pathspec.
+    #[test]
+    fn discard_and_unstage_take_odd_names_literally() {
+        let (dir, repo) = test_repo("discard-odd");
+        let names = ["a1.txt", "a[1].txt", "#notes.md", "other.txt"];
+        for n in names {
+            put(&dir.join(n), "v1");
+        }
+        commit_all(&repo, "init");
+        for n in names {
+            put(&dir.join(n), "v2");
+        }
+        let r = discard_paths(&[s(&dir.join("#notes.md"))], fake_trash(&dir)).unwrap();
+        assert_eq!(r.restored, 1);
+        let r = discard_paths(&[s(&dir.join("a[1].txt"))], fake_trash(&dir)).unwrap();
+        assert_eq!(r.restored, 1);
+        let contents: Vec<String> = names.iter().map(|n| read(&dir.join(n))).collect();
+        assert_eq!(contents, ["v2", "v1", "v1", "v2"]);
+
+        for n in names {
+            put(&dir.join(n), "v3");
+        }
+        stage_now(&repo, &names);
+        git_unstage(vec![s(&dir.join("#notes.md")), s(&dir.join("a[1].txt"))]).unwrap();
+        for (n, still_staged) in [("a1.txt", true), ("a[1].txt", false), ("#notes.md", false), ("other.txt", true)] {
+            let st = status_of(&dir, n);
+            assert_eq!(st.contains(git2::Status::INDEX_MODIFIED), still_staged, "{}: {:?}", n, st);
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A selected symlink is the link, as git tracks it, never its target.
+    #[cfg(unix)]
+    #[test]
+    fn discard_of_a_link_acts_on_the_link_not_its_target() {
+        let (dir, repo) = test_repo("discard-link");
+        let bin = temp_dir("discard-link-bin");
+        put(&dir.join("src/edit.txt"), "v1");
+        commit_all(&repo, "init");
+        put(&dir.join("src/edit.txt"), "v2");
+        std::os::unix::fs::symlink("src", dir.join("link")).unwrap();
+        let r = discard_paths(&[s(&dir.join("link"))], fake_trash(&bin)).unwrap();
+        assert_eq!((r.restored, r.trashed), (0, 1));
+        assert_eq!(read(&dir.join("src/edit.txt")), "v2");
+        assert!(std::fs::symlink_metadata(bin.join("link")).unwrap().file_type().is_symlink());
+        let _ = std::fs::remove_dir_all(&dir);
+        let _ = std::fs::remove_dir_all(&bin);
+    }
+
+    #[test]
+    fn stage_takes_folders_like_git_add() {
+        let (dir, repo) = test_repo("stage-folders");
+        put(&dir.join(".gitignore"), "*.log\n");
+        put(&dir.join("old/gone.txt"), "v1");
+        put(&dir.join("old/keep.txt"), "v1");
+        commit_all(&repo, "init");
+        std::fs::remove_file(dir.join("old/gone.txt")).unwrap();
+        put(&dir.join("old/keep.txt"), "v2");
+        put(&dir.join("new/a.txt"), "new");
+        put(&dir.join("new/sub/b.txt"), "new");
+        put(&dir.join("new/skip.log"), "ignored");
+        // `a[b]` is a pattern that matches `ab`.
+        put(&dir.join("a[b]/c.txt"), "new");
+        put(&dir.join("ab/d.txt"), "new");
+
+        git_stage(["new", "old", "a[b]"].map(|p| s(&dir.join(p))).to_vec()).unwrap();
+        let mut got = staged(&dir);
+        got.sort();
+        assert_eq!(got, [".gitignore", "a[b]/c.txt", "new/a.txt", "new/sub/b.txt", "old/keep.txt"]);
+        assert!(status_of(&dir, "old/keep.txt").contains(git2::Status::INDEX_MODIFIED));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn stage_adds_a_link_to_a_folder_as_the_link() {
+        let (dir, repo) = test_repo("stage-link");
+        put(&dir.join("real/a.txt"), "v1");
+        commit_all(&repo, "init");
+        std::os::unix::fs::symlink("real", dir.join("link")).unwrap();
+        git_stage(vec![s(&dir.join("link"))]).unwrap();
+        let repo = git2::Repository::open(&dir).unwrap();
+        let entry = repo.index().unwrap().get_path(Path::new("link"), 0).unwrap();
+        assert_eq!(entry.mode, 0o120000);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn unstage_takes_folders() {
+        let (dir, repo) = test_repo("unstage-folders");
+        put(&dir.join("src/x.txt"), "v1");
+        commit_all(&repo, "init");
+        put(&dir.join("src/x.txt"), "v2");
+        put(&dir.join("new/a.txt"), "new");
+        stage_now(&repo, &["src/x.txt", "new/a.txt"]);
+        git_unstage(["src", "new"].map(|p| s(&dir.join(p))).to_vec()).unwrap();
+        assert_eq!(staged(&dir), ["src/x.txt"]);
+        assert_eq!(status_of(&dir, "src/x.txt"), git2::Status::WT_MODIFIED);
+
+        // No commit yet: the entries just leave the index.
+        let (fresh, repo) = test_repo("unstage-unborn");
+        put(&fresh.join("new/a.txt"), "new");
+        stage_now(&repo, &["new/a.txt"]);
+        git_unstage(vec![s(&fresh.join("new"))]).unwrap();
+        assert!(staged(&fresh).is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
+        let _ = std::fs::remove_dir_all(&fresh);
+    }
+
+    /// The checkout the git menu sends switches branches and never restores
+    /// files, on the git that's installed.
+    #[test]
+    fn menu_checkout_never_restores_a_folder() {
+        if which::which("git").is_err() {
+            return;
+        }
+        let (dir, repo) = test_repo("checkout-dashdash");
+        put(&dir.join("docs/f.txt"), "v1");
+        let head = commit_all(&repo, "init");
+        repo.branch("other", &repo.find_commit(head).unwrap(), false).unwrap();
+        put(&dir.join("docs/f.txt"), "edited");
+
+        let r = git_run(s(&dir), args(&["checkout", "docs", "--"])).unwrap();
+        assert!(!r.ok, "{:?}", r.stderr);
+        assert_eq!(read(&dir.join("docs/f.txt")), "edited");
+        let r = git_run(s(&dir), args(&["checkout", "other", "--"])).unwrap();
+        assert!(r.ok, "{:?}", r.stderr);
+        assert_eq!(git2::Repository::open(&dir).unwrap().head().unwrap().shorthand(), Some("other"));
+        assert_eq!(read(&dir.join("docs/f.txt")), "edited");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn blame_refuses_a_file_over_the_read_cap() {
+        let (dir, _repo) = test_repo("blame-cap");
+        let big = dir.join("big.txt");
+        std::fs::File::create(&big).unwrap().set_len(super::super::file_info::TEXT_READ_CAP + 1).unwrap();
+        let err = git_blame(s(&big), 10).unwrap_err();
+        assert!(err.contains("too big"), "{}", err);
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

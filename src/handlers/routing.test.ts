@@ -298,12 +298,26 @@ describe("routed commands", () => {
     });
   });
 
-  it("Stage Selected stages the selection, and does nothing without one", async () => {
-    const ctx = makeCtx(files, [0]);
+  /** A tab of a changed file, a clean one, an untracked one and a folder
+   *  (whose label never says what's inside). */
+  function gitCtx(selected: number[]): HandlerCtx {
+    const ctx = makeCtx(["changed.ts", "clean.ts", "new.ts", "docs"], selected);
+    const entries = ctx.activeHandle!.state.entries;
+    entries[0].git = "M";
+    entries[2].git = "?";
+    entries[3].kind = "folder";
+    return ctx;
+  }
+
+  it("Stage Selected stages changed items and folders, and skips clean files", async () => {
+    const ctx = gitCtx([0, 1, 2, 3]);
     expect(await owner("Stage Selected", ctx)).toBe(gitHandler);
-    expect(api.gitStage).toHaveBeenCalledWith(["/w/notes.md"]);
+    expect(api.gitStage).toHaveBeenCalledWith(["/w/changed.ts", "/w/new.ts", "/w/docs"]);
+    expect(ctx.refresh).toHaveBeenCalled();
     vi.mocked(api.gitStage).mockClear();
-    expect(await owner("Stage Selected", makeCtx(files, []))).toBe(gitHandler);
+    expect(await owner("Stage Selected", gitCtx([1]))).toBe(gitHandler);
+    expect(dialogs.showToast).toHaveBeenCalledWith(expect.objectContaining({ message: "nothing to stage in the selection" }));
+    expect(await owner("Stage Selected", gitCtx([]))).toBe(gitHandler);
     expect(api.gitStage).not.toHaveBeenCalled();
   });
 
@@ -312,6 +326,46 @@ describe("routed commands", () => {
     const tweaks = { termFollow: true } as NonNullable<HandlerCtx["tweaks"]>;
     expect(await owner("Follow Folder", { ...makeCtx([], []), tweaks, setTweaks })).toBe(viewHandler);
     expect(setTweaks).toHaveBeenCalledWith(expect.objectContaining({ termFollow: false }));
+  });
+
+  it("Unstage Selected leaves out untracked items", async () => {
+    expect(await owner("Unstage Selected", gitCtx([0, 2, 3]))).toBe(gitHandler);
+    expect(api.gitUnstage).toHaveBeenCalledWith(["/w/changed.ts", "/w/docs"]);
+  });
+
+  it("Discard Changes confirms, sends only what has changes, and reports what was left alone", async () => {
+    const ctx = gitCtx([0, 1, 2, 3]);
+    expect(await owner("Discard Changes", ctx)).toBe(gitHandler);
+    expect(api.gitDiscard).not.toHaveBeenCalled();
+
+    dialogs.showConfirm.mockResolvedValueOnce(true);
+    vi.mocked(api.gitDiscard).mockResolvedValueOnce({
+      restored: 1,
+      trashed: 1,
+      skipped: [{ path: "docs/draft.md", reason: "staged but never committed; unstage it first" }],
+    });
+    expect(await owner("Discard Changes", ctx)).toBe(gitHandler);
+    expect(api.gitDiscard).toHaveBeenCalledWith(["/w/changed.ts", "/w/new.ts", "/w/docs"]);
+    expect(ctx.refresh).toHaveBeenCalled();
+    expect(dialogs.showAlert).toHaveBeenCalledWith(expect.objectContaining({
+      message: expect.stringContaining("docs/draft.md: staged but never committed"),
+    }));
+  });
+
+  it("every branch switch ends with `--`, so a folder name restores nothing", async () => {
+    const result = { ok: true, stdout: "", stderr: "", exit: 0 };
+    vi.mocked(api.gitRun).mockResolvedValue(result);
+    dialogs.showPrompt.mockResolvedValueOnce(" docs ");
+    expect(await owner("Checkout…", makeCtx([], []))).toBe(gitHandler);
+    expect(api.gitRun).toHaveBeenLastCalledWith("/w", ["checkout", "docs", "--"]);
+    expect(await owner("git-branch:feature/x", makeCtx([], []))).toBe(gitHandler);
+    expect(api.gitRun).toHaveBeenLastCalledWith("/w", ["checkout", "feature/x", "--"]);
+    vi.mocked(api.gitBranchList).mockResolvedValueOnce([
+      { name: "main", current: true, upstream: null, ahead: 0, behind: 0, upstream_gone: false },
+    ]);
+    dialogs.showPrompt.mockResolvedValueOnce("1");
+    expect(await owner("Git: Checkout Branch →", makeCtx([], []))).toBe(gitHandler);
+    expect(api.gitRun).toHaveBeenLastCalledWith("/w", ["checkout", "main", "--"]);
   });
 
   it("Copy as UNC puts the admin-share path on the clipboard", async () => {

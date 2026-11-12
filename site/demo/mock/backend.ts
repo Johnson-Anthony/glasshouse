@@ -371,13 +371,18 @@ export function createBackend(hooks: BackendHooks) {
       return null;
     },
     git_discard: a => {
+      // Like the real one: untracked items go (to the trash, there), staged
+      // new files stay, and the rest go back to the last commit.
+      const res = { restored: 0, trashed: 0, skipped: [] as Array<{ path: string; reason: string }> };
       for (const p of (a.paths as string[]) ?? []) {
         const n = vfs.get(p);
-        if (n?.git === "?") vfs.remove(p);
-        else if (n) delete n.git;
+        if (n?.git === "?") { vfs.remove(p); res.trashed++; }
+        else if (n?.git === "A") {
+          res.skipped.push({ path: p.slice(REPO.length + 1), reason: "staged but never committed; unstage it first" });
+        } else if (n?.git) { delete n.git; res.restored++; }
       }
       changed(REPO);
-      return null;
+      return res;
     },
     git_run: a => {
       const cwd = str(a.cwd);
