@@ -30,11 +30,20 @@ Glasshouse is a desktop file manager built with Tauri 2 (Rust) and React 18 (Typ
 - **Tauri plugins:** `fs`, `dialog`, `shell`, `os`, `opener`
 - **Package manager:** pnpm 9
 
-## Run it
+## Install
 
-Pre-built binaries are on the [Releases page](https://github.com/Johnson-Anthony/glasshouse/releases): a Windows installer (`.msi` or `.exe`) and Linux packages (`.AppImage` and `.deb`). They're unsigned, so Windows SmartScreen shows a warning the first time you run the installer.
+Download a package from the [Releases page](https://github.com/Johnson-Anthony/glasshouse/releases). [CHANGELOG.md](CHANGELOG.md) lists what changed in each release.
 
-To build from source you need a Rust toolchain, Node 20+ and pnpm, plus:
+- **Windows (x64):** the `.msi` or the `-setup.exe` installer. Either one downloads WebView2 if it's missing (Windows 11 already has it). The installers aren't signed, so SmartScreen warns the first time you run one: choose More info → Run anyway.
+- **Linux (x64 and arm64):** a `.deb` or an `.AppImage` for each architecture: `amd64` and `arm64` for the `.deb`, `amd64` and `aarch64` for the `.AppImage`. They're built on Ubuntu 22.04, so they need glibc 2.35 or newer: Ubuntu 22.04, Debian 12, or anything newer.
+  - `.deb`: `sudo apt install ./glasshouse_<version>_amd64.deb` installs it with its dependencies (WebKitGTK 4.1).
+  - `.AppImage`: make it executable (`chmod +x glasshouse_*.AppImage`), then run it. AppImages need FUSE 2, which Ubuntu 24.04+ and Debian 13 don't install by default: `sudo apt install libfuse2t64` (`libfuse2` on older releases). Without FUSE, start it with `--appimage-extract-and-run`.
+
+macOS isn't built or tested.
+
+## Build from source
+
+You need a Rust toolchain, Node 20+ and pnpm, plus:
 
 - **Windows:** the [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/) (WebView2, Visual Studio Build Tools).
 - **Linux:** WebKitGTK 4.1 and its build dependencies: `webkit2gtk-4.1` (Arch) or `libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev patchelf` (Debian/Ubuntu).
