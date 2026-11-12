@@ -6,8 +6,8 @@ What changed in each release, for people using glasshouse. Downloads are on the 
 
 <!-- TODO(release): before tagging v0.2.0,
   1. add the rest of wave 1 as it merges (docs/plans/active/survey-2.md:
-     find-replace-safety, watcher-fixes) under the headings below;
-     selection-integrity, inspector-perms, fs-robustness and undo-coverage are in;
+     find-replace-safety) under the headings below; selection-integrity,
+     inspector-perms, fs-robustness, undo-coverage and watcher-fixes are in;
   2. replace "unreleased" in the heading with the release date (YYYY-MM-DD);
   3. delete this comment.
   The release workflow (scripts/release-check.mjs) refuses the tag until all three are done. -->
@@ -94,6 +94,8 @@ This release is mostly about safety: several ways to lose files are fixed, and t
   - settings are flushed to disk before they replace the old file, so a crash while saving can't empty them;
   - a cancelled Extract to Folder no longer leaves an empty folder;
   - read-only folders from a tar archive can be extracted;
+  - with two tabs open on the same folder, leaving one no longer stops the other from updating when files change;
+  - on Windows, opening a folder with tens of thousands of files, or one on a network share, no longer freezes the window while it starts watching for changes;
   - a folder with a dot in its name (`foo.d`) shows its whole name;
   - Miller columns no longer show `README.md.md`;
   - Bulk Rename's digits field pads `{n}`;

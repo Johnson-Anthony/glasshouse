@@ -14,9 +14,9 @@ On 2026-11-11, four read-only agents surveyed the app (at `45ea31b`): frontend b
 | 6 | inspector-perms | both | M | **merged** (41bde85) |
 | 7 | find-replace-safety | both | S | queued |
 | 8 | fs-robustness | Rust + `handlers/fileOps.ts` | S–M | merged (2bd2208) |
-| 9 | watcher-fixes | Rust | S | **running** (`cool-gauss-d234ca`; resumed 11-12 after the RAM pause) |
+| 9 | watcher-fixes | Rust | S | merged (see `git log --grep watcher-fixes`) |
 | **Wave 2: release** |||||
-| 10b | security-deps | both | M | queued: chip offered for a fresh session (before the v0.2.0 tag; Dependabot PRs #3–#8 overlap, lead handles them) |
+| 10b | security-deps | both | M | **running** (fresh session, started 11-12; before the v0.2.0 tag; Dependabot PRs #3–#8 overlap, lead handles them) |
 | 10 | release-prep | config + CI | S | **merged** (c6dab0c; the tag itself is the user's call) |
 | **Wave 3: undo and trash** |||||
 | 11 | undo-coverage | frontend | M | merged (e225489; Extract undo done here; Find & Replace and Trash left to tasks 7 and 12) |
@@ -291,6 +291,7 @@ These items do nothing, or something else. Make each work, or remove it. For the
 - *(from release-prep)* **actionlint** in CI: folded into ci-hygiene.
 - *(from fs-robustness)* 7-Zip 25 fails a whole extraction on one climbing link ("Dangerous link path was ignored", exit 2), where zip and tar now skip the link and report it. Could map that one 7z error to a skip.
 - *(from fs-robustness)* On Windows a failed top-level single-file CopyFileW is left to CopyFileW's own cleanup (some of its errors mean the target was already there and isn't ours). Check on a real Windows machine.
+- *(from watcher-fixes)* When the backend reports a rescan (dropped events, e.g. an inotify overflow), the event names no path, so no folder refreshes until the 30 s refetch. Reporting every watched folder on a rescan would be small.
 - *(from undo-coverage)* Task 7 can push `contentUndo(label, path, before, after)` per file; task 12 (Move to Trash) is the last file change with neither an undo entry nor `markIrreversible`. Change Owner could get an undo if `file_stat_extended` returned uid:gid. Paste Special's undo entry and the "can't undo" toast aren't unit-tested (no DOM; see dom-tests).
 
 ## Unconfirmed: check before fixing
