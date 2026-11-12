@@ -51,7 +51,7 @@ import { showBlame } from "./handlers/helpers";
 import { DISPLAY_MODE_DEFAULT, DISPLAY_MODE_KEY, LAYOUT_KEY, slugify, storedZoom } from "./handlers/view";
 import { IS_WINDOWS } from "./platform";
 import { TerminalDrawer } from "./Terminal";
-import { NoticesHost } from "./Notices";
+import { NoticesHost } from "./NoticesScreen";
 import { MillerView, sortView as millerOrder } from "./Miller";
 import { viewRows } from "./viewRows";
 import { joinPath, parentPath, basename } from "./paths";

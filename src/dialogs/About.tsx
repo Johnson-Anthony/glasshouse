@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { TAURI_VERSION } from "../data";
 import { getVersion } from "@tauri-apps/api/app";
-import { openNotices } from "../Notices";
+import { openNotices } from "../NoticesScreen";
 import { useEscapeClose } from "./useEscapeClose";
 import { useModal } from "./modal";
 

@@ -29,7 +29,7 @@ A Tauri 2 app. The window is a React 18 UI (`src/`) that calls Rust commands (`s
 | `findReplace.ts` | Find & Replace in Files: the preview confirm, the report and the undo entry. The search and the writes are the backend's `replace.rs` |
 | `names.ts`, `paths.ts`, `tabs.ts`, `fuzzy.ts`, `shellCd.ts`, `octal.ts` | Pure helpers: name conflicts and bulk-rename ordering; path rules per platform; tab-list operations; fuzzy matching; terminal `cd`; chmod parsing |
 | `ops.ts`, `opStore.ts`, `OpsTray.tsx` | Long operations (hash, copy, find) with progress and Cancel |
-| `Notices.tsx`, `notices.ts`, `noticesData.ts` | Help → Third-party Notices, from `assets/fonts` and the generated `assets/third-party.json` (lazy chunk) |
+| `NoticesScreen.tsx`, `notices.ts`, `noticesData.ts` | Help → Third-party Notices, from `assets/fonts` and the generated `assets/third-party.json` (lazy chunk) |
 | `commandState.ts`, `remotes.ts`, `platform.ts` | `cmdState` (app clipboard, context-menu target); ssh profiles for saved remotes; `IS_WINDOWS` |
 | `styles/themes.css`, `styles/app.css` | 8 themes as CSS variables on `[data-theme]`; layout and component CSS |
 

@@ -7,7 +7,7 @@ import { getVersion } from "@tauri-apps/api/app";
 import { failureDetails, runTransfer, summarize } from "../transfer";
 import { asItems, assertFree, namesIn, pushTransferUndo, transferDeps, unlessTaken } from "../transferUi";
 import { NameSet, freeNewName, nameProblem, takenProblem } from "../names";
-import { openNotices } from "../Notices";
+import { openNotices } from "../NoticesScreen";
 import { isCancelled, runOp } from "../ops";
 import {
   makeDir,
