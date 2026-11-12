@@ -56,6 +56,9 @@ export interface HandlerCtx {
   selectedPaths: string[];
   firstPath: string | undefined;
   firstEntry: FileEntry | undefined;
+  /** The rows the active pane shows, in display order, as indexes into
+   *  `activeHandle.state.entries`. Selection commands pick from these only. */
+  visibleRows: () => number[];
   dispatch: (label: string) => void;
   openAbout?: () => void;
   toggleSidebar: () => void;

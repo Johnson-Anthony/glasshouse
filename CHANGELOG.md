@@ -6,8 +6,8 @@ What changed in each release, for people using glasshouse. Downloads are on the 
 
 <!-- TODO(release): before tagging v0.2.0,
   1. add the rest of wave 1 as it merges (docs/plans/active/survey-2.md:
-     selection-integrity, inspector-perms, find-replace-safety, fs-robustness,
-     watcher-fixes) under the headings below;
+     find-replace-safety, fs-robustness, watcher-fixes) under the headings
+     below; selection-integrity and inspector-perms are in;
   2. replace "unreleased" in the heading with the release date (YYYY-MM-DD);
   3. delete this comment.
   The release workflow (scripts/release-check.mjs) refuses the tag until all three are done. -->
@@ -33,6 +33,8 @@ This release is mostly about safety: several ways to lose files are fixed, and t
 - **A move that failed for any reason** fell back to copy and delete. Only a move to another drive does that now.
 - **Undoing a copy** deleted the copies even if you had edited them since. It now refuses when they've changed.
 - **Redo** (Ctrl+Y) failed after any undo. It now redoes the action.
+- **The selection moved to a different file** when the folder changed while you worked: if another program added or removed a file, the highlight shifted to its neighbour, and Delete, Rename or a drag acted on that file. The selection, the keyboard focus and a drag in progress now follow their files.
+- **Commands acted on hidden or stale files.** Select All, Invert and Select by… also picked files a search filter was hiding, and while a slow folder loaded, the previous folder's files stayed on screen and could be opened or deleted. Selection commands now only see the files shown, the filter belongs to its tab and clears when you change folder, and the old folder's files go away as soon as you leave it.
 - **Tabs:** closing a tab in the middle mixed up the other tabs' folders and history, and closing the last tab left none. Each tab now keeps its own state, and there's always at least one.
 
 ### Fixed: security
@@ -46,6 +48,7 @@ This release is mostly about safety: several ways to lose files are fixed, and t
   - a link inside a zip can't point outside the folder it's extracted to;
   - extracted files lose setuid and setgid bits;
   - on Windows, files extracted from a downloaded archive keep its "downloaded from the internet" mark.
+- **Permissions in the Inspector:** the permission grid showed a made-up `rwxr----- 0740` for every file, and one click ran chmod from that value (owner-exec on a private key made it group-readable). It now shows the file's real mode, including setuid, setgid and sticky, and changes it only after you edit, apply and confirm the old and new modes. On Windows it shows read-only.
 - **Scripts:** a script that times out is stopped together with every program it started.
 - **No requests to Google:** the font picker's fonts are bundled, so the app makes no Google Fonts request at startup.
 

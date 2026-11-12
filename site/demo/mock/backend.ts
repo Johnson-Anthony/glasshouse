@@ -123,6 +123,8 @@ export function createBackend(hooks: BackendHooks) {
   let tags: Record<string, string[]> = structuredClone(TAGS);
   let recent = [...RECENT];
   const shells = new Map<string, FakeShell>();
+  // Modes set from the Inspector; everything else is 0644, or 0755 for a folder.
+  const modes = new Map<string, number>();
   let nextSession = 1;
 
   const must = (p: string) => {
@@ -191,8 +193,10 @@ export function createBackend(hooks: BackendHooks) {
       return hexDump(bytes);
     },
     file_stat_extended: a => {
-      const n = must(str(a.path));
-      return { created_ms: n.mtime - 86_400_000, modified_ms: n.mtime, owner: "demo", file_index: null, readonly: false, is_symlink: false, symlink_target: null };
+      const p = str(a.path);
+      const n = must(p);
+      const mode = modes.get(p) ?? (n.dir ? 0o755 : 0o644);
+      return { created_ms: n.mtime - 86_400_000, modified_ms: n.mtime, owner: "demo", file_index: null, readonly: false, mode, is_symlink: false, symlink_target: null };
     },
     hash_sha256: async a => {
       const n = must(str(a.path));
@@ -243,7 +247,7 @@ export function createBackend(hooks: BackendHooks) {
     create_symlink: a => { const p = str(a.linkPath); vfs.write(p, `-> ${str(a.target)}\n`, now()); changed(parent(p)); return null; },
     create_hard_link: a => { vfs.transfer(str(a.target), str(a.linkPath), false, now()); changed(parent(str(a.linkPath))); return null; },
     create_shortcut: a => { const p = str(a.linkPath); vfs.write(p, `[Desktop Entry]\nExec=${str(a.target)}\n`, now()); changed(parent(p)); return null; },
-    set_permissions: () => null,
+    set_permissions: a => { modes.set(str(a.path), Number(a.mode)); return null; },
     change_owner: () => null,
 
     archive_can_handle: () => true,
