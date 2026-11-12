@@ -1,8 +1,10 @@
 import React, { useState, useEffect, useRef, useMemo } from "react";
-import { joinPath, parentPath } from "../paths";
-import { checkRenames, orderRenames } from "../names";
+import { parentPath } from "../paths";
+import { checkRenames, orderRenames, renameFailure, runRenameSteps, type RenameStep } from "../names";
 import { IS_WINDOWS } from "../platform";
 import { errText } from "../errors";
+import { markIrreversible, pushUndo } from "../state";
+import { renameStepsUndo } from "../undoActions";
 import { useEscapeClose } from "./useEscapeClose";
 import { useModal } from "./modal";
 
@@ -189,11 +191,13 @@ export function BulkRenameDialog({ items, onClose, renameOne, listNames, onDone 
     setErr(null);
     // Re-read each folder (the dialog may have been open a while) and order
     // the renames so none lands on a name that's still in use.
-    const steps: Array<{ dir: string; from: string; to: string }> = [];
+    const steps: RenameStep[] = [];
+    let changing = 0;
     try {
       for (const dir of dirs) {
         const moves = preview.filter(p => p.to !== p.from && parentPath(p.path) === dir);
         if (moves.length === 0) continue;
+        changing += moves.length;
         const names = await listNames(dir);
         const problem = checkRenames(moves, names, IS_WINDOWS).find(p => p !== null);
         if (problem) throw new Error(problem);
@@ -205,27 +209,19 @@ export function BulkRenameDialog({ items, onClose, renameOne, listNames, onDone 
       return;
     }
     setProgress({ done: 0, total: steps.length });
-    const done: typeof steps = [];
     try {
-      for (const s of steps) {
-        await renameOne(joinPath(s.dir, s.from), joinPath(s.dir, s.to));
-        done.push(s);
-        setProgress({ done: done.length, total: steps.length });
-      }
-      onDone();
-      onClose();
-    } catch (e) {
-      const msg = errText(e);
-      // Put back what already ran, newest first, so nothing is left half
+      // A failed step puts back the ones before it, so nothing is left half
       // renamed or under a temporary name.
-      let undone = true;
-      for (const s of [...done].reverse()) {
-        try { await renameOne(joinPath(s.dir, s.to), joinPath(s.dir, s.from)); }
-        catch { undone = false; }
+      const res = await runRenameSteps(steps, renameOne, ran => setProgress({ done: ran, total: steps.length }));
+      if (res.ok) {
+        pushUndo(renameStepsUndo(`bulk rename ${changing} item(s)`, steps));
+        onDone();
+        onClose();
+        return;
       }
-      setErr(done.length === 0 ? msg
-        : undone ? `${msg} (the renames before it were put back)`
-          : `${msg} (some earlier renames couldn't be put back; check the folder)`);
+      // Some renames stuck, with no undo entry for them.
+      if (res.stuck.length > 0) markIrreversible("bulk rename (partly put back)");
+      setErr(renameFailure(res));
       onDone();
     } finally {
       setRunning(false);

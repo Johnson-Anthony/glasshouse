@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { NameSet, checkRenames, freeNewName, nameProblem, orderRenames, type RenameMove } from "./names";
+import {
+  NameSet, checkRenames, freeNewName, nameProblem, orderRenames, renameFailure, renameStepsProblem, reverseRenameSteps,
+  runRenameSteps, type RenameMove, type RenameStep,
+} from "./names";
 
 /** Apply rename steps to a list of names, failing on any overwrite. */
 function simulate(names: string[], steps: RenameMove[], windows: boolean): string[] {
@@ -135,5 +138,94 @@ describe("orderRenames", () => {
 
   it("throws instead of looping on an unchecked conflict", () => {
     expect(() => orderRenames([{ from: "a", to: "b" }], ["a", "b"], false)).toThrow(/already exists/);
+  });
+});
+
+/** Files by full path, renamed the way the backend renames: a taken
+ *  destination or a missing source is refused. `fail` refuses chosen steps. */
+function fakeDisk(files: Record<string, string>, fail: (from: string, to: string) => boolean = () => false) {
+  const disk = new Map(Object.entries(files));
+  const rename = async (from: string, to: string) => {
+    if (fail(from, to)) throw new Error(`can't rename ${from}`);
+    if (!disk.has(from)) throw new Error(`no such file: ${from}`);
+    if (disk.has(to)) throw new Error(`exists: ${to}`);
+    disk.set(to, disk.get(from)!);
+    disk.delete(from);
+  };
+  return { rename, files: () => Object.fromEntries([...disk].sort()) };
+}
+
+const inDir = (dir: string, moves: RenameMove[]): RenameStep[] => moves.map(m => ({ dir, ...m }));
+
+describe("runRenameSteps", () => {
+  it("runs a swap through a temporary name", async () => {
+    const disk = fakeDisk({ "/d/a": "A", "/d/b": "B" });
+    const steps = inDir("/d", orderRenames([{ from: "a", to: "b" }, { from: "b", to: "a" }], ["a", "b"], false));
+    const seen: number[] = [];
+    expect(await runRenameSteps(steps, disk.rename, n => seen.push(n))).toEqual({ ok: true, ran: 3 });
+    expect(seen).toEqual([1, 2, 3]);
+    expect(disk.files()).toEqual({ "/d/a": "B", "/d/b": "A" });
+  });
+
+  it("puts every earlier step back when one fails, temporary name included", async () => {
+    // The swap's third step (a~rename → b) fails after a → a~rename and b → a.
+    const disk = fakeDisk({ "/d/a": "A", "/d/b": "B" }, (from, to) => from.endsWith("~rename") && to === "/d/b");
+    const steps = inDir("/d", orderRenames([{ from: "a", to: "b" }, { from: "b", to: "a" }], ["a", "b"], false));
+    const res = await runRenameSteps(steps, disk.rename);
+    expect(res).toMatchObject({ ok: false, ran: 2, stuck: [] });
+    expect(disk.files()).toEqual({ "/d/a": "A", "/d/b": "B" });
+    expect(renameFailure(res as Extract<typeof res, { ok: false }>)).toBe("can't rename /d/a~rename (the renames before it were put back)");
+  });
+
+  it("lists steps it couldn't put back and still tries the rest", async () => {
+    let failing: (from: string) => boolean = from => from === "/z/e";
+    const disk = fakeDisk({ "/x/a": "A", "/y/c": "C", "/z/e": "E" }, from => failing(from));
+    const steps = [...inDir("/x", [{ from: "a", to: "b" }]), ...inDir("/y", [{ from: "c", to: "d" }]), ...inDir("/z", [{ from: "e", to: "f" }])];
+    const run = runRenameSteps(steps, disk.rename, n => {
+      // Once two steps ran, putting /y back fails too.
+      if (n === 2) failing = from => from === "/z/e" || from === "/y/d";
+    });
+    const res = await run;
+    expect(res).toMatchObject({ ok: false, ran: 2, stuck: [{ dir: "/y", from: "c", to: "d" }] });
+    expect(disk.files()).toEqual({ "/x/a": "A", "/y/d": "C", "/z/e": "E" });
+    expect(renameFailure(res as Extract<typeof res, { ok: false }>)).toContain("1 earlier rename(s) couldn't be put back; check the folder");
+  });
+
+  it("reports a first-step failure as just the error", async () => {
+    const disk = fakeDisk({ "/d/a": "A", "/d/b": "B" });
+    const res = await runRenameSteps(inDir("/d", [{ from: "a", to: "b" }]), disk.rename);
+    expect(res.ok).toBe(false);
+    expect(renameFailure(res as Extract<typeof res, { ok: false }>)).toBe("exists: /d/b");
+  });
+
+  it("reverses steps last first", () => {
+    expect(reverseRenameSteps(inDir("/d", [{ from: "a", to: "t" }, { from: "b", to: "a" }])))
+      .toEqual(inDir("/d", [{ from: "a", to: "b" }, { from: "t", to: "a" }]));
+  });
+});
+
+describe("renameStepsProblem", () => {
+  const listing = (dir: string, names: string[]) => new Map([[dir, names]]);
+
+  it("counts names a chain frees on the way", () => {
+    expect(renameStepsProblem(inDir("/d", [{ from: "2", to: "3" }, { from: "1", to: "2" }]), listing("/d", ["1", "2"]), false)).toBeNull();
+  });
+
+  it("refuses a name that is taken", () => {
+    expect(renameStepsProblem(inDir("/d", [{ from: "a", to: "b" }]), listing("/d", ["a", "b"]), false))
+      .toBe(`"b" already exists in /d`);
+  });
+
+  it("refuses a source that has gone", () => {
+    expect(renameStepsProblem(inDir("/d", [{ from: "a", to: "b" }]), listing("/d", ["c"]), false))
+      .toBe(`"a" is no longer in /d`);
+  });
+
+  it("follows the platform's case rules", () => {
+    const steps = inDir("/d", [{ from: "a.txt", to: "A.txt" }]);
+    expect(renameStepsProblem(steps, listing("/d", ["a.txt"]), true)).toBeNull();
+    expect(renameStepsProblem(inDir("/d", [{ from: "a.txt", to: "b.txt" }]), listing("/d", ["a.txt", "B.txt"]), true))
+      .toBe(`"b.txt" already exists in /d`);
+    expect(renameStepsProblem(inDir("/d", [{ from: "a.txt", to: "b.txt" }]), listing("/d", ["a.txt", "B.txt"]), false)).toBeNull();
   });
 });

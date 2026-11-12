@@ -722,6 +722,10 @@ export function App() {
       dialogs.showToast({ message: `nothing to ${which}`, variant: "info" });
       return;
     }
+    if (r.status === "irreversible") {
+      dialogs.showToast({ message: `can't undo ${r.label}, or anything before it`, variant: "warning" });
+      return;
+    }
     // Refresh on failure too: a multi-item step can fail partway.
     activeHandle?.actions.refresh();
     if (r.status === "done") {

@@ -5,6 +5,8 @@ import {
   archiveExtract,
   archiveDiscardStaging,
   archiveCanHandle,
+  deleteEntry,
+  moveEntry,
   readDir,
   type ArchiveFormat,
   type ArchiveSkip,
@@ -15,7 +17,9 @@ import { errText } from "../errors";
 import { basename, joinPath } from "../paths";
 import { IS_WINDOWS } from "../platform";
 import { failureDetails, runTransfer, type TransferResult } from "../transfer";
-import { transferDeps } from "../transferUi";
+import { namesIn, transferDeps } from "../transferUi";
+import { pushUndo } from "../state";
+import { madeUndo, type PathPair } from "../undoActions";
 
 // Extensions the backend archive_extract command can actually unpack —
 // keep in sync with the dispatch in `extract_into` (src-tauri/src/commands/archive.rs).
@@ -59,6 +63,8 @@ async function doCreate(
   const dest = joinPath(ctx.cwd, firstName + ext);
   try {
     const report = await archiveCreate(paths, dest, format);
+    const remake = async () => { await archiveCreate(paths, dest, format); };
+    pushUndo(madeUndo(`compress to ${basename(dest)}`, [dest], remake, { verb: "created" }));
     ctx.refresh();
     showLeftOut(report.skipped, "left out of the archive");
   } catch (e) {
@@ -86,6 +92,11 @@ async function doExtract(ctx: HandlerCtx, promptFolder: boolean): Promise<void> 
     if (!name) return;
     destDir = joinPath(ctx.cwd, name);
   }
+  // A folder the extraction makes goes again on undo, whole. When the check
+  // fails, it's taken to be there already: undo then removes only what
+  // landed in it, never a folder that may hold older things.
+  const newFolder = destDir !== ctx.cwd &&
+    !(await namesIn(ctx.cwd).then(n => n.has(basename(destDir)), () => true));
   // The backend extracts into a staging folder inside destDir and writes
   // nothing else; moving the entries in goes through the paste planner, so
   // a taken name gets the same skip / replace / keep both question.
@@ -97,6 +108,7 @@ async function doExtract(ctx: HandlerCtx, promptFolder: boolean): Promise<void> 
     void dialogs.showAlert({ title: "extract failed", message: errText(e), variant: "error" });
     return;
   }
+  let done: PathPair[] = [];
   try {
     const entries = await readDir(staged.staging, true);
     const items = entries.map(e => ({ path: e.path, isDir: e.kind === "folder" }));
@@ -104,6 +116,7 @@ async function doExtract(ctx: HandlerCtx, promptFolder: boolean): Promise<void> 
     if (!res) {
       dialogs.showToast({ message: "extract cancelled: nothing changed", variant: "info" });
     } else {
+      done = res.done;
       dialogs.showToast(extractSummary(res, staged.skipped, IS_WINDOWS));
       const details = failureDetails(res, IS_WINDOWS);
       if (details) void dialogs.showAlert({ title: "extract failed", variant: "error", message: details });
@@ -119,8 +132,38 @@ async function doExtract(ctx: HandlerCtx, promptFolder: boolean): Promise<void> 
     } catch (e) {
       console.log(`[archive] discard ${staged.staging} failed:`, e);
     }
+    if (done.length > 0) {
+      // After the discard, so a new folder's fingerprint doesn't include
+      // the staging folder.
+      pushExtractUndo(archive, destDir, newFolder, done);
+    } else if (newFolder) {
+      // Cancelled, or nothing landed: the folder made for it is empty.
+      try {
+        await deleteEntry(destDir, false);
+      } catch (e) {
+        console.log(`[archive] remove ${destDir} failed:`, e);
+      }
+    }
     ctx.refresh();
   }
+}
+
+/** Undo for an extraction: delete what landed (or the folder made for it),
+ *  if unchanged since. Redo extracts the archive again and moves the same
+ *  entries in under the same names. */
+function pushExtractUndo(archive: string, destDir: string, newFolder: boolean, done: PathPair[]): void {
+  // The staging folder's name changes each time; its entries' names don't.
+  const names = done.map(({ src, dst }) => ({ name: basename(src), dst }));
+  const remake = async () => {
+    const again = await archiveExtract(archive, destDir);
+    try {
+      for (const { name, dst } of names) await moveEntry(joinPath(again.staging, name), dst);
+    } finally {
+      await archiveDiscardStaging(again.staging);
+    }
+  };
+  const made = newFolder ? [destDir] : done.map(d => d.dst);
+  pushUndo(madeUndo(`extract ${basename(archive)}`, made, remake, { verb: "extracted" }));
 }
 
 /** Toast for a finished extraction: what landed, what was replaced or
@@ -202,19 +245,25 @@ export const archiveHandler: Handler = async (label, ctx) => {
         dialogs.showToast({ message: "no selection", variant: "info" });
         return true;
       }
-      let ok = 0;
+      const made: string[] = [];
       const leftOut: ArchiveSkip[] = [];
       for (const p of paths) {
         try {
           leftOut.push(...(await archiveCreate([p], p + ".zip", "zip")).skipped);
-          ok++;
+          made.push(p);
         } catch (e) {
           console.log(`[archive] compress failed for ${p}:`, e);
         }
       }
+      if (made.length > 0) {
+        const remake = async () => {
+          for (const p of made) await archiveCreate([p], p + ".zip", "zip");
+        };
+        pushUndo(madeUndo(`compress ${made.length} item(s) each to .zip`, made.map(p => p + ".zip"), remake, { verb: "created" }));
+      }
       ctx.refresh();
       dialogs.showToast({
-        message: `compressed ${ok}/${paths.length} file(s)`,
+        message: `compressed ${made.length}/${paths.length} file(s)`,
         variant: "success",
       });
       showLeftOut(leftOut, "left out of the archives");

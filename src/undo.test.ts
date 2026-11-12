@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { clearRedo, pushUndo, redoLast, redoStack, undoLast, undoStack, type UndoEntry } from "./state";
+import { clearRedo, markIrreversible, pushUndo, redoLast, redoStack, undoLast, undoStack, type UndoEntry } from "./state";
 
 /** An entry that records which direction ran into `log`. */
 const entry = (label: string, log: string[] = []): UndoEntry => ({
@@ -113,5 +113,35 @@ describe("stack bounds", () => {
     clearRedo();
     expect(redoStack).toEqual([]);
     expect(labels(undoStack)).toEqual(["a"]);
+  });
+});
+
+describe("markIrreversible", () => {
+  it("drops the older history, and the next undo says why instead of reaching past it", async () => {
+    const log: string[] = [];
+    pushUndo(entry("rename", log));
+    pushUndo(entry("new folder", log));
+    markIrreversible("shred notes.txt");
+    expect(await undoLast()).toEqual({ status: "irreversible", label: "shred notes.txt" });
+    expect(await undoLast()).toEqual({ status: "empty" });
+    expect(await redoLast()).toEqual({ status: "empty" });
+    expect(log).toEqual([]);
+  });
+
+  it("clears the redo history too", async () => {
+    pushUndo(entry("rename"));
+    await undoLast();
+    markIrreversible("git commit");
+    expect(await redoLast()).toEqual({ status: "empty" });
+  });
+
+  it("lets later actions undo as usual, down to the stop", async () => {
+    const log: string[] = [];
+    markIrreversible("delete 1 item(s) permanently");
+    pushUndo(entry("rename", log));
+    expect(await undoLast()).toEqual({ status: "done", label: "rename" });
+    expect(await undoLast()).toEqual({ status: "irreversible", label: "delete 1 item(s) permanently" });
+    expect(await redoLast()).toEqual({ status: "done", label: "rename" });
+    expect(log).toEqual(["undo rename", "redo rename"]);
   });
 });

@@ -4,11 +4,19 @@
 // The backend's rename, mkdir and write refuse an existing destination, and
 // every step that creates a path also checks first that the path is still
 // free, so a multi-item step is refused before any of it runs. The steps that delete something they created first check that
-// it hasn't been filled or edited since (copies by fingerprint, see copyUndo). Builders take the file system as a
+// it hasn't been filled or edited since (by fingerprint, see madeUndo). Builders take the file system as a
 // parameter so tests can run round trips against an in-memory one.
+//
+// An action with no entry here calls markIrreversible (state.ts) instead.
+// What each action does: docs/decisions/2026-11-12-undo-coverage-policy.md
 
-import { copyEntry, createTextFile, deleteEntry, makeDir, moveEntry, readDir, renameEntry, type FileEntry } from "./api";
+import {
+  copyEntry, createTextFile, deleteEntry, fileStatExtended, makeDir, moveEntry, readDir, readText, renameEntry, setPermissions,
+  writeText, type FileEntry,
+} from "./api";
+import { renameFailure, renameStepsProblem, reverseRenameSteps, runRenameSteps, type RenameStep } from "./names";
 import { basename, normalizePath, parentPath } from "./paths";
+import { IS_WINDOWS } from "./platform";
 import type { UndoEntry } from "./state";
 import { errText } from "./errors";
 
@@ -21,7 +29,15 @@ export interface UndoFs {
   write(path: string, content: string): Promise<void>;
   /** Entries of `dir`, hidden ones included. Rejects if it can't be read. */
   list(dir: string): Promise<FileEntry[]>;
+  /** A text file's content, up to CONTENT_LIMIT bytes. */
+  read(path: string): Promise<string>;
+  /** Replace an existing file's content (`write` refuses an existing path). */
+  overwrite(path: string, content: string): Promise<void>;
 }
+
+/** contentUndo reads at most this much: a file grown past it no longer
+ *  matches what was written, so its undo refuses. */
+const CONTENT_LIMIT = 16 * 1024 * 1024;
 
 const realFs: UndoFs = {
   rename: renameEntry,
@@ -31,6 +47,8 @@ const realFs: UndoFs = {
   mkdir: makeDir,
   write: createTextFile,
   list: dir => readDir(dir, true),
+  read: path => readText(path, CONTENT_LIMIT),
+  overwrite: writeText,
 };
 
 export interface PathPair {
@@ -87,14 +105,45 @@ export function moveUndo(label: string, items: PathPair[], via: "rename" | "move
   return { label, inverse: () => run(back), redo: () => run(items) };
 }
 
-/** Copied trees with more entries than this aren't fingerprinted, and their
- *  undo refuses: walking them means one synchronous list_dir per folder. */
+/** Bulk rename: undo renames each step back, last first; redo runs the steps
+ *  again. Steps may chain or swap through temporary names, which ensureFree
+ *  can't judge, so each direction first lists the folders and walks the
+ *  steps over the listings (renameStepsProblem); a name taken since refuses
+ *  the whole step. A rename that fails anyway puts back the ones before it. */
+export function renameStepsUndo(
+  label: string,
+  steps: RenameStep[],
+  fs: Pick<UndoFs, "rename" | "list"> = realFs,
+  windows: boolean = IS_WINDOWS,
+): UndoEntry {
+  const run = async (seq: RenameStep[]) => {
+    const listings = new Map<string, string[]>();
+    for (const dir of new Set(seq.map(s => s.dir))) {
+      listings.set(dir, (await fs.list(dir)).map(e => e.name));
+    }
+    const problem = renameStepsProblem(seq, listings, windows);
+    if (problem) throw new Error(problem);
+    const res = await runRenameSteps(seq, (from, to) => fs.rename(from, to));
+    if (!res.ok) throw new Error(renameFailure(res));
+  };
+  return { label, inverse: () => run(reverseRenameSteps(steps)), redo: () => run(steps) };
+}
+
+/** Up to five problems as a bulleted list, for a refusal. */
+function bullets(problems: string[]): string {
+  const shown = problems.slice(0, 5).map(p => `• ${p}`);
+  if (problems.length > 5) shown.push(`• …and ${problems.length - 5} more`);
+  return shown.join("\n");
+}
+
+/** Trees with more entries than this aren't fingerprinted, and their undo
+ *  refuses: walking them means one synchronous list_dir per folder. */
 const FINGERPRINT_LIMIT = 20_000;
 
-/** A copy's entries by path relative to it ("" is the copy itself), each as
+/** An entry's contents by path relative to it ("" is the entry itself), each as
  *  kind + size + mtime. Folders are just "dir": their listing already shows
  *  adds and removes, and their mtime moves on editor swap files. A string
- *  instead says why the copy can't be compared. */
+ *  instead says why it can't be compared. */
 type Fingerprint = Map<string, string> | string;
 
 const signature = (e: FileEntry) =>
@@ -128,42 +177,64 @@ function samePrint(a: Map<string, string>, b: Map<string, string>): boolean {
   return true;
 }
 
-/** Copy (paste, duplicate, drag-copy): undo deletes the copies, redo copies
- *  again. Each copy is fingerprinted (size and mtime of everything in it)
- *  right after it's made, and undo deletes nothing unless every copy still
- *  matches, so edits made since are never thrown away. */
-export function copyUndo(label: string, items: PathPair[], fs: UndoFs = realFs, limit = FINGERPRINT_LIMIT): UndoEntry {
-  const takePrints = () => Promise.all(items.map(({ dst }) => fingerprint(fs, dst, limit)));
+export interface MadeOptions {
+  /** For the refusal: "has changed since it was <verb>". */
+  verb?: string;
+  /** Paths that must still be there for undo to delete anything, such as a
+   *  hard link's original: without it, the link may be the only name left. */
+  needs?: string[];
+  fs?: UndoFs;
+  limit?: number;
+}
+
+/** Things an action made where nothing was before (copies, links, archives,
+ *  extracted entries): undo deletes them, redo checks the paths are free and
+ *  calls `remake`. Each is fingerprinted (size and mtime of everything in
+ *  it) right after it's made, and undo deletes nothing unless every one
+ *  still matches, so edits made since are never thrown away. */
+export function madeUndo(label: string, paths: string[], remake: () => Promise<void>, opts: MadeOptions = {}): UndoEntry {
+  const { verb = "made", needs = [], fs = realFs, limit = FINGERPRINT_LIMIT } = opts;
+  const takePrints = () => Promise.all(paths.map(p => fingerprint(fs, p, limit)));
   // Started now, awaited by undo, so pushUndo stays synchronous and a Ctrl+Z
-  // straight after the copy still finds this entry.
+  // straight after the action still finds this entry.
   let prints = takePrints();
   return {
     label,
     inverse: async () => {
       const [before, now] = await Promise.all([prints, takePrints()]);
       const problems: string[] = [];
-      items.forEach(({ dst }, i) => {
+      paths.forEach((p, i) => {
         const b = before[i];
         const n = now[i];
-        const name = basename(dst);
+        const name = basename(p);
         if (typeof n === "string") problems.push(`${name} ${n}`);
         else if (typeof b === "string") problems.push(`${name} ${b}`);
-        else if (!samePrint(b, n)) problems.push(`${name} has changed since it was copied`);
+        else if (!samePrint(b, n)) problems.push(`${name} has changed since it was ${verb}`);
       });
-      if (problems.length > 0) {
-        const shown = problems.slice(0, 5).map(p => `• ${p}`);
-        if (problems.length > 5) shown.push(`• …and ${problems.length - 5} more`);
-        throw new Error(`Nothing was deleted:\n${shown.join("\n")}`);
+      for (const n of needs) {
+        const there = await findEntry(fs, n).catch(() => null);
+        if (!there) problems.push(`${basename(n)} is no longer there, so the link may be all that's left of it`);
       }
-      // recursive: copies can be non-empty folders
-      for (const { dst } of [...items].reverse()) await fs.remove(dst, true);
+      if (problems.length > 0) throw new Error(`Nothing was deleted:\n${bullets(problems)}`);
+      // recursive: what was made can be a non-empty folder. A link is
+      // removed itself, never what it points to (delete_entry uses lstat).
+      for (const p of [...paths].reverse()) await fs.remove(p, true);
     },
     redo: async () => {
-      await ensureFree(fs, items);
-      for (const { src, dst } of items) await fs.copy(src, dst);
+      await ensureFree(fs, paths.map(dst => ({ dst })));
+      await remake();
       prints = takePrints();
     },
   };
+}
+
+/** Copy (paste, duplicate, drag-copy): undo deletes the copies, redo copies
+ *  again, with madeUndo's fingerprint check. */
+export function copyUndo(label: string, items: PathPair[], fs: UndoFs = realFs, limit = FINGERPRINT_LIMIT): UndoEntry {
+  const copyAll = async () => {
+    for (const { src, dst } of items) await fs.copy(src, dst);
+  };
+  return madeUndo(label, items.map(({ dst }) => dst), copyAll, { verb: "copied", fs, limit });
 }
 
 /** A new folder or file: undo deletes it, redo creates it again. Undo
@@ -191,4 +262,105 @@ export function createUndo(label: string, path: string, what: Created, fs: UndoF
       else await fs.write(path, what.content);
     },
   };
+}
+
+/** A folder made to put things in (Screenshot Auto-sort's month folders),
+ *  as part of a groupUndo: undo removes it if it's empty and leaves it
+ *  otherwise, redo makes it if it's missing. */
+export function emptyFolderUndo(label: string, path: string, fs: UndoFs = realFs): UndoEntry {
+  return {
+    label,
+    inverse: async () => {
+      let inside: FileEntry[];
+      try {
+        inside = await fs.list(path);
+      } catch {
+        return; // already gone
+      }
+      if (inside.length === 0) await fs.remove(path, false);
+    },
+    redo: async () => {
+      const there = await findEntry(fs, path);
+      if (!there) await fs.mkdir(path);
+      else if (there.kind !== "folder" || there.is_symlink) {
+        throw new Error(`"${basename(path)}" already exists in ${parentPath(path)}`);
+      }
+    },
+  };
+}
+
+/** A text file whose content went from `before` to `after` (Export Layout
+ *  over an old one): undo writes `before` back and redo writes `after`, each
+ *  only while the file still holds what the other left, so an edit made
+ *  since is never overwritten. It restores exactly the strings it's given,
+ *  so `before` must be the whole file, read as text. */
+export function contentUndo(label: string, path: string, before: string, after: string, fs: UndoFs = realFs): UndoEntry {
+  const swap = async (expect: string, next: string) => {
+    let now: string;
+    try {
+      now = await fs.read(path);
+    } catch (err) {
+      throw new Error(`"${basename(path)}" couldn't be read (${errText(err)})`);
+    }
+    if (now !== expect) throw new Error(`"${basename(path)}" has changed since; not overwriting it`);
+    await fs.overwrite(path, next);
+  };
+  return { label, inverse: () => swap(after, before), redo: () => swap(before, after) };
+}
+
+/** Several entries as one step: undo runs their inverses last first, redo
+ *  runs them in order. A part that fails stops the step there, with the
+ *  parts before it done, so each part checks before it changes anything. */
+export function groupUndo(label: string, parts: UndoEntry[]): UndoEntry {
+  return {
+    label,
+    inverse: async () => {
+      for (const p of [...parts].reverse()) await p.inverse();
+    },
+    redo: async () => {
+      for (const p of parts) await p.redo();
+    },
+  };
+}
+
+/** A permission change, in set_permissions' terms: the mode bits on unix;
+ *  on Windows only the owner-write bit counts (clear = read-only). */
+export interface PermChange {
+  path: string;
+  before: number;
+  after: number;
+}
+
+export interface PermFs {
+  /** The path's permissions in the same terms, or null if they can't be read. */
+  get(path: string): Promise<number | null>;
+  set(path: string, value: number): Promise<void>;
+}
+
+/** The permissions of `path` as a PermChange's `before`, or null where they
+ *  can't be read (a dangling link). */
+export async function currentPermissions(path: string): Promise<number | null> {
+  const st = await fileStatExtended(path);
+  if (!st) return null;
+  return IS_WINDOWS ? (st.readonly ? 0 : 0o200) : st.mode;
+}
+
+const realPerms: PermFs = { get: currentPermissions, set: setPermissions };
+
+/** chmod (Batch Permissions, the Inspector): undo sets the old permissions
+ *  back and redo the new ones, each only while every path still has what
+ *  the other direction left, so a change made since is never overwritten. */
+export function permissionsUndo(label: string, changes: PermChange[], perms: PermFs = realPerms, windows: boolean = IS_WINDOWS): UndoEntry {
+  const key = (v: number) => (windows ? v & 0o200 : v);
+  const swap = async (expect: "before" | "after", next: "before" | "after") => {
+    const problems: string[] = [];
+    for (const c of changes) {
+      const now = await perms.get(c.path).catch(() => null);
+      if (now === null) problems.push(`${basename(c.path)}'s permissions couldn't be read`);
+      else if (key(now) !== key(c[expect])) problems.push(`${basename(c.path)}'s permissions have changed since`);
+    }
+    if (problems.length > 0) throw new Error(`Nothing was changed:\n${bullets(problems)}`);
+    for (const c of changes) await perms.set(c.path, c[next]);
+  };
+  return { label, inverse: () => swap("after", "before"), redo: () => swap("before", "after") };
 }
