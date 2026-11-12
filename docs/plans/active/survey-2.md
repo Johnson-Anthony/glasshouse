@@ -13,13 +13,13 @@ On 2026-11-11, four read-only agents surveyed the app (at `45ea31b`): frontend b
 | 5 | focus-and-targets | frontend | M | **merged** (8a3dfc8) |
 | 6 | inspector-perms | both | M | **merged** (41bde85) |
 | 7 | find-replace-safety | both | S | queued |
-| 8 | fs-robustness | Rust + `handlers/fileOps.ts` | S–M | **running** (`recursing-allen-a7ecf9`; plus the tar/7z link check and read-only staged folders) |
+| 8 | fs-robustness | Rust + `handlers/fileOps.ts` | S–M | merged (2bd2208) |
 | 9 | watcher-fixes | Rust | S | **paused** (`cool-gauss-d234ca`, 5 uncommitted files; RAM limit) |
 | **Wave 2: release** |||||
 | 10b | security-deps | both | M | queued (before the v0.2.0 tag) |
 | 10 | release-prep | config + CI | S | **merged** (c6dab0c; the tag itself is the user's call) |
 | **Wave 3: undo and trash** |||||
-| 11 | undo-coverage | frontend | M | **running** (`youthful-shtern-2ac1c5`; Find & Replace, Extract and Trash undo left to tasks 7, 1, 12) |
+| 11 | undo-coverage | frontend | M | merged (e225489; Extract undo done here; Find & Replace and Trash left to tasks 7 and 12) |
 | 12 | trash-restore | both | M | queued |
 | **Wave 4: performance** |||||
 | 13 | pane-perf | frontend | L | **paused** (`cool-satoshi-4102fc`; plus a vitest DOM environment; no 100k-entry data in headless Chromium) |
@@ -289,6 +289,9 @@ These items do nothing, or something else. Make each work, or remove it. For the
 - *(from selection-integrity)* **dom-tests** (frontend, S): a DOM test environment for vitest (happy-dom or jsdom) so `useTabState` and `FilePane` can be unit-tested; today the hook-level fixes are covered only by the demo checks in `site/capture/capture.mjs`. Lockfile change, so `pnpm notices`.
 - *(from selection-integrity)* A shift/ctrl marquee in progress during a re-list mixes old and new indexes (pre-existing; pane-perf reworks the marquee). "Select by Tag" says "nothing in this folder is tagged" when it means "nothing shown" under a filter. Filter and sort now live in `src/viewRows.ts`; pane-perf's sort-key work goes there.
 - *(from release-prep)* **actionlint** in CI: folded into ci-hygiene.
+- *(from fs-robustness)* 7-Zip 25 fails a whole extraction on one climbing link ("Dangerous link path was ignored", exit 2), where zip and tar now skip the link and report it. Could map that one 7z error to a skip.
+- *(from fs-robustness)* On Windows a failed top-level single-file CopyFileW is left to CopyFileW's own cleanup (some of its errors mean the target was already there and isn't ours). Check on a real Windows machine.
+- *(from undo-coverage)* Task 7 can push `contentUndo(label, path, before, after)` per file; task 12 (Move to Trash) is the last file change with neither an undo entry nor `markIrreversible`. Change Owner could get an undo if `file_stat_extended` returned uid:gid. Paste Special's undo entry and the "can't undo" toast aren't unit-tested (no DOM; see dom-tests).
 
 ## Unconfirmed: check before fixing
 - The terminal has no flow control: `yes` or `cat bigfile` sends one `pty-data` event per 4 KiB read and may freeze the webview (`pty.rs`).

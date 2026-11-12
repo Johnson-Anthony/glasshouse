@@ -6,8 +6,8 @@ What changed in each release, for people using glasshouse. Downloads are on the 
 
 <!-- TODO(release): before tagging v0.2.0,
   1. add the rest of wave 1 as it merges (docs/plans/active/survey-2.md:
-     find-replace-safety, fs-robustness, watcher-fixes) under the headings
-     below; selection-integrity and inspector-perms are in;
+     find-replace-safety, watcher-fixes) under the headings below;
+     selection-integrity, inspector-perms, fs-robustness and undo-coverage are in;
   2. replace "unreleased" in the heading with the release date (YYYY-MM-DD);
   3. delete this comment.
   The release workflow (scripts/release-check.mjs) refuses the tag until all three are done. -->
@@ -30,6 +30,7 @@ This release is mostly about safety: several ways to lose files are fixed, and t
 - **Git → Checkout…** with a folder name (such as `docs` or `.`) restored those files from git, discarding your changes. It now only switches branches.
 - **Shred** followed symbolic links: it overwrote the file a link pointed to, then deleted only the link. It now removes the link and never touches its target.
 - **Copying a folder that contains symbolic links** copied what they pointed to, and failed partway on a link to a folder. Links are now copied as links. Copying or moving a folder into itself is refused.
+- **A failed folder copy** left a half-made folder behind. It's now removed, read-only subfolders included, and the error names the item that failed. When a move to another drive copies a folder but can't remove all of the original, it keeps the complete copy and says what was left behind, so nothing is lost.
 - **A move that failed for any reason** fell back to copy and delete. Only a move to another drive does that now.
 - **Undoing a copy** deleted the copies even if you had edited them since. It now refuses when they've changed.
 - **Redo** (Ctrl+Y) failed after any undo. It now redoes the action.
@@ -45,7 +46,7 @@ This release is mostly about safety: several ways to lose files are fixed, and t
 - **Terminal:** the `cd` the terminal sends to follow the current folder is quoted for each shell, so a folder name can't run commands. It's only typed at an empty prompt, and Terminal → Follow Folder turns it off.
 - **Archives:**
   - a file name starting with `-` can't be read as a `tar` option;
-  - a link inside a zip can't point outside the folder it's extracted to;
+  - a link inside a zip, tar or 7z archive can't point outside the folder it's extracted to (such links are skipped and listed);
   - extracted files lose setuid and setgid bits;
   - on Windows, files extracted from a downloaded archive keep its "downloaded from the internet" mark.
 - **Permissions in the Inspector:** the permission grid showed a made-up `rwxr----- 0740` for every file, and one click ran chmod from that value (owner-exec on a private key made it group-readable). It now shows the file's real mode, including setuid, setgid and sticky, and changes it only after you edit, apply and confirm the old and new modes. On Windows it shows read-only.
@@ -54,6 +55,7 @@ This release is mostly about safety: several ways to lose files are fixed, and t
 
 ### New
 
+- **Undo covers more:** Bulk Rename, New from Template, Paste as Symlink / Hard Link / Shortcut, Paste Special, Compress, Extract, Export Layout, Screenshot Auto-sort, Batch Permissions and the Inspector's permission changes can be undone with Ctrl+Z and redone with Ctrl+Y. Actions that can't be undone (Delete Permanently, Shred, git commands, Change Owner, scripts) clear the undo history, and Ctrl+Z then says so instead of undoing something from before them.
 - **Miller columns** (View → Display Mode, Ctrl+7): a column view in the style of ranger.
 - **Previews:**
   - the Inspector previews text, images, PDF pages, audio and binary files by type;
@@ -79,11 +81,19 @@ This release is mostly about safety: several ways to lose files are fixed, and t
 - **Find in Files:** Ctrl+Shift+F no longer closes it; Esc does.
 - **Sidebar:** a file in the sidebar (a pinned file, or the folder tree with Show files on) opens with its default app and has its own right-click menu. A right-click on empty space in the file list shows the New / Paste menu, even when something is selected.
 - **Git → Stage** works on folders, as `git add` does.
+- **Delete Permanently** deletes folders that aren't empty (it used to fail on them), and its confirmation says the contents go too. Delete Permanently and Move to Trash carry on past an item that fails, then list what couldn't be removed.
+- **Copies keep modification times** on Linux, and folders keep their permissions.
+- **Screenshot Auto-sort:** Cancel stops the whole sort instead of skipping to the next month.
+- **Export Layout** asks before replacing an existing `.glasshouserc`.
 - **Every shortcut shown in a menu now works,** including the Ctrl+G git chords and Ctrl+Shift+C (Copy Path).
 - **Copy as Command** on Windows gives PowerShell syntax.
 - **Moving a folder onto an existing empty folder** fails. On Linux it used to replace the empty folder.
 - **Other fixes:**
   - the file list shows an error for a folder it can't read, instead of an empty list;
+  - named pipes, sockets and devices no longer freeze the app when previewed, hashed, copied or compressed; they're refused, or left out of a zip with a note;
+  - settings are flushed to disk before they replace the old file, so a crash while saving can't empty them;
+  - a cancelled Extract to Folder no longer leaves an empty folder;
+  - read-only folders from a tar archive can be extracted;
   - a folder with a dot in its name (`foo.d`) shows its whole name;
   - Miller columns no longer show `README.md.md`;
   - Bulk Rename's digits field pads `{n}`;
