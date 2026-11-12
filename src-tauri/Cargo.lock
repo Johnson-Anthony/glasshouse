@@ -1577,6 +1577,7 @@ dependencies = [
  "grep-searcher",
  "ignore",
  "libc",
+ "libgit2-sys",
  "md-5",
  "notify",
  "notify-debouncer-full",
