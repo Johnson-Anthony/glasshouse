@@ -23,7 +23,9 @@ import { namesIn, transferDeps } from "../transferUi";
 import { isCancelled, runOp } from "../ops";
 import { errText } from "../errors";
 import { markIrreversible, pushUndo, type UndoEntry } from "../state";
-import { emptyFolderUndo, groupUndo, moveUndo, type PathPair } from "../undoActions";
+import {
+  currentPermissions, emptyFolderUndo, groupUndo, moveUndo, permissionsUndo, type PathPair, type PermChange,
+} from "../undoActions";
 
 const clipboardStack: string[][] = [];
 
@@ -434,17 +436,24 @@ export const toolsHandler: Handler = async (label, ctx) => {
       }
       let ok = 0;
       let failed = 0;
+      const changes: PermChange[] = [];
+      let unreadable = false;
       for (const p of paths) {
+        const before = await currentPermissions(p);
         try {
           await setPermissions(p, mode);
           ok++;
+          if (before === null) unreadable = true;
+          else changes.push({ path: p, before, after: mode });
         } catch (e) {
           failed++;
           console.log(`[tools] chmod ${p} failed:`, e);
         }
       }
-      // The old modes aren't known here, so this can't be undone.
-      if (ok > 0) markIrreversible(`chmod ${modeStr.trim()} on ${ok} item(s)`);
+      const what = `chmod ${modeStr.trim()} on ${ok} item(s)`;
+      // An old mode that couldn't be read can't be put back.
+      if (unreadable) markIrreversible(what);
+      else if (changes.length > 0) pushUndo(permissionsUndo(what, changes));
       dialogs.showToast({
         message: `chmod ${modeStr}: ${ok} ok${failed > 0 ? `, ${failed} failed` : ""}`,
         variant: failed === 0 ? "success" : "warning",

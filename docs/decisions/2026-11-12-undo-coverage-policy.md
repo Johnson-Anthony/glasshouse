@@ -16,7 +16,8 @@ Many commands changed files without touching the undo history. Ctrl+Z after any 
 - **Every git command that changes something:** Stage, Unstage, Discard, Commit, Amend, Pull, Push, Fetch All, Stash, Clean, Checkout, New Branch, Merge and Rebase. Read-only ones (Status, Log, Blame) leave the history alone.
   - Undoing these from the app would mean reimplementing git. Unstage for Stage, for example, loses a partial staging that was there before.
   - A failed command marks too. A merge that stops on conflicts has still changed files.
-- **Batch Permissions and Change Owner:** the frontend can't read the old mode or owner (`FileEntry` and `FileStatExt` don't carry them). Task 6 (inspector-perms) can add the mode, and then an undo.
+- **Change Owner:** the old owner isn't kept in a form chown takes back (the stat shows a name, chown takes `uid:gid`).
+- **Batch Permissions, when an old mode can't be read** (a dangling link). Otherwise it has an undo; see below.
 - **Run Script on Selection and Custom Command:** the app can't know what a script changed. They mark even when the script fails. One cost is that a read-only script clears the history too. Treating scripts like the terminal (outside the history, not clearing it) was rejected, because then Ctrl+Z right after a renaming script undoes an older app step.
 - **A Bulk Rename whose rollback also failed:** some renames stuck and there's no entry for them.
 - **Export Layout over a `.glasshouserc` that didn't read back whole** (cut off at the read limit, or not UTF-8): the old text can't be restored exactly.
@@ -40,6 +41,11 @@ Many commands changed files without touching the undo history. Ctrl+Z after any 
 - **The rollback loop** moved into `runRenameSteps` (`src/names.ts`). Undo and redo use it too.
 - **Checking a whole sequence:** the plan's steps can chain (`2→3`, then `1→2`) or swap through `name~rename`. `ensureFree` checks every destination against the current listing, so it would refuse a swap. `renameStepsProblem` walks the steps over the folder listings instead, so a name an earlier step frees counts as free. Undo and redo run it before renaming anything, so a name taken since refuses the whole step.
 
+**Permissions:** inspector-perms (merged while this task ran) added the real mode to `file_stat_extended`, so `permissionsUndo` can put it back.
+- **Who uses it:** Batch Permissions reads each mode before its chmod. The Inspector's grid already knows the mode it shows, and its Windows read-only toggle knows the attribute.
+- **The check:** undo and redo change nothing unless every path still has what the other direction left.
+- **On Windows** only the owner-write bit is compared, because `set_permissions` reads nothing else there.
+
 **Smaller ones:**
 - **From Template:** `createUndo` for the file.
 - **Paste Text into Filename:** `moveUndo`, as for Rename.
@@ -55,4 +61,3 @@ Many commands changed files without touching the undo history. Ctrl+Z after any 
 ## Left to other tasks
 - **Find & Replace:** task 7 rewrites it (and can use `contentUndo`).
 - **Move to Trash:** task 12 adds restore.
-- **The Inspector's chmod:** task 6. Until then it changes permissions without marking the history.

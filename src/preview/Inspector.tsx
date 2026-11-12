@@ -10,6 +10,8 @@ import { IS_WINDOWS } from "../platform";
 import { checksumsFor, type Checksums } from "./checksums";
 import { AUDIO_EXTS, FilePreview } from "./FilePreview";
 import { errText } from "../errors";
+import { pushUndo } from "../state";
+import { permissionsUndo } from "../undoActions";
 
 // ============= Inspector =============
 export interface InspectableFile extends FileRow {
@@ -59,9 +61,11 @@ const PERM_ROWS = [
 const PERM_COLS = ["owner", "group", "world"];
 const LINK = { color: "var(--accent)", cursor: "pointer" } as const;
 
-async function applyPermissions(path: string, mode: number, onChanged: () => void): Promise<void> {
+/** Set `path`'s permissions from `before` to `after`, with an undo entry. */
+export async function applyPermissions(path: string, label: string, before: number, after: number, onChanged: () => void): Promise<void> {
   try {
-    await setPermissions(path, mode);
+    await setPermissions(path, after);
+    pushUndo(permissionsUndo(label, [{ path, before, after }]));
   } catch (e) {
     void dialogs.showAlert({ title: "couldn't change permissions", variant: "error", message: errText(e) });
   } finally {
@@ -101,7 +105,7 @@ export function PermissionsGrid({ path, name, mode, onChanged }: PermissionsProp
     });
     if (!ok) return;
     setBusy(true);
-    await applyPermissions(path, draft, onChanged);
+    await applyPermissions(path, `chmod ${modeOctal(draft)} ${name}`, mode, draft, onChanged);
     setBusy(false);
     setDraft(null);
   };
@@ -165,7 +169,7 @@ export function ReadOnlyLine({ path, name, readonly, onChanged }: PermissionsPro
       okLabel: action,
     });
     // set_permissions reads only the owner-write bit on Windows.
-    if (ok) await applyPermissions(path, readonly ? 0o200 : 0, onChanged);
+    if (ok) await applyPermissions(path, `make ${name} ${readonly ? "writable" : "read-only"}`, readonly ? 0 : 0o200, readonly ? 0o200 : 0, onChanged);
   };
   return (
     <div className="insp-section">

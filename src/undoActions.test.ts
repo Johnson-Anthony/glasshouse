@@ -3,7 +3,8 @@ import type { FileEntry } from "./api";
 import { pushUndo, redoLast, redoStack, undoLast, undoStack, type UndoEntry } from "./state";
 import { orderRenames, runRenameSteps, type RenameStep } from "./names";
 import {
-  contentUndo, copyUndo, createUndo, emptyFolderUndo, groupUndo, madeUndo, moveUndo, renameStepsUndo, type UndoFs,
+  contentUndo, copyUndo, createUndo, emptyFolderUndo, groupUndo, madeUndo, moveUndo, permissionsUndo, renameStepsUndo,
+  type PermFs, type UndoFs,
 } from "./undoActions";
 
 // In-memory POSIX file system. Unlike the real backend, which refuses a taken
@@ -528,5 +529,51 @@ describe("groupUndo with emptyFolderUndo (Screenshot Auto-sort)", () => {
     const r = await undoLast();
     expect(String((r as { error: unknown }).error)).toContain("second failed");
     expect(log).toEqual([]);
+  });
+});
+
+describe("permissionsUndo", () => {
+  /** Modes by path, as set_permissions and file_stat_extended see them. */
+  function perms(init: Record<string, number>): PermFs & { modes: Map<string, number> } {
+    const modes = new Map(Object.entries(init));
+    return {
+      modes,
+      get: async p => modes.get(p) ?? null,
+      set: async (p, v) => { modes.set(p, v); },
+    };
+  }
+
+  it("round-trips a chmod of several files", async () => {
+    const fs = perms({ "/d/a.sh": 0o644, "/d/b.sh": 0o600 });
+    const changes = [{ path: "/d/a.sh", before: 0o644, after: 0o755 }, { path: "/d/b.sh", before: 0o600, after: 0o755 }];
+    for (const c of changes) await fs.set(c.path, c.after);
+    pushUndo(permissionsUndo("chmod 755", changes, fs, false));
+    expect((await undoLast()).status).toBe("done");
+    expect(Object.fromEntries(fs.modes)).toEqual({ "/d/a.sh": 0o644, "/d/b.sh": 0o600 });
+    expect((await redoLast()).status).toBe("done");
+    expect(Object.fromEntries(fs.modes)).toEqual({ "/d/a.sh": 0o755, "/d/b.sh": 0o755 });
+  });
+
+  it("changes nothing when one path's mode has changed since", async () => {
+    const fs = perms({ "/d/a.sh": 0o755, "/d/b.sh": 0o700 });
+    const changes = [{ path: "/d/a.sh", before: 0o644, after: 0o755 }, { path: "/d/b.sh", before: 0o600, after: 0o755 }];
+    pushUndo(permissionsUndo("chmod 755", changes, fs, false));
+    const r = await undoLast();
+    expect(String((r as { error: unknown }).error)).toContain("b.sh's permissions have changed since");
+    expect(Object.fromEntries(fs.modes)).toEqual({ "/d/a.sh": 0o755, "/d/b.sh": 0o700 });
+  });
+
+  it("refuses a path whose mode can't be read", async () => {
+    const fs = perms({});
+    pushUndo(permissionsUndo("chmod 755", [{ path: "/d/gone", before: 0o644, after: 0o755 }], fs, false));
+    expect(String((await undoLast() as { error: unknown }).error)).toContain("gone's permissions couldn't be read");
+  });
+
+  it("on Windows compares only the read-only attribute", async () => {
+    // Batch chmod 444 made a writable file read-only; the stat reports 0.
+    const fs = perms({ "C:/d/a.txt": 0 });
+    pushUndo(permissionsUndo("chmod 444", [{ path: "C:/d/a.txt", before: 0o200, after: 0o444 }], fs, true));
+    expect((await undoLast()).status).toBe("done");
+    expect(fs.modes.get("C:/d/a.txt")).toBe(0o200);
   });
 });

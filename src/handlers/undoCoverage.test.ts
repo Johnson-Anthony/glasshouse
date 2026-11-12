@@ -3,6 +3,7 @@ import type { FileEntry } from "../api";
 import * as api from "../api";
 import { cmdState } from "../commandState";
 import { pushUndo, redoLast, redoStack, undoLast, undoStack, type UseTabResult } from "../state";
+import { applyPermissions } from "../preview/Inspector";
 import { COMMAND_CHAIN, type AppCommands, type HandlerCtx } from "./index";
 
 // Each change a command makes either pushes an undo entry or marks itself
@@ -37,6 +38,7 @@ function makeCtx(entries: FileEntry[], selected: number[], extra: Partial<Handle
   return {
     activeHandle: handle, cwd: "/w", selectedPaths, firstPath: selectedPaths[0],
     firstEntry: selected.length ? entries[selected[0]] : undefined,
+    visibleRows: () => entries.map((_, i) => i),
     dispatch: vi.fn(), toggleSidebar: vi.fn(), pinPath: vi.fn(), tabs: [{}], activeTab: 0,
     setActiveTab: vi.fn(), setBlame: vi.fn(), setGitOutput: vi.fn(), refresh: vi.fn(),
     app, ...extra,
@@ -404,14 +406,10 @@ describe("commands that can't be undone drop the history before them", () => {
     await expectStop("Discard Changes", makeCtx(files, [0]), "git discard 1 item(s)");
   });
 
-  it("Batch Permissions, unless every chmod failed", async () => {
+  it("Batch Permissions where an old mode can't be read", async () => {
+    // fileStatExtended answers null (the auto-mock's undefined): a dangling link.
     dialogs.showPrompt.mockResolvedValueOnce("755");
     await expectStop("Batch Permissions…", makeCtx([entry("a.sh"), entry("b.sh")], [0, 1]), "chmod 755 on 2 item(s)");
-    olderEntry();
-    dialogs.showPrompt.mockResolvedValueOnce("755");
-    vi.mocked(api.setPermissions).mockRejectedValue(new Error("EPERM"));
-    await run("Batch Permissions…", makeCtx([entry("a.sh")], [0]));
-    expect(top()).toBe("older");
   });
 
   it("Change Owner", async () => {
@@ -426,5 +424,54 @@ describe("commands that can't be undone drop the history before them", () => {
     dialogs.showPrompt.mockResolvedValueOnce("touch");
     vi.mocked(api.runScript).mockResolvedValueOnce("");
     await expectStop("Custom Command…", makeCtx([entry("a.txt")], [0]), `command "touch"`);
+  });
+});
+
+describe("permission changes", () => {
+  /** Modes by path behind the mocked stat and chmod. */
+  function useModes(init: Record<string, number>) {
+    const modes = new Map(Object.entries(init));
+    vi.mocked(api.fileStatExtended).mockImplementation(async p => ({
+      created_ms: null, modified_ms: null, owner: null, file_index: null, readonly: false,
+      mode: modes.get(p) ?? null, is_symlink: false, symlink_target: null,
+    }));
+    vi.mocked(api.setPermissions).mockImplementation(async (p, m) => { modes.set(p, m); });
+    return modes;
+  }
+
+  it("Batch Permissions: undo puts each old mode back", async () => {
+    const modes = useModes({ "/w/a.sh": 0o644, "/w/b.sh": 0o600 });
+    dialogs.showPrompt.mockResolvedValueOnce("755");
+    await run("Batch Permissions…", makeCtx([entry("a.sh"), entry("b.sh")], [0, 1]));
+    expect(Object.fromEntries(modes)).toEqual({ "/w/a.sh": 0o755, "/w/b.sh": 0o755 });
+    expect(await undoLast()).toEqual({ status: "done", label: "chmod 755 on 2 item(s)" });
+    expect(Object.fromEntries(modes)).toEqual({ "/w/a.sh": 0o644, "/w/b.sh": 0o600 });
+  });
+
+  it("Batch Permissions leaves the history alone when every chmod failed", async () => {
+    useModes({ "/w/a.sh": 0o644 });
+    vi.mocked(api.setPermissions).mockRejectedValue(new Error("EPERM"));
+    olderEntry();
+    dialogs.showPrompt.mockResolvedValueOnce("755");
+    await run("Batch Permissions…", makeCtx([entry("a.sh")], [0]));
+    expect(top()).toBe("older");
+  });
+
+  it("the Inspector's chmod can be undone", async () => {
+    const modes = useModes({ "/w/key": 0o644 });
+    const onChanged = vi.fn();
+    await applyPermissions("/w/key", "chmod 0600 key", 0o644, 0o600, onChanged);
+    expect(modes.get("/w/key")).toBe(0o600);
+    expect(onChanged).toHaveBeenCalled();
+    expect(await undoLast()).toEqual({ status: "done", label: "chmod 0600 key" });
+    expect(modes.get("/w/key")).toBe(0o644);
+  });
+
+  it("a failed Inspector chmod pushes nothing", async () => {
+    useModes({ "/w/key": 0o644 });
+    vi.mocked(api.setPermissions).mockRejectedValueOnce(new Error("EPERM"));
+    await applyPermissions("/w/key", "chmod 0600 key", 0o644, 0o600, vi.fn());
+    expect(undoStack).toEqual([]);
+    expect(dialogs.showAlert).toHaveBeenCalledWith(expect.objectContaining({ title: "couldn't change permissions" }));
   });
 });

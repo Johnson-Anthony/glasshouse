@@ -10,7 +10,10 @@
 // An action with no entry here calls markIrreversible (state.ts) instead.
 // What each action does: docs/decisions/2026-11-12-undo-coverage-policy.md
 
-import { copyEntry, createTextFile, deleteEntry, makeDir, moveEntry, readDir, readText, renameEntry, writeText, type FileEntry } from "./api";
+import {
+  copyEntry, createTextFile, deleteEntry, fileStatExtended, makeDir, moveEntry, readDir, readText, renameEntry, setPermissions,
+  writeText, type FileEntry,
+} from "./api";
 import { renameFailure, renameStepsProblem, reverseRenameSteps, runRenameSteps, type RenameStep } from "./names";
 import { basename, normalizePath, parentPath } from "./paths";
 import { IS_WINDOWS } from "./platform";
@@ -126,6 +129,13 @@ export function renameStepsUndo(
   return { label, inverse: () => run(reverseRenameSteps(steps)), redo: () => run(steps) };
 }
 
+/** Up to five problems as a bulleted list, for a refusal. */
+function bullets(problems: string[]): string {
+  const shown = problems.slice(0, 5).map(p => `• ${p}`);
+  if (problems.length > 5) shown.push(`• …and ${problems.length - 5} more`);
+  return shown.join("\n");
+}
+
 /** Trees with more entries than this aren't fingerprinted, and their undo
  *  refuses: walking them means one synchronous list_dir per folder. */
 const FINGERPRINT_LIMIT = 20_000;
@@ -205,11 +215,7 @@ export function madeUndo(label: string, paths: string[], remake: () => Promise<v
         const there = await findEntry(fs, n).catch(() => null);
         if (!there) problems.push(`${basename(n)} is no longer there, so the link may be all that's left of it`);
       }
-      if (problems.length > 0) {
-        const shown = problems.slice(0, 5).map(p => `• ${p}`);
-        if (problems.length > 5) shown.push(`• …and ${problems.length - 5} more`);
-        throw new Error(`Nothing was deleted:\n${shown.join("\n")}`);
-      }
+      if (problems.length > 0) throw new Error(`Nothing was deleted:\n${bullets(problems)}`);
       // recursive: what was made can be a non-empty folder. A link is
       // removed itself, never what it points to (delete_entry uses lstat).
       for (const p of [...paths].reverse()) await fs.remove(p, true);
@@ -315,4 +321,46 @@ export function groupUndo(label: string, parts: UndoEntry[]): UndoEntry {
       for (const p of parts) await p.redo();
     },
   };
+}
+
+/** A permission change, in set_permissions' terms: the mode bits on unix;
+ *  on Windows only the owner-write bit counts (clear = read-only). */
+export interface PermChange {
+  path: string;
+  before: number;
+  after: number;
+}
+
+export interface PermFs {
+  /** The path's permissions in the same terms, or null if they can't be read. */
+  get(path: string): Promise<number | null>;
+  set(path: string, value: number): Promise<void>;
+}
+
+/** The permissions of `path` as a PermChange's `before`, or null where they
+ *  can't be read (a dangling link). */
+export async function currentPermissions(path: string): Promise<number | null> {
+  const st = await fileStatExtended(path);
+  if (!st) return null;
+  return IS_WINDOWS ? (st.readonly ? 0 : 0o200) : st.mode;
+}
+
+const realPerms: PermFs = { get: currentPermissions, set: setPermissions };
+
+/** chmod (Batch Permissions, the Inspector): undo sets the old permissions
+ *  back and redo the new ones, each only while every path still has what
+ *  the other direction left, so a change made since is never overwritten. */
+export function permissionsUndo(label: string, changes: PermChange[], perms: PermFs = realPerms, windows: boolean = IS_WINDOWS): UndoEntry {
+  const key = (v: number) => (windows ? v & 0o200 : v);
+  const swap = async (expect: "before" | "after", next: "before" | "after") => {
+    const problems: string[] = [];
+    for (const c of changes) {
+      const now = await perms.get(c.path).catch(() => null);
+      if (now === null) problems.push(`${basename(c.path)}'s permissions couldn't be read`);
+      else if (key(now) !== key(c[expect])) problems.push(`${basename(c.path)}'s permissions have changed since`);
+    }
+    if (problems.length > 0) throw new Error(`Nothing was changed:\n${bullets(problems)}`);
+    for (const c of changes) await perms.set(c.path, c[next]);
+  };
+  return { label, inverse: () => swap("after", "before"), redo: () => swap("before", "after") };
 }
