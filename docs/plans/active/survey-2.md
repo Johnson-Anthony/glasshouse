@@ -14,7 +14,7 @@ On 2026-11-11, four read-only agents surveyed the app (at `45ea31b`): frontend b
 | 6 | inspector-perms | both | M | **merged** (41bde85) |
 | 7 | find-replace-safety | both | S | queued |
 | 8 | fs-robustness | Rust + `handlers/fileOps.ts` | S–M | merged (2bd2208) |
-| 9 | watcher-fixes | Rust | S | **paused** (`cool-gauss-d234ca`, 5 uncommitted files; RAM limit) |
+| 9 | watcher-fixes | Rust | S | **running** (`cool-gauss-d234ca`; resumed 11-12 after the RAM pause) |
 | **Wave 2: release** |||||
 | 10b | security-deps | both | M | queued: chip offered for a fresh session (before the v0.2.0 tag; Dependabot PRs #3–#8 overlap, lead handles them) |
 | 10 | release-prep | config + CI | S | **merged** (c6dab0c; the tag itself is the user's call) |
@@ -268,7 +268,7 @@ These items do nothing, or something else. Make each work, or remove it. For the
 ## 28. deps-bump (both, M)
 - **The windows crate.** Four versions compile on Windows: 0.56 (trash), 0.57 (sysinfo 0.32), 0.58 (ours) and 0.61 (tauri). Move ours to 0.61 and bump sysinfo; that needs the Windows CI loop.
 - **Frontend.** Vite 5.4 brings esbuild 0.21.5, which has a dev-server-only advisory (GHSA-67mh-4wv8-2f99). Vitest 2.1 is behind.
-- **Rust.** git2 0.19 and notify 7 are a major version behind.
+- **Rust.** git2 0.19 and notify 7 are a major version behind. git2 0.21 exposes `CheckoutBuilder::disable_pathspec_match`, so its bump can replace `checkout_head_exact`'s raw `libgit2-sys` call in `commands/git.rs` and drop that direct dependency.
 - Every lockfile change needs `pnpm notices`.
 
 ## Found by tasks (not yet scheduled)
