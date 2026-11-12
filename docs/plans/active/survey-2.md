@@ -16,7 +16,7 @@ On 2026-11-11, four read-only agents surveyed the app (at `45ea31b`): frontend b
 | 8 | fs-robustness | Rust + `handlers/fileOps.ts` | S–M | merged (2bd2208) |
 | 9 | watcher-fixes | Rust | S | **paused** (`cool-gauss-d234ca`, 5 uncommitted files; RAM limit) |
 | **Wave 2: release** |||||
-| 10b | security-deps | both | M | queued (before the v0.2.0 tag) |
+| 10b | security-deps | both | M | queued: chip offered for a fresh session (before the v0.2.0 tag; Dependabot PRs #3–#8 overlap, lead handles them) |
 | 10 | release-prep | config + CI | S | **merged** (c6dab0c; the tag itself is the user's call) |
 | **Wave 3: undo and trash** |||||
 | 11 | undo-coverage | frontend | M | merged (e225489; Extract undo done here; Find & Replace and Trash left to tasks 7 and 12) |
