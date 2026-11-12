@@ -29,9 +29,29 @@ Backlog entry: section 9 of `docs/plans/active/survey-2.md`.
 - A move between two watched folders reports both, and a rename in one folder reports it. On Windows, with no cache, this goes through the unstitched path.
 
 ## Status
+**Done** (2026-11-12).
 - [x] Plan
-- [ ] Ref count and NoCache
-- [ ] Tests, platform-neutral
-- [ ] Checks: build, test, check:wiring, clippy `-D warnings`, cargo test
-- [ ] Decision record
-- [ ] Handoff
+- [x] Ref count and NoCache
+- [x] Tests, platform-neutral
+- [x] Checks: build, test (462 passed, 3 skipped), check:wiring (0 issues), notices --check (up to date), clippy `-D warnings`, cargo test (179 passed, 2 ignored, three runs, under a 4G memory cap), site:build (demo unchanged), site:capture check (all pass)
+- [x] Decision record `docs/decisions/2026-11-12-watcher-fixes-design.md`
+- [x] Handoff
+
+## Results
+- **Tests** (`src-tauri/src/watcher/tests.rs`, 9 in all, now on every platform):
+  - `two_watchers_share_a_folder_until_both_leave`;
+  - `a_failed_watch_counts_and_the_next_one_retries`;
+  - `a_failed_watch_alone_unwatches_cleanly`;
+  - `an_extra_unwatch_does_not_take_a_later_watch`;
+  - `a_move_between_watched_folders_reports_both` and `a_rename_inside_a_folder_reports_it`.
+
+  The four that were already there are kept: a new file, a failed watch retried (rewritten for the count), unwatch, and subfolders.
+- **Negative check:** with `unwatch` dropping the count at once, as before, `two_watchers_share_a_folder_until_both_leave` fails.
+- **A race in the new test, fixed:** one write can be reported twice, because its create and its close-write can expire in different debouncer ticks. The second report from the first file landed in the next "nothing arrives" check, and the test failed once under the full parallel run. `settle` waits until the reports stop before that check.
+- **Not compiled or run:** the Windows backend. The windows-latest CI job is the first run of these tests on Windows and of `NoCache` with ReadDirectoryChangesW. Nothing in the change is `cfg`-gated, so it compiles the same everywhere.
+- **Docs:** `docs/ARCHITECTURE.md`'s listing-and-refresh section says the backend counts registrations per folder.
+
+## For review
+- **A failed watch counts.** Its unwatch then matches it, so a tab whose watch failed can't take away another tab's watch on the same folder. The next watch retries the OS watch.
+- **`watch_dir` stays sync.** With no cache it's one OS call.
+- **Rename stitching is gone on Windows and macOS.** It was already off on Linux, and the folders reported are the same.
