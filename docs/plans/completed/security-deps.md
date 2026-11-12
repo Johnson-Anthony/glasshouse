@@ -18,4 +18,5 @@ Clear the dependency advisories in `Cargo.lock` before the v0.2.0 tag. Scope and
 - [x] OSV: every listed advisory gone from Cargo.lock
 - [x] `pnpm notices` (`about.toml` accepts `bzip2-1.0.6` for libbz2-rs-sys)
 - [x] Checks: `pnpm build`; `pnpm test` (462 passed, 3 skipped); `pnpm check:wiring` (0/0/0/0); `pnpm notices --check`; clippy `-D warnings`; `cargo test` (172 passed, 2 ignored); `zip_of_a_4_gib_file` (passed, 121 s); `pnpm site:build` (demo bundle changed: notices data and tauri api, so it's committed); `pnpm site:capture check` (23 PASS)
-- [ ] Merge main, recheck, hand off
+- [x] Merged main (094e88f: watcher-fixes, Windows git odd-name fix). Rechecked on the merged tree: clippy `-D warnings`, `cargo test --locked` (180 passed, 2 ignored), `pnpm notices --check`, `pnpm build`, `pnpm test` (462 passed, 3 skipped), `pnpm check:wiring`, `pnpm site:build` (demo unchanged by the merge, so the capture check above stands), OSV (only the task-28 warnings left)
+- **Done.** Not built here: the `cfg(windows)` code against the new crates (windows 0.62 through tauri, zip 9's windows-sys 0.61, `static_vcruntime`); the windows-latest CI job is its first build.
