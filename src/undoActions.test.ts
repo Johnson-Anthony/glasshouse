@@ -3,7 +3,7 @@ import type { FileEntry } from "./api";
 import { pushUndo, redoLast, redoStack, undoLast, undoStack, type UndoEntry } from "./state";
 import { orderRenames, runRenameSteps, type RenameStep } from "./names";
 import {
-  contentUndo, copyUndo, createUndo, emptyFolderUndo, groupUndo, madeUndo, moveUndo, permissionsUndo, renameStepsUndo,
+  contentUndo, contentsUndo, copyUndo, createUndo, emptyFolderUndo, groupUndo, madeUndo, moveUndo, permissionsUndo, renameStepsUndo,
   type PermFs, type UndoFs,
 } from "./undoActions";
 
@@ -487,6 +487,54 @@ describe("contentUndo", () => {
     await fs.overwrite("/d/f", "old, edited");
     expect((await redoLast()).status).toBe("failed");
     expect(fs.tree()["/d/f"]).toBe("old, edited");
+  });
+});
+
+describe("contentsUndo (Find & Replace)", () => {
+  const changes = [
+    { path: "/d/a.txt", before: "foo 1", after: "bar 1" },
+    { path: "/d/b.txt", before: "foo 2", after: "bar 2" },
+    { path: "/d/c.txt", before: "foo 3", after: "bar 3" },
+  ];
+  const replaced = () => new MemFs({ "/d/a.txt": "bar 1", "/d/b.txt": "bar 2", "/d/c.txt": "bar 3" });
+
+  it("round-trips several files", async () => {
+    const fs = replaced();
+    await roundTrip(fs, contentsUndo("replace", changes, fs), { "/d": null, "/d/a.txt": "foo 1", "/d/b.txt": "foo 2", "/d/c.txt": "foo 3" });
+  });
+
+  it("changes no file when one has been edited since", async () => {
+    const fs = replaced();
+    pushUndo(contentsUndo("replace", changes, fs));
+    await fs.overwrite("/d/b.txt", "bar 2, edited");
+    const r = await undoLast();
+    expect(r.status).toBe("failed");
+    expect(String((r as { error: unknown }).error)).toBe(`Error: Nothing was changed:\n• "b.txt" has changed since`);
+    // Not a.txt or c.txt either, though they still hold what was written.
+    expect(fs.tree()).toEqual({ "/d": null, "/d/a.txt": "bar 1", "/d/b.txt": "bar 2, edited", "/d/c.txt": "bar 3" });
+  });
+
+  it("redo checks every file too", async () => {
+    const fs = replaced();
+    pushUndo(contentsUndo("replace", changes, fs));
+    await undoLast();
+    await fs.remove("/d/c.txt", false);
+    const r = await redoLast();
+    expect(String((r as { error: unknown }).error)).toContain(`"c.txt" couldn't be read`);
+    expect(fs.tree()["/d/a.txt"]).toBe("foo 1");
+  });
+
+  it("puts back what it wrote when a later write fails", async () => {
+    const fs = replaced();
+    const overwrite = fs.overwrite.bind(fs);
+    fs.overwrite = async (p, content) => {
+      if (p === "/d/c.txt") throw new Error("disk full");
+      await overwrite(p, content);
+    };
+    pushUndo(contentsUndo("replace", changes, fs));
+    const r = await undoLast();
+    expect(String((r as { error: unknown }).error)).toBe(`Error: "c.txt" couldn't be written (disk full); nothing was changed`);
+    expect(fs.tree()).toEqual({ "/d": null, "/d/a.txt": "bar 1", "/d/b.txt": "bar 2", "/d/c.txt": "bar 3" });
   });
 });
 

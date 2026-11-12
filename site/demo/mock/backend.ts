@@ -66,6 +66,12 @@ function globToRegExp(glob: string): RegExp {
   return new RegExp(`^${esc}$`, "i");
 }
 
+/** Find & Replace's rule: the query as literal text, case-sensitive unless asked. */
+function literalRegExp(request: Args): RegExp {
+  const esc = String(request.query ?? "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(esc, request.caseInsensitive ? "giu" : "gu");
+}
+
 function crc32(text: string): string {
   let c = ~0;
   for (const b of new TextEncoder().encode(text)) {
@@ -299,6 +305,47 @@ export function createBackend(hooks: BackendHooks) {
         });
       }
       return out;
+    },
+    // Demo files are all UTF-8 text, so nothing is skipped for encoding.
+    replace_preview: a => {
+      const r = (a.request ?? {}) as Args;
+      const re = literalRegExp(r);
+      const bytes = (s: string) => new TextEncoder().encode(s).length;
+      const files: Array<{ path: string; matches: number; bytes: number; new_bytes: number }> = [];
+      for (const [p, n] of vfs.walk(str(r.root))) {
+        if (n.dir || n.text === undefined || p.includes("/.git/")) continue;
+        const matches = n.text.match(re)?.length ?? 0;
+        if (matches > 0) files.push({ path: p, matches, bytes: bytes(n.text), new_bytes: bytes(n.text.replace(re, () => str(r.replacement))) });
+      }
+      return { files, skipped: [], capped: false, cap: 500, undoable: true };
+    },
+    replace_apply: a => {
+      const r = (a.request ?? {}) as Args;
+      const re = literalRegExp(r);
+      const keep = !!a.keepContent;
+      const done: Array<{ path: string; matches: number; before: string | null; after: string | null }> = [];
+      const skipped: Array<{ path: string; reason: string }> = [];
+      for (const p of (a.paths as string[]) ?? []) {
+        const n = vfs.get(p);
+        const before = n && !n.dir ? n.text : undefined;
+        const matches = before?.match(re)?.length ?? 0;
+        if (before === undefined || matches === 0) {
+          skipped.push({ path: p, reason: "no longer has a match" });
+          continue;
+        }
+        const after = before.replace(re, () => str(r.replacement));
+        vfs.write(p, after, now());
+        changed(parent(p));
+        done.push({ path: p, matches, before: keep ? before : null, after: keep ? after : null });
+      }
+      return { changed: done, skipped, cancelled: false };
+    },
+    rewrite_text: a => {
+      const p = str(a.path);
+      if (must(p).dir) throw "a folder, not a regular file";
+      vfs.write(p, str(a.content), now());
+      changed(parent(p));
+      return null;
     },
     find_file_by_name: a => {
       const re = globToRegExp(str(a.pattern).includes("*") || str(a.pattern).includes("?") ? str(a.pattern) : `*${str(a.pattern)}*`);

@@ -9,6 +9,7 @@ pub mod git;
 pub mod hash;
 pub mod launch;
 pub mod listing;
+pub mod replace;
 pub mod search;
 pub mod system;
 pub mod wsl;
