@@ -8,7 +8,7 @@ On 2026-11-11, four read-only agents surveyed the app (at `45ea31b`): frontend b
 | **Wave 1: data loss and security** |||||
 | 1 | archive-safety | Rust + `handlers/archive.ts` | M | **merged** (4c535a0) |
 | 2 | git-safety | Rust + `handlers/git.ts` | S–M | **merged** (3756be3) |
-| 3 | selection-integrity | frontend | M | **running** (`cool-satoshi-4102fc`) |
+| 3 | selection-integrity | frontend | M | **merged** (ee32e5b) |
 | 4 | terminal-cd | frontend | S | **merged** (3d23a8b) |
 | 5 | focus-and-targets | frontend | M | **merged** (8a3dfc8) |
 | 6 | inspector-perms | both | M | **running** (`cool-gauss-d234ca`) |
@@ -16,7 +16,7 @@ On 2026-11-11, four read-only agents surveyed the app (at `45ea31b`): frontend b
 | 8 | fs-robustness | Rust + `handlers/fileOps.ts` | S–M | **running** (`recursing-allen-a7ecf9`; plus the tar/7z link check and read-only staged folders) |
 | 9 | watcher-fixes | Rust | S | queued |
 | **Wave 2: release** |||||
-| 10 | release-prep | config + CI | S | **running** (`exciting-rubin-44f4c0`; the tag itself is the user's call) |
+| 10 | release-prep | config + CI | S | **merged** (c6dab0c; the tag itself is the user's call) |
 | **Wave 3: undo and trash** |||||
 | 11 | undo-coverage | frontend | M | **running** (`youthful-shtern-2ac1c5`; Find & Replace, Extract and Trash undo left to tasks 7, 1, 12) |
 | 12 | trash-restore | both | M | queued |
@@ -37,7 +37,7 @@ On 2026-11-11, four read-only agents surveyed the app (at `45ea31b`): frontend b
 | 25 | folder-size | both | S–M | queued |
 | **Wave 6: tests, CI and dependencies** |||||
 | 26 | test-gaps | both | S | queued |
-| 27 | ci-hygiene | CI | S | queued |
+| 27 | ci-hygiene | CI | S | **running** (`exciting-rubin-44f4c0`; plus actionlint) |
 | 28 | deps-bump | both | M | queued |
 
 **Scheduling notes:**
@@ -270,6 +270,10 @@ These items do nothing, or something else. Make each work, or remove it. For the
 
 - *(from git-safety)* `launch::tests::run_capped_kills_the_whole_tree_at_the_timeout` failed once at load average ~7 ("background child outlived the timeout"), then passed alone and in three full runs. Possibly flaky under load; for test-gaps or ci-hygiene.
 - *(from git-safety)* git2 0.19's `add_all`/`update_all` callback crashes (null CStr) on an empty pathspec. We no longer hit that path; deps-bump should check whether a newer git2 fixes it.
+
+- *(from selection-integrity)* **dom-tests** (frontend, S): a DOM test environment for vitest (happy-dom or jsdom) so `useTabState` and `FilePane` can be unit-tested; today the hook-level fixes are covered only by the demo checks in `site/capture/capture.mjs`. Lockfile change, so `pnpm notices`.
+- *(from selection-integrity)* A shift/ctrl marquee in progress during a re-list mixes old and new indexes (pre-existing; pane-perf reworks the marquee). "Select by Tag" says "nothing in this folder is tagged" when it means "nothing shown" under a filter. Filter and sort now live in `src/viewRows.ts`; pane-perf's sort-key work goes there.
+- *(from release-prep)* **actionlint** in CI: folded into ci-hygiene.
 
 ## Unconfirmed: check before fixing
 - The terminal has no flow control: `yes` or `cat bigfile` sends one `pty-data` event per 4 KiB read and may freeze the webview (`pty.rs`).
