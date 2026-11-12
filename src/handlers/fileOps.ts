@@ -5,8 +5,8 @@ import { basename, parentPath, joinPath } from "../paths";
 import type { BulkRenameItem } from "../dialogs/BulkRename";
 import { namesIn, unlessTaken, asItems, transferDeps, pushTransferUndo, reportTransfer } from "../transferUi";
 import { nameProblem, freeNewName } from "../names";
-import { pushUndo, type TabState } from "../state";
-import { moveUndo, createUndo, type Created } from "../undoActions";
+import { markIrreversible, pushUndo, type TabState } from "../state";
+import { moveUndo, createUndo, madeUndo, type Created } from "../undoActions";
 import { IS_WINDOWS } from "../platform";
 import { isCancelled, runOp } from "../ops";
 import { type TransferOp, runTransfer, type TransferItem, type TransferResult } from "../transfer";
@@ -166,7 +166,11 @@ export const fileOpsHandler: Handler = async (label, ctx) => {
         okLabel: "delete",
       });
       if (!ok) return true;
-      for (const p of selectedPaths) await deleteEntry(p, false);
+      try {
+        for (const p of selectedPaths) await deleteEntry(p, false);
+      } finally {
+        markIrreversible(`delete ${selectedPaths.length} item(s) permanently`);
+      }
       refresh();
       return true;
     }
@@ -347,6 +351,8 @@ export const fileOpsHandler: Handler = async (label, ctx) => {
       const outPath = joinPath(cwd, name);
       try {
         const report = await archiveCreate(active, outPath, "zip");
+        const remake = async () => { await archiveCreate(active, outPath, "zip"); };
+        pushUndo(madeUndo(`compress to ${name}`, [outPath], remake, { verb: "created" }));
         refresh();
         dialogs.showToast({ message: `compressed to ${name}`, variant: "success" });
         showLeftOut(report.skipped, "left out of the archive");

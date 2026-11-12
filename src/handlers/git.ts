@@ -8,12 +8,17 @@ import {
   type GitRunResult,
 } from "../api";
 import { errText } from "../errors";
+import { markIrreversible } from "../state";
 
 function summarize(title: string, r: GitRunResult): string {
   const body = r.stdout.trim() || r.stderr.trim() || "(no output)";
   return `${title}\nexit ${r.exit}\n\n${body}`;
 }
 
+/** Run git and show its output. `refreshAfter` marks a command that changes
+ *  something: the pane is refreshed, and since git's changes aren't in the
+ *  undo history, the history before it is dropped (even when git failed: a
+ *  merge with conflicts still changed files). */
 async function runAndShow(
   ctx: Parameters<Handler>[1],
   title: string,
@@ -29,6 +34,7 @@ async function runAndShow(
     else void dialogs.showAlert({ title, variant: "error", message: msg });
     return;
   }
+  if (refreshAfter) markIrreversible(title);
   if (ctx.setGitOutput) {
     ctx.setGitOutput({
       title,

@@ -1,7 +1,8 @@
-import { gitBlame, gitDiscard, gitStage, gitUnstage, winToWsl, writeTags, type BlameLine, type FileEntry } from "../api";
+import { gitBlame, gitDiscard, gitStage, gitUnstage, winToWsl, writeTags, type BlameLine, type FileEntry, type GitDiscardResult } from "../api";
 import { dialogs } from "../dialogs/DialogHost";
 import { errText } from "../errors";
 import { discardReport, gitTargets, type GitAction } from "../gitTargets";
+import { markIrreversible } from "../state";
 import { winPathToWsl } from "../shellCd";
 import type { AppCommands, HandlerCtx } from "./types";
 
@@ -67,9 +68,14 @@ export async function runGitAction(
     dialogs.showToast({ message: `nothing to ${action} in the selection`, variant: "info" });
     return;
   }
-  if (action === "stage") await gitStage(targets);
-  else if (action === "unstage") await gitUnstage(targets);
-  else {
+  // git's changes aren't in the undo history (see runAndShow in git.ts).
+  if (action === "stage") {
+    await gitStage(targets);
+    markIrreversible(`git stage ${targets.length} item(s)`);
+  } else if (action === "unstage") {
+    await gitUnstage(targets);
+    markIrreversible(`git unstage ${targets.length} item(s)`);
+  } else {
     const ok = await dialogs.showConfirm({
       title: "discard changes",
       message:
@@ -79,7 +85,13 @@ export async function runGitAction(
       okLabel: "discard",
     });
     if (!ok) return;
-    const { message, leftAlone } = discardReport(await gitDiscard(targets));
+    let report: GitDiscardResult;
+    try {
+      report = await gitDiscard(targets);
+    } finally {
+      markIrreversible(`git discard ${targets.length} item(s)`);
+    }
+    const { message, leftAlone } = discardReport(report);
     refresh();
     if (leftAlone) void dialogs.showAlert({ title: "discard changes", variant: "info", message });
     else dialogs.showToast({ message, variant: "info" });

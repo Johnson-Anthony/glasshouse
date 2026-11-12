@@ -19,9 +19,11 @@ import {
   writeText,
 } from "../api";
 import { runTransfer, type TransferItem } from "../transfer";
-import { transferDeps } from "../transferUi";
+import { namesIn, transferDeps } from "../transferUi";
 import { isCancelled, runOp } from "../ops";
 import { errText } from "../errors";
+import { markIrreversible, pushUndo, type UndoEntry } from "../state";
+import { emptyFolderUndo, groupUndo, moveUndo, type PathPair } from "../undoActions";
 
 const clipboardStack: string[][] = [];
 
@@ -97,6 +99,9 @@ export const toolsHandler: Handler = async (label, ctx) => {
         const msg = errText(e);
         console.log(`[tools] Custom Command failed (cmd=${cmd}):`, e);
         void dialogs.showAlert({ title: "command failed", variant: "error", message: msg });
+      } finally {
+        // What a command changed isn't known, failed or not.
+        markIrreversible(`command "${cmd.trim()}"`);
       }
       return true;
     }
@@ -222,6 +227,8 @@ export const toolsHandler: Handler = async (label, ctx) => {
         const msg = errText(e);
         console.log(`[tools] runScript failed (script=${script}):`, e);
         void dialogs.showAlert({ title: "script failed", variant: "error", message: msg });
+      } finally {
+        markIrreversible(`script ${script.trim()}`);
       }
       return true;
     }
@@ -292,36 +299,28 @@ export const toolsHandler: Handler = async (label, ctx) => {
         return true;
       }
       const bySub = new Map<string, TransferItem[]>();
+      let undated = 0;
       for (const entry of matches) {
         const d = new Date(entry.modified_ms);
-        if (!Number.isFinite(d.getTime())) continue;
+        if (!Number.isFinite(d.getTime())) {
+          undated++;
+          continue;
+        }
         const yyyy = d.getFullYear();
         const mm = String(d.getMonth() + 1).padStart(2, "0");
         const sub = `${yyyy}-${mm}`;
         bySub.set(sub, [...(bySub.get(sub) ?? []), { path: entry.path, isDir: false }]);
       }
-      let moved = 0;
-      for (const [sub, items] of bySub) {
-        const targetDir = joinPath(ctx.cwd, sub);
-        try {
-          // The month folder is usually there already.
-          await ensureDir(targetDir);
-        } catch (e) {
-          console.log(`[tools] Screenshot Auto-sort: can't create ${targetDir}:`, e);
-          continue;
-        }
-        // Same-named files already in the month folder are asked about.
-        const res = await runTransfer(items, targetDir, "move", transferDeps);
-        if (!res) continue;
-        moved += res.done.length;
-        for (const f of res.failed) {
-          console.log(`[tools] Screenshot Auto-sort: failed for ${f.src}:`, f.error);
-        }
-      }
+      const sorted = await sortScreenshots(ctx.cwd, bySub);
+      const parts = [`moved ${sorted.moved} screenshot${sorted.moved === 1 ? "" : "s"} into ${sorted.months} month folder${sorted.months === 1 ? "" : "s"}`];
+      if (sorted.skipped) parts.push(`${sorted.skipped} skipped`);
+      if (sorted.failed) parts.push(`${sorted.failed} failed`);
+      if (undated) parts.push(`${undated} left in place (no date)`);
+      if (sorted.cancelled) parts.push(`cancelled with ${sorted.cancelled} not sorted`);
       void dialogs.showAlert({
         title: "screenshot stack",
-        message: `moved ${moved} screenshot${moved === 1 ? "" : "s"} into Y-MM subfolders`,
-        variant: "info",
+        message: parts.join(", "),
+        variant: sorted.failed || sorted.cancelled ? "warning" : "info",
       });
       ctx.refresh();
       return true;
@@ -444,6 +443,8 @@ export const toolsHandler: Handler = async (label, ctx) => {
           console.log(`[tools] chmod ${p} failed:`, e);
         }
       }
+      // The old modes aren't known here, so this can't be undone.
+      if (ok > 0) markIrreversible(`chmod ${modeStr.trim()} on ${ok} item(s)`);
       dialogs.showToast({
         message: `chmod ${modeStr}: ${ok} ok${failed > 0 ? `, ${failed} failed` : ""}`,
         variant: failed === 0 ? "success" : "warning",
@@ -467,6 +468,7 @@ export const toolsHandler: Handler = async (label, ctx) => {
       if (owner == null || owner.trim() === "") return true;
       try {
         await changeOwner(p, owner.trim());
+        markIrreversible(`chown ${owner.trim()}`);
         dialogs.showToast({ message: `chown ${owner.trim()} ${p}: ok`, variant: "success" });
         ctx.refresh();
       } catch (e) {
@@ -483,3 +485,54 @@ export const toolsHandler: Handler = async (label, ctx) => {
       return false;
   }
 };
+
+/** Screenshot Auto-sort's moves: each month's screenshots into a `YYYY-MM`
+ *  folder in `cwd`, made if it isn't there, with one undo entry for the
+ *  lot. Cancelling a conflict question stops the sort; the months before it
+ *  stay sorted (and undoable). */
+async function sortScreenshots(cwd: string, bySub: Map<string, TransferItem[]>) {
+  const before = await namesIn(cwd);
+  const undo: UndoEntry[] = [];
+  const out = { moved: 0, months: 0, skipped: 0, failed: 0, cancelled: 0 };
+  const months = [...bySub];
+  for (const [i, [sub, items]] of months.entries()) {
+    const targetDir = joinPath(cwd, sub);
+    const made = !before.has(sub);
+    try {
+      // The month folder is usually there already.
+      await ensureDir(targetDir);
+    } catch (e) {
+      console.log(`[tools] Screenshot Auto-sort: can't create ${targetDir}:`, e);
+      out.failed += items.length;
+      continue;
+    }
+    if (made) undo.push(emptyFolderUndo(`make ${sub}`, targetDir));
+    // Same-named files already in the month folder are asked about.
+    const res = await runTransfer(items, targetDir, "move", transferDeps);
+    if (!res) {
+      out.cancelled = months.slice(i).reduce((n, [, rest]) => n + rest.length, 0);
+      // Nothing went into the folder made just now: take it away again.
+      if (made) {
+        try {
+          await undo.pop()!.inverse();
+        } catch (e) {
+          console.log(`[tools] Screenshot Auto-sort: can't remove ${targetDir}:`, e);
+        }
+      }
+      break;
+    }
+    const done: PathPair[] = res.done.map(({ src, dst }) => ({ src, dst }));
+    if (done.length) {
+      undo.push(moveUndo(`move into ${sub}`, done, "move"));
+      out.months++;
+    }
+    out.moved += done.length;
+    out.skipped += res.skipped.length;
+    out.failed += res.failed.length;
+    for (const f of res.failed) {
+      console.log(`[tools] Screenshot Auto-sort: failed for ${f.src}:`, f.error);
+    }
+  }
+  if (undo.length) pushUndo(groupUndo(`auto-sort ${out.moved} screenshot(s)`, undo));
+  return out;
+}
