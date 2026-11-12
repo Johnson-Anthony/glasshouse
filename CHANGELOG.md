@@ -4,13 +4,11 @@ What changed in each release, for people using glasshouse. Downloads are on the 
 
 ## [0.2.0] - unreleased
 
-<!-- TODO(release): before tagging v0.2.0,
-  1. add the rest of wave 1 as it merges (docs/plans/active/survey-2.md:
-     find-replace-safety) under the headings below; selection-integrity,
-     inspector-perms, fs-robustness, undo-coverage and watcher-fixes are in;
-  2. replace "unreleased" in the heading with the release date (YYYY-MM-DD);
-  3. delete this comment.
-  The release workflow (scripts/release-check.mjs) refuses the tag until all three are done. -->
+<!-- TODO(release): before tagging v0.2.0 (every wave-1 task in
+  docs/plans/active/survey-2.md is in below),
+  1. replace "unreleased" in the heading with the release date (YYYY-MM-DD);
+  2. delete this comment.
+  The release workflow (scripts/release-check.mjs) refuses the tag until both are done. -->
 
 This release is mostly about safety: several ways to lose files are fixed, and the app is harder to misuse. Linux packages now also come for arm64 and run on older distributions.
 
@@ -36,6 +34,7 @@ This release is mostly about safety: several ways to lose files are fixed, and t
 - **Redo** (Ctrl+Y) failed after any undo. It now redoes the action.
 - **The selection moved to a different file** when the folder changed while you worked: if another program added or removed a file, the highlight shifted to its neighbour, and Delete, Rename or a drag acted on that file. The selection, the keyboard focus and a drag in progress now follow their files.
 - **Commands acted on hidden or stale files.** Select All, Invert and Select by… also picked files a search filter was hiding, and while a slow folder loaded, the previous folder's files stayed on screen and could be opened or deleted. Selection commands now only see the files shown, the filter belongs to its tab and clears when you change folder, and the old folder's files go away as soon as you leave it.
+- **Find & Replace in Files** could permanently garble files in other encodings (Latin-1, cp1252) and overwrote them in place. It now changes only UTF-8 text, byte for byte around the matches, and replaces each file atomically, keeping its permissions (and on Windows its attributes and downloaded-file mark). It never writes through a link or outside the searched folder, and lists the files it left alone and why: another encoding, binary, over 16 MiB, read-only or hard-linked.
 - **Tabs:** closing a tab in the middle mixed up the other tabs' folders and history, and closing the last tab left none. Each tab now keeps its own state, and there's always at least one.
 
 ### Fixed: security
@@ -56,7 +55,7 @@ This release is mostly about safety: several ways to lose files are fixed, and t
 
 ### New
 
-- **Undo covers more:** Bulk Rename, New from Template, Paste as Symlink / Hard Link / Shortcut, Paste Special, Compress, Extract, Export Layout, Screenshot Auto-sort, Batch Permissions and the Inspector's permission changes can be undone with Ctrl+Z and redone with Ctrl+Y. Actions that can't be undone (Delete Permanently, Shred, git commands, Change Owner, scripts) clear the undo history, and Ctrl+Z then says so instead of undoing something from before them.
+- **Undo covers more:** Find & Replace in Files (as one step, and only if no file was edited since), Bulk Rename, New from Template, Paste as Symlink / Hard Link / Shortcut, Paste Special, Compress, Extract, Export Layout, Screenshot Auto-sort, Batch Permissions and the Inspector's permission changes can be undone with Ctrl+Z and redone with Ctrl+Y. Actions that can't be undone (Delete Permanently, Shred, git commands, Change Owner, scripts) clear the undo history, and Ctrl+Z then says so instead of undoing something from before them.
 - **Miller columns** (View → Display Mode, Ctrl+7): a column view in the style of ranger.
 - **Previews:**
   - the Inspector previews text, images, PDF pages, audio and binary files by type;
@@ -86,6 +85,7 @@ This release is mostly about safety: several ways to lose files are fixed, and t
 - **Copies keep modification times** on Linux, and folders keep their permissions.
 - **Screenshot Auto-sort:** Cancel stops the whole sort instead of skipping to the next month.
 - **Export Layout** asks before replacing an existing `.glasshouserc`.
+- **Find & Replace in Files** matches case exactly, in the counts and in the replace (the search used to ignore case while the replace didn't). It lists each file with its match count before replacing, and its report covers skipped files, a cancel and the 500-file cap. A replace too large to undo (over 8 MiB of text) says so before it starts.
 - **Every shortcut shown in a menu now works,** including the Ctrl+G git chords and Ctrl+Shift+C (Copy Path).
 - **Copy as Command** on Windows gives PowerShell syntax.
 - **Moving a folder onto an existing empty folder** fails. On Linux it used to replace the empty folder.

@@ -12,7 +12,7 @@ On 2026-11-11, four read-only agents surveyed the app (at `45ea31b`): frontend b
 | 4 | terminal-cd | frontend | S | **merged** (3d23a8b) |
 | 5 | focus-and-targets | frontend | M | **merged** (8a3dfc8) |
 | 6 | inspector-perms | both | M | **merged** (41bde85) |
-| 7 | find-replace-safety | both | S | **running** (fresh session, started 11-12; last wave-1 task before the tag) |
+| 7 | find-replace-safety | both | S | merged (`bold-leavitt-81abd0`; wave 1 complete) |
 | 8 | fs-robustness | Rust + `handlers/fileOps.ts` | S–M | merged (2bd2208) |
 | 9 | watcher-fixes | Rust | S | merged (see `git log --grep watcher-fixes`) |
 | **Wave 2: release** |||||
@@ -292,6 +292,7 @@ These items do nothing, or something else. Make each work, or remove it. For the
 - *(from release-prep)* **actionlint** in CI: folded into ci-hygiene.
 - *(from fs-robustness)* 7-Zip 25 fails a whole extraction on one climbing link ("Dangerous link path was ignored", exit 2), where zip and tar now skip the link and report it. Could map that one 7z error to a skip.
 - *(from fs-robustness)* On Windows a failed top-level single-file CopyFileW is left to CopyFileW's own cleanup (some of its errors mean the target was already there and isn't ours). Check on a real Windows machine.
+- *(from find-replace-safety)* On Windows, std can't read a file's hard-link count, so Find & Replace splits hard links there silently (unix skips such files). A file owned by someone else but writable through its group fails rather than changing owner. A match-case toggle could be added: the backend already takes `caseInsensitive`.
 - *(from security-deps)* zip 9 fails an extraction on Windows device and stream names (`CON`, `a:b`) with "points outside the folder", which misdescribes them. On Linux zip 9 reads `\` in an entry name as a separator (`a\b.txt` extracts as `a/b.txt`).
 - *(from watcher-fixes)* When the backend reports a rescan (dropped events, e.g. an inotify overflow), the event names no path, so no folder refreshes until the 30 s refetch. Reporting every watched folder on a rescan would be small.
 - *(from undo-coverage)* Task 7 can push `contentUndo(label, path, before, after)` per file; task 12 (Move to Trash) is the last file change with neither an undo entry nor `markIrreversible`. Change Owner could get an undo if `file_stat_extended` returned uid:gid. Paste Special's undo entry and the "can't undo" toast aren't unit-tested (no DOM; see dom-tests).
