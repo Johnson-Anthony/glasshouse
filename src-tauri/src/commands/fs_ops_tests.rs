@@ -316,3 +316,17 @@ fn cancelled_copy_of_a_folder_leaves_no_folder() {
     assert_eq!(copy_path(&s(&src), &s(&dst), &op), Err(CANCELLED.to_string()));
     assert!(std::fs::symlink_metadata(&dst).is_err());
 }
+
+#[cfg(unix)]
+#[test]
+fn set_permissions_applies_the_mode_and_refuses_anything_bigger() {
+    use std::os::unix::fs::PermissionsExt;
+    let d = Scratch::new("chmod");
+    std::fs::create_dir(d.join("shared")).unwrap();
+    let mode = || std::fs::metadata(d.join("shared")).unwrap().permissions().mode() & 0o7777;
+    set_permissions(s(&d.join("shared")), 0o2750).unwrap();
+    assert_eq!(mode(), 0o2750);
+    let err = set_permissions(s(&d.join("shared")), 0o10755).unwrap_err();
+    assert!(err.contains("isn't a permission mode"), "{}", err);
+    assert_eq!(mode(), 0o2750);
+}
