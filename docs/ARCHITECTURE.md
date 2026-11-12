@@ -67,11 +67,15 @@ A Tauri 2 app. The window is a React 18 UI (`src/`) that calls Rust commands (`s
 - Commands return `Result<T, String>`; a few return `Option` or a default.
 - Commands that do I/O are `#[tauri::command(async)]` and run on Tauri's worker threads. Those that rely on call order stay on the main thread: config read and write, `watch_dir`/`unwatch_dir`, and `pty_write`/`pty_resize`/`pty_kill`. See `docs/decisions/2026-11-08-async-commands-threading.md`.
 - **File writes never clobber.** Create, rename, copy and move refuse an existing target (`create_new`, `RENAME_NOREPLACE` or `MoveFileExW` without replace, `CopyFileW` with fail-if-exists). The frontend's Replace choice trashes the old item first.
+- **Failures clean up, and readers never block.**
+  - A copy that fails or is cancelled removes what it made. A cross-volume move whose delete fails removes a file's copy, or keeps a folder's complete copy and says so.
+  - File readers (previews, hex dump, hash, diff and blame, zip compression, copy) open through `open_regular`, which refuses FIFOs, sockets and devices without blocking on them.
+  - See `docs/decisions/2026-11-12-fs-robustness-failures.md`.
 - **Launching never builds a shell command line from user strings.** Arguments are checked (`check_profile`, `check_git_args`, `open_url`'s scheme list), and Windows paths go through the opener, direct spawns or environment variables. See `docs/decisions/2026-11-08-command-security-design.md`.
 - Git uses libgit2 for status and numstat, and the `git` CLI for history and for running menu commands (`git_run`, limited to `GIT_RUN_ALLOWED`).
   - Stage, Unstage and Discard use libgit2. Discard never deletes: it restores tracked files from HEAD, moves untracked items to the trash, and leaves staged-only and ignored ones alone. Branch switches end with `--`. See `docs/decisions/2026-11-11-git-safety-design.md`.
 - Platform splits: `cfg(windows)` covers Win32 drives, hidden attributes, WSL, shortcuts, signatures, job objects and `CREATE_NO_WINDOW`. `cfg(not(windows))` covers sysinfo drives, `xdg-open` and FileManager1 reveal, terminal discovery, XDG trash and the `/proc` parsers.
-- Pins, tags and recents are JSON in the app config dir, written atomically.
+- Pins, tags and recents are JSON in the app config dir, written atomically (a synced temp file, then a rename).
 
 ## Build, CI and release
 - **CI** (`.github/workflows/ci.yml`):

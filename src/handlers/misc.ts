@@ -6,7 +6,7 @@ import { basename, joinPath, parentPath } from "../paths";
 import { getVersion } from "@tauri-apps/api/app";
 import { failureDetails, runTransfer, summarize } from "../transfer";
 import { asItems, assertFree, namesIn, pushTransferUndo, transferDeps, unlessTaken } from "../transferUi";
-import { freeNewName, nameProblem, takenProblem } from "../names";
+import { NameSet, freeNewName, nameProblem, takenProblem } from "../names";
 import { openNotices } from "../Notices";
 import { isCancelled, runOp } from "../ops";
 import {
@@ -22,8 +22,11 @@ import {
   shred,
   renameEntry,
   hashSha256,
+  readDir,
 } from "../api";
 import { errText } from "../errors";
+import { markIrreversible, pushUndo } from "../state";
+import { contentUndo, createUndo, madeUndo, moveUndo } from "../undoActions";
 const REPO_URL = "https://github.com/Johnson-Anthony/glasshouse";
 
 async function promptAndCreate(ctx: HandlerCtx, defaultName: string, body = ""): Promise<void> {
@@ -37,6 +40,8 @@ async function promptAndCreate(ctx: HandlerCtx, defaultName: string, body = ""):
     submit: (v) => unlessTaken(v.trim(), () => createTextFile(joinPath(ctx.cwd, v.trim()), body)),
   });
   if (name == null || name.trim() === "") return;
+  const file = name.trim();
+  pushUndo(createUndo(`new file ${file}`, joinPath(ctx.cwd, file), { kind: "file", content: body }));
   ctx.refresh();
 }
 
@@ -124,28 +129,41 @@ async function createFromTemplate(ctx: HandlerCtx): Promise<void> {
 }
 
 /** Paste as Symlink, Hard Link or Shortcut: one link per clipboard path in
- *  the current folder, named after its target plus `suffix`. */
+ *  the current folder, named after its target plus `suffix`. Undo deletes
+ *  the links; a hard link only while its original is still there, since
+ *  otherwise it may be the last name the data has. */
 async function pasteAsLinks(
   ctx: HandlerCtx,
   noun: string,
   suffix: string,
   create: (target: string, linkPath: string) => Promise<void>,
+  hard = false,
 ): Promise<void> {
   const paths = ctx.clipboardPaths?.() ?? [];
   if (paths.length === 0) {
     dialogs.showToast({ message: "clipboard is empty", variant: "info" });
     return;
   }
-  let ok = 0;
+  const made: Array<{ target: string; link: string }> = [];
   for (const p of paths) {
+    const link = joinPath(ctx.cwd, basename(p) + suffix);
     try {
-      await create(p, joinPath(ctx.cwd, basename(p) + suffix));
-      ok++;
+      await create(p, link);
+      made.push({ target: p, link });
     } catch (e) {
       console.error(`[misc] ${noun} failed`, p, e);
     }
   }
-  dialogs.showToast({ message: `created ${ok}/${paths.length} ${noun}(s)`, variant: "success" });
+  if (made.length > 0) {
+    const remake = async () => {
+      for (const { target, link } of made) await create(target, link);
+    };
+    pushUndo(madeUndo(`paste ${made.length} ${noun}(s)`, made.map(m => m.link), remake, {
+      verb: "created",
+      needs: hard ? made.map(m => m.target) : [],
+    }));
+  }
+  dialogs.showToast({ message: `created ${made.length}/${paths.length} ${noun}(s)`, variant: "success" });
   ctx.refresh();
 }
 
@@ -156,14 +174,46 @@ async function createPythonModule(ctx: HandlerCtx): Promise<void> {
     message: "module name (creates a folder with __init__.py):",
     placeholder: "my_module",
     validate: (v) => nameProblem(v.trim(), taken),
-    submit: (v) => unlessTaken(v.trim(), async () => {
-      const dir = joinPath(ctx.cwd, v.trim());
-      await makeDir(dir);
-      await createTextFile(joinPath(dir, "__init__.py"), "");
-    }),
+    submit: (v) => unlessTaken(v.trim(), () => makeModule(joinPath(ctx.cwd, v.trim()))),
   });
   if (name == null || name.trim() === "") return;
+  const dir = joinPath(ctx.cwd, name.trim());
+  pushUndo(madeUndo(`new python module ${name.trim()}`, [dir], () => makeModule(dir), { verb: "created" }));
   ctx.refresh();
+}
+
+async function makeModule(dir: string): Promise<void> {
+  await makeDir(dir);
+  await createTextFile(joinPath(dir, "__init__.py"), "");
+}
+
+/** Export Layout: write `.glasshouserc` in `dir`, asking before replacing
+ *  one, and push an undo entry that removes it or puts the old one back. */
+async function exportLayout(dir: string, body: string): Promise<boolean> {
+  const target = joinPath(dir, ".glasshouserc");
+  const named = new NameSet([".glasshouserc"], IS_WINDOWS);
+  const old = (await readDir(dir, true)).find(e => named.has(e.name));
+  if (!old) {
+    await createTextFile(target, body);
+    pushUndo(createUndo("export layout", target, { kind: "file", content: body }));
+    return true;
+  }
+  const ok = await dialogs.showConfirm({
+    title: "export layout",
+    message: `Replace the .glasshouserc in ${dir}?`,
+    okLabel: "replace",
+  });
+  if (!ok) return false;
+  const before = await readText(target, 16 * 1024 * 1024);
+  await writeText(target, body);
+  // Undo puts the old text back, but only text that read back whole: a file
+  // that was cut off or wasn't UTF-8 can't be restored from it.
+  if (new TextEncoder().encode(before).length === old.size) {
+    pushUndo(contentUndo("export layout", target, before, body));
+  } else {
+    markIrreversible("export layout (the old .glasshouserc couldn't be kept for undo)");
+  }
+  return true;
 }
 
 export const miscHandler: Handler = async (label, ctx) => {
@@ -212,11 +262,10 @@ export const miscHandler: Handler = async (label, ctx) => {
           if (v != null) settings[k] = v;
         }
       }
-      const target = joinPath(ctx.cwd, ".glasshouserc");
       const body = JSON.stringify({ version: 2, settings }, null, 2);
-      await writeText(target, body);
+      if (!(await exportLayout(ctx.cwd, body))) return true;
       dialogs.showToast({
-        message: `exported ${Object.keys(settings).length} setting(s) → ${target}`,
+        message: `exported ${Object.keys(settings).length} setting(s) → ${joinPath(ctx.cwd, ".glasshouserc")}`,
         variant: "success",
       });
       ctx.refresh();
@@ -280,7 +329,12 @@ export const miscHandler: Handler = async (label, ctx) => {
         danger: true,
       });
       if (!confirmed) return true;
-      await shred(target, 3);
+      try {
+        await shred(target, 3);
+      } finally {
+        // Even a failed shred may have overwritten part of the file.
+        markIrreversible(`shred ${basename(target)}`);
+      }
       dialogs.showToast({ message: `shredded ${target}`, variant: "success" });
       ctx.refresh();
       return true;
@@ -303,7 +357,9 @@ export const miscHandler: Handler = async (label, ctx) => {
         validate: (v) => v.trim() ? null : "link path required",
       });
       if (linkPath == null || linkPath.trim() === "") return true;
-      await createSymlink(target.trim(), linkPath.trim());
+      const [to, link] = [target.trim(), linkPath.trim()];
+      await createSymlink(to, link);
+      pushUndo(madeUndo(`symlink ${basename(link)}`, [link], () => createSymlink(to, link), { verb: "created" }));
       dialogs.showToast({ message: `symlink → ${target.trim()}`, variant: "success" });
       ctx.refresh();
       return true;
@@ -316,7 +372,7 @@ export const miscHandler: Handler = async (label, ctx) => {
       return true;
 
     case "Paste as Hard Link":
-      await pasteAsLinks(ctx, "hard link", "", createHardLink);
+      await pasteAsLinks(ctx, "hard link", "", createHardLink, true);
       return true;
 
     case "Paste as Shortcut":
@@ -384,6 +440,7 @@ export const miscHandler: Handler = async (label, ctx) => {
       try {
         await assertFree(parentPath(target), name, self);
         await renameEntry(target, dest);
+        pushUndo(moveUndo(`rename ${self} → ${name}`, [{ src: target, dst: dest }], "rename"));
       } catch (e) {
         await dialogs.showAlert({
           title: "can't rename",

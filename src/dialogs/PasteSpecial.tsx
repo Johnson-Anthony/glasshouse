@@ -4,6 +4,8 @@ import { isCancelled, runOp } from "../ops";
 import { basename } from "../paths";
 import type { SkipReason, TransferItem, TransferOp, TransferStep } from "../transfer";
 import { errText } from "../errors";
+import { pushUndo } from "../state";
+import { copyUndo, moveUndo, type PathPair } from "../undoActions";
 import { useEscapeClose } from "./useEscapeClose";
 import { useModal } from "./modal";
 
@@ -99,6 +101,9 @@ export function PasteSpecialDialog({
     }
     if (!steps) { setRunning(false); return; }
     let anyFail = false;
+    // What was copied or moved, for the undo entry. A copy whose hash didn't
+    // match is still a copy.
+    const done: PathPair[] = [];
     // Local mutable copy so we can update rows incrementally.
     const working: RowStatus[] = rows.map(r => ({ ...r, state: "pending", message: undefined }));
     setRows(working.slice());
@@ -122,13 +127,16 @@ export function PasteSpecialDialog({
         if (step.replace) await trashEntry(step.replace);
         if (mode === "move") {
           await moveEntry(it.path, dst);
+          done.push({ src: it.path, dst });
           working[i] = { ...working[i], state: "ok", message: "moved" + note };
         } else if (mode === "copy") {
           await copyEntry(it.path, dst);
+          done.push({ src: it.path, dst });
           working[i] = { ...working[i], state: "ok", message: "copied" + note };
         } else {
           // copy + verify
           await copyEntry(it.path, dst);
+          done.push({ src: it.path, dst });
           if (it.kind === "folder") {
             working[i] = { ...working[i], state: "ok", message: `copied${note} (dir — not hashed)` };
           } else {
@@ -156,6 +164,11 @@ export function PasteSpecialDialog({
         working[i] = { ...working[i], state: "fail", message: msg };
       }
       setRows(working.slice());
+    }
+    if (done.length > 0) {
+      // As for Paste: replaced entries stay in the trash.
+      const label = `paste special: ${mode === "move" ? "move" : "copy"} ${done.length} item(s)`;
+      pushUndo(mode === "move" ? moveUndo(label, done, "move") : copyUndo(label, done));
     }
     setRunning(false);
     // Only clear clipboard for cut+move when nothing failed; mirrors vanilla Paste.

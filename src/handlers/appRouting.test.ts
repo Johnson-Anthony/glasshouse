@@ -10,7 +10,7 @@ import {
 import type { UseTabResult } from "../state";
 import { COMMAND_CHAIN, HANDLERS, type AppCommands, type Handler, type HandlerCtx } from "./index";
 import { appHandler } from "./app";
-import { fileOpsHandler } from "./fileOps";
+import { deleteConfirmText, fileOpsHandler } from "./fileOps";
 import { targetHandler } from "./target";
 
 // The handlers moved out of App.tsx, routed the way App's router does. Every
@@ -114,6 +114,73 @@ describe("COMMAND_CHAIN", () => {
 });
 
 describe("fileOpsHandler", () => {
+  /** makeCtx, with a refresh that can be checked. */
+  function withRefresh(ctx: HandlerCtx): ReturnType<typeof vi.fn> {
+    const refresh = vi.fn();
+    ctx.activeHandle = { ...ctx.activeHandle!, actions: { refresh } } as unknown as UseTabResult;
+    return refresh;
+  }
+
+  it("Delete Permanently deletes folders whole, carries on past a failure, reports it and refreshes", async () => {
+    const ctx = makeCtx([entry("a.txt"), entry("dir", { kind: "folder" }), entry("b.txt")], [0, 1, 2]);
+    const refresh = withRefresh(ctx);
+    dialogs.showConfirm.mockResolvedValueOnce(true);
+    vi.mocked(api.deleteEntry)
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(new Error("Permission denied (os error 13)"))
+      .mockResolvedValueOnce(undefined);
+    await owner("Delete Permanently", ctx);
+    expect(dialogs.showConfirm).toHaveBeenCalledWith(expect.objectContaining({
+      message: "Permanently delete 3 item(s), including 1 folder(s) and everything in them? This cannot be undone.",
+    }));
+    expect(vi.mocked(api.deleteEntry).mock.calls).toEqual([["/w/a.txt", true], ["/w/dir", true], ["/w/b.txt", true]]);
+    expect(refresh).toHaveBeenCalledTimes(1);
+    expect(dialogs.showAlert).toHaveBeenCalledWith(expect.objectContaining({
+      title: "couldn't delete 1 of 3 item(s)",
+      message: "dir: Permission denied (os error 13)",
+    }));
+  });
+
+  it("Delete Permanently deletes nothing when the question is cancelled", async () => {
+    const ctx = makeCtx([entry("a.txt")], [0]);
+    const refresh = withRefresh(ctx);
+    await owner("Delete Permanently", ctx);
+    expect(api.deleteEntry).not.toHaveBeenCalled();
+    expect(refresh).not.toHaveBeenCalled();
+  });
+
+  it("Move to Trash carries on past a failure, reports it and refreshes", async () => {
+    const ctx = makeCtx([entry("a.txt"), entry("b.txt"), entry("c.txt")], [0, 1, 2]);
+    const refresh = withRefresh(ctx);
+    dialogs.showConfirm.mockResolvedValueOnce(true);
+    vi.mocked(api.moveToTrash)
+      .mockRejectedValueOnce(new Error("busy"))
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce("gone");
+    await owner("Move to Trash", ctx);
+    expect(vi.mocked(api.moveToTrash).mock.calls).toEqual([["/w/a.txt"], ["/w/b.txt"], ["/w/c.txt"]]);
+    expect(refresh).toHaveBeenCalledTimes(1);
+    expect(dialogs.showAlert).toHaveBeenCalledWith(expect.objectContaining({
+      title: "couldn't move 2 of 3 item(s) to the Trash",
+      message: "a.txt: busy\nc.txt: gone",
+    }));
+  });
+
+  it("asks before deleting permanently, and says folders go with their contents", () => {
+    expect(deleteConfirmText(2, 0)).toBe("Permanently delete 2 item(s)? This cannot be undone.");
+    expect(deleteConfirmText(1, 1)).toBe("Permanently delete 1 folder and everything in it? This cannot be undone.");
+    expect(deleteConfirmText(4, 2)).toBe(
+      "Permanently delete 4 item(s), including 2 folder(s) and everything in them? This cannot be undone.");
+  });
+
+  it("doesn't count a link to a folder as a folder to delete", async () => {
+    const ctx = makeCtx([entry("link", { kind: "folder", is_symlink: true })], [0]);
+    await owner("Delete Permanently", ctx);
+    expect(dialogs.showConfirm).toHaveBeenCalledWith(expect.objectContaining({
+      message: "Permanently delete 1 item(s)? This cannot be undone.",
+    }));
+  });
+
   it("takes every label silently when no tab is open, so nothing later runs", async () => {
     const ctx = makeCtx(null);
     expect(await owner("Select All", ctx)).toBe(fileOpsHandler);
@@ -161,6 +228,17 @@ describe("targetHandler", () => {
     expect(await owner("Copy as Command", makeCtx([entry("a.txt")]))).toBe(targetHandler);
     expect(writeText).toHaveBeenCalledWith("cd '/w/$(touch PWNED)'\\''`x`'");
     expect(cmdState.contextTarget).toBeNull();
+  });
+
+  it("refreshes after a right-clicked Move to Trash, even one that failed", async () => {
+    const ctx = makeCtx([entry("a.txt")], [0]);
+    const refresh = vi.fn();
+    Object.assign(ctx.activeHandle!, { actions: { refresh } });
+    vi.mocked(api.moveToTrash).mockRejectedValueOnce(new Error("busy"));
+    cmdState.contextTarget = { kind: "sidebar", rowKind: "tree-file", path: "/w/t.txt" };
+    expect(await owner("Move to Trash", ctx)).toBe(targetHandler);
+    await vi.waitFor(() => expect(refresh).toHaveBeenCalled());
+    expect(dialogs.showAlert).toHaveBeenCalledWith(expect.objectContaining({ message: "trash failed: busy" }));
   });
 
   it("Copy as Command copies nothing for a path with control characters", async () => {

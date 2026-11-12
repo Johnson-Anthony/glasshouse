@@ -33,6 +33,7 @@ libgit2 reads every path passed to `checkout_head`, `reset_default` and `add_all
 - **The fix:** `exact_pathspecs` passes a plain name through unchanged, so a plain folder name still matches what's under it. Any other name gets a backslash before each ASCII punctuation character, and a folder also gets `<escaped>/*`.
 - The status scans keep the old approach: they narrow the scan only with a literal pathspec, and otherwise scan everything and filter by prefix.
 - **A leading `#`:** a pathspec that starts with `#` is a comment to libgit2's parser. A probe showed it doesn't widen what checkout or reset touches, because both are also limited by the path's prefix. It's escaped anyway.
+- **Replaced on 2026-11-12:** on Windows git2 turns every `\` in a pathspec into `/`, so the escaped names matched nothing there and Stage, Unstage and Discard skipped them. Now no odd name is given to libgit2 as a pattern: unstage and discard's index step diff HEAD to the index with `disable_pathspec_match` and put HEAD's entries back themselves, discard's checkout sets `DISABLE_PATHSPEC_MATCH` through `libgit2-sys` (git2 0.19 can't) and leaves the index to that step, and Stage of an odd folder runs `add_all` on its nearest plain parent (or `*`) and keeps what's under it in a callback.
 
 ## Stage and Unstage
 - **Stage of a folder:** `add_all` with the exact pathspecs (it skips ignored files), plus `remove_path` for tracked files under the folder that are gone from disk. That's what `git add <dir>` does.

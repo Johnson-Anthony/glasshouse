@@ -333,26 +333,132 @@ fn literal_pathspec(spec: &str) -> bool {
         && !spec.ends_with(char::is_whitespace)
 }
 
-/// Pathspecs that match exactly `path` (`""` is the repo's root) and, for a
-/// folder, what's under it. libgit2 reads a pathspec as a pattern, so
-/// `a[1].txt` would also match `a1.txt`; an unusual name is escaped.
-fn exact_pathspecs(path: &str, is_dir: bool) -> Vec<String> {
-    if path.is_empty() {
-        return vec!["*".to_string()];
-    }
-    if literal_pathspec(path) {
-        return vec![path.to_string()];
-    }
-    let mut esc = String::with_capacity(path.len() * 2);
-    for c in path.chars() {
-        if c.is_ascii() && !c.is_ascii_alphanumeric() && c != '/' {
-            esc.push('\\');
+/// The nearest of git path `dir` and its parents that libgit2 reads as the
+/// plain path it is, to narrow a scan of `dir` with. `None`: scan everything.
+///
+/// Escaping an unusual name instead doesn't work everywhere: on Windows,
+/// git2 turns every `\` in a pathspec into `/`.
+fn literal_scope(dir: &str) -> Option<&str> {
+    let mut d = dir;
+    while !d.is_empty() {
+        if literal_pathspec(d) {
+            return Some(d);
         }
-        esc.push(c);
+        d = d.rfind('/').map_or("", |i| &d[..i]);
     }
-    // An escaped name no longer matches as a folder prefix.
-    let under = is_dir.then(|| format!("{}/*", esc));
-    std::iter::once(esc).chain(under).collect()
+    None
+}
+
+/// `git reset -- <paths>` on `index` (`""` is the repo's root): each file at
+/// or under one of `paths` that differs gets `head`'s entry back, or leaves
+/// the index if `head` doesn't have it (all of them when there's no HEAD).
+/// A conflict on it is dropped. The paths are taken exactly, not as
+/// patterns. The caller writes the index.
+fn reset_to_head(
+    repo: &git2::Repository,
+    index: &mut git2::Index,
+    head: Option<&git2::Tree>,
+    paths: &[String],
+) -> Result<(), String> {
+    let mut opts = git2::DiffOptions::new();
+    opts.disable_pathspec_match(true);
+    if !paths.iter().any(|p| p.is_empty()) {
+        for p in paths {
+            opts.pathspec(p.as_str());
+        }
+    }
+    let diff = repo
+        .diff_tree_to_index(head, Some(index), Some(&mut opts))
+        .map_err(|e| format!("diff HEAD to index: {}", e))?;
+    let changed: Vec<(Vec<u8>, PathBuf)> = diff
+        .deltas()
+        .filter_map(|d| {
+            let f = if d.new_file().path().is_some() { d.new_file() } else { d.old_file() };
+            Some((f.path_bytes()?.to_vec(), f.path()?.to_path_buf()))
+        })
+        .collect();
+    drop(diff);
+    for (bytes, path) in changed {
+        // Stage 0, then the three sides of a conflict.
+        for stage in 0..=3 {
+            match index.remove(&path, stage) {
+                Err(e) if e.code() != git2::ErrorCode::NotFound => {
+                    return Err(format!("remove {}: {}", path.display(), e))
+                }
+                _ => {}
+            }
+        }
+        if let Some(entry) = head.and_then(|t| t.get_path(&path).ok()) {
+            index
+                .add(&git2::IndexEntry {
+                    ctime: git2::IndexTime::new(0, 0),
+                    mtime: git2::IndexTime::new(0, 0),
+                    dev: 0,
+                    ino: 0,
+                    mode: entry.filemode() as u32,
+                    uid: 0,
+                    gid: 0,
+                    file_size: 0,
+                    id: entry.id(),
+                    flags: 0,
+                    flags_extended: 0,
+                    path: bytes,
+                })
+                .map_err(|e| format!("add {}: {}", path.display(), e))?;
+        }
+    }
+    Ok(())
+}
+
+/// Write `files` (git paths of files in HEAD) to disk as HEAD has them,
+/// taking each path exactly, and leave the index alone.
+///
+/// `checkout_head` reads its paths as patterns unless
+/// GIT_CHECKOUT_DISABLE_PATHSPEC_MATCH is set, which git2 0.19 can't do
+/// (0.21's `disable_pathspec_match` can), so the flag goes on the raw
+/// options. The index isn't updated here because checkout still reads the
+/// paths as patterns to choose the conflicts it drops: a name that starts
+/// with `#` reads as nothing, which means every conflict in the repo.
+fn checkout_head_exact(repo: &git2::Repository, files: &[String]) -> Result<(), String> {
+    let mut opts = git2::build::CheckoutBuilder::new();
+    opts.force().update_index(false);
+    for p in files {
+        opts.path(p.as_str());
+    }
+    // libgit2 also narrows its walk to the paths' common prefix, read with
+    // `\` as an escape, which leaves out a name that has one. "/" matches no
+    // path and leaves no common prefix.
+    if files.iter().any(|p| p.contains('\\')) {
+        opts.path("/");
+    }
+    let gitdir = git2::IntoCString::into_c_string(repo.path()).map_err(|e| e.to_string())?;
+    #[allow(clippy::unnecessary_cast)] // u32, but i32 under MSVC
+    let exact = libgit2_sys::GIT_CHECKOUT_DISABLE_PATHSPEC_MATCH as u32;
+    // SAFETY: `raw_opts` points into `opts`, which outlives it, and `handle`
+    // is a repository of our own, freed before leaving.
+    let rc = unsafe {
+        let mut raw_opts: libgit2_sys::git_checkout_options = std::mem::zeroed();
+        let mut rc = libgit2_sys::git_checkout_init_options(
+            &mut raw_opts,
+            libgit2_sys::GIT_CHECKOUT_OPTIONS_VERSION,
+        );
+        if rc == 0 {
+            opts.configure(&mut raw_opts);
+            raw_opts.checkout_strategy |= exact;
+            let mut handle = std::ptr::null_mut();
+            rc = libgit2_sys::git_repository_open(&mut handle, gitdir.as_ptr());
+            if rc == 0 {
+                rc = libgit2_sys::git_checkout_head(handle, &raw_opts);
+                libgit2_sys::git_repository_free(handle);
+            }
+        }
+        rc
+    };
+    if rc < 0 {
+        let why = git2::Error::last_error(rc).map_or_else(|| format!("error {}", rc), |e| e.to_string());
+        return Err(format!("checkout_head: {}", why));
+    }
+    Ok(())
 }
 
 /// The status of `dir` and everything under it (`""` is the whole repo), as
@@ -369,8 +475,8 @@ fn statuses_under(
         .exclude_submodules(true)
         .recurse_untracked_dirs(recurse_untracked);
     // The pathspec only narrows the scan; the filter below decides.
-    if literal_pathspec(dir) {
-        opts.pathspec(dir);
+    if let Some(scope) = literal_scope(dir) {
+        opts.pathspec(scope);
     }
     let statuses = repo
         .statuses(Some(&mut opts))
@@ -409,8 +515,14 @@ pub fn git_stage(paths: Vec<String>) -> Result<(), String> {
 /// removal of tracked files under it that are gone from disk.
 fn stage_folder(index: &mut git2::Index, workdir: &Path, rel: &Path) -> Result<(), String> {
     let dir = git_path(rel).ok_or_else(|| format!("{}: name isn't valid UTF-8", rel.display()))?;
+    // add_all reads its pathspec as a pattern, so an unusual name goes
+    // through its nearest plain parent (or the whole repo), and `keep` picks
+    // what's under it.
+    let spec = literal_scope(&dir).unwrap_or("*");
+    let mut keep = |p: &Path, _: &[u8]| i32::from(!git_path_under(&p.to_string_lossy(), &dir));
+    let filter = (spec != dir).then_some(&mut keep as &mut git2::IndexMatchedPath);
     index
-        .add_all(exact_pathspecs(&dir, true), git2::IndexAddOption::DEFAULT, None)
+        .add_all([spec], git2::IndexAddOption::DEFAULT, filter)
         .map_err(|e| format!("add_all {}: {}", dir, e))?;
     let gone: Vec<PathBuf> = index
         .iter()
@@ -429,31 +541,18 @@ fn stage_folder(index: &mut git2::Index, workdir: &Path, rel: &Path) -> Result<(
 
 #[tauri::command(async)]
 pub fn git_unstage(paths: Vec<String>) -> Result<(), String> {
-    let (repo, workdir, rels) = open_repo_and_relpaths(&paths)?;
+    let (repo, _, rels) = open_repo_and_relpaths(&paths)?;
     // Equivalent of `git reset HEAD -- path`: reset the index entries for
     // these paths to match HEAD. If there is no HEAD yet (fresh repo with no
-    // commits), fall back to removing the entries from the index instead.
-    match repo.head().and_then(|h| h.peel_to_commit()) {
-        Ok(commit) => {
-            let mut specs = Vec::new();
-            for rel in &rels {
-                let path = git_path(rel)
-                    .ok_or_else(|| format!("{}: name isn't valid UTF-8", rel.display()))?;
-                let is_dir = std::fs::symlink_metadata(workdir.join(rel)).is_ok_and(|m| m.is_dir());
-                specs.extend(exact_pathspecs(&path, is_dir));
-            }
-            repo.reset_default(Some(commit.as_object()), specs.iter())
-                .map_err(|e| format!("reset_default: {}", e))?;
-        }
-        Err(_) => {
-            let mut index = repo.index().map_err(|e| e.to_string())?;
-            for rel in &rels {
-                let _ = index.remove_path(rel);
-                let _ = index.remove_dir(rel, 0);
-            }
-            index.write().map_err(|e| format!("index.write: {}", e))?;
-        }
+    // commits), the entries just leave the index.
+    let head = repo.head().and_then(|h| h.peel_to_tree()).ok();
+    let mut specs = Vec::with_capacity(rels.len());
+    for rel in &rels {
+        specs.push(git_path(rel).ok_or_else(|| format!("{}: name isn't valid UTF-8", rel.display()))?);
     }
+    let mut index = repo.index().map_err(|e| e.to_string())?;
+    reset_to_head(&repo, &mut index, head.as_ref(), &specs)?;
+    index.write().map_err(|e| format!("index.write: {}", e))?;
     Ok(())
 }
 
@@ -500,9 +599,9 @@ fn discard_paths(
     paths: &[String],
     trash: impl Fn(&Path) -> Result<(), String>,
 ) -> Result<DiscardResult, String> {
-    use git2::{build::CheckoutBuilder, Status};
+    use git2::{DiffOptions, Status};
     let (repo, workdir, rels) = open_repo_and_relpaths(paths)?;
-    let index = repo.index().map_err(|e| e.to_string())?;
+    let mut index = repo.index().map_err(|e| e.to_string())?;
     let head_tree = repo.head().and_then(|h| h.peel_to_tree()).ok();
     let in_head = |p: &str| head_tree.as_ref().is_some_and(|t| t.get_path(Path::new(p)).is_ok());
     let abs = |p: &str| {
@@ -567,15 +666,18 @@ fn discard_paths(
     to_trash.dedup();
 
     if !restore.is_empty() {
-        let mut opts = CheckoutBuilder::new();
-        opts.force();
+        checkout_head_exact(&repo, &restore)?;
+        reset_to_head(&repo, &mut index, head_tree.as_ref(), &restore)?;
+        // The entries put back carry no file times, so every status would
+        // hash these files again. This diff records them in the index.
+        let mut opts = DiffOptions::new();
+        opts.disable_pathspec_match(true).update_index(true);
         for p in &restore {
-            for spec in exact_pathspecs(p, false) {
-                opts.path(spec);
-            }
+            opts.pathspec(p.as_str());
         }
-        repo.checkout_head(Some(&mut opts))
-            .map_err(|e| format!("checkout_head: {}", e))?;
+        repo.diff_index_to_workdir(Some(&index), Some(&mut opts))
+            .map_err(|e| format!("refresh index: {}", e))?;
+        index.write().map_err(|e| format!("index.write: {}", e))?;
         out.restored = restore.len();
     }
     for p in to_trash {
@@ -1328,35 +1430,117 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// libgit2 reads paths as patterns: unescaped, `a[1].txt` also matches
-    /// `a1.txt`. A leading `#` starts a comment in a pathspec.
-    #[test]
-    fn discard_and_unstage_take_odd_names_literally() {
-        let (dir, repo) = test_repo("discard-odd");
-        let names = ["a1.txt", "a[1].txt", "#notes.md", "other.txt"];
-        for n in names {
+    /// Discard each of `odd`, then unstage them all, in a repo that also has
+    /// `plain`, names the odd ones match when read as patterns. The odd ones
+    /// must be restored and unstaged, and the plain ones left alone.
+    fn odd_names_are_taken_literally(name: &str, odd: &[&str], plain: &[&str]) {
+        let (dir, repo) = test_repo(name);
+        let all: Vec<&str> = odd.iter().chain(plain).copied().collect();
+        for n in &all {
             put(&dir.join(n), "v1");
         }
         commit_all(&repo, "init");
-        for n in names {
+        for n in &all {
             put(&dir.join(n), "v2");
         }
-        let r = discard_paths(&[s(&dir.join("#notes.md"))], fake_trash(&dir)).unwrap();
-        assert_eq!(r.restored, 1);
-        let r = discard_paths(&[s(&dir.join("a[1].txt"))], fake_trash(&dir)).unwrap();
-        assert_eq!(r.restored, 1);
-        let contents: Vec<String> = names.iter().map(|n| read(&dir.join(n))).collect();
-        assert_eq!(contents, ["v2", "v1", "v1", "v2"]);
+        for n in odd {
+            let r = discard_paths(&[s(&dir.join(n))], fake_trash(&dir)).unwrap();
+            assert_eq!((r.restored, r.trashed, r.skipped.len()), (1, 0, 0), "{}: {:?}", n, r);
+        }
+        for n in &all {
+            let want = if odd.contains(n) { "v1" } else { "v2" };
+            assert_eq!(read(&dir.join(n)), want, "{}", n);
+        }
 
-        for n in names {
+        for n in &all {
             put(&dir.join(n), "v3");
         }
-        stage_now(&repo, &names);
-        git_unstage(vec![s(&dir.join("#notes.md")), s(&dir.join("a[1].txt"))]).unwrap();
-        for (n, still_staged) in [("a1.txt", true), ("a[1].txt", false), ("#notes.md", false), ("other.txt", true)] {
+        stage_now(&repo, &all);
+        git_unstage(odd.iter().map(|n| s(&dir.join(n))).collect()).unwrap();
+        for n in &all {
             let st = status_of(&dir, n);
-            assert_eq!(st.contains(git2::Status::INDEX_MODIFIED), still_staged, "{}: {:?}", n, st);
+            assert_eq!(st.contains(git2::Status::INDEX_MODIFIED), plain.contains(n), "{}: {:?}", n, st);
         }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Read as patterns, `a[1].txt` matches `a1.txt`, a leading `!` negates
+    /// and a leading `#` makes a comment. Escaping them with `\` doesn't work
+    /// on Windows, where git2 turns `\` into `/`.
+    #[test]
+    fn discard_and_unstage_take_odd_names_literally() {
+        odd_names_are_taken_literally(
+            "discard-odd",
+            &["a[1].txt", "#notes.md", "!bang.txt", "x]y.txt"],
+            &["a1.txt", "bang.txt", "other.txt"],
+        );
+    }
+
+    /// Names Windows doesn't allow: wildcards, a backslash, trailing space.
+    #[cfg(unix)]
+    #[test]
+    fn discard_and_unstage_take_unix_only_odd_names_literally() {
+        odd_names_are_taken_literally(
+            "discard-odd-unix",
+            &["a*b.txt", "q?.txt", "back\\slash.txt", "trail "],
+            &["axb.txt", "qx.txt", "backslash.txt", "trail"],
+        );
+    }
+
+    /// Fill `p`'s index slot with a three-way conflict.
+    fn conflict(repo: &git2::Repository, p: &str) {
+        let mut index = repo.index().unwrap();
+        index.remove(Path::new(p), 0).unwrap();
+        for (stage, body) in [(1u16, "base"), (2, "ours"), (3, "theirs")] {
+            index
+                .add(&git2::IndexEntry {
+                    ctime: git2::IndexTime::new(0, 0),
+                    mtime: git2::IndexTime::new(0, 0),
+                    dev: 0,
+                    ino: 0,
+                    mode: 0o100644,
+                    uid: 0,
+                    gid: 0,
+                    file_size: 0,
+                    id: repo.blob(body.as_bytes()).unwrap(),
+                    flags: stage << 12,
+                    flags_extended: 0,
+                    path: p.as_bytes().to_vec(),
+                })
+                .unwrap();
+        }
+        index.write().unwrap();
+    }
+
+    #[test]
+    fn discard_puts_the_index_back_too() {
+        let (dir, repo) = test_repo("discard-index");
+        for n in ["staged.txt", "c.txt", "#x.md"] {
+            put(&dir.join(n), "v1");
+        }
+        commit_all(&repo, "init");
+        put(&dir.join("staged.txt"), "v2");
+        stage_now(&repo, &["staged.txt"]);
+        put(&dir.join("staged.txt"), "v3");
+        conflict(&repo, "c.txt");
+        put(&dir.join("c.txt"), "<<<<<<< ours");
+        put(&dir.join("#x.md"), "v2");
+
+        // A conflict elsewhere stays.
+        let r = discard_paths(&[s(&dir.join("#x.md"))], fake_trash(&dir)).unwrap();
+        assert_eq!(r.restored, 1);
+        assert!(status_of(&dir, "c.txt").contains(git2::Status::CONFLICTED));
+
+        let r = discard_paths(&["staged.txt", "c.txt"].map(|n| s(&dir.join(n))), fake_trash(&dir)).unwrap();
+        assert_eq!((r.restored, r.skipped.len()), (2, 0), "{:?}", r);
+        for n in ["staged.txt", "c.txt", "#x.md"] {
+            assert_eq!(read(&dir.join(n)), "v1", "{}", n);
+            assert_eq!(status_of(&dir, n), git2::Status::CURRENT, "{}", n);
+        }
+        // The entries put back record the file, so status needn't hash it.
+        let repo = git2::Repository::open(&dir).unwrap();
+        let entry = repo.index().unwrap().get_path(Path::new("staged.txt"), 0).unwrap();
+        assert_eq!(entry.file_size, 2);
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -1436,6 +1620,65 @@ mod tests {
         assert!(staged(&fresh).is_empty());
         let _ = std::fs::remove_dir_all(&dir);
         let _ = std::fs::remove_dir_all(&fresh);
+    }
+
+    /// A folder named like a pattern stages, unstages and discards only
+    /// what's under it, at the top or under a plain folder.
+    #[test]
+    fn odd_folder_names_are_taken_literally() {
+        let (dir, repo) = test_repo("odd-folders");
+        let files = ["a[b]/x.txt", "ab/x.txt", "src/#c/x.txt", "src/c/x.txt", "src/!d/x.txt", "src/d/x.txt"];
+        let odd = ["a[b]", "src/#c", "src/!d"];
+        let is_odd = |f: &str| odd.iter().any(|o| f.starts_with(&format!("{}/", o)));
+        for f in files {
+            put(&dir.join(f), "v1");
+        }
+        put(&dir.join("a[b]/gone.txt"), "v1");
+        commit_all(&repo, "init");
+        for f in files {
+            put(&dir.join(f), "v2");
+        }
+        put(&dir.join("a[b]/new.txt"), "new");
+        put(&dir.join("ab/new.txt"), "new");
+        std::fs::remove_file(dir.join("a[b]/gone.txt")).unwrap();
+
+        git_stage(odd.map(|o| s(&dir.join(o))).to_vec()).unwrap();
+        for f in files {
+            let st = status_of(&dir, f);
+            assert_eq!(st.contains(git2::Status::INDEX_MODIFIED), is_odd(f), "stage {}: {:?}", f, st);
+        }
+        assert_eq!(status_of(&dir, "a[b]/new.txt"), git2::Status::INDEX_NEW);
+        assert_eq!(status_of(&dir, "ab/new.txt"), git2::Status::WT_NEW);
+        assert_eq!(status_of(&dir, "a[b]/gone.txt"), git2::Status::INDEX_DELETED);
+
+        stage_now(&repo, &files);
+        git_unstage(odd.map(|o| s(&dir.join(o))).to_vec()).unwrap();
+        for f in files {
+            let st = status_of(&dir, f);
+            assert_eq!(st.contains(git2::Status::INDEX_MODIFIED), !is_odd(f), "unstage {}: {:?}", f, st);
+        }
+        assert_eq!(status_of(&dir, "a[b]/new.txt"), git2::Status::WT_NEW);
+        assert_eq!(status_of(&dir, "a[b]/gone.txt"), git2::Status::WT_DELETED);
+
+        let bin = temp_dir("odd-folders-bin");
+        let r = discard_paths(&odd.map(|o| s(&dir.join(o))), fake_trash(&bin)).unwrap();
+        assert_eq!((r.restored, r.trashed, r.skipped.len()), (4, 1, 0), "{:?}", r);
+        assert_eq!(tree(&bin), ["new.txt"]);
+        assert_eq!(read(&dir.join("a[b]/gone.txt")), "v1");
+        for f in files {
+            assert_eq!(read(&dir.join(f)), if is_odd(f) { "v1" } else { "v2" }, "discard {}", f);
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+        let _ = std::fs::remove_dir_all(&bin);
+    }
+
+    #[test]
+    fn literal_scope_is_the_nearest_plain_parent() {
+        assert_eq!(literal_scope(""), None);
+        assert_eq!(literal_scope("src/deep"), Some("src/deep"));
+        assert_eq!(literal_scope("src/a[b]/c"), Some("src"));
+        assert_eq!(literal_scope("src/!x"), Some("src/!x"));
+        assert_eq!(literal_scope("#top/sub"), None);
     }
 
     /// The checkout the git menu sends switches branches and never restores

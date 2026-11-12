@@ -1,6 +1,7 @@
 use serde::Serialize;
 use std::path::Path;
 use super::clamp_limit;
+use super::fs_ops::open_regular;
 #[cfg(windows)]
 use super::launch::CREATE_NO_WINDOW;
 
@@ -15,7 +16,7 @@ pub fn read_hex_dump(path: String, offset: u64, length: usize) -> Result<String,
     use std::io::{Read, Seek, SeekFrom};
 
     let cap = clamp_limit(length, 4096, 64 * 1024);
-    let mut f = std::fs::File::open(&path).map_err(|e| format!("open {}: {}", path, e))?;
+    let mut f = open_regular(Path::new(&path)).map_err(|e| format!("open {}: {}", path, e))?;
     f.seek(SeekFrom::Start(offset))
         .map_err(|e| format!("seek {}: {}", path, e))?;
     let mut buf = Vec::with_capacity(cap);
@@ -67,7 +68,7 @@ pub(super) const TEXT_READ_CAP: u64 = 16 << 20;
 pub(super) fn read_capped(path: &Path) -> Result<Vec<u8>, String> {
     use std::io::Read;
     let too_big = || format!("{} is over {} MiB, too big to read", path.display(), TEXT_READ_CAP >> 20);
-    let f = std::fs::File::open(path).map_err(|e| format!("read {}: {}", path.display(), e))?;
+    let f = open_regular(path).map_err(|e| format!("read {}: {}", path.display(), e))?;
     let len = f.metadata().map(|m| m.len()).unwrap_or(0);
     if len > TEXT_READ_CAP {
         return Err(too_big());

@@ -13,15 +13,16 @@ On 2026-11-11, four read-only agents surveyed the app (at `45ea31b`): frontend b
 | 5 | focus-and-targets | frontend | M | **merged** (8a3dfc8) |
 | 6 | inspector-perms | both | M | **merged** (41bde85) |
 | 7 | find-replace-safety | both | S | queued |
-| 8 | fs-robustness | Rust + `handlers/fileOps.ts` | S–M | **running** (`recursing-allen-a7ecf9`; plus the tar/7z link check and read-only staged folders) |
-| 9 | watcher-fixes | Rust | S | **running** (`cool-gauss-d234ca`) |
+| 8 | fs-robustness | Rust + `handlers/fileOps.ts` | S–M | merged (2bd2208) |
+| 9 | watcher-fixes | Rust | S | **running** (`cool-gauss-d234ca`; resumed 11-12 after the RAM pause) |
 | **Wave 2: release** |||||
+| 10b | security-deps | both | M | queued: chip offered for a fresh session (before the v0.2.0 tag; Dependabot PRs #3–#8 overlap, lead handles them) |
 | 10 | release-prep | config + CI | S | **merged** (c6dab0c; the tag itself is the user's call) |
 | **Wave 3: undo and trash** |||||
-| 11 | undo-coverage | frontend | M | **running** (`youthful-shtern-2ac1c5`; Find & Replace, Extract and Trash undo left to tasks 7, 1, 12) |
+| 11 | undo-coverage | frontend | M | merged (e225489; Extract undo done here; Find & Replace and Trash left to tasks 7 and 12) |
 | 12 | trash-restore | both | M | queued |
 | **Wave 4: performance** |||||
-| 13 | pane-perf | frontend | L | **running** (`cool-satoshi-4102fc`; plus a vitest DOM environment) |
+| 13 | pane-perf | frontend | L | **paused** (`cool-satoshi-4102fc`; plus a vitest DOM environment; no 100k-entry data in headless Chromium) |
 | 14 | refresh-cost | both | M | queued |
 | **Wave 5: promises and UX** (README and site claims first) |||||
 | 15 | palette-commands | frontend | M | queued |
@@ -37,7 +38,7 @@ On 2026-11-11, four read-only agents surveyed the app (at `45ea31b`): frontend b
 | 25 | folder-size | both | S–M | queued |
 | **Wave 6: tests, CI and dependencies** |||||
 | 26 | test-gaps | both | S | queued |
-| 27 | ci-hygiene | CI | S | **running** (`exciting-rubin-44f4c0`; plus actionlint) |
+| 27 | ci-hygiene | CI | S | merged (7bb4385) |
 | 28 | deps-bump | both | M | queued |
 
 **Scheduling notes:**
@@ -136,6 +137,20 @@ On 2026-11-11, four read-only agents surveyed the app (at `45ea31b`): frontend b
   - say in the README that the AppImage needs `libfuse2` on Ubuntu 24.04+.
 - **A CHANGELOG** with v0.2.0 notes: the data-loss fixes since July; that saved tweaks reset once (new key); and that Show Ignored, Show Checksums and Browse archive in place are gone.
 - Wave 1 should be merged first, since the site's Download button serves July's v0.1.0, which still has the paste-clobber bugs. Tagging is the user's decision.
+
+## 10b. security-deps (both, M; before the v0.2.0 tag; found 2026-11-12 by ci-hygiene)
+ci-hygiene checked Cargo.lock against OSV (RustSec plus GitHub advisories). The parts of task 28 that must land before a release:
+- **zip 2.4.2 → 9.x:**
+  - GHSA-m665-v7pm-7grj (critical; fixed in 9.0.5): a parser differential makes a zip look different to different readers;
+  - GHSA-q7v9-x93c-xqv3 (high) and GHSA-8hxf-qr8p-62x4 (AES HMAC bypass), both fixed in 9.0.0;
+  - RUSTSEC-2026-0367, 0368, 0369 and 0429, fixed in 9.0.0. They concern `ZipArchive::extract` and SUID bits, which archive-safety's own extraction loop and mode mask probably avoid, but cargo audit flags them.
+
+  This is a major bump through archive-safety's code (`commands/archive.rs`): rerun all its tests, including the ignored 4 GiB one.
+- **tauri 2.10.3 → ≥ 2.11.1:** GHSA-7gmj-67g7-phm9 (moderate), "origin confusion" lets remote pages call local-only IPC commands. glasshouse loads no remote pages, so the impact is probably low, but bump it. Keep the JS `@tauri-apps/*` versions in step.
+- **zstd 0.13.3 → 0.13.4 and zstd-safe → 7.4.0** (RUSTSEC-2026-0391, 0398, 0403), **quick-xml → 0.41** (0194, 0195), **crossbeam-epoch → 0.9.20** (0204) and **libz-sys → 1.1.31** (0418).
+- The warnings-only items (git2 unsound, glib, rand 0.7, unmaintained crates) stay in task 28.
+- Every lockfile change needs `pnpm notices`. Windows CI is the first Windows build.
+- **User decision:** turn on Dependabot alerts and security updates in the repo's GitHub settings. dependabot.yml only covers version updates.
 
 ## 11. undo-coverage (frontend, M)
 - **These push no undo entry**, so Ctrl+Z undoes an older, unrelated action:
@@ -253,7 +268,7 @@ These items do nothing, or something else. Make each work, or remove it. For the
 ## 28. deps-bump (both, M)
 - **The windows crate.** Four versions compile on Windows: 0.56 (trash), 0.57 (sysinfo 0.32), 0.58 (ours) and 0.61 (tauri). Move ours to 0.61 and bump sysinfo; that needs the Windows CI loop.
 - **Frontend.** Vite 5.4 brings esbuild 0.21.5, which has a dev-server-only advisory (GHSA-67mh-4wv8-2f99). Vitest 2.1 is behind.
-- **Rust.** git2 0.19 and notify 7 are a major version behind.
+- **Rust.** git2 0.19 and notify 7 are a major version behind. git2 0.21 exposes `CheckoutBuilder::disable_pathspec_match`, so its bump can replace `checkout_head_exact`'s raw `libgit2-sys` call in `commands/git.rs` and drop that direct dependency.
 - Every lockfile change needs `pnpm notices`.
 
 ## Found by tasks (not yet scheduled)
@@ -274,6 +289,9 @@ These items do nothing, or something else. Make each work, or remove it. For the
 - *(from selection-integrity)* **dom-tests** (frontend, S): a DOM test environment for vitest (happy-dom or jsdom) so `useTabState` and `FilePane` can be unit-tested; today the hook-level fixes are covered only by the demo checks in `site/capture/capture.mjs`. Lockfile change, so `pnpm notices`.
 - *(from selection-integrity)* A shift/ctrl marquee in progress during a re-list mixes old and new indexes (pre-existing; pane-perf reworks the marquee). "Select by Tag" says "nothing in this folder is tagged" when it means "nothing shown" under a filter. Filter and sort now live in `src/viewRows.ts`; pane-perf's sort-key work goes there.
 - *(from release-prep)* **actionlint** in CI: folded into ci-hygiene.
+- *(from fs-robustness)* 7-Zip 25 fails a whole extraction on one climbing link ("Dangerous link path was ignored", exit 2), where zip and tar now skip the link and report it. Could map that one 7z error to a skip.
+- *(from fs-robustness)* On Windows a failed top-level single-file CopyFileW is left to CopyFileW's own cleanup (some of its errors mean the target was already there and isn't ours). Check on a real Windows machine.
+- *(from undo-coverage)* Task 7 can push `contentUndo(label, path, before, after)` per file; task 12 (Move to Trash) is the last file change with neither an undo entry nor `markIrreversible`. Change Owner could get an undo if `file_stat_extended` returned uid:gid. Paste Special's undo entry and the "can't undo" toast aren't unit-tested (no DOM; see dom-tests).
 
 ## Unconfirmed: check before fixing
 - The terminal has no flow control: `yes` or `cat bigfile` sends one `pty-data` event per 4 KiB read and may freeze the webview (`pty.rs`).

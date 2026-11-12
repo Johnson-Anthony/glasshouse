@@ -538,3 +538,137 @@ fn extracted_files_keep_the_mark_of_the_web() {
         assert_eq!(std::fs::read_to_string(&stream).unwrap(), mark, "{}", file);
     }
 }
+
+// ---------- special files, links from tar and 7-Zip, read-only folders ----------
+
+/// A FIFO among the inputs, or inside a selected folder, is left out of a
+/// zip and reported, without blocking on it.
+#[cfg(unix)]
+#[test]
+fn zip_create_leaves_out_special_files() {
+    use crate::commands::testing::{mkfifo, without_blocking};
+    let d = Scratch::new("zip-fifo");
+    let src = payload(d.path());
+    mkfifo(&src.join("nested/pipe"));
+    mkfifo(&d.join("top-pipe"));
+    let archive = d.join("out.zip");
+    let (inputs, dest) = (vec![s(&src), s(&d.join("top-pipe"))], s(&archive));
+    let report = without_blocking(move || archive_create(inputs, dest, "zip".into())).unwrap();
+    let why = "a named pipe, not a regular file".to_string();
+    assert_eq!(
+        report.skipped,
+        [
+            Skipped { path: s(&src.join("nested/pipe")), reason: why.clone() },
+            Skipped { path: s(&d.join("top-pipe")), reason: why },
+        ]
+    );
+    extract_to(&archive, &d.join("out")).unwrap();
+    assert_payload(&d.join("out"));
+}
+
+/// An "archive" that's really a FIFO is refused before anything waits on it.
+#[cfg(unix)]
+#[test]
+fn archive_extract_refuses_a_fifo() {
+    use crate::commands::testing::{mkfifo, without_blocking};
+    let d = Scratch::new("extract-fifo");
+    for name in ["a.zip", "a.tar", "a.tar.zst", "a.7z"] {
+        mkfifo(&d.join(name));
+        let (archive, out) = (s(&d.join(name)), s(&d.join("out")));
+        let err = without_blocking(move || archive_extract(archive, out)).unwrap_err();
+        assert_eq!(err, format!("open {}: a named pipe, not a regular file", d.join(name).display()));
+    }
+    assert!(!d.join("out").exists());
+}
+
+/// Links tar extracts with targets outside the archive are removed and
+/// reported, by zip's rule; links that stay inside are kept.
+#[cfg(unix)]
+#[test]
+fn tar_extract_drops_links_that_point_outside() {
+    if which::which("tar").is_err() {
+        return;
+    }
+    let d = Scratch::new("tar-links");
+    let links = d.join("src/links");
+    put(&links.join("f.txt"), "f");
+    put(&links.join("sub/g.txt"), "g");
+    let link = |target: &str, at: &str| std::os::unix::fs::symlink(target, links.join(at)).unwrap();
+    link("f.txt", "in");
+    link("../f.txt", "sub/up-in");
+    link("/etc/passwd", "abs");
+    link("../../outside", "up");
+    link("sub/../../x", "sneaky");
+    let archive = d.join("links.tar");
+    assert!(tool_works("tar", &["-cf", &s(&archive), "links"], &d.join("src")));
+
+    let out = d.join("out");
+    let mut skipped = extract_to(&archive, &out).unwrap();
+    skipped.sort_by(|a, b| a.path.cmp(&b.path));
+    let outside = |path: &str, target: &str| Skipped {
+        path: path.into(),
+        reason: format!("its target {} is outside the archive", target),
+    };
+    assert_eq!(
+        skipped,
+        [
+            outside("links/abs", "/etc/passwd"),
+            outside("links/sneaky", "sub/../../x"),
+            outside("links/up", "../../outside"),
+        ]
+    );
+    assert_eq!(
+        tree(&out),
+        ["links/", "links/f.txt", "links/in", "links/sub/", "links/sub/g.txt", "links/sub/up-in"]
+    );
+    assert_eq!(read(&out.join("links/sub/up-in")), "f");
+}
+
+/// The same for 7-Zip, which keeps an absolute link absolute (newer
+/// versions point it under the output folder, still absolute). A 7-Zip
+/// that can't store links (`-snl`) can't make the archive; the test skips.
+#[cfg(unix)]
+#[test]
+fn seven_zip_extract_drops_links_that_point_outside() {
+    let Ok(program) = find_7z() else { return };
+    let d = Scratch::new("7z-links");
+    let links = d.join("src/links");
+    put(&links.join("f.txt"), "f");
+    std::os::unix::fs::symlink("f.txt", links.join("in")).unwrap();
+    std::os::unix::fs::symlink("/etc/passwd", links.join("abs")).unwrap();
+    let archive = d.join("links.7z");
+    if !tool_works(&program, &["a", "-snl", &s(&archive), "links"], &d.join("src")) {
+        return;
+    }
+    let out = d.join("out");
+    let skipped = extract_to(&archive, &out).unwrap();
+    assert_eq!(skipped.iter().map(|k| k.path.as_str()).collect::<Vec<_>>(), ["links/abs"]);
+    assert_eq!(tree(&out), ["links/", "links/f.txt", "links/in"]);
+}
+
+/// A read-only folder from a tar can still be moved out of the staging
+/// folder (moving a folder to another parent needs write permission on it),
+/// and comes out owner-writable, as zip_extract makes it.
+#[cfg(unix)]
+#[test]
+fn tar_read_only_folders_can_be_moved_into_place() {
+    use std::os::unix::fs::PermissionsExt;
+    if which::which("tar").is_err() {
+        return;
+    }
+    let d = Scratch::new("tar-ro");
+    put(&d.join("src/ro/inner/x.txt"), "x");
+    let set = |p: &str, m: u32| std::fs::set_permissions(d.join(p), std::fs::Permissions::from_mode(m)).unwrap();
+    set("src/ro/inner", 0o555);
+    set("src/ro", 0o555);
+    let archive = d.join("ro.tar");
+    assert!(tool_works("tar", &["-cf", &s(&archive), "ro"], &d.join("src")));
+    set("src/ro", 0o755);
+    set("src/ro/inner", 0o755);
+
+    let out = d.join("out");
+    extract_to(&archive, &out).unwrap();
+    assert_eq!(tree(&out), ["ro/", "ro/inner/", "ro/inner/x.txt"]);
+    let mode = |p: &str| std::fs::metadata(out.join(p)).unwrap().permissions().mode() & 0o777;
+    assert_eq!((mode("ro"), mode("ro/inner")), (0o755, 0o755));
+}

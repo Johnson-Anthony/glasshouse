@@ -75,12 +75,16 @@ export type UndoEntry = {
   inverse: () => Promise<void> | void;
   /** Performs the action again after it has been undone. */
   redo: () => Promise<void> | void;
+  /** Set on the stop `markIrreversible` leaves: undo reports it and runs
+   *  nothing. */
+  irreversible?: boolean;
 };
 
 export type UndoOutcome =
   | { status: "empty" }
   | { status: "done"; label: string }
-  | { status: "failed"; label: string; error: unknown };
+  | { status: "failed"; label: string; error: unknown }
+  | { status: "irreversible"; label: string };
 
 const UNDO_LIMIT = 20;
 
@@ -101,6 +105,16 @@ export function pushUndo(entry: UndoEntry): void {
   clearRedo();
 }
 
+/** For an action that can't be undone (Delete Permanently, Shred, git…):
+ *  the history before it is dropped, so Ctrl+Z can't reach past it to an
+ *  older, unrelated step, and the next Ctrl+Z says why there's nothing.
+ *  See docs/decisions/2026-11-12-undo-coverage-policy.md. */
+export function markIrreversible(label: string): void {
+  undoStack.length = 0;
+  const refuse = () => { throw new Error(`${label} can't be undone`); };
+  pushUndo({ label, inverse: refuse, redo: refuse, irreversible: true });
+}
+
 // Undo and redo steps run one at a time, in the order they were asked for, so
 // two quick Ctrl+Z presses can't run two inverses at once.
 let undoQueue: Promise<unknown> = Promise.resolve();
@@ -109,6 +123,7 @@ function step(from: UndoEntry[], to: UndoEntry[], run: (e: UndoEntry) => Promise
   const next = undoQueue.then(async (): Promise<UndoOutcome> => {
     const entry = from.pop();
     if (!entry) return { status: "empty" };
+    if (entry.irreversible) return { status: "irreversible", label: entry.label };
     try {
       await run(entry);
     } catch (error) {

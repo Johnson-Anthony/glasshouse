@@ -184,8 +184,9 @@ pub fn copy_entry(
     copy_path(&from, &to, &ops.start(op_id, &app))
 }
 
-/// copy_entry's work. A cancelled copy leaves nothing behind: the file being
-/// copied is removed, and so is a folder copy's whole new folder.
+/// copy_entry's work. A copy that fails or is cancelled leaves nothing
+/// behind: the file being copied is removed, and so is a folder copy's whole
+/// new folder. Errors from inside a folder name the entry that failed.
 pub(crate) fn copy_path(from: &str, to: &str, op: &Op) -> Result<(), String> {
     let src = Path::new(from);
     let dst = Path::new(to);
@@ -208,17 +209,68 @@ pub(crate) fn copy_path(from: &str, to: &str, op: &Op) -> Result<(), String> {
     } else {
         copy_regular_file(src, dst, &ty, op)
     };
-    created.map_err(|e| no_clobber_err(to, e))?;
+    created.map_err(|e| if op.cancelled() { CANCELLED.to_string() } else { no_clobber_err(to, e) })?;
     if ty.is_dir() {
-        if let Err(e) = copy_dir_contents(src, dst, op) {
+        let filled = copy_dir_contents(src, dst, op)
+            .and_then(|()| keep_dir_attrs(&meta, dst).map_err(|e| copying(src, e)));
+        if let Err(e) = filled {
+            // Everything under dst is from this copy: create_dir above
+            // refused a name that was already taken. So the half-made folder
+            // goes whatever the error, and a retry doesn't find it in the way.
+            let removed = remove_created_tree(dst);
             if op.cancelled() {
-                // Everything under dst is from this copy: create_dir above
-                // refused a name that was already taken.
-                let _ = std::fs::remove_dir_all(dst);
                 return Err(CANCELLED.to_string());
             }
-            return Err(e.to_string());
+            return Err(match removed {
+                Ok(()) => e.to_string(),
+                Err(re) => format!("{} (the partial copy at {} couldn't be removed: {})", e, to, re),
+            });
         }
+    }
+    Ok(())
+}
+
+/// `e`, naming the entry of a copy it's about.
+fn copying(src: &Path, e: std::io::Error) -> std::io::Error {
+    std::io::Error::new(e.kind(), format!("can't copy {}: {}", src.display(), e))
+}
+
+/// Remove a tree this process just made (a half-done copy, an extraction's
+/// staging folder), first making its folders owner-writable: a copied or
+/// extracted read-only folder would otherwise keep its contents. Never for
+/// the user's own folders, whose modes it would change.
+pub(super) fn remove_created_tree(path: &Path) -> std::io::Result<()> {
+    #[cfg(unix)]
+    make_tree_owner_writable(path);
+    std::fs::remove_dir_all(path)
+}
+
+/// Best effort: `make_owner_writable` on `dir` and every folder under it.
+#[cfg(unix)]
+fn make_tree_owner_writable(dir: &Path) {
+    if make_owner_writable(dir).is_err() {
+        return;
+    }
+    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    for entry in entries.flatten() {
+        if entry.file_type().is_ok_and(|t| t.is_dir()) {
+            make_tree_owner_writable(&entry.path());
+        }
+    }
+}
+
+/// Give the folder at `dir` the owner's read, write and search permission
+/// if it lacks any of them, so its entries can be listed, moved and
+/// removed. Anything but a folder (a link included) is left alone. The
+/// lstat-then-chmod leaves a small race with a process swapping the folder
+/// for a link; callers only use it on trees this process just made.
+#[cfg(unix)]
+pub(super) fn make_owner_writable(dir: &Path) -> std::io::Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    let meta = std::fs::symlink_metadata(dir)?;
+    let mode = meta.permissions().mode();
+    if meta.is_dir() && mode & 0o700 != 0o700 {
+        std::fs::set_permissions(dir, std::fs::Permissions::from_mode(mode | 0o700))?;
     }
     Ok(())
 }
@@ -244,44 +296,79 @@ fn tree_size(dir: &Path, op: &Op) -> std::io::Result<u64> {
 
 /// Copy the folder `src` to `dst`, which must not exist yet.
 fn copy_dir_recursive(src: &Path, dst: &Path, op: &Op) -> std::io::Result<()> {
-    std::fs::create_dir(dst)?;
-    copy_dir_contents(src, dst, op)
+    let meta = std::fs::symlink_metadata(src).map_err(|e| copying(src, e))?;
+    std::fs::create_dir(dst).map_err(|e| copying(src, e))?;
+    copy_dir_contents(src, dst, op)?;
+    keep_dir_attrs(&meta, dst).map_err(|e| copying(src, e))
 }
 
 /// Copy what's inside `src` into the new, empty folder `dst`.
 fn copy_dir_contents(src: &Path, dst: &Path, op: &Op) -> std::io::Result<()> {
-    for entry in std::fs::read_dir(src)? {
-        let entry = entry?;
+    let reading = |e: std::io::Error| {
+        std::io::Error::new(e.kind(), format!("can't read {}: {}", src.display(), e))
+    };
+    for entry in std::fs::read_dir(src).map_err(reading)? {
+        let entry = entry.map_err(reading)?;
+        let path = entry.path();
         // file_type() doesn't follow links, so a link is seen as a link here
-        let ty = entry.file_type()?;
+        let ty = entry.file_type().map_err(|e| copying(&path, e))?;
         let dst_child = dst.join(entry.file_name());
         if ty.is_symlink() {
-            copy_symlink(&entry.path(), &dst_child)?;
+            copy_symlink(&path, &dst_child)?; // its error names the link
         } else if ty.is_dir() {
-            copy_dir_recursive(&entry.path(), &dst_child, op)?;
+            copy_dir_recursive(&path, &dst_child, op)?;
         } else {
-            copy_regular_file(&entry.path(), &dst_child, &ty, op)?;
+            copy_regular_file(&path, &dst_child, &ty, op)?;
         }
     }
     Ok(())
 }
 
-/// Copy a regular file to a `dst` that must not exist yet, refusing FIFOs,
-/// sockets and devices: reading a FIFO blocks until something writes to it,
-/// which would hang the command.
+/// Give the copied folder `dst` its source's mode and modification time,
+/// once its contents are in: a read-only mode would refuse them, and adding
+/// them would change the time. The time is best effort, as for files. The
+/// access time isn't kept: adding up the copy's size has read every folder
+/// by now. Not on Windows, where Explorer keeps neither for folders, and a
+/// folder's read-only attribute means something else (a customized folder).
+#[cfg(not(windows))]
+fn keep_dir_attrs(src_meta: &std::fs::Metadata, dst: &Path) -> std::io::Result<()> {
+    let dir = std::fs::File::open(dst)?;
+    if let Ok(t) = src_meta.modified() {
+        let _ = dir.set_times(std::fs::FileTimes::new().set_modified(t));
+    }
+    dir.set_permissions(src_meta.permissions())
+}
+
+#[cfg(windows)]
+fn keep_dir_attrs(_src_meta: &std::fs::Metadata, _dst: &Path) -> std::io::Result<()> {
+    Ok(())
+}
+
+/// Give `f` the access and modification times in `meta`, as `cp -p` does.
+/// Best effort: a file system that can't store them still gets the copy.
+#[cfg(not(windows))]
+fn keep_times(f: &std::fs::File, meta: &std::fs::Metadata) {
+    let mut times = std::fs::FileTimes::new();
+    if let Ok(t) = meta.accessed() {
+        times = times.set_accessed(t);
+    }
+    if let Ok(t) = meta.modified() {
+        times = times.set_modified(t);
+    }
+    let _ = f.set_times(times);
+}
+
+/// Copy a regular file to a `dst` that must not exist yet. A FIFO, socket
+/// or device is refused (`ensure_regular`). Errors name `src`.
 fn copy_regular_file(
     src: &Path,
     dst: &Path,
     ty: &std::fs::FileType,
     op: &Op,
 ) -> std::io::Result<()> {
-    if !ty.is_file() {
-        return Err(std::io::Error::new(
-            std::io::ErrorKind::Unsupported,
-            format!("can't copy {}: not a regular file", src.display()),
-        ));
-    }
-    copy_file_no_clobber(src, dst, op)
+    ensure_regular(ty)
+        .and_then(|()| copy_file_no_clobber(src, dst, op))
+        .map_err(|e| copying(src, e))
 }
 
 /// `fs::copy` that fails with AlreadyExists instead of overwriting `dst`.
@@ -307,17 +394,20 @@ fn copy_file_no_clobber(src: &Path, dst: &Path, op: &Op) -> std::io::Result<()> 
         .map_err(|e| std::io::Error::from_raw_os_error(e.code().0 & 0xFFFF))
 }
 
-/// `fs::copy` that fails with AlreadyExists instead of overwriting `dst`.
+/// `fs::copy` that fails with AlreadyExists instead of overwriting `dst`,
+/// keeping the mode and, best effort, the access and modification times.
 #[cfg(not(windows))]
 fn copy_file_no_clobber(src: &Path, dst: &Path, op: &Op) -> std::io::Result<()> {
-    let mut from = std::fs::File::open(src)?;
-    let perms = from.metadata()?.permissions();
+    let mut from = open_regular(src)?;
+    let meta = from.metadata()?;
     let mut to = std::fs::File::create_new(dst)?;
-    let res = copy_slices(&mut from, &mut to, op).and_then(|()| to.set_permissions(perms));
+    let res = copy_slices(&mut from, &mut to, op).and_then(|()| to.set_permissions(meta.permissions()));
     if res.is_err() {
         // Don't leave a partial copy behind; this file is ours.
         drop(to);
         let _ = std::fs::remove_file(dst);
+    } else {
+        keep_times(&to, &meta);
     }
     res
 }
@@ -449,10 +539,32 @@ pub fn move_entry(from: String, to: String) -> Result<(), String> {
     match rename_no_replace(src, dst) {
         Ok(()) => Ok(()),
         Err(e) if is_cross_device(&e) => {
+            // A failed copy removes what it made, so the source is all there is.
             copy_path(&from, &to, &Op::untracked())?;
-            delete_entry(from, true)
+            delete_entry(from.clone(), true).map_err(|e| moved_but_not_deleted(&from, &to, &meta, e))
         }
         Err(e) => Err(no_clobber_err(&to, e)),
+    }
+}
+
+/// The error for a cross-volume move whose copy is done but whose source
+/// couldn't be deleted. A file's delete is all or nothing, so the source is
+/// intact: the copy is removed and nothing has moved. A folder's delete can
+/// stop partway, leaving the copy the only complete one, so it's kept and
+/// the error says some of the source is still there.
+fn moved_but_not_deleted(from: &str, to: &str, src_meta: &std::fs::Metadata, e: String) -> String {
+    if src_meta.is_dir() {
+        return format!(
+            "copied to {}, but some of the original couldn't be removed from {}: {}",
+            to, from, e
+        );
+    }
+    match std::fs::remove_file(to) {
+        Ok(()) => format!("can't remove {} after copying it, so it wasn't moved: {}", from, e),
+        Err(re) => format!(
+            "can't remove {} after copying it to {}: {} (and the copy couldn't be removed: {})",
+            from, to, e, re
+        ),
     }
 }
 
@@ -509,10 +621,75 @@ fn xdg_trash_files(xdg_data_home: Option<String>, home: Option<PathBuf>) -> Opti
     Some(data.join("Trash/files"))
 }
 
+// ---------- reading ----------
+
+/// Refuse anything but a regular file. Reading a FIFO waits for a writer
+/// and a device can read forever, either of which hangs the command's
+/// worker thread, and enough hung threads stall every async command.
+pub(super) fn ensure_regular(ty: &std::fs::FileType) -> std::io::Result<()> {
+    if ty.is_file() {
+        return Ok(());
+    }
+    let what = if ty.is_dir() { "a folder" } else { special_kind(ty) };
+    Err(std::io::Error::new(
+        std::io::ErrorKind::InvalidInput,
+        format!("{}, not a regular file", what),
+    ))
+}
+
+#[cfg(unix)]
+fn special_kind(ty: &std::fs::FileType) -> &'static str {
+    use std::os::unix::fs::FileTypeExt;
+    if ty.is_fifo() {
+        "a named pipe"
+    } else if ty.is_socket() {
+        "a socket"
+    } else if ty.is_char_device() || ty.is_block_device() {
+        "a device"
+    } else {
+        "something else"
+    }
+}
+
+#[cfg(not(unix))]
+fn special_kind(_ty: &std::fs::FileType) -> &'static str {
+    "something else"
+}
+
+/// Open `path` (links followed) for reading if it's a regular file. It's
+/// checked before the open, so a device is never opened, and again on the
+/// open file, in case the path was swapped in between. That open doesn't
+/// wait for a FIFO's writer (`O_NONBLOCK`, cleared once it's known to be a
+/// file).
+pub(super) fn open_regular(path: &Path) -> std::io::Result<std::fs::File> {
+    ensure_regular(&std::fs::metadata(path)?.file_type())?;
+    let mut opts = std::fs::OpenOptions::new();
+    opts.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        opts.custom_flags(libc::O_NONBLOCK);
+    }
+    let f = opts.open(path)?;
+    ensure_regular(&f.metadata()?.file_type())?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::io::AsRawFd;
+        let fd = f.as_raw_fd();
+        // SAFETY: `fd` stays open as long as `f`; F_GETFL and F_SETFL take
+        // no pointers.
+        let flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
+        if flags < 0 || unsafe { libc::fcntl(fd, libc::F_SETFL, flags & !libc::O_NONBLOCK) } < 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+    }
+    Ok(f)
+}
+
 #[tauri::command(async)]
 pub fn read_text(path: String, max_bytes: usize) -> Result<String, String> {
     use std::io::Read;
-    let f = std::fs::File::open(&path).map_err(|e| e.to_string())?;
+    let f = open_regular(Path::new(&path)).map_err(|e| e.to_string())?;
     // Hard server-side ceiling regardless of what the frontend asks for —
     // an oversized cap would buffer the whole file in memory.
     let cap = clamp_limit(max_bytes, 1_000_000, 64 * 1024 * 1024);
@@ -552,7 +729,7 @@ pub fn read_image_b64(path: String, max_bytes: usize) -> Result<String, String> 
     use base64::{engine::general_purpose::STANDARD, Engine as _};
     use std::io::Read;
     let cap = clamp_limit(max_bytes, 8 * 1024 * 1024, READ_IMAGE_MAX);
-    let f = std::fs::File::open(&path).map_err(|e| e.to_string())?;
+    let f = open_regular(Path::new(&path)).map_err(|e| e.to_string())?;
     let len = f.metadata().map_err(|e| e.to_string())?.len();
     if len > cap as u64 {
         return Err(format!("image too large: {} bytes (cap {})", len, cap));

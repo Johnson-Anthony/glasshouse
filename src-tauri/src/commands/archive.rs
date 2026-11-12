@@ -1,6 +1,6 @@
 use std::path::{Component, Path, PathBuf};
 use std::sync::Mutex;
-use super::fs_ops::no_clobber_err;
+use super::fs_ops::{ensure_regular, no_clobber_err, open_regular, remove_created_tree};
 use super::launch::{find_tool, require_tool};
 #[cfg(windows)]
 use super::launch::CREATE_NO_WINDOW;
@@ -96,6 +96,10 @@ fn add_input<W: std::io::Write + std::io::Seek>(
         // the archive root.
         let root_name = name.unwrap_or_else(|| "dir".to_string());
         add_dir_recursive(zipw, src, &root_name, report)?;
+    } else if let Err(e) = ensure_regular(&meta.file_type()) {
+        // A FIFO would block the read forever; sockets and devices aren't
+        // files to store either.
+        report.skip(src, e.to_string());
     } else {
         let name = name.ok_or_else(|| format!("bad filename: {}", src.display()))?;
         zipw.start_file(name, file_options(meta.len()))
@@ -166,6 +170,8 @@ fn add_dir_recursive<W: std::io::Write + std::io::Seek>(
         }
         if meta.is_dir() {
             add_dir_recursive(zipw, &child, &child_prefix, report)?;
+        } else if let Err(e) = ensure_regular(&meta.file_type()) {
+            report.skip(&child, e.to_string());
         } else {
             zipw.start_file(&child_prefix, file_options(meta.len()))
                 .map_err(|e| format!("start_file {}: {}", child_prefix, e))?;
@@ -179,7 +185,7 @@ fn add_dir_recursive<W: std::io::Write + std::io::Seek>(
 /// loop: `io::copy` would also retry interrupted reads.
 fn copy_file_into(zipw: &mut impl std::io::Write, src: &Path) -> Result<(), String> {
     use std::io::Read;
-    let mut f = std::fs::File::open(src).map_err(|e| format!("open {}: {}", src.display(), e))?;
+    let mut f = open_regular(src).map_err(|e| format!("open {}: {}", src.display(), e))?;
     let mut buf = [0u8; 64 * 1024];
     loop {
         let n = f.read(&mut buf).map_err(|e| e.to_string())?;
@@ -335,7 +341,7 @@ fn tar_gz_create(dest: &str, parent: &str, members: &[String]) -> Result<(), Str
 /// See `tar_zst_create`.
 fn tar_zst_extract(archive: &str, dest_dir: &str) -> Result<(), String> {
     use std::process::Stdio;
-    let file = std::fs::File::open(archive).map_err(|e| format!("open {}: {}", archive, e))?;
+    let file = open_regular(Path::new(archive)).map_err(|e| format!("open {}: {}", archive, e))?;
     let mut tar = PipedTar::spawn(&["-xf", "-", "-C", dest_dir], Stdio::piped(), Stdio::null())?;
     let tar_in = tar.child.stdin.take().expect("stdin is piped");
     // copy_decode drops `tar_in` when it returns, which gives tar its EOF.
@@ -469,14 +475,22 @@ static STAGED: Mutex<Vec<PathBuf>> = Mutex::new(Vec::new());
 /// staging folder, and `dest_dir` too if this call created it.
 #[tauri::command(async)]
 pub fn archive_extract(archive: String, dest_dir: String) -> Result<Staged, String> {
+    // tar and 7-Zip would wait forever on a FIFO named like an archive.
+    std::fs::metadata(&archive)
+        .and_then(|m| ensure_regular(&m.file_type()))
+        .map_err(|e| format!("open {}: {}", archive, e))?;
     let dest = Path::new(&dest_dir);
     let created = std::fs::symlink_metadata(dest).is_err();
     std::fs::create_dir_all(dest).map_err(|e| format!("create_dir_all {}: {}", dest_dir, e))?;
     let res = make_staging(dest).and_then(|staging| {
-        match extract_into(&archive, &staging) {
+        let checked = extract_into(&archive, &staging).and_then(|mut skipped| {
+            skipped.extend(tidy_staging(&staging)?);
+            Ok(skipped)
+        });
+        match checked {
             Ok(skipped) => Ok((staging, skipped)),
             Err(e) => {
-                let _ = std::fs::remove_dir_all(&staging);
+                let _ = remove_created_tree(&staging);
                 Err(e)
             }
         }
@@ -508,7 +522,60 @@ pub fn archive_discard_staging(staging: String) -> Result<(), String> {
         };
         staged.swap_remove(i);
     }
-    std::fs::remove_dir_all(&path).map_err(|e| format!("remove {}: {}", staging, e))
+    remove_created_tree(&path).map_err(|e| format!("remove {}: {}", staging, e))
+}
+
+/// Check a finished extraction in its staging folder before anything moves
+/// out of it:
+/// - a link whose target leaves the staging folder, by zip_extract's rule
+///   (`link_stays_inside`), is removed and reported. zip_extract never
+///   makes one; tar and 7-Zip do, and only guard against writing through
+///   them;
+/// - on unix every folder is made owner-writable, as zip_extract does: a
+///   read-only folder (0555 from a tar) can't be moved to another parent,
+///   and its leftovers couldn't be discarded.
+///
+/// Folders are walked without following links, so a link's own folders are
+/// real ones. Anything that can't be checked or removed fails the
+/// extraction.
+fn tidy_staging(staging: &Path) -> Result<Vec<Skipped>, String> {
+    fn walk(root: &Path, rel: &Path, skipped: &mut Vec<Skipped>) -> Result<(), String> {
+        let dir = root.join(rel);
+        let fail = |e: std::io::Error| format!("check {}: {}", dir.display(), e);
+        #[cfg(unix)]
+        super::fs_ops::make_owner_writable(&dir).map_err(fail)?;
+        for entry in std::fs::read_dir(&dir).map_err(fail)? {
+            let entry = entry.map_err(fail)?;
+            let rel = rel.join(entry.file_name());
+            let ty = entry.file_type().map_err(fail)?;
+            if ty.is_dir() {
+                walk(root, &rel, skipped)?;
+            } else if ty.is_symlink() {
+                let target = std::fs::read_link(entry.path()).map_err(fail)?;
+                if !link_stays_inside(&rel, &target) {
+                    remove_link(&entry.path()).map_err(fail)?;
+                    skipped.push(Skipped {
+                        path: rel.to_string_lossy().into_owned(),
+                        reason: outside_reason(&target),
+                    });
+                }
+            }
+        }
+        Ok(())
+    }
+    let mut skipped = Vec::new();
+    walk(staging, Path::new(""), &mut skipped)?;
+    Ok(skipped)
+}
+
+/// Remove the link at `p`. A Windows link to a folder (or a junction) is
+/// removed as a folder.
+fn remove_link(p: &Path) -> std::io::Result<()> {
+    std::fs::remove_file(p).or_else(|e| if cfg!(windows) { std::fs::remove_dir(p) } else { Err(e) })
+}
+
+fn outside_reason(target: &Path) -> String {
+    format!("its target {} is outside the archive", target.display())
 }
 
 /// A new, empty folder in `dest` to extract into: on the same volume, so
@@ -622,7 +689,7 @@ fn extract_into(archive: &str, dir: &Path) -> Result<Vec<Skipped>, String> {
 fn zip_extract(archive: &str, dir: &Path) -> Result<Vec<Skipped>, String> {
     use std::io::Read;
     let fail = |e: &dyn std::fmt::Display| format!("extract {}: {}", archive, e);
-    let f = std::fs::File::open(archive).map_err(|e| format!("open {}: {}", archive, e))?;
+    let f = open_regular(Path::new(archive)).map_err(|e| format!("open {}: {}", archive, e))?;
     let mut za = zip::ZipArchive::new(std::io::BufReader::new(f))
         .map_err(|e| format!("read zip {}: {}", archive, e))?;
 
@@ -726,7 +793,7 @@ fn make_archived_link(root: &Path, rel: &Path, target: &[u8]) -> Result<(), Stri
     let target = target.replace('/', "\\");
     let target = Path::new(&target);
     if !link_stays_inside(rel, target) {
-        return Err(format!("its target {} is outside the archive", target.display()));
+        return Err(outside_reason(target));
     }
     // The link's folders must be real folders: under another link, `..`
     // would climb from wherever that link points.

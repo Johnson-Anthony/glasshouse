@@ -16,11 +16,27 @@ fn config_file(app: &AppHandle, name: &str) -> Result<PathBuf, String> {
 }
 
 /// Write a config file via temp-file + rename so a crash mid-write can't
-/// truncate existing state (fs::write truncates before writing).
+/// truncate existing state (fs::write truncates before writing). The temp
+/// file is synced before the rename, or after a power cut the rename could
+/// be on disk before the data and leave an empty file. On unix the folder
+/// is synced after, so the rename itself is on disk too (best effort).
 fn write_config_atomic(path: &Path, body: &str) -> Result<(), String> {
+    use std::io::Write;
     let tmp = path.with_extension("json.tmp");
-    std::fs::write(&tmp, body).map_err(|e| e.to_string())?;
-    std::fs::rename(&tmp, path).map_err(|e| e.to_string())
+    let written = std::fs::File::create(&tmp).and_then(|mut f| {
+        f.write_all(body.as_bytes())?;
+        f.sync_all()
+    });
+    if let Err(e) = written {
+        let _ = std::fs::remove_file(&tmp);
+        return Err(format!("write {}: {}", tmp.display(), e));
+    }
+    std::fs::rename(&tmp, path).map_err(|e| e.to_string())?;
+    #[cfg(unix)]
+    if let Some(dir) = path.parent() {
+        let _ = std::fs::File::open(dir).and_then(|d| d.sync_all());
+    }
+    Ok(())
 }
 
 /// Read config file `name` as JSON; a missing file reads as `T::default()`.
@@ -105,6 +121,22 @@ mod tests {
         assert_eq!(std::fs::read_to_string(&target).unwrap(), "[1,2]");
         // no stray tmp file left behind
         assert!(!dir.join("pins.json.tmp").exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn write_config_atomic_keeps_the_old_file_when_the_write_fails() {
+        let dir = temp_dir("atomic-fail");
+        let target = dir.join("pins.json");
+        write_config_atomic(&target, "[1]").unwrap();
+        // A temp file left by a crash is written over.
+        std::fs::write(dir.join("pins.json.tmp"), "stale").unwrap();
+        write_config_atomic(&target, "[2]").unwrap();
+        assert_eq!(std::fs::read_to_string(&target).unwrap(), "[2]");
+        // A temp path that can't be written fails before the rename.
+        std::fs::create_dir(dir.join("pins.json.tmp")).unwrap();
+        assert!(write_config_atomic(&target, "[3]").is_err());
+        assert_eq!(std::fs::read_to_string(&target).unwrap(), "[2]");
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

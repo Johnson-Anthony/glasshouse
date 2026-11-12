@@ -1,5 +1,6 @@
 // Builds the project site's browser demo (site/demo) into docs/demo, which
 // GitHub Pages serves. Run with `pnpm site:build`.
+import { execFileSync } from "node:child_process";
 import { copyFileSync, cpSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { defineConfig, type Plugin } from "vite";
@@ -8,6 +9,22 @@ import react from "@vitejs/plugin-react";
 const pkg = JSON.parse(readFileSync(new URL("./package.json", import.meta.url), "utf8")) as { version: string };
 
 const here = (p: string) => fileURLToPath(new URL(p, import.meta.url));
+
+// The demo's About date is the date of the newest commit that changed what the
+// demo is built from, not today, so rebuilding unchanged sources gives the
+// same docs/demo (CI checks the committed copy is current; it needs the full
+// history). Uncommitted changes to those sources, or no git, mean today.
+const DEMO_SOURCES = ["src", "site", "package.json", "pnpm-lock.yaml", "vite.site.config.ts", "tsconfig.site.json"];
+function demoBuildDate(): string {
+  const today = new Date().toISOString().slice(0, 10);
+  const git = (...args: string[]) => execFileSync("git", args, { cwd: here("."), encoding: "utf8" }).trim();
+  try {
+    if (git("status", "--porcelain", "--", ...DEMO_SOURCES)) return today;
+    return git("log", "-1", "--format=%cs", "--", ...DEMO_SOURCES) || today;
+  } catch {
+    return today;
+  }
+}
 
 // The app ships four ~920 KB Nerd Font woff2 files; the demo uses subsets of
 // them (site/subset-fonts.sh) with only the characters the UI shows.
@@ -68,7 +85,7 @@ export default defineConfig({
     ],
   },
   define: {
-    __BUILD_DATE__: JSON.stringify(new Date().toISOString().slice(0, 10)),
+    __BUILD_DATE__: JSON.stringify(demoBuildDate()),
     __DEMO_VERSION__: JSON.stringify(pkg.version),
   },
   server: { port: 5182, strictPort: true },
