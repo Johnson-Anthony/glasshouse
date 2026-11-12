@@ -52,5 +52,12 @@ Scope: `## 3. selection-integrity` in `docs/plans/active/survey-2.md`.
 - [x] per-tab search + App ctx
 - [x] selection handlers
 - [x] Find in Files
-- [ ] Merge main, then the checks: build, test, check:wiring, site:build, site:capture check
-- [ ] Handoff
+- [x] Merged main (24 commits; one conflict in `components.tsx`, where both sides added a helper, so both were kept).
+- [x] Checks on the merged tree:
+  - `pnpm build` passes (only the existing chunk-size warning);
+  - `pnpm test`: 376 passed, 3 skipped (26 new tests here);
+  - `pnpm check:wiring`: 0 problems;
+  - `pnpm site:build`, then `pnpm site:capture check`: 23/23 pass, including the five new `demo:` checks.
+- [x] Handoff
+
+Done, 2026-11-12 (the work is from 2026-11-11; the app restart interrupted the last check run).
