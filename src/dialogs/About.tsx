@@ -3,6 +3,7 @@ import { TAURI_VERSION } from "../data";
 import { getVersion } from "@tauri-apps/api/app";
 import { openNotices } from "../Notices";
 import { useEscapeClose } from "./useEscapeClose";
+import { useModal } from "./modal";
 
 // ============= AboutDialog =============
 export interface AboutDialogProps {
@@ -14,6 +15,7 @@ export function AboutDialog({ open, onClose }: AboutDialogProps) {
   const [version, setVersion] = useState("…");
 
   useEscapeClose(onClose, open);
+  useModal(open);
 
   useEffect(() => {
     if (!open) return;

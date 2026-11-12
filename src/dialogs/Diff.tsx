@@ -1,5 +1,6 @@
 import { basename } from "../paths";
 import { useEscapeClose } from "./useEscapeClose";
+import { useModal } from "./modal";
 
 // ============= DiffDialog =============
 export interface DiffDialogProps {
@@ -11,6 +12,7 @@ export interface DiffDialogProps {
 
 export function DiffDialog({ a, b, diff, onClose }: DiffDialogProps) {
   useEscapeClose(onClose);
+  useModal();
 
   const lines = diff.split("\n");
 

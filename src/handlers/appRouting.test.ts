@@ -2,7 +2,11 @@ import { readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { FileEntry } from "../api";
 import * as api from "../api";
-import { cmdState } from "../commandState";
+import { cmdState, type ContextTarget } from "../commandState";
+import {
+  CONTEXT_BREADCRUMB, CONTEXT_SIDEBAR, CONTEXT_SIDEBAR_DRIVE, CONTEXT_SIDEBAR_FILE, CONTEXT_SIDEBAR_FOLDER,
+  CONTEXT_SIDEBAR_REMOTE, CONTEXT_TAB, type MenuItemDef,
+} from "../data";
 import type { UseTabResult } from "../state";
 import { COMMAND_CHAIN, HANDLERS, type AppCommands, type Handler, type HandlerCtx } from "./index";
 import { appHandler } from "./app";
@@ -26,10 +30,10 @@ function entry(name: string, extra: Partial<FileEntry> = {}): FileEntry {
 }
 
 /** ctx.app with plain values for its state and a vi.fn for every function. */
-function appCommands(): AppCommands {
+function appCommands(over: Record<string, unknown> = {}): AppCommands {
   const values: Record<string, unknown> = {
     activeTab: 0, pins: ["/w"], savedRemotes: [{ host: "example.com", label: "ex" }], tagStore: {},
-    state: { theme: "tokyo-night", hidden: false },
+    state: { theme: "tokyo-night", hidden: false }, ...over,
   };
   const fns = new Map<string, ReturnType<typeof vi.fn>>();
   return new Proxy({}, {
@@ -37,7 +41,7 @@ function appCommands(): AppCommands {
   }) as AppCommands;
 }
 
-function makeCtx(entries: FileEntry[] | null, selected: number[] = []): HandlerCtx {
+function makeCtx(entries: FileEntry[] | null, selected: number[] = [], app: Record<string, unknown> = {}): HandlerCtx {
   const handle = entries && ({
     state: { path: "/w", entries, selected, private: false },
     actions: new Proxy({}, { get: () => vi.fn() }),
@@ -52,7 +56,7 @@ function makeCtx(entries: FileEntry[] | null, selected: number[] = []): HandlerC
     visibleRows: () => (entries ?? []).map((_, i) => i),
     dispatch: vi.fn(), toggleSidebar: vi.fn(), pinPath: vi.fn(), tabs: [{}], activeTab: 0,
     setActiveTab: vi.fn(), setBlame: vi.fn(), refresh: vi.fn(),
-    app: appCommands(),
+    app: appCommands(app),
   };
 }
 
@@ -148,5 +152,97 @@ describe("targetHandler", () => {
     expect(await owner("Connect", ctx)).toBe(targetHandler);
     expect(ctx.app!.setTermProfile).toHaveBeenCalledWith(expect.objectContaining({ kind: "ssh", args: ["example.com"] }));
     expect(ctx.app!.setTermOpen).toHaveBeenCalledWith(true);
+  });
+
+  it("Copy as Command quotes the right-clicked folder so pasting it runs nothing else", async () => {
+    const writeText = vi.fn(async () => {});
+    vi.stubGlobal("navigator", { clipboard: { writeText } });
+    cmdState.contextTarget = { kind: "breadcrumb", path: "/w/$(touch PWNED)'`x`" };
+    expect(await owner("Copy as Command", makeCtx([entry("a.txt")]))).toBe(targetHandler);
+    expect(writeText).toHaveBeenCalledWith("cd '/w/$(touch PWNED)'\\''`x`'");
+    expect(cmdState.contextTarget).toBeNull();
+  });
+
+  it("Copy as Command copies nothing for a path with control characters", async () => {
+    const writeText = vi.fn(async () => {});
+    vi.stubGlobal("navigator", { clipboard: { writeText } });
+    cmdState.contextTarget = { kind: "sidebar", path: "/w/a\nrm -rf ~" };
+    expect(await owner("Copy as Command", makeCtx([entry("a.txt")]))).toBe(targetHandler);
+    expect(writeText).not.toHaveBeenCalled();
+    expect(dialogs.showToast).toHaveBeenCalled();
+  });
+});
+
+describe("context-menu targets", () => {
+  // The real listDir answers [] when it can't list.
+  beforeEach(() => { vi.mocked(api.listDir).mockResolvedValue([]); });
+  const labels = (menu: MenuItemDef[]): string[] => menu.flatMap(it =>
+    it.kind === "item" ? [it.action ?? it.label] : it.kind === "sub" ? labels(it.children) : []);
+  const pinExtras = ["Unpin", "Move pin up", "Move pin down"];
+  const MENUS: Array<[string, ContextTarget, string[]]> = [
+    ["tree folder", { kind: "sidebar", rowKind: "tree-folder", path: "/w/sub" }, labels(CONTEXT_SIDEBAR_FOLDER)],
+    ["tree file", { kind: "sidebar", rowKind: "tree-file", path: "/w/t.txt" }, labels(CONTEXT_SIDEBAR_FILE)],
+    ["pinned folder", { kind: "sidebar", rowKind: "pinned", path: "/w" }, [...pinExtras, ...labels(CONTEXT_SIDEBAR_FOLDER)]],
+    ["pinned file", { kind: "sidebar", rowKind: "pinned-file", path: "/w/t.txt" }, [...pinExtras, ...labels(CONTEXT_SIDEBAR_FILE)]],
+    ["drive", { kind: "sidebar", rowKind: "drive", path: "/" }, labels(CONTEXT_SIDEBAR_DRIVE)],
+    ["wsl", { kind: "sidebar", rowKind: "wsl", path: "/wsl" }, labels(CONTEXT_SIDEBAR)],
+    ["remote", { kind: "sidebar", rowKind: "remote", path: "example.com" }, labels(CONTEXT_SIDEBAR_REMOTE)],
+    ["breadcrumb", { kind: "breadcrumb", path: "/w" }, labels(CONTEXT_BREADCRUMB)],
+    ["tab", { kind: "tab", tabIndex: 0 }, labels(CONTEXT_TAB)],
+  ];
+
+  it.each(MENUS)("runs every %s menu item on the right-clicked target", async (_name, target, items) => {
+    expect(items.length).toBeGreaterThan(0);
+    for (const label of items) {
+      cmdState.contextTarget = { ...target };
+      expect(await owner(label, makeCtx([entry("a.txt")], [0])), label).toBe(targetHandler);
+      expect(dialogs.showToast, label).not.toHaveBeenCalledWith(expect.objectContaining({ variant: "warning" }));
+    }
+  });
+
+  it("opens a sidebar file with the default app instead of navigating into it", async () => {
+    const ctx = makeCtx([entry("a.txt")], [0]);
+    const goTo = vi.fn();
+    Object.assign(ctx.activeHandle!, { actions: { goTo, refresh: vi.fn() } });
+    cmdState.contextTarget = { kind: "sidebar", rowKind: "tree-file", path: "/w/t.txt" };
+    await owner("Open", ctx);
+    expect(api.openWithDefault).toHaveBeenCalledWith("/w/t.txt");
+    expect(goTo).not.toHaveBeenCalled();
+
+    cmdState.contextTarget = { kind: "sidebar", rowKind: "pinned-file", path: "/w/t.txt" };
+    await owner("Open", ctx);
+    expect(api.openWithDefault).toHaveBeenCalledTimes(2);
+    expect(goTo).not.toHaveBeenCalled();
+
+    cmdState.contextTarget = { kind: "sidebar", rowKind: "pinned", path: "/w/sub" };
+    await owner("Open", ctx);
+    expect(goTo).toHaveBeenCalledWith("/w/sub");
+  });
+
+  it("refuses a command it has no case for, rather than running it on the pane's selection", async () => {
+    // Git: Discard on a tree file used to discard the pane's selected files.
+    const ctx = makeCtx([entry("a.txt", { git: "M" })], [0]);
+    cmdState.contextTarget = { kind: "sidebar", rowKind: "tree-file", path: "/w/t.txt" };
+    expect(await owner("Git: Discard changes", ctx)).toBe(targetHandler);
+    expect(api.gitDiscard).not.toHaveBeenCalled();
+    expect(dialogs.showToast).toHaveBeenCalledWith(expect.objectContaining({ variant: "warning" }));
+    expect(cmdState.contextTarget).toBeNull();
+  });
+
+  it("removes tags from the right-clicked row, not the selection", async () => {
+    const ctx = makeCtx([entry("a.txt")], [0], { tagStore: { "/w/t.txt": ["red", "blue"], "/w/a.txt": ["red"] } });
+    dialogs.showPrompt.mockResolvedValueOnce("red");
+    cmdState.contextTarget = { kind: "sidebar", rowKind: "tree-file", path: "/w/t.txt" };
+    expect(await owner("Remove Tag…", ctx)).toBe(targetHandler);
+    await vi.waitFor(() => expect(ctx.app!.setTagStore).toHaveBeenCalled());
+    const update = vi.mocked(ctx.app!.setTagStore).mock.calls[0][0] as (p: Record<string, string[]>) => Record<string, string[]>;
+    expect(update({ "/w/t.txt": ["red", "blue"], "/w/a.txt": ["red"] })).toEqual({ "/w/t.txt": ["blue"], "/w/a.txt": ["red"] });
+
+    dialogs.showConfirm.mockResolvedValueOnce(true);
+    cmdState.contextTarget = { kind: "sidebar", rowKind: "tree-folder", path: "/w/t.txt" };
+    expect(await owner("Clear All Tags", ctx)).toBe(targetHandler);
+    await vi.waitFor(() => expect(ctx.app!.setTagStore).toHaveBeenCalledTimes(2));
+    const clear = vi.mocked(ctx.app!.setTagStore).mock.calls[1][0] as (p: Record<string, string[]>) => Record<string, string[]>;
+    expect(clear({ "/w/t.txt": ["blue"], "/w/a.txt": ["red"] })).toEqual({ "/w/a.txt": ["red"] });
   });
 });

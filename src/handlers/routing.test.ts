@@ -190,26 +190,183 @@ describe("routed commands", () => {
 
   it("Zip (.zip) archives the selection next to it, then refreshes", async () => {
     const ctx = makeCtx(files, [1, 2]);
+    vi.mocked(api.archiveCreate).mockResolvedValueOnce({ skipped: [] });
     expect(await owner("Zip (.zip)", ctx)).toBe(archiveHandler);
     expect(api.archiveCreate).toHaveBeenCalledWith(["/w/app.ts", "/w/lib.ts"], "/w/app.ts.zip", "zip");
     expect(ctx.refresh).toHaveBeenCalled();
+    expect(dialogs.showAlert).not.toHaveBeenCalled();
   });
 
-  it("Extract to Folder… offers the name without its archive extension", async () => {
-    const ctx = makeCtx(["photos.TAR.GZ"], [0]);
-    dialogs.showPrompt.mockResolvedValueOnce("pics");
-    expect(await owner("Extract to Folder…", ctx)).toBe(archiveHandler);
-    expect(dialogs.showPrompt).toHaveBeenCalledWith(expect.objectContaining({ initialValue: "photos" }));
-    expect(api.archiveExtract).toHaveBeenCalledWith("/w/photos.TAR.GZ", "/w/pics");
+  it("Zip (.zip) lists what it left out", async () => {
+    const ctx = makeCtx(files, [1]);
+    vi.mocked(api.archiveCreate).mockResolvedValueOnce({
+      skipped: [{ path: "/w/app.ts", reason: "symbolic link" }],
+    });
+    await owner("Zip (.zip)", ctx);
+    expect(dialogs.showAlert).toHaveBeenCalledWith(expect.objectContaining({
+      variant: "warning",
+      message: "/w/app.ts: symbolic link",
+    }));
   });
 
-  it("Stage Selected stages the selection, and does nothing without one", async () => {
-    const ctx = makeCtx(files, [0]);
+  describe("extracting", () => {
+    const staging = "/w/.glasshouse-extract-1-0";
+    const staged = (skipped: api.ArchiveSkip[] = []) => ({ staging, skipped });
+    const inStaging = (name: string, kind = "text") => ({ ...entry(name, kind), path: `${staging}/${name}` });
+    /** readDir lists `staged` for the staging folder and `existing` for /w. */
+    function listing(staged: FileEntry[], existing: FileEntry[]) {
+      vi.mocked(api.readDir).mockImplementation(async dir => (dir === staging ? staged : existing));
+    }
+    afterEach(() => vi.mocked(api.readDir).mockReset());
+
+    it("Extract to Folder… offers the name without its archive extension", async () => {
+      const ctx = makeCtx(["photos.TAR.GZ"], [0]);
+      dialogs.showPrompt.mockResolvedValueOnce("pics");
+      expect(await owner("Extract to Folder…", ctx)).toBe(archiveHandler);
+      expect(dialogs.showPrompt).toHaveBeenCalledWith(expect.objectContaining({ initialValue: "photos" }));
+      expect(api.archiveExtract).toHaveBeenCalledWith("/w/photos.TAR.GZ", "/w/pics");
+    });
+
+    it("Extract Here moves the staged entries in, then discards the staging folder", async () => {
+      const ctx = makeCtx(["a.zip"], [0]);
+      vi.mocked(api.archiveExtract).mockResolvedValueOnce(staged());
+      listing([inStaging("payload", "folder"), inStaging("top.txt")], [entry("a.zip", "archive")]);
+      await owner("Extract Here", ctx);
+      expect(api.moveEntry).toHaveBeenCalledWith(`${staging}/payload`, "/w/payload");
+      expect(api.moveEntry).toHaveBeenCalledWith(`${staging}/top.txt`, "/w/top.txt");
+      expect(dialogs.showChoice).not.toHaveBeenCalled();
+      expect(api.archiveDiscardStaging).toHaveBeenCalledWith(staging);
+      expect(dialogs.showToast).toHaveBeenCalledWith({ message: "extracted 2 item(s)", variant: "success" });
+      expect(ctx.refresh).toHaveBeenCalled();
+    });
+
+    it("asks before using a taken name, and cancelling moves nothing", async () => {
+      const ctx = makeCtx(["a.zip"], [0]);
+      vi.mocked(api.archiveExtract).mockResolvedValueOnce(staged());
+      listing([inStaging("payload", "folder")], [entry("a.zip", "archive"), entry("payload", "folder")]);
+      await owner("Extract Here", ctx); // showChoice answers null: cancel
+      expect(dialogs.showChoice).toHaveBeenCalledTimes(1);
+      expect(api.moveEntry).not.toHaveBeenCalled();
+      expect(api.moveToTrash).not.toHaveBeenCalled();
+      expect(api.archiveDiscardStaging).toHaveBeenCalledWith(staging);
+      expect(dialogs.showToast).toHaveBeenCalledWith(expect.objectContaining({ message: "extract cancelled: nothing changed" }));
+    });
+
+    it("keep both gives the extracted entry a copy name", async () => {
+      const ctx = makeCtx(["a.zip"], [0]);
+      vi.mocked(api.archiveExtract).mockResolvedValueOnce(staged());
+      listing([inStaging("payload", "folder")], [entry("payload", "folder")]);
+      dialogs.showChoice.mockResolvedValueOnce("keep-both");
+      await owner("Extract Here", ctx);
+      expect(api.moveEntry).toHaveBeenCalledWith(`${staging}/payload`, "/w/payload (copy)");
+      expect(api.archiveDiscardStaging).toHaveBeenCalledWith(staging);
+    });
+
+    it("discards the staging folder even when listing it fails", async () => {
+      const ctx = makeCtx(["a.zip"], [0]);
+      vi.mocked(api.archiveExtract).mockResolvedValueOnce(staged());
+      vi.mocked(api.readDir).mockRejectedValueOnce(new Error("gone"));
+      await owner("Extract Here", ctx);
+      expect(dialogs.showAlert).toHaveBeenCalledWith(expect.objectContaining({ title: "extract failed", message: "gone" }));
+      expect(api.archiveDiscardStaging).toHaveBeenCalledWith(staging);
+    });
+
+    it("a failed extraction alerts and has nothing to discard", async () => {
+      const ctx = makeCtx(["a.zip"], [0]);
+      vi.mocked(api.archiveExtract).mockRejectedValueOnce("extract a.zip: invalid checksum");
+      await owner("Extract Here", ctx);
+      expect(dialogs.showAlert).toHaveBeenCalledWith(expect.objectContaining({
+        title: "extract failed",
+        message: "extract a.zip: invalid checksum",
+      }));
+      expect(api.archiveDiscardStaging).not.toHaveBeenCalled();
+      expect(api.moveEntry).not.toHaveBeenCalled();
+    });
+
+    it("lists archive entries the backend left out", async () => {
+      const ctx = makeCtx(["a.zip"], [0]);
+      vi.mocked(api.archiveExtract).mockResolvedValueOnce(staged([{ path: "up", reason: "its target .. is outside the archive" }]));
+      listing([inStaging("top.txt")], []);
+      await owner("Extract Here", ctx);
+      expect(dialogs.showToast).toHaveBeenCalledWith({
+        message: "extracted 1 item(s), left out 1 archive entry",
+        variant: "warning",
+      });
+      expect(dialogs.showAlert).toHaveBeenCalledWith(expect.objectContaining({
+        variant: "warning",
+        message: "up: its target .. is outside the archive",
+      }));
+    });
+  });
+
+  /** A tab of a changed file, a clean one, an untracked one and a folder
+   *  (whose label never says what's inside). */
+  function gitCtx(selected: number[]): HandlerCtx {
+    const ctx = makeCtx(["changed.ts", "clean.ts", "new.ts", "docs"], selected);
+    const entries = ctx.activeHandle!.state.entries;
+    entries[0].git = "M";
+    entries[2].git = "?";
+    entries[3].kind = "folder";
+    return ctx;
+  }
+
+  it("Stage Selected stages changed items and folders, and skips clean files", async () => {
+    const ctx = gitCtx([0, 1, 2, 3]);
     expect(await owner("Stage Selected", ctx)).toBe(gitHandler);
-    expect(api.gitStage).toHaveBeenCalledWith(["/w/notes.md"]);
+    expect(api.gitStage).toHaveBeenCalledWith(["/w/changed.ts", "/w/new.ts", "/w/docs"]);
+    expect(ctx.refresh).toHaveBeenCalled();
     vi.mocked(api.gitStage).mockClear();
-    expect(await owner("Stage Selected", makeCtx(files, []))).toBe(gitHandler);
+    expect(await owner("Stage Selected", gitCtx([1]))).toBe(gitHandler);
+    expect(dialogs.showToast).toHaveBeenCalledWith(expect.objectContaining({ message: "nothing to stage in the selection" }));
+    expect(await owner("Stage Selected", gitCtx([]))).toBe(gitHandler);
     expect(api.gitStage).not.toHaveBeenCalled();
+  });
+
+  it("Follow Folder flips the terminal's follow setting", async () => {
+    const setTweaks = vi.fn();
+    const tweaks = { termFollow: true } as NonNullable<HandlerCtx["tweaks"]>;
+    expect(await owner("Follow Folder", { ...makeCtx([], []), tweaks, setTweaks })).toBe(viewHandler);
+    expect(setTweaks).toHaveBeenCalledWith(expect.objectContaining({ termFollow: false }));
+  });
+
+  it("Unstage Selected leaves out untracked items", async () => {
+    expect(await owner("Unstage Selected", gitCtx([0, 2, 3]))).toBe(gitHandler);
+    expect(api.gitUnstage).toHaveBeenCalledWith(["/w/changed.ts", "/w/docs"]);
+  });
+
+  it("Discard Changes confirms, sends only what has changes, and reports what was left alone", async () => {
+    const ctx = gitCtx([0, 1, 2, 3]);
+    expect(await owner("Discard Changes", ctx)).toBe(gitHandler);
+    expect(api.gitDiscard).not.toHaveBeenCalled();
+
+    dialogs.showConfirm.mockResolvedValueOnce(true);
+    vi.mocked(api.gitDiscard).mockResolvedValueOnce({
+      restored: 1,
+      trashed: 1,
+      skipped: [{ path: "docs/draft.md", reason: "staged but never committed; unstage it first" }],
+    });
+    expect(await owner("Discard Changes", ctx)).toBe(gitHandler);
+    expect(api.gitDiscard).toHaveBeenCalledWith(["/w/changed.ts", "/w/new.ts", "/w/docs"]);
+    expect(ctx.refresh).toHaveBeenCalled();
+    expect(dialogs.showAlert).toHaveBeenCalledWith(expect.objectContaining({
+      message: expect.stringContaining("docs/draft.md: staged but never committed"),
+    }));
+  });
+
+  it("every branch switch ends with `--`, so a folder name restores nothing", async () => {
+    const result = { ok: true, stdout: "", stderr: "", exit: 0 };
+    vi.mocked(api.gitRun).mockResolvedValue(result);
+    dialogs.showPrompt.mockResolvedValueOnce(" docs ");
+    expect(await owner("Checkout…", makeCtx([], []))).toBe(gitHandler);
+    expect(api.gitRun).toHaveBeenLastCalledWith("/w", ["checkout", "docs", "--"]);
+    expect(await owner("git-branch:feature/x", makeCtx([], []))).toBe(gitHandler);
+    expect(api.gitRun).toHaveBeenLastCalledWith("/w", ["checkout", "feature/x", "--"]);
+    vi.mocked(api.gitBranchList).mockResolvedValueOnce([
+      { name: "main", current: true, upstream: null, ahead: 0, behind: 0, upstream_gone: false },
+    ]);
+    dialogs.showPrompt.mockResolvedValueOnce("1");
+    expect(await owner("Git: Checkout Branch →", makeCtx([], []))).toBe(gitHandler);
+    expect(api.gitRun).toHaveBeenLastCalledWith("/w", ["checkout", "main", "--"]);
   });
 
   it("Copy as UNC puts the admin-share path on the clipboard", async () => {

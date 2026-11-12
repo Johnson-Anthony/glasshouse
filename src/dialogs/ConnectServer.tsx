@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import type { SavedRemote } from "../Sidebar";
 import { useEscapeClose } from "./useEscapeClose";
+import { useModal } from "./modal";
 
 // ============= ConnectServerDialog =============
 export interface ConnectServerDialogProps {
@@ -17,6 +18,7 @@ export function ConnectServerDialog({ onClose, onSave }: ConnectServerDialogProp
   useEffect(() => { labelRef.current?.focus(); }, []);
 
   useEscapeClose(onClose);
+  useModal();
 
   const canSave = label.trim().length > 0 && host.trim().length > 0;
   const submit = () => {

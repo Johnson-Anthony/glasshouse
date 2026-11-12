@@ -256,17 +256,29 @@ export function createBackend(hooks: BackendHooks) {
       delete n.text;
       n.size = Math.max(1024, Math.round(size * 0.6));
       changed(parent(dest));
-      return null;
+      return { skipped: [] };
     },
+    // As the real backend: everything goes into a staging folder inside the
+    // destination, which the frontend empties and then discards.
     archive_extract: a => {
       const archive = str(a.archive);
       const dest = str(a.destDir);
       const stem = basename(archive).replace(/\.(tar\.gz|tar\.zst|zip|7z|gz|zst)$/i, "");
-      const dir = join(dest, stem);
-      if (!vfs.exists(dir)) vfs.mkdir(dir, now());
+      if (!vfs.exists(dest)) vfs.mkdir(dest, now());
+      let staging = join(dest, ".glasshouse-extract-0");
+      for (let i = 1; vfs.exists(staging); i++) staging = join(dest, `.glasshouse-extract-${i}`);
+      vfs.mkdir(staging, now());
+      const dir = join(staging, stem);
+      vfs.mkdir(dir, now());
       vfs.write(join(dir, "README.txt"), `Extracted from ${basename(archive)} (demo content).\n`, now());
       vfs.write(join(dir, "data.csv"), "id,name,value\n1,alpha,0.42\n2,beta,0.17\n3,gamma,0.93\n", now());
       changed(dest);
+      return { staging, skipped: [] };
+    },
+    archive_discard_staging: a => {
+      const p = str(a.staging);
+      if (vfs.exists(p)) vfs.remove(p);
+      changed(parent(p));
       return null;
     },
 
@@ -359,13 +371,18 @@ export function createBackend(hooks: BackendHooks) {
       return null;
     },
     git_discard: a => {
+      // Like the real one: untracked items go (to the trash, there), staged
+      // new files stay, and the rest go back to the last commit.
+      const res = { restored: 0, trashed: 0, skipped: [] as Array<{ path: string; reason: string }> };
       for (const p of (a.paths as string[]) ?? []) {
         const n = vfs.get(p);
-        if (n?.git === "?") vfs.remove(p);
-        else if (n) delete n.git;
+        if (n?.git === "?") { vfs.remove(p); res.trashed++; }
+        else if (n?.git === "A") {
+          res.skipped.push({ path: p.slice(REPO.length + 1), reason: "staged but never committed; unstage it first" });
+        } else if (n?.git) { delete n.git; res.restored++; }
       }
       changed(REPO);
-      return null;
+      return res;
     },
     git_run: a => {
       const cwd = str(a.cwd);

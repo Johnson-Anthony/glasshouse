@@ -1,14 +1,15 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { CONTEXT_EMPTY, CONTEXT_FILE, GIT_CHORDS, MENUS, PALETTE, type MenuItemDef } from "./data";
-import { CHEATSHEET, KEYMAP, findBinding, matches, parseCombo, type KeyAction, type KeyEventLike } from "./keymap";
+import { CHEATSHEET, KEYMAP, findBinding, matches, parseCombo, type KeyAction, type KeyEventLike, type KeyState } from "./keymap";
 
 function key(combo: string, extra: Partial<KeyEventLike> = {}): KeyEventLike {
   const p = parseCombo(combo);
   return { key: p.key, ctrlKey: p.ctrl, metaKey: false, shiftKey: p.shift, altKey: p.alt, defaultPrevented: false, ...extra };
 }
-const find = (combo: string, state: { inText?: boolean; selected?: number } = {}, extra: Partial<KeyEventLike> = {}) =>
-  findBinding(key(combo, extra), { inText: state.inText ?? false, selected: state.selected ?? 0 });
-const sends = (combo: string, state?: { inText?: boolean; selected?: number }, extra?: Partial<KeyEventLike>) => {
+const find = (combo: string, state: Partial<KeyState> = {}, extra: Partial<KeyEventLike> = {}) =>
+  findBinding(key(combo, extra), { ...state, inText: state.inText ?? false, selected: state.selected ?? 0 });
+const sends = (combo: string, state?: Partial<KeyState>, extra?: Partial<KeyEventLike>) => {
   const b = find(combo, state, extra);
   return b ? b.send ?? `run:${b.run}` : undefined;
 };
@@ -97,6 +98,45 @@ describe("findBinding", () => {
   });
 });
 
+describe("focus and targets", () => {
+  it("runs nothing while a modal dialog is open", () => {
+    // Enter in a confirm or the Folder Picker used to also Open the selection.
+    expect(sends("Enter", { selected: 1, modal: true })).toBeUndefined();
+    for (const combo of ["Delete", "F2", "Ctrl+C", "Ctrl+V", "Ctrl+P", "Ctrl+B", "Ctrl+G", "F1"]) {
+      expect(sends(combo, { selected: 1, modal: true }), combo).toBeUndefined();
+      expect(sends(combo, { selected: 1, modal: true, inText: true }), combo).toBeUndefined();
+    }
+  });
+
+  it("keeps file keys off the pane's selection while the sidebar has focus", () => {
+    const sidebar = { selected: 2, sidebar: true };
+    for (const combo of ["Enter", "Space", "Delete", "Shift+Delete", "F2", "Ctrl+C", "Ctrl+X", "Ctrl+V",
+                         "Ctrl+Shift+C", "Ctrl+Shift+V", "Ctrl+Shift+R", "Ctrl+Shift+P", "Ctrl+Shift+E",
+                         "Ctrl+I", "Ctrl+U", "Alt+Enter", "*"]) {
+      expect(sends(combo, sidebar), combo).toBeUndefined();
+      expect(sends(combo, { selected: 2 }), combo).toBeDefined();
+    }
+    // App-wide keys still work from the sidebar.
+    expect(sends("Ctrl+B", sidebar)).toBe("Sidebar");
+    expect(sends("Ctrl+T", sidebar)).toBe("New Tab");
+    expect(sends("Ctrl+P", sidebar)).toBe("run:palette");
+    expect(sends("F5", sidebar)).toBe("Refresh");
+  });
+
+  it("leaves Ctrl+C and Ctrl+X to the browser while text is selected", () => {
+    // Copying text in the Inspector preview used to copy the selected files.
+    expect(sends("Ctrl+C", { selected: 1, textSelected: true })).toBeUndefined();
+    expect(sends("Ctrl+X", { selected: 1, textSelected: true })).toBeUndefined();
+    expect(sends("Ctrl+V", { textSelected: true })).toBe("Paste");
+    expect(sends("Delete", { selected: 1, textSelected: true })).toBe("Move to Trash");
+  });
+
+  it("doesn't Open again when a widget already handled Enter", () => {
+    // Miller opens the file itself and calls preventDefault.
+    expect(sends("Enter", { selected: 1 }, { defaultPrevented: true })).toBeUndefined();
+  });
+});
+
 describe("menu shortcut hints", () => {
   // The command a `run` action stands for, when a menu item advertises its key.
   const RUN_FOR: Record<string, KeyAction> = {
@@ -176,6 +216,14 @@ describe("bindings for advertised keys", () => {
     expect(sends("Ctrl+Shift+~")).toBe("New Terminal Tab"); // US layout: Shift+` is ~
     expect(sends("Ctrl+Shift+`", { inText: true })).toBe("New Terminal Tab");
     expect(sends("Ctrl+`")).toBe("run:terminal");
+  });
+
+  it("leaves Ctrl+Shift+` to the keymap alone, so one press opens one terminal tab", () => {
+    // xterm lets the key through to the window, so a listener of the drawer's
+    // own would add a second tab on top of the keymap's "New Terminal Tab".
+    const src = readFileSync(new URL("./Terminal.tsx", import.meta.url), "utf8");
+    expect(src).not.toMatch(/addEventListener\(\s*["']key(down|up|press)["']/);
+    expect(src).not.toMatch(/Backquote/);
   });
 
   it("Ctrl+Shift+H is Find & Replace in Files; Ctrl+Shift+F stays Find in Files", () => {

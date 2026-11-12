@@ -1,7 +1,7 @@
 //! archive_create / archive_extract through tar and 7-Zip, and extraction
 //! never writing outside the destination folder.
 
-use crate::commands::testing::{put, s, tree, Scratch};
+use crate::commands::testing::{put, read, s, tree, Scratch};
 use super::*;
 use std::io::Write;
 
@@ -53,7 +53,7 @@ fn tar_gz_round_trip_keeps_the_tree() {
     archive_create(vec![s(&src)], s(&archive), "tar.gz".into()).unwrap();
     assert_eq!(&std::fs::read(&archive).unwrap()[..2], &[0x1F, 0x8B], "gzip magic");
 
-    archive_extract(s(&archive), s(&d.join("out"))).unwrap();
+    extract_to(&archive, &d.join("out")).unwrap();
     assert_payload(&d.join("out"));
 }
 
@@ -80,7 +80,7 @@ fn extracts_every_tar_flavour_by_extension() {
             continue;
         }
         let out = d.join(format!("out-{}", name));
-        archive_extract(s(&archive), s(&out)).unwrap_or_else(|e| panic!("{}: {}", name, e));
+        extract_to(&archive, &out).unwrap_or_else(|e| panic!("{}: {}", name, e));
         assert_payload(&out);
     }
 }
@@ -97,7 +97,7 @@ fn seven_zip_round_trip_keeps_the_tree() {
     archive_create(vec![s(&src)], s(&archive), "7z".into()).unwrap();
     assert_eq!(&std::fs::read(&archive).unwrap()[..6], b"7z\xBC\xAF\x27\x1C", "7z magic");
 
-    archive_extract(s(&archive), s(&d.join("out"))).unwrap();
+    extract_to(&archive, &d.join("out")).unwrap();
     assert_payload(&d.join("out"));
 }
 
@@ -176,7 +176,7 @@ fn zip_extract_keeps_absolute_entries_inside() {
     let abs = s(&d.join("escaped.txt"));
     hostile_zip(&archive, &[(abs.as_str(), "evil")]);
 
-    let _ = archive_extract(s(&archive), s(&d.join("out")));
+    let _ = extract_to(&archive, &d.join("out"));
     assert_eq!(outside(&d, "abs.zip"), Vec::<String>::new());
 }
 
@@ -193,7 +193,7 @@ fn zip_extract_does_not_follow_an_archived_link_out() {
         z.write_all(b"evil").unwrap();
         z.finish().unwrap();
     }
-    let _ = archive_extract(s(&archive), s(&d.join("out")));
+    let _ = extract_to(&archive, &d.join("out"));
     assert_eq!(outside(&d, "link.zip"), Vec::<String>::new());
 }
 
@@ -211,7 +211,7 @@ fn tar_extract_refuses_members_that_climb_out() {
     assert!(tool_works("tar", &["-cPf", &s(&archive), "../escaped.txt"], &d.join("src/inner")));
     std::fs::remove_dir_all(d.join("src")).unwrap();
 
-    let _ = archive_extract(s(&archive), s(&d.join("out")));
+    let _ = extract_to(&archive, &d.join("out"));
     assert_eq!(outside(&d, "evil.tar"), Vec::<String>::new());
 }
 
@@ -227,6 +227,314 @@ fn seven_zip_extract_keeps_climbing_entries_inside() {
     let archive = d.join("evil.7z");
     hostile_zip(&archive, &[("../escaped.txt", "evil")]);
 
-    let _ = archive_extract(s(&archive), s(&d.join("out")));
+    let _ = extract_to(&archive, &d.join("out"));
     assert_eq!(outside(&d, "evil.7z"), Vec::<String>::new());
+}
+
+/// The archive formats this machine can create, with their extensions.
+fn creatable_formats() -> Vec<&'static str> {
+    let mut formats = vec!["zip"];
+    if which::which("tar").is_ok() {
+        formats.extend(["tar.gz", "tar.zst"]);
+    }
+    if find_7z().is_ok() {
+        formats.push("7z");
+    }
+    formats
+}
+
+#[test]
+fn extract_never_replaces_existing_files() {
+    let d = Scratch::new("extract-noclobber");
+    let src = payload(d.path());
+    for format in creatable_formats() {
+        let archive = d.join(format!("payload.{}", format));
+        archive_create(vec![s(&src)], s(&archive), format.into()).unwrap();
+        let dest = d.join(format!("dest-{}", format));
+        put(&dest.join("payload/top.txt"), "keep me");
+
+        let staged = archive_extract(s(&archive), s(&dest)).unwrap();
+        let staging = PathBuf::from(&staged.staging);
+        assert_eq!(staging.parent(), Some(dest.as_path()), "{}", format);
+        assert_eq!(read(&dest.join("payload/top.txt")), "keep me", "{}", format);
+        assert_eq!(read(&staging.join("payload/top.txt")), "top", "{}", format);
+        assert_payload(&staging);
+
+        archive_discard_staging(staged.staging).unwrap();
+        assert_eq!(tree(&dest), ["payload/", "payload/top.txt"], "{}", format);
+    }
+}
+
+/// A zip of `a.txt` then `b.txt`, stored uncompressed, with one byte of
+/// `b.txt` flipped so its checksum fails after `a.txt` was written.
+fn zip_with_corrupt_second_entry(path: &Path) {
+    let opts = zip::write::SimpleFileOptions::default()
+        .compression_method(zip::CompressionMethod::Stored);
+    let mut z = zip::ZipWriter::new(std::fs::File::create(path).unwrap());
+    z.start_file("a.txt", opts).unwrap();
+    z.write_all(b"AAAAAAAA").unwrap();
+    z.start_file("b.txt", opts).unwrap();
+    z.write_all(b"BBBBBBBB").unwrap();
+    z.finish().unwrap();
+    let mut bytes = std::fs::read(path).unwrap();
+    let at = bytes.windows(8).position(|w| w == b"BBBBBBBB").unwrap();
+    bytes[at] = b'X';
+    std::fs::write(path, bytes).unwrap();
+}
+
+#[test]
+fn failed_extract_leaves_no_partial_output() {
+    let d = Scratch::new("extract-partial");
+    let archive = d.join("bad.zip");
+    zip_with_corrupt_second_entry(&archive);
+
+    let out = d.join("out");
+    put(&out.join("keep.txt"), "keep");
+    let err = archive_extract(s(&archive), s(&out)).unwrap_err();
+    assert!(err.starts_with("extract "), "{}", err);
+    assert_eq!(tree(&out), ["keep.txt"], "no a.txt and no staging folder");
+
+    // A folder the extraction made for itself goes too.
+    let fresh = d.join("fresh");
+    archive_extract(s(&archive), s(&fresh)).unwrap_err();
+    assert!(!fresh.exists());
+}
+
+#[test]
+fn discard_staging_deletes_only_staging_folders() {
+    let d = Scratch::new("discard");
+    put(&d.join("mine/file.txt"), "x");
+    let err = archive_discard_staging(s(&d.join("mine"))).unwrap_err();
+    assert!(err.contains("isn't an extraction staging folder"), "{}", err);
+    assert_eq!(read(&d.join("mine/file.txt")), "x");
+
+    let archive = d.join("a.zip");
+    hostile_zip(&archive, &[]);
+    let staged = archive_extract(s(&archive), s(&d.join("out"))).unwrap();
+    archive_discard_staging(staged.staging.clone()).unwrap();
+    assert!(!Path::new(&staged.staging).exists());
+    assert!(archive_discard_staging(staged.staging).is_err(), "only once");
+}
+
+#[test]
+fn link_targets_must_stay_inside() {
+    let inside = [
+        ("lib/libfoo.so", "libfoo.so.1"),
+        ("lib/libfoo.so", "./libfoo.so.1"),
+        ("a/b/link", "../../top.txt"),
+        ("a/b/link", "../c/d"),
+        ("here", "."),
+    ];
+    for (rel, target) in inside {
+        assert!(link_stays_inside(Path::new(rel), Path::new(target)), "{} -> {}", rel, target);
+    }
+    let outside = [
+        ("up", ".."),
+        ("a/link", "../../x"),
+        ("abs", "/etc/passwd"),
+        ("b", "dot/.."), // climbs after a name: `dot` could be a link to `.`
+        ("b", "x/../y"),
+        ("empty", ""),
+    ];
+    for (rel, target) in outside {
+        assert!(!link_stays_inside(Path::new(rel), Path::new(target)), "{} -> {}", rel, target);
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn zip_link_entries_are_made_only_when_they_stay_inside() {
+    let d = Scratch::new("ziplinks");
+    let archive = d.join("links.zip");
+    {
+        let opts = zip::write::SimpleFileOptions::default();
+        let mut z = zip::ZipWriter::new(std::fs::File::create(&archive).unwrap());
+        z.start_file("lib/libfoo.so.1", opts).unwrap();
+        z.write_all(b"elf").unwrap();
+        z.add_symlink("lib/libfoo.so", "libfoo.so.1", opts).unwrap();
+        z.add_symlink("abs", "/etc/passwd", opts).unwrap();
+        z.add_symlink("up", "../outside", opts).unwrap();
+        z.add_symlink("dot", ".", opts).unwrap();
+        z.add_symlink("dot/esc", "../x", opts).unwrap(); // `..` from root, via `dot`
+        z.add_symlink("b", "dot/..", opts).unwrap();
+        z.finish().unwrap();
+    }
+    let out = d.join("out");
+    let mut skipped: Vec<String> = extract_to(&archive, &out)
+        .unwrap()
+        .into_iter()
+        .map(|s| s.path)
+        .collect();
+    skipped.sort();
+    assert_eq!(skipped, ["abs", "b", "dot/esc", "up"]);
+
+    assert_eq!(std::fs::read_link(out.join("lib/libfoo.so")).unwrap(), Path::new("libfoo.so.1"));
+    assert_eq!(read(&out.join("lib/libfoo.so")), "elf");
+    assert_eq!(std::fs::read_link(out.join("dot")).unwrap(), Path::new("."));
+    for gone in ["abs", "up", "b"] {
+        assert!(std::fs::symlink_metadata(out.join(gone)).is_err(), "{}", gone);
+    }
+    assert!(!d.join("outside").exists() && !d.join("x").exists());
+}
+
+/// Set the unix mode stored in the central directory of the one-entry zip
+/// at `path`: the zip writer itself masks modes to 0o777.
+#[cfg(unix)]
+fn set_stored_mode(path: &Path, mode: u32) {
+    let mut bytes = std::fs::read(path).unwrap();
+    let at = bytes.windows(4).position(|w| w == b"PK\x01\x02").unwrap();
+    // External attributes: offset 38 of the central directory header, with
+    // the unix mode (file type included) in the high 16 bits.
+    let attrs = &mut bytes[at + 38..at + 42];
+    let old = u32::from_le_bytes(attrs.try_into().unwrap());
+    let new = (old & 0xFFFF) | ((0o100000 | mode) << 16);
+    attrs.copy_from_slice(&new.to_le_bytes());
+    std::fs::write(path, bytes).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn zip_extract_keeps_mode_bits_but_not_setuid() {
+    use std::os::unix::fs::PermissionsExt;
+    let mode = |p: &Path| std::fs::metadata(p).unwrap().permissions().mode() & 0o7777;
+    let d = Scratch::new("zipmodes");
+
+    let archive = d.join("suid.zip");
+    {
+        let mut z = zip::ZipWriter::new(std::fs::File::create(&archive).unwrap());
+        let opts = zip::write::SimpleFileOptions::default().unix_permissions(0o755);
+        z.start_file("run.sh", opts).unwrap();
+        z.write_all(b"#!/bin/sh\n").unwrap();
+        z.finish().unwrap();
+    }
+    set_stored_mode(&archive, 0o6755);
+    extract_to(&archive, &d.join("out")).unwrap();
+    assert_eq!(mode(&d.join("out/run.sh")), 0o755);
+
+    // A read-only folder stays writable by its owner, so it can be moved
+    // into place; its files keep their mode.
+    let archive = d.join("ro.zip");
+    {
+        let mut z = zip::ZipWriter::new(std::fs::File::create(&archive).unwrap());
+        let ro = zip::write::SimpleFileOptions::default().unix_permissions(0o555);
+        z.add_directory("ro/", ro).unwrap();
+        z.start_file("ro/f.txt", ro.unix_permissions(0o444)).unwrap();
+        z.write_all(b"f").unwrap();
+        z.finish().unwrap();
+    }
+    extract_to(&archive, &d.join("out2")).unwrap();
+    assert_eq!(mode(&d.join("out2/ro")), 0o755);
+    assert_eq!(mode(&d.join("out2/ro/f.txt")), 0o444);
+}
+
+/// Every entry name in the zip at `path`.
+#[cfg(unix)]
+fn zip_names(path: &Path) -> Vec<String> {
+    let za = zip::ZipArchive::new(std::fs::File::open(path).unwrap()).unwrap();
+    let mut names: Vec<String> = za.file_names().map(str::to_string).collect();
+    names.sort();
+    names
+}
+
+#[cfg(unix)]
+#[test]
+fn zip_create_reports_the_links_it_leaves_out() {
+    use std::os::unix::fs::symlink;
+    let d = Scratch::new("zipskips");
+    put(&d.join("src/file.txt"), "f");
+    std::fs::create_dir_all(d.join("src/sub")).unwrap();
+    symlink("file.txt", d.join("src/file-link")).unwrap();
+    symlink("sub", d.join("src/dir-link")).unwrap();
+    symlink("src/file.txt", d.join("top-link")).unwrap();
+
+    let archive = d.join("out.zip");
+    let report = archive_create(
+        vec![s(&d.join("src")), s(&d.join("top-link"))],
+        s(&archive),
+        "zip".into(),
+    )
+    .unwrap();
+    let mut skipped: Vec<(String, String)> = report
+        .skipped
+        .into_iter()
+        .map(|s| (s.path, s.reason))
+        .collect();
+    skipped.sort();
+    let link = |p: &str| (s(&d.join(p)), "symbolic link".to_string());
+    assert_eq!(skipped, [link("src/dir-link"), link("src/file-link"), link("top-link")]);
+    assert_eq!(zip_names(&archive), ["src/", "src/file.txt", "src/sub/"]);
+}
+
+#[test]
+fn failed_create_removes_the_partial_archive() {
+    let d = Scratch::new("create-partial");
+    put(&d.join("good.txt"), "good");
+    let missing = s(&d.join("missing.txt"));
+
+    // `good.txt` is written before `missing.txt` fails; the writer's Drop
+    // would have finished that into a valid-looking zip.
+    let zip = d.join("out.zip");
+    let err = archive_create(vec![s(&d.join("good.txt")), missing.clone()], s(&zip), "zip".into())
+        .unwrap_err();
+    assert!(err.starts_with("stat "), "{}", err);
+    assert!(!zip.exists());
+
+    if which::which("tar").is_ok() {
+        let tgz = d.join("out.tar.gz");
+        let err = archive_create(vec![missing], s(&tgz), "tar.gz".into()).unwrap_err();
+        assert!(err.starts_with("tar exited"), "{}", err);
+        assert!(!tgz.exists());
+    }
+}
+
+#[test]
+fn zip64_from_4_gib() {
+    // Pinned: the options' default timestamp is "now".
+    let t = zip::DateTime::default();
+    let opts = |large| {
+        zip::write::SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Deflated)
+            .large_file(large)
+            .last_modified_time(t)
+    };
+    let of = |len| file_options(len).last_modified_time(t);
+    assert_eq!(of(u64::from(u32::MAX) - 1), opts(false));
+    assert_eq!(of(u64::from(u32::MAX)), opts(true));
+    assert_eq!(of(8 << 30), opts(true));
+}
+
+/// The real thing, on a sparse file. Slow without optimizations (deflating
+/// 4 GiB), so run it by hand: `cargo test zip_of_a_4_gib_file -- --ignored`.
+#[test]
+#[ignore]
+fn zip_of_a_4_gib_file() {
+    let d = Scratch::new("zip4g");
+    let big = d.join("big.bin");
+    let len = (4u64 << 30) + 1;
+    std::fs::File::create(&big).unwrap().set_len(len).unwrap();
+    let archive = d.join("big.zip");
+    archive_create(vec![s(&big)], s(&archive), "zip".into()).unwrap();
+    let mut za = zip::ZipArchive::new(std::fs::File::open(&archive).unwrap()).unwrap();
+    let mut entry = za.by_name("big.bin").unwrap();
+    assert_eq!(entry.size(), len);
+    // Reading it all checks the CRC.
+    assert_eq!(std::io::copy(&mut entry, &mut std::io::sink()).unwrap(), len);
+}
+
+#[cfg(windows)]
+#[test]
+fn extracted_files_keep_the_mark_of_the_web() {
+    let d = Scratch::new("motw");
+    let src = payload(d.path());
+    let archive = d.join("payload.zip");
+    archive_create(vec![s(&src)], s(&archive), "zip".into()).unwrap();
+    let mark = "[ZoneTransfer]\r\nZoneId=3\r\n";
+    std::fs::write(format!("{}:Zone.Identifier", s(&archive)), mark).unwrap();
+
+    let out = d.join("out");
+    extract_to(&archive, &out).unwrap();
+    for file in ["payload/top.txt", "payload/nested/inner.txt"] {
+        let stream = format!("{}:Zone.Identifier", s(&out.join(file)));
+        assert_eq!(std::fs::read_to_string(&stream).unwrap(), mark, "{}", file);
+    }
 }

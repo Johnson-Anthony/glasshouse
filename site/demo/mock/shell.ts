@@ -39,6 +39,8 @@ export function tokenize(line: string): string[] {
     } else if (ch === '"' || ch === "'") {
       quote = ch;
       has = true;
+    } else if (ch === "\\" && i + 1 < line.length) {
+      cur += line[++i];
     } else if (/\s/.test(ch)) {
       if (has || cur) out.push(cur);
       cur = "";

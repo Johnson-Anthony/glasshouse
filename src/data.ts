@@ -290,6 +290,7 @@ export const MENUS: MenusData = {
       children: [
         { kind: "dynamic", source: "terminal-profiles" },
       ] },
+    { kind: "item", ic: "", label: "Follow Folder",       check: true },
     { kind: "sep" },
     // Split Horizontal/Vertical removed: never implemented, and their
     // advertised shortcuts collided with Paste Special. Re-add with the
@@ -422,6 +423,33 @@ export const CONTEXT_SIDEBAR_FOLDER: MenuItemDef[] = [
   { kind: "item", ic: "", label: "Move to Trash",       kb: "Del", danger: true },
 ];
 
+// A file row in the sidebar: a tree file ("Show files") or a pinned file.
+// Every command runs on the right-clicked path (handlers/target.ts), so this
+// holds only what that handler implements; nothing falls through to the
+// pane's selection.
+export const CONTEXT_SIDEBAR_FILE: MenuItemDef[] = [
+  { kind: "item", ic: "", label: "Open" },
+  { kind: "item", ic: "", label: "Open in VS Code" },
+  { kind: "item", ic: "", label: "Reveal in Explorer" },
+  { kind: "sep" },
+  { kind: "item", ic: "", label: "Copy Path" },
+  { kind: "item", ic: "", label: "Copy as WSL Path" },
+  { kind: "sep" },
+  { kind: "item", ic: "", label: "Rename" },
+  { kind: "item", ic: "", label: "Move to…" },
+  { kind: "sub",  ic: "", label: "Tag →",
+    children: [
+      { kind: "item", label: "Add Tag…" },
+      { kind: "item", label: "Remove Tag…" },
+      { kind: "item", label: "Clear All Tags" },
+    ] },
+  { kind: "sep" },
+  { kind: "item", ic: "", label: "Pin" },
+  { kind: "sep" },
+  { kind: "item", ic: "", label: "Properties" },
+  { kind: "item", ic: "", label: "Move to Trash",       danger: true },
+];
+
 // Drive-specific sidebar menu for drive letters in the DEVICES section.
 export const CONTEXT_SIDEBAR_DRIVE: MenuItemDef[] = [
   { kind: "item", ic: "", label: "Open" },
@@ -528,6 +556,7 @@ const CONTEXT_MENUS: MenuItemDef[][] = [
   CONTEXT_FILE,
   CONTEXT_SIDEBAR,
   CONTEXT_SIDEBAR_FOLDER,
+  CONTEXT_SIDEBAR_FILE,
   CONTEXT_SIDEBAR_DRIVE,
   CONTEXT_SIDEBAR_REMOTE,
   CONTEXT_TAB,

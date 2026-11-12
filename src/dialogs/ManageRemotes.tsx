@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import type { SavedRemote } from "../Sidebar";
 import { dialogs } from "./DialogHost";
 import { useEscapeClose } from "./useEscapeClose";
+import { useModal } from "./modal";
 
 // ============= ManageRemotesDialog =============
 export interface ManageRemotesDialogProps {
@@ -17,6 +18,7 @@ export function ManageRemotesDialog({ remotes, onClose, onRemove, onEdit, onAdd 
   const [draft, setDraft] = useState<SavedRemote>({ label: "", host: "", path: "" });
 
   useEscapeClose(onClose);
+  useModal();
 
   const beginEdit = (i: number) => {
     const r = remotes[i];

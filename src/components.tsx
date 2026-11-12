@@ -9,6 +9,7 @@ import { remapIndexes } from "./listing";
 import { splitBreadcrumb } from "./paths";
 import type { SortDir, SortKey } from "./state";
 import { TAG_COLOR_MAP } from "./Sidebar";
+import { isModalOpen } from "./dialogs/modal";
 
 // ============= Titlebar =============
 export interface TabDef {
@@ -282,6 +283,12 @@ interface RowHandlers {
 // (App.tsx) always passes rows that carry their entry.
 const rowPath = (f: FileRow): string | undefined => (f as { entry?: { path?: string } }).entry?.path;
 
+/** The pane's context menu for a right-click: the file menu on a row, the
+ *  empty-space menu (New, Paste…) anywhere else, whatever is selected. */
+export function paneContextKind(target: Pick<Element, "closest"> | null): "file" | "empty" {
+  return target?.closest("[data-orig]") ? "file" : "empty";
+}
+
 /** Marks a symlink row; its kind, size and date describe the target. */
 export function LinkMark() {
   return <span className="link" title="symbolic link" aria-label="symbolic link">↪</span>;
@@ -437,7 +444,7 @@ export function FilePane({
   // (the global App-level listener covers app-wide shortcuts; we do NOT want
   // arrow-key selection to fire while focus is in the search box or sidebar).
   const onKeyDown = (e: React.KeyboardEvent) => {
-    if (displayFiles.length === 0) return;
+    if (displayFiles.length === 0 || isModalOpen()) return;
 
     const currentPos = visiblePos.get(focusIndex);
     const safePos = currentPos ?? 0;
@@ -732,7 +739,7 @@ export function FilePane({
       }}
       onKeyDown={onKeyDown}
       onMouseDown={onPaneMouseDown}
-      onContextMenu={(e) => { e.preventDefault(); onContext(e, selected.length ? "file" : "empty"); }}
+      onContextMenu={(e) => { e.preventDefault(); onContext(e, paneContextKind(e.target as Element)); }}
     >
       <div className="pane-head">
         <div className="col"></div>
@@ -1004,6 +1011,8 @@ export interface TweakState {
   showExtensions: boolean;
   showGitGutters: boolean;
   foldersFirst: boolean;
+  /** The terminal types a `cd` when the active tab's folder changes. */
+  termFollow: boolean;
 }
 
 export interface TweaksProps {
@@ -1084,6 +1093,13 @@ export function Tweaks({ state, setState, onClose }: TweaksProps) {
           <div className="segmented">
             <button className={state.foldersFirst ? "" : "active"} onClick={() => setState({...state, foldersFirst: false})}>off</button>
             <button className={state.foldersFirst ? "active" : ""} onClick={() => setState({...state, foldersFirst: true})}>on</button>
+          </div>
+        </div>
+        <div className="tweak">
+          <label>terminal follows folder</label>
+          <div className="segmented">
+            <button className={state.termFollow ? "" : "active"} onClick={() => setState({...state, termFollow: false})}>off</button>
+            <button className={state.termFollow ? "active" : ""} onClick={() => setState({...state, termFollow: true})}>on</button>
           </div>
         </div>
       </div>

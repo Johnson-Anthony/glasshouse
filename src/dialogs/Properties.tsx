@@ -3,6 +3,7 @@ import { hashSha256, type FileEntry } from "../api";
 import { isCancelled, runOp } from "../ops";
 import { errText } from "../errors";
 import { useEscapeClose } from "./useEscapeClose";
+import { useModal } from "./modal";
 
 // ============= PropertiesDialog =============
 export interface PropertiesDialogProps {
@@ -32,6 +33,7 @@ export function PropertiesDialog({ entry, onClose }: PropertiesDialogProps) {
   }, [entry?.path]);
 
   useEscapeClose(onClose, !!entry);
+  useModal(!!entry);
 
   if (!entry) return null;
 

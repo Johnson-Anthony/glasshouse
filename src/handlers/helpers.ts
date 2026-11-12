@@ -1,8 +1,11 @@
-import { gitBlame, winToWsl, type BlameLine } from "../api";
+import { gitBlame, gitDiscard, gitStage, gitUnstage, winToWsl, writeTags, type BlameLine, type FileEntry } from "../api";
 import { dialogs } from "../dialogs/DialogHost";
 import { errText } from "../errors";
+import { discardReport, gitTargets, type GitAction } from "../gitTargets";
 import { winPathToWsl } from "../shellCd";
-import type { HandlerCtx } from "./types";
+import type { AppCommands, HandlerCtx } from "./types";
+
+type TagAccess = Pick<AppCommands, "tagStore" | "setTagStore">;
 
 /** The selected paths, or the first entry's path when nothing else is. */
 export function selectedOrFirst(ctx: HandlerCtx): string[] {
@@ -49,6 +52,42 @@ export async function showBlame(
   }
 }
 
+/** Stage, Unstage or Discard the selection, for the Git menu and the
+ *  context menu alike: the same filter (`gitTargets`), the same confirm and
+ *  the same report. */
+export async function runGitAction(
+  action: GitAction,
+  selected: string[],
+  entries: FileEntry[],
+  refresh: () => void,
+): Promise<void> {
+  if (selected.length === 0) return;
+  const targets = gitTargets(action, selected, entries);
+  if (targets.length === 0) {
+    dialogs.showToast({ message: `nothing to ${action} in the selection`, variant: "info" });
+    return;
+  }
+  if (action === "stage") await gitStage(targets);
+  else if (action === "unstage") await gitUnstage(targets);
+  else {
+    const ok = await dialogs.showConfirm({
+      title: "discard changes",
+      message:
+        `Discard local changes to ${targets.length} item(s)? Tracked files go back to the last ` +
+        "commit, and untracked ones move to the trash. Staged new files and ignored files are left alone.",
+      danger: true,
+      okLabel: "discard",
+    });
+    if (!ok) return;
+    const { message, leftAlone } = discardReport(await gitDiscard(targets));
+    refresh();
+    if (leftAlone) void dialogs.showAlert({ title: "discard changes", variant: "info", message });
+    else dialogs.showToast({ message, variant: "info" });
+    return;
+  }
+  refresh();
+}
+
 /** Copy `path` as a WSL path: the backend's conversion, or the local mapping
  *  when that fails or comes back empty. */
 export async function copyWslPath(path: string): Promise<void> {
@@ -56,4 +95,49 @@ export async function copyWslPath(path: string): Promise<void> {
   try { wsl = await winToWsl(path); } catch { wsl = ""; }
   if (!wsl) wsl = winPathToWsl(path);
   await navigator.clipboard.writeText(wsl);
+}
+
+/** Asks which of `path`'s tags to remove, then removes it. */
+export async function removeTagPrompt(path: string, { tagStore, setTagStore }: TagAccess): Promise<void> {
+  const existing = tagStore[path] ?? [];
+  if (existing.length === 0) return;
+  const raw = await dialogs.showPrompt({
+    title: "remove tag",
+    message: `Remove which tag? (current: ${existing.join(", ")})`,
+    initialValue: existing[0],
+    placeholder: "tag",
+    validate: (v) => existing.includes(v.trim()) ? null : `not a current tag`,
+  });
+  if (raw === null) return;
+  const tag = raw.trim();
+  if (!tag || !existing.includes(tag)) return;
+  setTagStore(prev => {
+    const cur = prev[path] ?? [];
+    const filtered = cur.filter(t => t !== tag);
+    const next = { ...prev };
+    if (filtered.length === 0) delete next[path];
+    else next[path] = filtered;
+    void writeTags(next);
+    return next;
+  });
+}
+
+/** Asks, then removes every tag from `paths`. "none" when none had tags. */
+export async function clearAllTags(paths: string[], { tagStore, setTagStore }: TagAccess): Promise<"none" | "cancelled" | "cleared"> {
+  const tagged = paths.filter(p => (tagStore[p]?.length ?? 0) > 0);
+  if (tagged.length === 0) return "none";
+  const ok = await dialogs.showConfirm({
+    title: "Remove all tags",
+    message: `Remove all tags from ${tagged.length} item(s)?`,
+    danger: true,
+    okLabel: "remove",
+  });
+  if (!ok) return "cancelled";
+  setTagStore(prev => {
+    const next = { ...prev };
+    for (const p of tagged) delete next[p];
+    void writeTags(next);
+    return next;
+  });
+  return "cleared";
 }

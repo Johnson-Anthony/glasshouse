@@ -1,4 +1,4 @@
-import { type FileEntry, openWithDefault, renameEntry, deleteEntry, moveToTrash, makeDir, createTextFile, spawnTerminal, spawnVscodeStrict, revealInExplorer, writeTags, archiveCreate, hashSha256, homeDir, gitStage, gitUnstage, gitDiscard } from "../api";
+import { type FileEntry, openWithDefault, renameEntry, deleteEntry, moveToTrash, makeDir, createTextFile, spawnTerminal, spawnVscodeStrict, revealInExplorer, archiveCreate, hashSha256, homeDir } from "../api";
 import { MUTATING_LABELS } from "../data";
 import { dialogs } from "../dialogs/DialogHost";
 import { basename, parentPath, joinPath } from "../paths";
@@ -12,7 +12,8 @@ import { isCancelled, runOp } from "../ops";
 import { type TransferOp, runTransfer, type TransferItem, type TransferResult } from "../transfer";
 import type { PasteSpecialItem } from "../dialogs/PasteSpecial";
 import type { Handler } from "./types";
-import { copyWslPath, selectedOrFirst, showBlame } from "./helpers";
+import { clearAllTags, copyWslPath, removeTagPrompt, runGitAction, selectedOrFirst, showBlame } from "./helpers";
+import { showLeftOut } from "./archive";
 import { cmdState } from "../commandState";
 import { errText } from "../errors";
 
@@ -70,8 +71,6 @@ export const fileOpsHandler: Handler = async (label, ctx) => {
     setPasteSpecial,
     setPropsEntry,
     setTagPickerPath,
-    setTagStore,
-    tagStore,
   } = ctx.app;
   if (!activeHandle) return true;
   const st = activeHandle.state;
@@ -318,50 +317,13 @@ export const fileOpsHandler: Handler = async (label, ctx) => {
     }
     case "Remove Tag…": {
       if (!firstPath) return true;
-      const existing = tagStore[firstPath] ?? [];
-      if (existing.length === 0) return true;
-      const raw = await dialogs.showPrompt({
-        title: "remove tag",
-        message: `Remove which tag? (current: ${existing.join(", ")})`,
-        initialValue: existing[0],
-        placeholder: "tag",
-        validate: (v) => existing.includes(v.trim()) ? null : `not a current tag`,
-      });
-      if (raw === null) return true;
-      const tag = raw.trim();
-      if (!tag || !existing.includes(tag)) return true;
-      setTagStore(prev => {
-        const cur = prev[firstPath] ?? [];
-        const filtered = cur.filter(t => t !== tag);
-        const next = { ...prev };
-        if (filtered.length === 0) delete next[firstPath];
-        else next[firstPath] = filtered;
-        void writeTags(next);
-        return next;
-      });
+      await removeTagPrompt(firstPath, ctx.app);
       return true;
     }
     case "Clear All Tags": {
-      const targets = selectedOrFirst(ctx);
-      const tagged = targets.filter(p => (tagStore[p]?.length ?? 0) > 0);
-      if (tagged.length === 0) {
-        dialogs.showToast({ message: "no tagged items in selection", variant: "info" });
-        return true;
-      }
-      const ok = await dialogs.showConfirm({
-        title: "Remove all tags",
-        message: `Remove all tags from ${tagged.length} item(s)?`,
-        danger: true,
-        okLabel: "remove",
-      });
-      if (!ok) return true;
-      setTagStore(prev => {
-        const next = { ...prev };
-        for (const p of tagged) delete next[p];
-        void writeTags(next);
-        return next;
-      });
-      refresh();
+      const r = await clearAllTags(selectedOrFirst(ctx), ctx.app);
+      if (r === "none") dialogs.showToast({ message: "no tagged items in selection", variant: "info" });
+      if (r === "cleared") refresh();
       return true;
     }
     case "Compress to ZIP…": {
@@ -384,9 +346,10 @@ export const fileOpsHandler: Handler = async (label, ctx) => {
       if (!/\.zip$/i.test(name)) name += ".zip";
       const outPath = joinPath(cwd, name);
       try {
-        await archiveCreate(active, outPath, "zip");
+        const report = await archiveCreate(active, outPath, "zip");
         refresh();
         dialogs.showToast({ message: `compressed to ${name}`, variant: "success" });
+        showLeftOut(report.skipped, "left out of the archive");
       } catch (err) {
         const msg = errText(err);
         console.error("compress failed:", msg);
@@ -437,40 +400,15 @@ export const fileOpsHandler: Handler = async (label, ctx) => {
       return true;
     }
     case "Git: Stage": {
-      const targets = selectedPaths.filter((_, idx) => {
-        const e = st.entries[st.selected[idx]];
-        return !!e && e.git !== null;
-      });
-      if (targets.length === 0) return true;
-      await gitStage(targets);
-      refresh();
+      await runGitAction("stage", selectedPaths, st.entries, refresh);
       return true;
     }
     case "Git: Unstage": {
-      const targets = selectedPaths.filter((_, idx) => {
-        const e = st.entries[st.selected[idx]];
-        return !!e && e.git !== null && e.git !== "?";
-      });
-      if (targets.length === 0) return true;
-      await gitUnstage(targets);
-      refresh();
+      await runGitAction("unstage", selectedPaths, st.entries, refresh);
       return true;
     }
     case "Git: Discard changes": {
-      const targets = selectedPaths.filter((_, idx) => {
-        const e = st.entries[st.selected[idx]];
-        return !!e && e.git !== null;
-      });
-      if (targets.length === 0) return true;
-      const ok = await dialogs.showConfirm({
-        title: "discard changes",
-        message: `Discard local changes for ${targets.length} item(s)? This cannot be undone.`,
-        danger: true,
-        okLabel: "discard",
-      });
-      if (!ok) return true;
-      await gitDiscard(targets);
-      refresh();
+      await runGitAction("discard", selectedPaths, st.entries, refresh);
       return true;
     }
     case "Git: Blame": {

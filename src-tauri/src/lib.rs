@@ -52,6 +52,7 @@ pub fn run() {
             commands::archive::compress,
             commands::archive::archive_create,
             commands::archive::archive_extract,
+            commands::archive::archive_discard_staging,
             commands::archive::archive_can_handle,
             commands::hash::hash_sha256,
             commands::launch::open_with_default,

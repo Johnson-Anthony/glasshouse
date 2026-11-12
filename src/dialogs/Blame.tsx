@@ -1,6 +1,7 @@
 import type { BlameLine } from "../api";
 import { basename } from "../paths";
 import { useEscapeClose } from "./useEscapeClose";
+import { useModal } from "./modal";
 
 // ============= BlameDialog =============
 export interface BlameDialogProps {
@@ -10,6 +11,7 @@ export interface BlameDialogProps {
 
 export function BlameDialog({ blame, onClose }: BlameDialogProps) {
   useEscapeClose(onClose);
+  useModal();
 
   const shortName = basename(blame.path);
 

@@ -249,8 +249,18 @@ export function gitUnstage(paths: string[]): Promise<void> {
   return mustInvoke<void>("git_unstage", { paths });
 }
 
-export function gitDiscard(paths: string[]): Promise<void> {
-  return mustInvoke<void>("git_discard", { paths });
+/** What Discard did (commands/git.rs `DiscardResult`). */
+export interface GitDiscardResult {
+  /** Files put back as the last commit has them. */
+  restored: number;
+  /** Untracked files and folders moved to the trash. */
+  trashed: number;
+  /** Paths left as they were: repo-relative, `/`-separated, with why. */
+  skipped: Array<{ path: string; reason: string }>;
+}
+
+export function gitDiscard(paths: string[]): Promise<GitDiscardResult> {
+  return mustInvoke<GitDiscardResult>("git_discard", { paths });
 }
 
 export interface GitRunResult {
@@ -369,16 +379,41 @@ export function writeTags(tags: Record<string, string[]>): Promise<void> {
 
 export type ArchiveFormat = "zip" | "tar.gz" | "tar.zst" | "7z";
 
+/** An input or archive entry left out, and why. */
+export interface ArchiveSkip {
+  path: string;
+  reason: string;
+}
+
+/** What archive creation left out (only zip leaves anything out). */
+export interface ArchiveReport {
+  skipped: ArchiveSkip[];
+}
+
+/** An extraction waiting in its staging folder inside the destination. */
+export interface StagedExtract {
+  staging: string;
+  skipped: ArchiveSkip[];
+}
+
 export function archiveCreate(
   paths: string[],
   dest: string,
   format: ArchiveFormat,
-): Promise<void> {
-  return mustInvoke<void>("archive_create", { paths, dest, format });
+): Promise<ArchiveReport> {
+  return mustInvoke<ArchiveReport>("archive_create", { paths, dest, format });
 }
 
-export function archiveExtract(archive: string, destDir: string): Promise<void> {
-  return mustInvoke<void>("archive_extract", { archive, destDir });
+/** Extract into a new staging folder inside `destDir` (made if missing).
+ *  Nothing else is written: move the entries in with runTransfer, then
+ *  archiveDiscardStaging. */
+export function archiveExtract(archive: string, destDir: string): Promise<StagedExtract> {
+  return mustInvoke<StagedExtract>("archive_extract", { archive, destDir });
+}
+
+/** Delete a staging folder archiveExtract returned, and what's left in it. */
+export function archiveDiscardStaging(staging: string): Promise<void> {
+  return mustInvoke<void>("archive_discard_staging", { staging });
 }
 
 export function archiveCanHandle(

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import { drives as apiDrives, homeDir as apiHomeDir, listDir, listWslDistros, pickDirectory, type Drive, type FileEntry, type WslDistro } from "./api";
-import { basename, joinPath, pathSegments } from "./paths";
+import { basename, joinPath, normalizePath, parentPath, pathSegments } from "./paths";
+import { isModalOpen } from "./dialogs/modal";
 
 // ============= Sidebar =============
 interface TreeNodeState {
@@ -41,11 +42,33 @@ export interface SavedRemote {
   path: string;
 }
 
-export type SidebarRowKind = "pinned" | "tree-folder" | "tree-file" | "drive" | "remote" | "wsl";
+export type SidebarRowKind = "pinned" | "pinned-file" | "tree-folder" | "tree-file" | "drive" | "remote" | "wsl";
+
+/** Which pins are files rather than folders, from one listing per parent
+ *  folder. A pin that isn't found (unreadable parent, gone) counts as a folder. */
+export async function pinnedFiles(pins: string[], list: (dir: string) => Promise<FileEntry[]>): Promise<Set<string>> {
+  const byParent = new Map<string, string[]>();
+  for (const p of pins) {
+    const dir = parentPath(p);
+    if (!dir || normalizePath(dir) === normalizePath(p)) continue;
+    byParent.set(dir, [...(byParent.get(dir) ?? []), p]);
+  }
+  const files = new Set<string>();
+  await Promise.all([...byParent].map(async ([dir, want]) => {
+    const entries = await list(dir).catch((): FileEntry[] => []);
+    const kinds = new Map(entries.map(e => [normalizePath(e.path), e.kind]));
+    for (const p of want) {
+      if ((kinds.get(normalizePath(p)) ?? "folder") !== "folder") files.add(p);
+    }
+  }));
+  return files;
+}
 
 export interface SidebarProps {
   activePath: string;
   onGoTo: (path: string) => void;
+  /** A file row (tree "Show files", a pinned file) was clicked or entered. */
+  onOpenFile?: (path: string) => void;
   onRowContext?: (e: React.MouseEvent, path: string, kind: SidebarRowKind) => void;
   pins: string[];
   onAddPin: () => void;
@@ -119,7 +142,7 @@ function loadSbOrder(): SbGroupKey[] {
   } catch { return SB_GROUP_DEFAULTS; }
 }
 
-export function Sidebar({ activePath, onGoTo, onRowContext, pins, onAddPin, tags, onTagFilter, activeTagFilter, savedRemotes, onOpenConnectDialog, onRemoteClick, sidebarRootRef, onActivate, onPickTreeRoot }: SidebarProps) {
+export function Sidebar({ activePath, onGoTo, onOpenFile, onRowContext, pins, onAddPin, tags, onTagFilter, activeTagFilter, savedRemotes, onOpenConnectDialog, onRemoteClick, sidebarRootRef, onActivate, onPickTreeRoot }: SidebarProps) {
   const sidebarRef = useRef<HTMLElement>(null);
   useEffect(() => {
     if (!sidebarRootRef) return;
@@ -133,6 +156,19 @@ export function Sidebar({ activePath, onGoTo, onRowContext, pins, onAddPin, tags
   const [home, setHome] = useState<string | null>(null);
   const [driveList, setDriveList] = useState<Drive[]>([]);
   const [wslDistros, setWslDistros] = useState<WslDistro[]>([]);
+
+  // Pins can be files (Add Bookmark pins the selection): those open with the
+  // default app and get the file menu instead of navigating.
+  const [pinFiles, setPinFiles] = useState<Set<string>>(() => new Set());
+  useEffect(() => {
+    let cancelled = false;
+    void pinnedFiles(pins, d => listDir(d, true)).then(s => { if (!cancelled) setPinFiles(s); });
+    return () => { cancelled = true; };
+  }, [pins]);
+  const openRow = (path: string, isFile: boolean) => {
+    if (isFile && onOpenFile) onOpenFile(path);
+    else onGoTo(path);
+  };
 
   // Tree: visible flattened list + map of children by path
   const [rootPath, setRootPath] = useState<string | null>(null);
@@ -392,13 +428,15 @@ export function Sidebar({ activePath, onGoTo, onRowContext, pins, onAddPin, tags
   }, [selectedIdx]);
 
   const activateRow = (row: SbNavRow) => {
-    if (row.kind === "pin" || row.kind === "drive" || row.kind === "wsl") onGoTo(row.path);
-    else if (row.kind === "tree") onGoTo(row.path);
+    if (row.kind === "pin") openRow(row.path, pinFiles.has(row.path));
+    else if (row.kind === "drive" || row.kind === "wsl") onGoTo(row.path);
+    else if (row.kind === "tree") openRow(row.path, !row.isFolder);
     else if (row.kind === "tag") onTagFilter?.(row.label);
     else if (row.kind === "remote") onRemoteClick(savedRemotes[row.idx]);
   };
 
   const onSidebarKeyDown = (e: React.KeyboardEvent) => {
+    if (isModalOpen()) return;
     // Ignore events that bubbled up from inside the tree-options popup, the
     // section title (which owns Enter-to-toggle for collapsible groups from
     // a sibling task), or any focused form input inside the sidebar.
@@ -623,12 +661,12 @@ export function Sidebar({ activePath, onGoTo, onRowContext, pins, onAddPin, tags
                  data-sidebar-drop-path={p}
                  data-sb-nav-idx={navIdx}
                  className={"sb-item" + (p === activePath ? " active" : "") + (isKb ? " sb-item-focused" : "")}
-                 onClick={() => onGoTo(p)}
+                 onClick={() => openRow(p, pinFiles.has(p))}
                  onContextMenu={(e) => {
                    if (!onRowContext) return;
                    e.preventDefault();
                    e.stopPropagation();
-                   onRowContext(e, p, "pinned");
+                   onRowContext(e, p, pinFiles.has(p) ? "pinned-file" : "pinned");
                  }}
                  title={p}
                  style={{cursor:"pointer"}}>
@@ -703,7 +741,7 @@ export function Sidebar({ activePath, onGoTo, onRowContext, pins, onAddPin, tags
                data-sb-nav-idx={navIdx}
                className={"tree-row" + (n.path === activePath ? " active" : "") + (isKb ? " sb-item-focused" : "")}
                style={{paddingLeft: 12 + n.depth * 10, cursor:"pointer"}}
-               onClick={() => onGoTo(n.path)}
+               onClick={() => openRow(n.path, n.kind !== "folder")}
                onContextMenu={(e) => {
                  if (!onRowContext) return;
                  e.preventDefault();
