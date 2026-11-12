@@ -21,7 +21,7 @@ On 2026-11-11, four read-only agents surveyed the app (at `45ea31b`): frontend b
 | 11 | undo-coverage | frontend | M | **running** (`youthful-shtern-2ac1c5`; Find & Replace, Extract and Trash undo left to tasks 7, 1, 12) |
 | 12 | trash-restore | both | M | queued |
 | **Wave 4: performance** |||||
-| 13 | pane-perf | frontend | L | queued (after 3 and 5) |
+| 13 | pane-perf | frontend | L | **running** (`cool-satoshi-4102fc`; plus a vitest DOM environment) |
 | 14 | refresh-cost | both | M | queued |
 | **Wave 5: promises and UX** (README and site claims first) |||||
 | 15 | palette-commands | frontend | M | queued |
