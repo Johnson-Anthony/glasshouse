@@ -85,6 +85,9 @@ jobs:
   # the current sources, and the landing page's checks must pass.
   site:
     runs-on: ubuntu-latest
+    # A good run takes about 8 minutes; a stuck headless browser once held
+    # this job for 3 hours.
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v5
         with:

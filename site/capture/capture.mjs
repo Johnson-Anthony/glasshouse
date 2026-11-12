@@ -68,9 +68,21 @@ async function launchChromium() {
     "--no-first-run", "--no-default-browser-check", "--hide-scrollbars", "--mute-audio",
     "--disable-gpu", "--font-render-hinting=none", "about:blank",
   ], { stdio: ["ignore", "ignore", "pipe"] });
+  let stderr = "";
+  proc.stderr.on("data", d => { stderr += d; });
   const portFile = join(profile, "DevToolsActivePort");
-  for (let i = 0; i < 200 && !existsSync(portFile); i++) await sleep(50);
-  const [port] = readFileSync(portFile, "utf8").split("\n");
+  // A cold start on a CI runner can take well over 10 s. Chromium writes the
+  // file in two steps, so wait for the port line, not just the file.
+  let port = "";
+  for (let i = 0; i < 600 && proc.exitCode === null && !port; i++) {
+    await sleep(50);
+    if (existsSync(portFile)) port = readFileSync(portFile, "utf8").split("\n")[0].trim();
+  }
+  if (!port) {
+    proc.kill();
+    rmSync(profile, { recursive: true, force: true });
+    throw new Error(`chromium didn't start (${proc.exitCode === null ? "no DevTools port after 30 s" : `exit ${proc.exitCode}`}):\n${stderr.slice(-2000)}`);
+  }
   const pages = await (await fetch(`http://127.0.0.1:${port}/json/list`)).json();
   const page = pages.find(p => p.type === "page");
   const ws = new WebSocket(page.webSocketDebuggerUrl);
@@ -453,4 +465,6 @@ async function main() {
   }
 }
 
-main().catch(e => { console.error(e); process.exitCode = 1; });
+// Exit outright: an error before main's `finally` leaves the static server
+// listening, which would keep node (and a CI job) running forever.
+main().catch(e => { console.error(e); process.exit(1); });
