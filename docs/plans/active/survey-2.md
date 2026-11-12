@@ -38,7 +38,7 @@ On 2026-11-11, four read-only agents surveyed the app (at `45ea31b`): frontend b
 | 25 | folder-size | both | S–M | queued |
 | **Wave 6: tests, CI and dependencies** |||||
 | 26 | test-gaps | both | S | queued |
-| 27 | ci-hygiene | CI | S | **running** (`exciting-rubin-44f4c0`; plus actionlint) |
+| 27 | ci-hygiene | CI | S | merged (7bb4385) |
 | 28 | deps-bump | both | M | queued |
 
 **Scheduling notes:**
