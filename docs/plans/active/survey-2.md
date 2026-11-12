@@ -16,6 +16,7 @@ On 2026-11-11, four read-only agents surveyed the app (at `45ea31b`): frontend b
 | 8 | fs-robustness | Rust + `handlers/fileOps.ts` | S–M | **running** (`recursing-allen-a7ecf9`; plus the tar/7z link check and read-only staged folders) |
 | 9 | watcher-fixes | Rust | S | **running** (`cool-gauss-d234ca`) |
 | **Wave 2: release** |||||
+| 10b | security-deps | both | M | queued (before the v0.2.0 tag) |
 | 10 | release-prep | config + CI | S | **merged** (c6dab0c; the tag itself is the user's call) |
 | **Wave 3: undo and trash** |||||
 | 11 | undo-coverage | frontend | M | **running** (`youthful-shtern-2ac1c5`; Find & Replace, Extract and Trash undo left to tasks 7, 1, 12) |
@@ -136,6 +137,20 @@ On 2026-11-11, four read-only agents surveyed the app (at `45ea31b`): frontend b
   - say in the README that the AppImage needs `libfuse2` on Ubuntu 24.04+.
 - **A CHANGELOG** with v0.2.0 notes: the data-loss fixes since July; that saved tweaks reset once (new key); and that Show Ignored, Show Checksums and Browse archive in place are gone.
 - Wave 1 should be merged first, since the site's Download button serves July's v0.1.0, which still has the paste-clobber bugs. Tagging is the user's decision.
+
+## 10b. security-deps (both, M; before the v0.2.0 tag; found 2026-11-12 by ci-hygiene)
+ci-hygiene checked Cargo.lock against OSV (RustSec plus GitHub advisories). The parts of task 28 that must land before a release:
+- **zip 2.4.2 → 9.x:**
+  - GHSA-m665-v7pm-7grj (critical; fixed in 9.0.5): a parser differential makes a zip look different to different readers;
+  - GHSA-q7v9-x93c-xqv3 (high) and GHSA-8hxf-qr8p-62x4 (AES HMAC bypass), both fixed in 9.0.0;
+  - RUSTSEC-2026-0367, 0368, 0369 and 0429, fixed in 9.0.0. They concern `ZipArchive::extract` and SUID bits, which archive-safety's own extraction loop and mode mask probably avoid, but cargo audit flags them.
+
+  This is a major bump through archive-safety's code (`commands/archive.rs`): rerun all its tests, including the ignored 4 GiB one.
+- **tauri 2.10.3 → ≥ 2.11.1:** GHSA-7gmj-67g7-phm9 (moderate), "origin confusion" lets remote pages call local-only IPC commands. glasshouse loads no remote pages, so the impact is probably low, but bump it. Keep the JS `@tauri-apps/*` versions in step.
+- **zstd 0.13.3 → 0.13.4 and zstd-safe → 7.4.0** (RUSTSEC-2026-0391, 0398, 0403), **quick-xml → 0.41** (0194, 0195), **crossbeam-epoch → 0.9.20** (0204) and **libz-sys → 1.1.31** (0418).
+- The warnings-only items (git2 unsound, glib, rand 0.7, unmaintained crates) stay in task 28.
+- Every lockfile change needs `pnpm notices`. Windows CI is the first Windows build.
+- **User decision:** turn on Dependabot alerts and security updates in the repo's GitHub settings. dependabot.yml only covers version updates.
 
 ## 11. undo-coverage (frontend, M)
 - **These push no undo entry**, so Ctrl+Z undoes an older, unrelated action:

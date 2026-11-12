@@ -37,7 +37,8 @@
 
 ## Next
 1. **User decisions:**
-   - tag a v0.2.0 release, now that CI is green;
+   - tag v0.2.0 once wave 1 and `security-deps` are merged (Cargo.lock has open advisories: zip 2.4.2 critical, tauri 2.10.3 moderate; see survey-2.md §10b), then finish the CHANGELOG (date, remove the TODO);
+   - turn on Dependabot alerts and security updates in the repo's GitHub settings;
    - the open questions in `docs/SPEC.md`: remote browsing, macOS, the command-line path, and `origin/feature` (`ddb5466`; see below).
 2. **Manual checks in the real app:**
    - undo and redo: rename, then Ctrl+Z, then Ctrl+Y;
