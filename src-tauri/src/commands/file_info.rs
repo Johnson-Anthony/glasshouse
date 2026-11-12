@@ -58,13 +58,37 @@ pub fn read_hex_dump(path: String, offset: u64, length: usize) -> Result<String,
 
 // ---------- diff ----------
 
+/// The most `diff_files` and `git_blame` read of one file. Both hold the
+/// whole text in memory, and neither is any use on a bigger file.
+pub(super) const TEXT_READ_CAP: u64 = 16 << 20;
+
+/// Read all of `path`, refusing a file over `TEXT_READ_CAP`. Reads at most
+/// one byte past the cap, in case the file grows after the size check.
+pub(super) fn read_capped(path: &Path) -> Result<Vec<u8>, String> {
+    use std::io::Read;
+    let too_big = || format!("{} is over {} MiB, too big to read", path.display(), TEXT_READ_CAP >> 20);
+    let f = std::fs::File::open(path).map_err(|e| format!("read {}: {}", path.display(), e))?;
+    let len = f.metadata().map(|m| m.len()).unwrap_or(0);
+    if len > TEXT_READ_CAP {
+        return Err(too_big());
+    }
+    let mut buf = Vec::with_capacity(len as usize);
+    f.take(TEXT_READ_CAP + 1)
+        .read_to_end(&mut buf)
+        .map_err(|e| format!("read {}: {}", path.display(), e))?;
+    if buf.len() as u64 > TEXT_READ_CAP {
+        return Err(too_big());
+    }
+    Ok(buf)
+}
+
 /// Return a unified diff between two utf-8 text files. Errors with
 /// "binary or non-utf8" if either file cannot be decoded. An empty diff
 /// (identical content) returns an empty string.
 #[tauri::command(async)]
 pub fn diff_files(a: String, b: String) -> Result<String, String> {
-    let a_bytes = std::fs::read(&a).map_err(|e| format!("read {}: {}", a, e))?;
-    let b_bytes = std::fs::read(&b).map_err(|e| format!("read {}: {}", b, e))?;
+    let a_bytes = read_capped(Path::new(&a))?;
+    let b_bytes = read_capped(Path::new(&b))?;
     let a_text = std::str::from_utf8(&a_bytes)
         .map_err(|_| "binary or non-utf8".to_string())?;
     let b_text = std::str::from_utf8(&b_bytes)
@@ -257,5 +281,23 @@ fn win_file_owner(path: &str) -> Option<String> {
         } else {
             Some(format!("{}\\{}", domain, name))
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::commands::testing::{put, s, Scratch};
+
+    #[test]
+    fn diff_files_refuses_a_file_over_the_read_cap() {
+        let d = Scratch::new("diff-cap");
+        let (small, big) = (d.join("small.txt"), d.join("big.txt"));
+        put(&small, "one\n");
+        put(&big, "");
+        std::fs::File::options().write(true).open(&big).unwrap().set_len(TEXT_READ_CAP + 1).unwrap();
+        let err = diff_files(s(&small), s(&big)).unwrap_err();
+        assert!(err.contains("too big"), "{}", err);
+        assert!(diff_files(s(&small), s(&small)).unwrap().is_empty());
     }
 }

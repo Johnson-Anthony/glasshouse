@@ -428,6 +428,7 @@ fn zip_extract_keeps_mode_bits_but_not_setuid() {
 }
 
 /// Every entry name in the zip at `path`.
+#[cfg(unix)]
 fn zip_names(path: &Path) -> Vec<String> {
     let za = zip::ZipArchive::new(std::fs::File::open(path).unwrap()).unwrap();
     let mut names: Vec<String> = za.file_names().map(str::to_string).collect();
