@@ -37,4 +37,8 @@ Find & Replace in Files never damages a file: it changes only valid UTF-8 text, 
 - [x] Frontend handler, `contentsUndo`, the message builders and the demo mock, with tests (20 new vitest).
 - [x] Decision record: `docs/decisions/2026-11-12-find-replace-safety-design.md`.
 - [x] Windows `swap_in` (ReplaceFileW) type-checked with clippy for `x86_64-pc-windows-msvc` in a scratch crate. The rest of the module's Windows paths are plain std and were not built for Windows.
-- [ ] Checks on the merged tree, then handoff.
+- [x] Merged main (f52358b, backlog only). Checks on the merged tree:
+  - `pnpm build` passes; `pnpm test` gives 483 passed and 3 skipped; `pnpm check:wiring` is clean; `pnpm notices --check` is up to date.
+  - `cargo clippy --all-targets` with `-D warnings` is clean; `cargo test` gives 195 passed and 2 ignored.
+  - `pnpm site:build` leaves the committed demo unchanged. `pnpm site:capture check` passed on the same code before the merge.
+- **Done.** Not built here: Windows. Only `swap_in` was type-checked, and the Windows CI job is the first full compile and run of the module's tests there.
