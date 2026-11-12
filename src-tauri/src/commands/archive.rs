@@ -697,8 +697,10 @@ fn zip_extract(archive: &str, dir: &Path) -> Result<Vec<Skipped>, String> {
     let mut modes: Vec<(PathBuf, u32, bool)> = Vec::new();
     for i in 0..za.len() {
         let mut entry = za.by_index(i).map_err(|e| fail(&e))?;
-        let rel = entry_path(&entry)
-            .ok_or_else(|| fail(&format!("entry \"{}\" points outside the folder", entry.name())))?;
+        let rel = entry_path(&entry).ok_or_else(|| {
+            let name = entry.name().unwrap_or_else(|_| String::from_utf8_lossy(entry.name_raw()));
+            fail(&format!("entry \"{}\" points outside the folder", name))
+        })?;
         if entry.is_symlink() {
             let mut target = Vec::new();
             entry.read_to_end(&mut target).map_err(|e| fail(&e))?;
@@ -745,7 +747,14 @@ fn zip_extract(archive: &str, dir: &Path) -> Result<Vec<Skipped>, String> {
 
 /// The entry's path inside the extraction folder, with `.` and `..` folded
 /// away, or None if it's absolute, has a drive or climbs above the folder.
-fn entry_path(entry: &zip::read::ZipFile<'_>) -> Option<PathBuf> {
+/// `enclosed_name` would make a rooted name (`/x`, `\\x`, `C:x`) relative,
+/// so those are refused here first.
+fn entry_path<R: std::io::Read>(entry: &zip::read::ZipFile<'_, R>) -> Option<PathBuf> {
+    let name = entry.name().ok()?;
+    let b = name.as_bytes();
+    if matches!(b, [b'/' | b'\\', ..]) || matches!(b, [d, b':', ..] if d.is_ascii_alphabetic()) {
+        return None;
+    }
     let mut out = PathBuf::new();
     for c in entry.enclosed_name()?.components() {
         match c {

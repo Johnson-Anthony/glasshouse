@@ -16,6 +16,8 @@ accepted = [
     "0BSD",
     "Unlicense",
     "CDLA-Permissive-2.0",
+    # libbz2-rs-sys, zip's Rust port of bzip2; the C bzip2 it replaced had the same license.
+    "bzip2-1.0.6",
 ]
 # Only what's linked into the app: build scripts and dev-only crates don't ship.
 ignore-build-dependencies = true

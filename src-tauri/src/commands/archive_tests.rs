@@ -139,7 +139,7 @@ fn archive_can_handle_knows_the_formats() {
 /// with whatever names it's given.
 fn hostile_zip(path: &Path, entries: &[(&str, &str)]) {
     let mut z = zip::ZipWriter::new(std::fs::File::create(path).unwrap());
-    let opts: zip::write::FileOptions<'_, ()> = zip::write::FileOptions::default();
+    let opts: zip::write::FileOptions<'_, '_, ()> = zip::write::FileOptions::default();
     z.start_file("ok.txt", opts).unwrap();
     z.write_all(b"ok").unwrap();
     for (name, body) in entries {
@@ -180,6 +180,20 @@ fn zip_extract_keeps_absolute_entries_inside() {
     assert_eq!(outside(&d, "abs.zip"), Vec::<String>::new());
 }
 
+/// zip's `enclosed_name` makes a rooted name relative; `entry_path` still
+/// refuses it, so the extraction fails and leaves nothing behind.
+#[test]
+fn zip_extract_refuses_rooted_entry_names() {
+    let d = Scratch::new("ziprooted");
+    for (i, name) in ["/abs.txt", "\\unc\\abs.txt", "C:abs.txt", "c:/abs.txt"].into_iter().enumerate() {
+        let archive = d.join(format!("rooted{}.zip", i));
+        hostile_zip(&archive, &[(name, "evil")]);
+        let err = archive_extract(s(&archive), s(&d.join("out"))).unwrap_err();
+        assert!(err.contains("points outside the folder"), "{}: {}", name, err);
+    }
+    assert!(!d.join("out").exists());
+}
+
 #[cfg(unix)]
 #[test]
 fn zip_extract_does_not_follow_an_archived_link_out() {
@@ -187,7 +201,7 @@ fn zip_extract_does_not_follow_an_archived_link_out() {
     let archive = d.join("link.zip");
     {
         let mut z = zip::ZipWriter::new(std::fs::File::create(&archive).unwrap());
-        let opts: zip::write::FileOptions<'_, ()> = zip::write::FileOptions::default();
+        let opts: zip::write::FileOptions<'_, '_, ()> = zip::write::FileOptions::default();
         z.add_symlink("up", "..", opts).unwrap();
         z.start_file("up/escaped.txt", opts).unwrap();
         z.write_all(b"evil").unwrap();
@@ -431,7 +445,7 @@ fn zip_extract_keeps_mode_bits_but_not_setuid() {
 #[cfg(unix)]
 fn zip_names(path: &Path) -> Vec<String> {
     let za = zip::ZipArchive::new(std::fs::File::open(path).unwrap()).unwrap();
-    let mut names: Vec<String> = za.file_names().map(str::to_string).collect();
+    let mut names: Vec<String> = za.file_names().map(|n| n.unwrap().into_owned()).collect();
     names.sort();
     names
 }

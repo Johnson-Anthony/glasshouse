@@ -5,7 +5,7 @@ description = "Desktop file manager for Windows and Linux"
 authors = ["Anthony Johnson"]
 license = "MIT"
 edition = "2021"
-rust-version = "1.88"
+rust-version = "1.90"
 
 [lib]
 name = "glasshouse_lib"
@@ -22,7 +22,8 @@ tauri-build = { version = "2.0", features = [] }
 toml = "0.9"
 
 [dependencies]
-tauri = { version = "2.1", features = [] }
+# 2.11.1 fixes GHSA-7gmj-67g7-phm9 (remote pages reaching local-only IPC).
+tauri = { version = "2.11.1", features = [] }
 tauri-plugin-dialog = "2.2"
 tauri-plugin-fs = "2.2"
 tauri-plugin-opener = "2.2"
@@ -44,9 +45,10 @@ ignore = "0.4"
 grep-searcher = "0.1"
 grep-regex = "0.1"
 regex = "1"
-zip = "2"
+# 9.0.5 fixes GHSA-m665-v7pm-7grj and the other zip 2.x advisories.
+zip = "9.0.5"
 # Same features as zip's own zstd dependency, so nothing extra gets built.
-zstd = { version = "0.13", default-features = false }
+zstd = { version = "0.14", default-features = false }
 sha2 = "0.10"
 md-5 = "0.10"
 crc32fast = "1"
