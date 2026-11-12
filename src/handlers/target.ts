@@ -198,10 +198,11 @@ export const targetHandler: Handler = (label, ctx) => {
           void (async () => {
             try {
               await moveToTrash(target);
-              activeHandle?.actions.refresh();
             } catch (err) {
               const msg = errText(err);
               void dialogs.showAlert({ message: `trash failed: ${msg}`, variant: "error" });
+            } finally {
+              activeHandle?.actions.refresh();
             }
           })();
           return true;

@@ -10,7 +10,8 @@ use crate::ops::{Op, OpRegistry};
 fn read_chunks(path: &str, op: &Op, mut update: impl FnMut(&[u8])) -> Result<(), String> {
     use std::io::Read;
 
-    let mut f = std::fs::File::open(path).map_err(|e| format!("open {}: {}", path, e))?;
+    let mut f = super::fs_ops::open_regular(std::path::Path::new(path))
+        .map_err(|e| format!("open {}: {}", path, e))?;
     if let Ok(meta) = f.metadata() {
         op.set_total(meta.len());
     }
@@ -127,6 +128,19 @@ mod tests {
 
         let err = hash_sha256(s(&dir.join("missing"))).unwrap_err();
         assert!(err.starts_with("open "), "{}", err);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn hashing_refuses_a_fifo_without_blocking() {
+        use crate::commands::testing::{mkfifo, without_blocking};
+        let dir = temp_dir("hash-fifo");
+        let fifo = dir.join("pipe");
+        mkfifo(&fifo);
+        let p = s(&fifo);
+        let err = without_blocking(move || hash_sha256(p)).unwrap_err();
+        assert_eq!(err, format!("open {}: a named pipe, not a regular file", fifo.display()));
         let _ = std::fs::remove_dir_all(&dir);
     }
 

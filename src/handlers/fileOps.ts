@@ -31,6 +31,38 @@ function bulkRenameItems(st: TabState): BulkRenameItem[] {
     .map(e => ({ path: e.path, name: e.name }));
 }
 
+/** Delete Permanently's question. Folders go with everything in them, so it
+ *  says so when the selection has any. */
+export function deleteConfirmText(count: number, folders: number): string {
+  const end = "This cannot be undone.";
+  if (folders === 0) return `Permanently delete ${count} item(s)? ${end}`;
+  if (count === 1) return `Permanently delete 1 folder and everything in it? ${end}`;
+  return `Permanently delete ${count} item(s), including ${folders} folder(s) and everything in them? ${end}`;
+}
+
+/** Run `remove` on every path, carrying on past failures, then refresh
+ *  whatever happened and list what failed. */
+export async function removeEach(
+  paths: string[],
+  remove: (path: string) => Promise<void>,
+  refresh: () => void,
+  failTitle: (failed: number) => string,
+): Promise<void> {
+  const failed: string[] = [];
+  for (const p of paths) {
+    try {
+      await remove(p);
+    } catch (e) {
+      failed.push(`${basename(p)}: ${errText(e)}`);
+    }
+  }
+  refresh();
+  if (failed.length === 0) return;
+  const lines = failed.slice(0, 5);
+  if (failed.length > 5) lines.push(`…and ${failed.length - 5} more`);
+  void dialogs.showAlert({ title: failTitle(failed.length), variant: "error", message: lines.join("\n") });
+}
+
 /** New Folder, Text File, Markdown Note and Script: prompt for a free name in
  *  `cwd`, create it, and push an undo entry that removes it. */
 async function createNew(
@@ -159,15 +191,18 @@ export const fileOpsHandler: Handler = async (label, ctx) => {
     }
     case "Delete Permanently": {
       if (selectedPaths.length === 0) return true;
+      // A link to a folder is removed as a link, so it isn't counted.
+      const folders = st.selected.filter(i => st.entries[i]?.kind === "folder" && !st.entries[i]?.is_symlink).length;
       const ok = await dialogs.showConfirm({
         title: "delete permanently",
-        message: `Permanently delete ${selectedPaths.length} item(s)? This cannot be undone.`,
+        message: deleteConfirmText(selectedPaths.length, folders),
         danger: true,
         okLabel: "delete",
       });
       if (!ok) return true;
-      for (const p of selectedPaths) await deleteEntry(p, false);
-      refresh();
+      const total = selectedPaths.length;
+      await removeEach(selectedPaths, p => deleteEntry(p, true), refresh,
+        n => `couldn't delete ${n} of ${total} item(s)`);
       return true;
     }
     case "Move to Trash": {
@@ -182,8 +217,9 @@ export const fileOpsHandler: Handler = async (label, ctx) => {
         });
         if (!ok) return true;
       }
-      for (const p of selectedPaths) await moveToTrash(p);
-      refresh();
+      const total = selectedPaths.length;
+      await removeEach(selectedPaths, moveToTrash, refresh,
+        n => `couldn't move ${n} of ${total} item(s) to the ${IS_WINDOWS ? "Recycle Bin" : "Trash"}`);
       return true;
     }
     case "Copy": {
