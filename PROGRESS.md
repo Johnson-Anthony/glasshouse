@@ -75,6 +75,7 @@
    - `scripts/*.ps1` and `scripts/win-*.sh` (WSL → Windows build helpers) aren't referenced or documented anywhere: document them in CLAUDE.md or drop them.
 
 ## Broken / known issues
+- On the GitHub runner, headless Chromium sometimes never opens its DevTools port. `site/capture/capture.mjs` starts it up to three times (20 s each; `9f63f1a`), and the site job has a 20-minute cap. The first attempt hung on 9f63f1a's own run, so it's common; if all three fail, re-run the job.
 - Esc doesn't clear the selection in Miller columns (its key handler has no Escape case).
 - Renames can still race where `renameat2(RENAME_NOREPLACE)` isn't available (non-Linux unix, NFS, older FUSE), which falls back to check-then-rename.
 - On Windows, a file whose on-disk case differs from git's index loses its git label. Copy progress there is per file, not within a file.
