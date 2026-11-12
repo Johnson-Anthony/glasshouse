@@ -11,8 +11,8 @@
 // What each action does: docs/decisions/2026-11-12-undo-coverage-policy.md
 
 import {
-  copyEntry, createTextFile, deleteEntry, fileStatExtended, makeDir, moveEntry, readDir, readText, renameEntry, setPermissions,
-  writeText, type FileEntry,
+  copyEntry, createTextFile, deleteEntry, fileStatExtended, makeDir, moveEntry, readDir, readText, renameEntry, rewriteText,
+  setPermissions, writeText, type FileEntry,
 } from "./api";
 import { renameFailure, renameStepsProblem, reverseRenameSteps, runRenameSteps, type RenameStep } from "./names";
 import { basename, normalizePath, parentPath } from "./paths";
@@ -296,16 +296,64 @@ export function emptyFolderUndo(label: string, path: string, fs: UndoFs = realFs
  *  so `before` must be the whole file, read as text. */
 export function contentUndo(label: string, path: string, before: string, after: string, fs: UndoFs = realFs): UndoEntry {
   const swap = async (expect: string, next: string) => {
-    let now: string;
-    try {
-      now = await fs.read(path);
-    } catch (err) {
-      throw new Error(`"${basename(path)}" couldn't be read (${errText(err)})`);
-    }
-    if (now !== expect) throw new Error(`"${basename(path)}" has changed since; not overwriting it`);
+    const problem = await contentProblem(fs, path, expect);
+    if (problem) throw new Error(`${problem}; not overwriting it`);
     await fs.overwrite(path, next);
   };
   return { label, inverse: () => swap(after, before), redo: () => swap(before, after) };
+}
+
+/** Why `path` doesn't hold `expect`, or null if it does. */
+async function contentProblem(fs: UndoFs, path: string, expect: string): Promise<string | null> {
+  let now: string;
+  try {
+    now = await fs.read(path);
+  } catch (err) {
+    return `"${basename(path)}" couldn't be read (${errText(err)})`;
+  }
+  return now === expect ? null : `"${basename(path)}" has changed since`;
+}
+
+/** One file's text before and after, for contentsUndo. */
+export interface ContentChange {
+  path: string;
+  before: string;
+  after: string;
+}
+
+/** Writes through rewrite_text, as Find & Replace's own: a temp file and a
+ *  rename, permissions kept, links and read-only files refused. */
+const rewriteFs: UndoFs = { ...realFs, overwrite: rewriteText };
+
+/** Several files' text replaced at once (Find & Replace in Files): undo
+ *  writes each `before` back and redo each `after`, but nothing at all
+ *  unless every file still holds what the other direction left, so the
+ *  step is never half done because one file was edited since. If a write
+ *  fails part way, the files already written are put back. */
+export function contentsUndo(label: string, changes: ContentChange[], fs: UndoFs = rewriteFs): UndoEntry {
+  const swap = async (expect: "before" | "after", next: "before" | "after") => {
+    const problems: string[] = [];
+    for (const c of changes) {
+      const problem = await contentProblem(fs, c.path, c[expect]);
+      if (problem) problems.push(problem);
+    }
+    if (problems.length > 0) throw new Error(`Nothing was changed:\n${bullets(problems)}`);
+    const done: ContentChange[] = [];
+    for (const c of changes) {
+      try {
+        await fs.overwrite(c.path, c[next]);
+      } catch (err) {
+        const stuck: string[] = [];
+        for (const d of done.reverse()) {
+          await fs.overwrite(d.path, d[expect]).catch(() => stuck.push(`"${basename(d.path)}"`));
+        }
+        const after = stuck.length > 0 ? `, and ${stuck.join(", ")} couldn't be put back` : "; nothing was changed";
+        throw new Error(`"${basename(c.path)}" couldn't be written (${errText(err)})${after}`);
+      }
+      done.push(c);
+    }
+  };
+  return { label, inverse: () => swap("after", "before"), redo: () => swap("before", "after") };
 }
 
 /** Several entries as one step: undo runs their inverses last first, redo

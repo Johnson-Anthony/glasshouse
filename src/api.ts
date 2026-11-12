@@ -49,6 +49,53 @@ export interface FindMatch {
   line: string;
 }
 
+/** Find & Replace in Files: what to replace, and where. */
+export interface ReplaceRequest {
+  root: string;
+  query: string;
+  replacement: string;
+  caseInsensitive: boolean;
+}
+
+export interface PlannedFile {
+  path: string;
+  matches: number;
+  /** Size now, and after the replace. */
+  bytes: number;
+  new_bytes: number;
+}
+
+/** A file with a match that a replace leaves alone, and why. */
+export interface SkippedFile {
+  path: string;
+  reason: string;
+}
+
+export interface ReplacePlan {
+  files: PlannedFile[];
+  skipped: SkippedFile[];
+  /** The search stopped at `cap` files with matches, and there are more. */
+  capped: boolean;
+  cap: number;
+  /** Every planned file's old and new text fit what's kept for undo. */
+  undoable: boolean;
+}
+
+export interface ChangedFile {
+  path: string;
+  matches: number;
+  /** The whole old and new text, when kept for undo. */
+  before: string | null;
+  after: string | null;
+}
+
+export interface ReplaceOutcome {
+  changed: ChangedFile[];
+  skipped: SkippedFile[];
+  /** Cancelled between files: `changed` is what was done first. */
+  cancelled: boolean;
+}
+
 export interface Drive {
   letter: string;
   label: string;
@@ -303,6 +350,24 @@ export function findInFiles(
   const args = { root, query, caseInsensitive, maxResults, opId };
   if (opId) return mustInvoke<FindMatch[]>("find_in_files", args);
   return safe(() => invoke<FindMatch[]>("find_in_files", args), []);
+}
+
+/** What a Find & Replace would change and leave alone. With `opId` it
+ *  reports files searched and can be cancelled. */
+export function replacePreview(request: ReplaceRequest, opId?: string): Promise<ReplacePlan> {
+  return mustInvoke<ReplacePlan>("replace_preview", { request, opId });
+}
+
+/** Replace in `paths` (from a preview). A cancel stops between files and
+ *  resolves with what was changed (`cancelled` set). */
+export function replaceApply(request: ReplaceRequest, paths: string[], keepContent: boolean, opId?: string): Promise<ReplaceOutcome> {
+  return mustInvoke<ReplaceOutcome>("replace_apply", { request, paths, keepContent, opId });
+}
+
+/** Replace an existing file's text atomically, keeping its permissions, as
+ *  Find & Replace writes. Refuses links, special and read-only files. */
+export function rewriteText(path: string, content: string): Promise<void> {
+  return mustInvoke<void>("rewrite_text", { path, content });
 }
 
 export function openWithDefault(path: string): Promise<void> {

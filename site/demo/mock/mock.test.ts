@@ -199,6 +199,22 @@ describe("backend", () => {
     expect(names.length).toBeGreaterThan(3);
   });
 
+  it("previews and applies a Find & Replace, with the text for undo", async () => {
+    const { hooks } = quietHooks();
+    const b = createBackend(hooks);
+    const request = { root: REPO, query: "glasshouse", replacement: "greenhouse", caseInsensitive: false };
+    const plan = await b.invoke("replace_preview", { request }) as { files: Array<{ path: string; matches: number }> };
+    const readme = plan.files.find(f => f.path.endsWith("README.md"))!;
+    expect(readme.matches).toBeGreaterThan(0);
+    const out = await b.invoke("replace_apply", { request, paths: [readme.path], keepContent: true }) as {
+      changed: Array<{ before: string; after: string }>;
+    };
+    expect(out.changed[0].before).toContain("glasshouse");
+    expect(b.vfs.get(readme.path)?.text).toBe(out.changed[0].after);
+    await b.invoke("rewrite_text", { path: readme.path, content: out.changed[0].before });
+    expect(b.vfs.get(readme.path)?.text).toBe(out.changed[0].before);
+  });
+
   it("returns null for commands it doesn't know", async () => {
     const { hooks } = quietHooks();
     expect(await createBackend(hooks).invoke("not_a_command")).toBeNull();

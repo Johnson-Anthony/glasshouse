@@ -6,7 +6,8 @@ import { parseOctalMode } from "../octal";
 import { joinPath } from "../paths";
 import {
   hashSha256,
-  findInFiles,
+  replacePreview,
+  replaceApply,
   diffFiles,
   setPermissions,
   verifySignature,
@@ -15,8 +16,8 @@ import {
   changeOwner,
   openWithDefaultStrict,
   ensureDir,
-  readText,
-  writeText,
+  type ReplaceOutcome,
+  type ReplacePlan,
 } from "../api";
 import { runTransfer, type TransferItem } from "../transfer";
 import { namesIn, transferDeps } from "../transferUi";
@@ -26,6 +27,7 @@ import { markIrreversible, pushUndo, type UndoEntry } from "../state";
 import {
   currentPermissions, emptyFolderUndo, groupUndo, moveUndo, permissionsUndo, type PathPair, type PermChange,
 } from "../undoActions";
+import { nothingMessage, outcomeReport, previewMessage, replaceUndo } from "../findReplace";
 
 const clipboardStack: string[][] = [];
 
@@ -236,9 +238,11 @@ export const toolsHandler: Handler = async (label, ctx) => {
     }
 
     case "Find & Replace in Files": {
+      // The backend reads and writes bytes and changes only UTF-8 text; see
+      // findReplace.ts and src-tauri/src/commands/replace.rs.
       const needle = await dialogs.showPrompt({
         title: "find & replace in files",
-        message: "search pattern:",
+        message: "text to find (case-sensitive):",
         validate: (v) => v.trim() ? null : "pattern required",
       });
       if (needle == null || needle === "") return true;
@@ -247,41 +251,51 @@ export const toolsHandler: Handler = async (label, ctx) => {
         message: "replace with (can be empty):",
       });
       if (replacement == null) return true;
+      // One case rule for the preview's counts and the replace.
+      const request = { root: ctx.cwd, query: needle, replacement, caseInsensitive: false };
+      let plan: ReplacePlan;
       try {
-        const matches = await runOp(`finding "${needle}"`, track =>
-          findInFiles(ctx.cwd, needle, true, 500, track()), "items");
-        if (matches.length === 0) {
-          void dialogs.showAlert({ title: "no matches", message: `no matches for "${needle}"`, variant: "info" });
-          return true;
-        }
-        const uniquePaths = Array.from(new Set(matches.map((m) => m.path)));
-        const ok = await dialogs.showConfirm({
-          title: "replace?",
-          message: `${matches.length} match(es) across ${uniquePaths.length} file(s). Replace?`,
-        });
-        if (!ok) {
-          return true;
-        }
-        let filesWritten = 0;
-        for (const p of uniquePaths) {
-          try {
-            const content = await readText(p, 2_000_000);
-            if (!content.includes(needle)) continue;
-            const next = content.split(needle).join(replacement);
-            await writeText(p, next);
-            filesWritten++;
-          } catch (e) {
-            console.log(`[tools] Find & Replace: failed for ${p}:`, e);
-          }
-        }
-        dialogs.showToast({ message: `replaced in ${filesWritten} files`, variant: "success" });
-        ctx.refresh();
+        plan = await runOp(`finding "${needle}"`, track => replacePreview(request, track()), "items");
       } catch (e) {
         if (isCancelled(e)) return true;
-        console.log("[tools] findInFiles failed:", e);
-        const msg = errText(e);
-        void dialogs.showAlert({ title: "find failed", variant: "error", message: msg });
+        console.log("[tools] replacePreview failed:", e);
+        void dialogs.showAlert({ title: "find failed", variant: "error", message: errText(e) });
+        return true;
       }
+      if (plan.files.length === 0) {
+        void dialogs.showAlert({ title: "nothing to replace", message: nothingMessage(plan, request), variant: "info" });
+        return true;
+      }
+      const ok = await dialogs.showConfirm({
+        title: "replace in files?",
+        message: previewMessage(plan, request),
+        okLabel: "replace",
+      });
+      if (!ok) return true;
+      let outcome: ReplaceOutcome;
+      try {
+        // A cancel resolves with what was changed; a rejection comes before
+        // any file is touched.
+        outcome = await runOp(`replacing "${needle}"`, track =>
+          replaceApply(request, plan.files.map(f => f.path), plan.undoable, track()), "items");
+      } catch (e) {
+        console.log("[tools] replaceApply failed:", e);
+        void dialogs.showAlert({ title: "replace failed", variant: "error", message: errText(e) });
+        return true;
+      }
+      const changed = outcome.changed;
+      let undoable = false;
+      if (changed.length > 0) {
+        const label = `replace "${needle}" in ${changed.length} file${changed.length === 1 ? "" : "s"}`;
+        const undo = replaceUndo(label, changed);
+        if (undo) pushUndo(undo);
+        else markIrreversible(label);
+        undoable = undo !== null;
+      }
+      const report = outcomeReport(plan, outcome, request, undoable);
+      if (report.clean) dialogs.showToast({ message: report.message, variant: "success" });
+      else void dialogs.showAlert({ title: "find & replace in files", message: report.message, variant: "warning" });
+      ctx.refresh();
       return true;
     }
 
