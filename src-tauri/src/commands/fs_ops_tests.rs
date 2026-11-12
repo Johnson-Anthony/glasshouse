@@ -211,21 +211,8 @@ fn copy_and_move_go_through_once_replace_frees_the_name() {
 #[cfg(unix)]
 #[test]
 fn move_entry_across_devices_refuses_an_existing_target() {
-    use std::os::unix::fs::MetadataExt;
     let d = Scratch::new("mv-xdev-noclobber");
-    let shm = Path::new("/dev/shm");
-    match (std::fs::metadata(shm), std::fs::metadata(d.path())) {
-        (Ok(a), Ok(b)) if a.dev() != b.dev() => {}
-        _ => {
-            eprintln!("skipped: no /dev/shm on another device than the temp dir");
-            return;
-        }
-    }
-    let other = shm.join(format!(
-        "glasshouse-test-{}-xdev-noclobber",
-        std::process::id()
-    ));
-    let _ = std::fs::remove_dir_all(&other);
+    let Some(other) = other_device(&d, "xdev-noclobber") else { return };
     put(&other.join("taken.txt"), "keep");
     put(&other.join("taken-dir/inner.txt"), "keep");
     put(&d.join("taken.txt"), "mine");
@@ -244,6 +231,201 @@ fn move_entry_across_devices_refuses_an_existing_target() {
     assert_eq!(after, ("keep".to_string(), vec!["inner.txt".to_string()]));
     assert_eq!(read(&d.join("taken.txt")), "mine");
     assert_eq!(tree(&d.join("taken-dir")), ["mine.txt"]);
+}
+
+/// A fresh folder `name` in /dev/shm, if that's on another device than the
+/// scratch folder `d` (as on this machine and CI's Linux runners), for the
+/// cross-volume move fallback; else None, and the test skips itself.
+#[cfg(unix)]
+fn other_device(d: &Scratch, name: &str) -> Option<PathBuf> {
+    use std::os::unix::fs::MetadataExt;
+    let shm = Path::new("/dev/shm");
+    match (std::fs::metadata(shm), std::fs::metadata(d.path())) {
+        (Ok(a), Ok(b)) if a.dev() != b.dev() => {}
+        _ => {
+            eprintln!("skipped: no /dev/shm on another device than the temp dir");
+            return None;
+        }
+    }
+    let other = shm.join(format!("glasshouse-test-{}-{}", std::process::id(), name));
+    let _ = remove_created_tree(&other);
+    std::fs::create_dir(&other).unwrap();
+    Some(other)
+}
+
+#[cfg(unix)]
+fn chmod(path: &Path, mode: u32) {
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode)).unwrap();
+}
+
+#[cfg(unix)]
+fn mode(path: &Path) -> u32 {
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::symlink_metadata(path).unwrap().permissions().mode() & 0o7777
+}
+
+/// 2001-09-09, a time no test file has by accident.
+#[cfg(unix)]
+fn past() -> std::time::SystemTime {
+    std::time::UNIX_EPOCH + std::time::Duration::from_secs(1_000_000_000)
+}
+
+/// Give `path` (a file or folder) `past()` as its access and modification time.
+#[cfg(unix)]
+fn age(path: &Path) {
+    let times = std::fs::FileTimes::new().set_accessed(past()).set_modified(past());
+    std::fs::File::open(path).unwrap().set_times(times).unwrap();
+}
+
+#[cfg(unix)]
+fn times(path: &Path) -> (std::time::SystemTime, std::time::SystemTime) {
+    let m = std::fs::symlink_metadata(path).unwrap();
+    (m.accessed().unwrap(), m.modified().unwrap())
+}
+
+// ---------- failed copies and moves, special files, times and modes ----------
+
+/// A copy that fails partway removes its half-made folder, so a retry isn't
+/// refused as "already exists". The error names the entry that failed.
+#[cfg(unix)]
+#[test]
+fn failed_folder_copy_leaves_nothing_behind() {
+    let d = Scratch::new("cp-fail-cleanup");
+    put(&d.join("src/a.txt"), "a");
+    put(&d.join("src/sub/b.txt"), "b");
+    let fifo = d.join("src/sub/pipe");
+    crate::commands::testing::mkfifo(&fifo);
+
+    let (from, to) = (s(&d.join("src")), s(&d.join("dst")));
+    let err = crate::commands::testing::without_blocking(move || copy_entry(from, to)).unwrap_err();
+    assert_eq!(err, format!("can't copy {}: a named pipe, not a regular file", fifo.display()));
+    assert!(std::fs::symlink_metadata(d.join("dst")).is_err(), "partial copy left behind");
+
+    std::fs::remove_file(&fifo).unwrap();
+    copy_entry(s(&d.join("src")), s(&d.join("dst"))).unwrap();
+    assert_eq!(tree(&d.join("dst")), ["a.txt", "sub/", "sub/b.txt"]);
+}
+
+/// Cleanup gets through read-only folders the copy made, and never changes
+/// a folder outside the tree through a link.
+#[cfg(unix)]
+#[test]
+fn remove_created_tree_gets_through_read_only_folders() {
+    let d = Scratch::new("rm-created");
+    put(&d.join("made/ro/deeper/f.txt"), "f");
+    put(&d.join("keep/k.txt"), "k");
+    std::os::unix::fs::symlink(d.join("keep"), d.join("made/ro/link")).unwrap();
+    chmod(&d.join("made/ro/deeper"), 0o500);
+    chmod(&d.join("made/ro"), 0o555);
+    chmod(&d.join("keep"), 0o555);
+
+    remove_created_tree(&d.join("made")).unwrap();
+    assert!(std::fs::symlink_metadata(d.join("made")).is_err());
+    assert_eq!(mode(&d.join("keep")), 0o555, "a linked-to folder's mode was changed");
+    assert_eq!(read(&d.join("keep/k.txt")), "k");
+    chmod(&d.join("keep"), 0o755);
+}
+
+/// Copies keep each file's times, and each folder's mode and modification
+/// time, set once the folder's contents are in (a 0555 folder still gets
+/// them).
+#[cfg(unix)]
+#[test]
+fn copy_keeps_times_and_folder_modes() {
+    let d = Scratch::new("cp-times");
+    let src = d.join("src");
+    put(&src.join("f.txt"), "f");
+    put(&src.join("ro/g.txt"), "g");
+    for p in ["f.txt", "ro/g.txt", "ro", ""] {
+        age(&src.join(p));
+    }
+    chmod(&src.join("ro"), 0o555);
+    chmod(&src, 0o750);
+
+    copy_entry(s(&src), s(&d.join("dst"))).unwrap();
+    let dst = d.join("dst");
+    assert_eq!(tree(&dst), ["f.txt", "ro/", "ro/g.txt"]);
+    for p in ["f.txt", "ro/g.txt"] {
+        assert_eq!(times(&dst.join(p)), (past(), past()), "times of {}", p);
+    }
+    for p in ["ro", ""] {
+        assert_eq!(times(&dst.join(p)).1, past(), "modified time of {:?}", p);
+    }
+    assert_eq!((mode(&dst), mode(&dst.join("ro"))), (0o750, 0o555));
+
+    chmod(&src, 0o755);
+    remove_created_tree(d.path()).unwrap();
+}
+
+/// A cross-volume move whose copy is done but whose delete fails: a file's
+/// copy is removed again (its source is intact), a folder's copy is kept
+/// (its source may be partly gone) and the error says so. A move that works
+/// keeps the times.
+#[cfg(unix)]
+#[test]
+fn move_across_devices_handles_a_failed_delete() {
+    let d = Scratch::new("mv-xdev-delete");
+    let Some(other) = other_device(&d, "xdev-delete") else { return };
+
+    // A file in a folder it can't be removed from.
+    put(&d.join("ro/f.txt"), "f");
+    chmod(&d.join("ro"), 0o555);
+    let err = move_entry(s(&d.join("ro/f.txt")), s(&other.join("f.txt"))).unwrap_err();
+    assert!(err.contains("so it wasn't moved"), "{}", err);
+    assert!(std::fs::symlink_metadata(other.join("f.txt")).is_err(), "copy left behind");
+    assert_eq!(read(&d.join("ro/f.txt")), "f");
+
+    // A folder with a file in a folder it can't be removed from.
+    put(&d.join("tree/ok.txt"), "ok");
+    put(&d.join("tree/locked/x.txt"), "x");
+    chmod(&d.join("tree/locked"), 0o555);
+    let err = move_entry(s(&d.join("tree")), s(&other.join("tree"))).unwrap_err();
+    assert!(err.starts_with(&format!("copied to {}, but some of the original", s(&other.join("tree")))), "{}", err);
+    assert_eq!(tree(&other.join("tree")), ["locked/", "locked/x.txt", "ok.txt"]);
+    assert_eq!(read(&d.join("tree/locked/x.txt")), "x");
+
+    put(&d.join("t.txt"), "t");
+    age(&d.join("t.txt"));
+    move_entry(s(&d.join("t.txt")), s(&other.join("t.txt"))).unwrap();
+    assert_eq!(times(&other.join("t.txt")).1, past());
+    assert!(std::fs::symlink_metadata(d.join("t.txt")).is_err());
+
+    let _ = remove_created_tree(&other);
+    let _ = remove_created_tree(d.path());
+}
+
+/// Previews, hex dumps, diffs and copies refuse a FIFO without waiting for
+/// a writer, and refuse devices and folders too.
+#[cfg(unix)]
+#[test]
+fn readers_refuse_special_files_without_blocking() {
+    use crate::commands::file_info::{read_capped, read_hex_dump};
+    let d = Scratch::new("special-readers");
+    let fifo = d.join("pipe");
+    crate::commands::testing::mkfifo(&fifo);
+
+    let p = s(&fifo);
+    let errs = crate::commands::testing::without_blocking(move || {
+        vec![
+            read_text(p.clone(), 0).unwrap_err(),
+            read_image_b64(p.clone(), 0).unwrap_err(),
+            read_hex_dump(p.clone(), 0, 0).unwrap_err(),
+            read_capped(Path::new(&p)).unwrap_err(),
+            copy_entry(p.clone(), format!("{}-copy", p)).unwrap_err(),
+        ]
+    });
+    for e in errs {
+        assert!(e.ends_with("a named pipe, not a regular file"), "{}", e);
+    }
+    assert!(std::fs::symlink_metadata(d.join("pipe-copy")).is_err());
+
+    assert_eq!(read_text("/dev/null".into(), 0).unwrap_err(), "a device, not a regular file");
+    assert_eq!(read_text(s(d.path()), 0).unwrap_err(), "a folder, not a regular file");
+    // A link to a regular file is still read.
+    put(&d.join("real.txt"), "real");
+    std::os::unix::fs::symlink("real.txt", d.join("link")).unwrap();
+    assert_eq!(read_text(s(&d.join("link")), 0).unwrap(), "real");
 }
 
 // ---------- progress and cancel (ops.rs) ----------

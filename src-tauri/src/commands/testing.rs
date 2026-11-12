@@ -62,6 +62,25 @@ pub(crate) fn tree(root: &Path) -> Vec<String> {
     out
 }
 
+/// Make a FIFO (named pipe) at `path`.
+#[cfg(unix)]
+pub(crate) fn mkfifo(path: &Path) {
+    use std::os::unix::ffi::OsStrExt;
+    let c = std::ffi::CString::new(path.as_os_str().as_bytes()).unwrap();
+    // SAFETY: `c` is a NUL-terminated path that outlives the call.
+    assert_eq!(unsafe { libc::mkfifo(c.as_ptr(), 0o644) }, 0, "mkfifo {}", path.display());
+}
+
+/// Run `f` on a thread of its own and return what it returns, failing the
+/// test if that takes over 10 s: for calls that would block on a FIFO.
+pub(crate) fn without_blocking<T: Send + 'static>(f: impl FnOnce() -> T + Send + 'static) -> T {
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let _ = tx.send(f());
+    });
+    rx.recv_timeout(std::time::Duration::from_secs(10)).expect("blocked for 10 s")
+}
+
 /// A fresh, empty folder under the system temp dir. Unlike `Scratch`, it
 /// stays until the test removes it.
 pub(crate) fn temp_dir(name: &str) -> PathBuf {
