@@ -48,6 +48,7 @@ A Tauri 2 app. The window is a React 18 UI (`src/`) that calls Rust commands (`s
 **Listing and refresh.**
 - `useTabState` calls `list_dir`, which returns each entry with its git label scanned for that folder only.
 - It then calls `watch_dir`. The backend sends `fs-changed` for the folder (300 ms debounce) and the tab re-lists. A 30 s poll is the backup.
+- Each `watch_dir` needs one `unwatch_dir`. The backend counts them per folder, so tabs on the same folder share one watch until the last one leaves.
 
 **Paths.** Paths are plain strings. `paths.ts` applies the platform's rules (`IS_WINDOWS` comes from the user agent): `\` is a separator, and comparisons are case-insensitive, only on Windows.
 
