@@ -61,7 +61,10 @@ function serve() {
 }
 
 // ---- minimal DevTools protocol client ----
-async function launchChromium() {
+// One Chromium start: the process, its profile and its DevTools port, or an
+// error with the end of its stderr. Chromium writes DevToolsActivePort in two
+// steps, so wait for the port line, not just the file.
+async function startChromium(waitMs) {
   const profile = mkdtempSync(join(tmpdir(), "glasshouse-capture-"));
   const proc = spawn("chromium", [
     "--headless=new", "--remote-debugging-port=0", `--user-data-dir=${profile}`,
@@ -71,18 +74,30 @@ async function launchChromium() {
   let stderr = "";
   proc.stderr.on("data", d => { stderr += d; });
   const portFile = join(profile, "DevToolsActivePort");
-  // A cold start on a CI runner can take well over 10 s. Chromium writes the
-  // file in two steps, so wait for the port line, not just the file.
   let port = "";
-  for (let i = 0; i < 600 && proc.exitCode === null && !port; i++) {
+  for (let t = 0; t < waitMs && proc.exitCode === null && !port; t += 50) {
     await sleep(50);
     if (existsSync(portFile)) port = readFileSync(portFile, "utf8").split("\n")[0].trim();
   }
-  if (!port) {
-    proc.kill();
-    rmSync(profile, { recursive: true, force: true });
-    throw new Error(`chromium didn't start (${proc.exitCode === null ? "no DevTools port after 30 s" : `exit ${proc.exitCode}`}):\n${stderr.slice(-2000)}`);
+  if (port) return { proc, profile, port };
+  proc.kill("SIGKILL");
+  rmSync(profile, { recursive: true, force: true });
+  throw new Error(`chromium didn't start (${proc.exitCode === null ? `no DevTools port after ${waitMs / 1000} s` : `exit ${proc.exitCode}`}):\n${stderr.slice(-2000)}`);
+}
+
+async function launchChromium() {
+  // On the GitHub runner Chromium sometimes never opens its DevTools port
+  // (it once held CI for 3 hours); a fresh process usually starts at once.
+  let started;
+  for (let attempt = 1; !started; attempt++) {
+    try {
+      started = await startChromium(20_000);
+    } catch (e) {
+      if (attempt === 3 || /\(exit \d+\)/.test(e.message)) throw e;
+      console.error(`${e.message.split("\n")[0].replace(/:$/, "")}; trying again (${attempt + 1} of 3)`);
+    }
   }
+  const { proc, profile, port } = started;
   const pages = await (await fetch(`http://127.0.0.1:${port}/json/list`)).json();
   const page = pages.find(p => p.type === "page");
   const ws = new WebSocket(page.webSocketDebuggerUrl);
