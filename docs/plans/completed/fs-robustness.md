@@ -20,8 +20,20 @@ Branch `claude/recursing-allen-a7ecf9`. Backlog: `docs/plans/active/survey-2.md`
 - `fileOps.ts`: one keep-going helper for both delete commands; `target.ts` refreshes after a failed trash too.
 
 ## Status
-- [ ] plan + decision record
-- [ ] Rust: open_regular, copy cleanup, move delete failure, times/modes, fsync, staging scan
-- [ ] frontend: delete/trash batches
-- [ ] tests
-- [ ] checks: pnpm build, pnpm test, check:wiring, clippy -D warnings, cargo test (site:build + capture check: the confirm text changed)
+Done 2026-11-12, on branch `claude/recursing-allen-a7ecf9`.
+- All seven scope items are in, as planned. Two details changed while building:
+  - folders keep their modification time but not their access time, because the copy's size pass has already read them;
+  - a single file whose Windows `CopyFileW` fails is left to CopyFileW.
+
+  Both are in `docs/decisions/2026-11-12-fs-robustness-failures.md`, and the conventions are in ARCHITECTURE.md.
+- Tests:
+  - Rust, 12 new: failed copy cleanup; read-only cleanup that doesn't follow links; times and modes; cross-volume move delete failures (real /dev/shm vs /tmp); FIFO, device and folder readers; hashing a FIFO; zip leaving FIFOs out; a FIFO archive; tar and 7-Zip outside links; a read-only tar folder; config write failure.
+  - vitest, 6 new: delete and trash batches, the confirm text, links not counted as folders, and a right-clicked trash refreshing after a failure.
+  - Mutation check: with the staging scan and the copy cleanup disabled, the copy, tar-link, 7-Zip-link and read-only-tar tests fail.
+- Checks after merging main (2c6a93f), all passing:
+  - `pnpm build`, `pnpm test` (399), `pnpm check:wiring`;
+  - `RUSTFLAGS="-D warnings" cargo clippy --all-targets`, `cargo test` (171, 2 ignored);
+  - `pnpm site:build`, `pnpm site:capture check`.
+- Not built here: the Windows side.
+  - The new helpers (`open_regular`, `ensure_regular`, `remove_created_tree`, `keep_dir_attrs`, `tidy_staging`, `remove_link`, `moved_but_not_deleted`) were type-checked with clippy `-D warnings` for `x86_64-pc-windows-msvc` in a scratch crate.
+  - The rest of the Windows build is CI's.

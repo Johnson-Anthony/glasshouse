@@ -73,6 +73,7 @@ pub(crate) fn mkfifo(path: &Path) {
 
 /// Run `f` on a thread of its own and return what it returns, failing the
 /// test if that takes over 10 s: for calls that would block on a FIFO.
+#[cfg(unix)]
 pub(crate) fn without_blocking<T: Send + 'static>(f: impl FnOnce() -> T + Send + 'static) -> T {
     let (tx, rx) = std::sync::mpsc::channel();
     std::thread::spawn(move || {
