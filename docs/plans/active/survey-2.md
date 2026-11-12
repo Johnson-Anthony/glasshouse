@@ -16,7 +16,7 @@ On 2026-11-11, four read-only agents surveyed the app (at `45ea31b`): frontend b
 | 8 | fs-robustness | Rust + `handlers/fileOps.ts` | S–M | merged (2bd2208) |
 | 9 | watcher-fixes | Rust | S | merged (see `git log --grep watcher-fixes`) |
 | **Wave 2: release** |||||
-| 10b | security-deps | both | M | **running** (fresh session, started 11-12; before the v0.2.0 tag; Dependabot PRs #3–#8 overlap, lead handles them) |
+| 10b | security-deps | both | M | merged (`amazing-pare-b88a14`; zip 9.5.1, tauri 2.12.5, zstd 0.14; OSV finds none of §10b's advisories left) |
 | 10 | release-prep | config + CI | S | **merged** (c6dab0c; the tag itself is the user's call) |
 | **Wave 3: undo and trash** |||||
 | 11 | undo-coverage | frontend | M | merged (e225489; Extract undo done here; Find & Replace and Trash left to tasks 7 and 12) |
@@ -268,6 +268,7 @@ These items do nothing, or something else. Make each work, or remove it. For the
 ## 28. deps-bump (both, M)
 - **The windows crate.** Four versions compile on Windows: 0.56 (trash), 0.57 (sysinfo 0.32), 0.58 (ours) and 0.61 (tauri). Move ours to 0.61 and bump sysinfo; that needs the Windows CI loop.
 - **Frontend.** Vite 5.4 brings esbuild 0.21.5, which has a dev-server-only advisory (GHSA-67mh-4wv8-2f99). Vitest 2.1 is behind.
+- **From security-deps (2026-11-12):** the warnings-only "unsound" advisories have semver-compatible fixes in one command, `cargo update -p anyhow -p event-listener -p memmap2 -p rustix -p tokio`; git2, glib and the unmaintained crates (instant, proc-macro-error, zbus_names, zvariant, zvariant_derive) remain. npm dev tools (none ship in the app): in-range fixes for @babel/core, browserslist, baseline-browser-mapping, nanoid, postcss, source-map-js; majors needed for vite (6.4.4+), vitest (3.2.6+), esbuild (0.25) and tinypool (2.1.2), which carry critical tinypool and vitest-UI advisories. Dependabot PRs #3–#8 overlap; close the ones the merged versions supersede.
 - **Rust.** git2 0.19 and notify 7 are a major version behind. git2 0.21 exposes `CheckoutBuilder::disable_pathspec_match`, so its bump can replace `checkout_head_exact`'s raw `libgit2-sys` call in `commands/git.rs` and drop that direct dependency.
 - Every lockfile change needs `pnpm notices`.
 
@@ -291,6 +292,7 @@ These items do nothing, or something else. Make each work, or remove it. For the
 - *(from release-prep)* **actionlint** in CI: folded into ci-hygiene.
 - *(from fs-robustness)* 7-Zip 25 fails a whole extraction on one climbing link ("Dangerous link path was ignored", exit 2), where zip and tar now skip the link and report it. Could map that one 7z error to a skip.
 - *(from fs-robustness)* On Windows a failed top-level single-file CopyFileW is left to CopyFileW's own cleanup (some of its errors mean the target was already there and isn't ours). Check on a real Windows machine.
+- *(from security-deps)* zip 9 fails an extraction on Windows device and stream names (`CON`, `a:b`) with "points outside the folder", which misdescribes them. On Linux zip 9 reads `\` in an entry name as a separator (`a\b.txt` extracts as `a/b.txt`).
 - *(from watcher-fixes)* When the backend reports a rescan (dropped events, e.g. an inotify overflow), the event names no path, so no folder refreshes until the 30 s refetch. Reporting every watched folder on a rescan would be small.
 - *(from undo-coverage)* Task 7 can push `contentUndo(label, path, before, after)` per file; task 12 (Move to Trash) is the last file change with neither an undo entry nor `markIrreversible`. Change Owner could get an undo if `file_stat_extended` returned uid:gid. Paste Special's undo entry and the "can't undo" toast aren't unit-tested (no DOM; see dom-tests).
 

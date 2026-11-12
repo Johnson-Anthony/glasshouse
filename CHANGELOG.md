@@ -51,6 +51,7 @@ This release is mostly about safety: several ways to lose files are fixed, and t
   - on Windows, files extracted from a downloaded archive keep its "downloaded from the internet" mark.
 - **Permissions in the Inspector:** the permission grid showed a made-up `rwxr----- 0740` for every file, and one click ran chmod from that value (owner-exec on a private key made it group-readable). It now shows the file's real mode, including setuid, setgid and sticky, and changes it only after you edit, apply and confirm the old and new modes. On Windows it shows read-only.
 - **Scripts:** a script that times out is stopped together with every program it started.
+- **Security updates:** the zip library (2.4 → 9.5) and Tauri (2.10 → 2.12), plus zstd, quick-xml, crossbeam-epoch, libz-sys and serde_with, are updated past their published advisories, among them a critical one where a crafted zip looks different to different readers. Building from source now needs Rust 1.90.
 - **No requests to Google:** the font picker's fonts are bundled, so the app makes no Google Fonts request at startup.
 
 ### New
