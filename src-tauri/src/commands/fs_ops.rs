@@ -777,6 +777,9 @@ pub fn read_image_b64(path: String, max_bytes: usize) -> Result<String, String> 
 /// manipulation is out of scope for v1.
 #[tauri::command(async)]
 pub fn set_permissions(path: String, mode: u32) -> Result<(), String> {
+    if mode > 0o7777 {
+        return Err(format!("set_permissions({}): {:o} isn't a permission mode", path, mode));
+    }
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;

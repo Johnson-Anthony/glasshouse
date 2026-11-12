@@ -4,6 +4,8 @@ import { createPortal } from "react-dom";
 import { PALETTE, THEMES, type FileRow, type FileKind } from "./data";
 import { netRate, pathFsType, systemInfo as apiSystemInfo, winClose, winMinimize, winToggleMaximize, type GitInfo, type NetRate, type SystemInfo } from "./api";
 import { fuzzyFilter } from "./fuzzy";
+import { viewRows } from "./viewRows";
+import { remapIndexes } from "./listing";
 import { splitBreadcrumb } from "./paths";
 import type { SortDir, SortKey } from "./state";
 import { TAG_COLOR_MAP } from "./Sidebar";
@@ -187,10 +189,7 @@ export function tagColor(tag: string | null): string {
   return (tag && TAG_COLOR_MAP[tag]) || "var(--fg-3)";
 }
 
-/** A row's name with its extension put back, except on folders. */
-export function fullName(row: Pick<FileRow, "name" | "ext" | "kind">): string {
-  return row.ext && row.kind !== "folder" ? `${row.name}.${row.ext}` : row.name;
-}
+export { fullName } from "./viewRows";
 
 /** A modified/created time as "YYYY-MM-DD HH:MM" local time, "—" when unset. */
 export function formatDate(ms: number | null | undefined): string {
@@ -257,6 +256,14 @@ export interface FilePaneProps {
 
 const PAGE_STEP = 10;
 
+/** What the pane says when its filters hide every row. */
+export function noMatchesText(searchQuery: string | undefined, tagFilter: string | null | undefined): string {
+  const q = (searchQuery || "").trim();
+  if (q && tagFilter) return `no matches for "${q}" tagged "${tagFilter}"`;
+  if (q) return `no matches for "${q}"`;
+  return `nothing tagged "${tagFilter}"`;
+}
+
 // Pointer-based drag implementation. We don't use HTML5 drag because it
 // doesn't initiate from synthesized mouse events, which makes
 // test-harness automation impossible and breaks on some webviews.
@@ -271,6 +278,10 @@ interface RowHandlers {
   dblClick: (i: number) => void;
   ctxMenu: (i: number, isSel: boolean, e: React.MouseEvent) => void;
 }
+
+// FileRow is a display-only type without a filesystem path, but the host
+// (App.tsx) always passes rows that carry their entry.
+const rowPath = (f: FileRow): string | undefined => (f as { entry?: { path?: string } }).entry?.path;
 
 /** The pane's context menu for a right-click: the file menu on a row, the
  *  empty-space menu (New, Paste…) anywhere else, whatever is selected. */
@@ -381,84 +392,10 @@ export function FilePane({
   // Filtered + sorted, preserving origIndex so selection still refers to the
   // underlying `files` array (which is what App's clipboard/selection logic
   // indexes into).
-  const displayFiles = useMemo(() => {
-    const indexed = files.map((f, i) => ({ file: f, origIndex: i }));
-    const q = (searchQuery || "").trim();
-    const afterSearch = q
-      ? fuzzyFilter(
-          q,
-          indexed,
-          x => fullName(x.file),
-        ).map(r => r.item)
-      : indexed;
-
-    // Tag filter — keep only rows whose path is tagged with tagFilter in the
-    // shared tag store. Applied after search, before sort.
-    const filtered = tagFilter
-      ? afterSearch.filter(x => {
-          const entry = (x.file as unknown as { entry?: { path?: string } }).entry;
-          const path = entry?.path;
-          if (!path) return false;
-          const rowTags = tagStore?.[path];
-          return !!rowTags && rowTags.includes(tagFilter);
-        })
-      : afterSearch;
-
-    const tagKey = (x: { file: FileRow }): string => {
-      const entry = (x.file as unknown as { entry?: { path?: string } }).entry;
-      const path = entry?.path;
-      if (!path) return "";
-      return (tagStore?.[path] ?? []).join(",");
-    };
-
-    const dir = sortDir === "asc" ? 1 : -1;
-    const sorted = [...filtered].sort((a, b) => {
-      if (foldersFirst) {
-        const af = a.file.kind === "folder" ? 0 : 1;
-        const bf = b.file.kind === "folder" ? 0 : 1;
-        if (af !== bf) return af - bf;
-      }
-      if (sortKey === "type") {
-        const ae = (a.file.ext ?? "").toLowerCase();
-        const be = (b.file.ext ?? "").toLowerCase();
-        if (ae !== be) return ae < be ? -1 * dir : 1 * dir;
-        const an = a.file.name.toLowerCase();
-        const bn = b.file.name.toLowerCase();
-        return an < bn ? -1 * dir : an > bn ? 1 * dir : 0;
-      }
-      if (sortKey === "name") {
-        const an = (a.file.name + (a.file.ext ? "." + a.file.ext : "")).toLowerCase();
-        const bn = (b.file.name + (b.file.ext ? "." + b.file.ext : "")).toLowerCase();
-        return an < bn ? -1 * dir : an > bn ? 1 * dir : 0;
-      }
-      if (sortKey === "size") {
-        const as = (a.file as unknown as { entry?: { size?: number } }).entry?.size ?? 0;
-        const bs = (b.file as unknown as { entry?: { size?: number } }).entry?.size ?? 0;
-        return (as - bs) * dir;
-      }
-      if (sortKey === "tag") {
-        const at = tagKey(a);
-        const bt = tagKey(b);
-        // Untagged rows ("") sort to the end on asc, start on desc — matches
-        // convention for "group the boring stuff last".
-        if (at === "" && bt !== "") return 1;
-        if (bt === "" && at !== "") return -1;
-        return at < bt ? -1 * dir : at > bt ? 1 * dir : 0;
-      }
-      if (sortKey === "git") {
-        // Tilde sorts after letters in ASCII, so null/clean rows group at the
-        // end in asc order — keeps the noisy stuff up top.
-        const ag = a.file.git ?? "~";
-        const bg = b.file.git ?? "~";
-        return ag < bg ? -1 * dir : ag > bg ? 1 * dir : 0;
-      }
-      // modified
-      const am = (a.file as unknown as { entry?: { modified_ms?: number } }).entry?.modified_ms ?? 0;
-      const bm = (b.file as unknown as { entry?: { modified_ms?: number } }).entry?.modified_ms ?? 0;
-      return (am - bm) * dir;
-    });
-    return sorted;
-  }, [files, searchQuery, sortKey, sortDir, tagFilter, tagStore, foldersFirst]);
+  const displayFiles = useMemo(
+    () => viewRows(files, { searchQuery, tagFilter, tagStore, sortKey, sortDir, foldersFirst }),
+    [files, searchQuery, sortKey, sortDir, tagFilter, tagStore, foldersFirst],
+  );
 
   // Map origIndex -> visible row position, for keyboard nav (which operates
   // on the currently-displayed ordering, not the raw entries array).
@@ -468,6 +405,14 @@ export function FilePane({
     visibleOrig.forEach((o, i) => m.set(o, i));
     return m;
   }, [visibleOrig]);
+
+  // The selection only holds rows on screen: when a filter or re-list hides a
+  // selected row it drops out, so no command acts on a file you can't see.
+  // A hidden focused row hands focus to the first visible one.
+  useEffect(() => {
+    if (selected.some(i => !visiblePos.has(i))) setSelected(selected.filter(i => visiblePos.has(i)));
+    if (visibleOrig.length > 0 && !visiblePos.has(focusIndex)) setFocusIndex(visibleOrig[0]);
+  }, [selected, focusIndex, visibleOrig, visiblePos, setSelected, setFocusIndex]);
 
   const rangeSelect = (fromOrig: number, toOrig: number) => {
     const a = visiblePos.get(fromOrig);
@@ -563,7 +508,7 @@ export function FilePane({
       case "Enter":
         e.preventDefault();
         e.nativeEvent.stopImmediatePropagation();
-        if (onOpen) onOpen(focusIndex);
+        if (onOpen && visiblePos.has(focusIndex)) onOpen(focusIndex);
         return;
       case "Backspace":
         e.preventDefault();
@@ -625,6 +570,9 @@ export function FilePane({
     if (!shift && !ctrl) setSelected([]);
 
     const updateSelection = (curMarquee: { x: number; y: number; w: number; h: number }) => {
+      // The hits are rows on screen now, so they go through this render's
+      // setter, which is bound to the same listing.
+      const { setSelected } = latest.current;
       const rows = root.querySelectorAll<HTMLElement>("[data-orig]");
       const hit: number[] = [];
       const mx1 = curMarquee.x;
@@ -704,7 +652,11 @@ export function FilePane({
       if (e.button !== 0) return;
       const startX = e.clientX;
       const startY = e.clientY;
+      const startFiles = latest.current.files;
       const sources = isSel ? [...latest.current.selected] : [i];
+      // The same files as indexes into the rows on screen at the drop, in
+      // case the folder re-listed during the drag.
+      const sourcesNow = () => remapIndexes(startFiles, latest.current.files, sources, rowPath);
       let dragging = false;
       let moved = false;
       const onMove = (ev: PointerEvent) => {
@@ -739,11 +691,13 @@ export function FilePane({
         const hit = document.elementFromPoint(ev.clientX, ev.clientY);
         const row = hit?.closest("[data-orig]") as HTMLElement | null;
         const origAttr = row?.getAttribute("data-orig");
+        const dropped = sourcesNow();
+        if (dropped.length === 0) return;
         if (origAttr) {
           const targetIdx = parseInt(origAttr, 10);
           const targetFile = latest.current.files[targetIdx];
           if (targetFile && targetFile.kind === "folder") {
-            const filtered = sources.filter(s => s !== targetIdx);
+            const filtered = dropped.filter(s => s !== targetIdx);
             if (filtered.length > 0) {
               latest.current.onRowDrop?.(targetIdx, filtered, copy);
               return;
@@ -752,7 +706,7 @@ export function FilePane({
         }
         // Not over a folder row — delegate to external drop handler
         // (e.g. sidebar tree-row). App resolves the drop target.
-        latest.current.onExternalDrag?.(sources, ev.clientX, ev.clientY, copy);
+        latest.current.onExternalDrag?.(dropped, ev.clientX, ev.clientY, copy);
       };
       window.addEventListener("pointermove", onMove);
       window.addEventListener("pointerup", onPointerUp);
@@ -797,10 +751,7 @@ export function FilePane({
       </div>
       <div className="rows">
         {displayFiles.map(({ file: f, origIndex: i }) => {
-          // FileRow is a display-only type without a filesystem path, but the
-          // host (App.tsx) always passes LiveFileRow which carries entry.path.
-          // Peek defensively so we don't over-constrain the public prop type.
-          const fPath = (f as { entry?: { path?: string } }).entry?.path;
+          const fPath = rowPath(f);
           return (
             <PaneRow key={i}
                      f={f}
@@ -819,6 +770,9 @@ export function FilePane({
           error
             ? <div className="pane-notice error" role="alert"><b>can't read this folder</b><span>{error}</span></div>
             : <div className="pane-notice">{loading ? "loading…" : "empty folder"}</div>
+        )}
+        {files.length > 0 && displayFiles.length === 0 && (
+          <div className="pane-notice">{noMatchesText(searchQuery, tagFilter)}</div>
         )}
       </div>
       {marquee && (

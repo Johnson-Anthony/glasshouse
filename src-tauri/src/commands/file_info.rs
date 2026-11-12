@@ -157,6 +157,11 @@ pub struct FileStatExt {
     pub owner: Option<String>,
     pub file_index: Option<u64>,
     pub readonly: bool,
+    /// Permission bits with setuid, setgid and sticky (`st_mode & 0o7777`),
+    /// unix only. A link reports its target's, since chmod changes that;
+    /// `None` for a dangling link, and on Windows, where only `readonly`
+    /// applies.
+    pub mode: Option<u32>,
     pub is_symlink: bool,
     pub symlink_target: Option<String>,
 }
@@ -188,6 +193,8 @@ pub fn file_stat_extended(path: String) -> Result<FileStatExt, String> {
         use std::os::unix::fs::MetadataExt;
         out.file_index = Some(md.ino());
         out.owner = Some(format!("{}:{}", md.uid(), md.gid()));
+        let followed = if out.is_symlink { std::fs::metadata(&path).ok() } else { Some(md.clone()) };
+        out.mode = followed.map(|m| m.mode() & 0o7777);
     }
 
     #[cfg(windows)]
@@ -289,6 +296,30 @@ fn win_file_owner(path: &str) -> Option<String> {
 mod tests {
     use super::*;
     use crate::commands::testing::{put, s, Scratch};
+
+    #[cfg(unix)]
+    #[test]
+    fn file_stat_extended_reads_the_real_mode() {
+        use std::os::unix::fs::{symlink, PermissionsExt};
+        let d = Scratch::new("stat-mode");
+        let set = |p: &std::path::Path, mode: u32| {
+            std::fs::set_permissions(p, std::fs::Permissions::from_mode(mode)).unwrap();
+        };
+        let (key, dir) = (d.join("id_ed25519"), d.join("shared"));
+        put(&key, "secret");
+        set(&key, 0o600);
+        std::fs::create_dir(&dir).unwrap();
+        set(&dir, 0o2755);
+        symlink(&key, d.join("link")).unwrap();
+        symlink(d.join("missing"), d.join("dangling")).unwrap();
+
+        let mode = |p: &std::path::Path| file_stat_extended(s(p)).unwrap().mode;
+        assert_eq!(mode(&key), Some(0o600));
+        assert_eq!(mode(&dir), Some(0o2755));
+        // A link shows what chmod would change: its target.
+        assert_eq!(mode(&d.join("link")), Some(0o600));
+        assert_eq!(mode(&d.join("dangling")), None);
+    }
 
     #[test]
     fn diff_files_refuses_a_file_over_the_read_cap() {
