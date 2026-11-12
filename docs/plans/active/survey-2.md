@@ -12,7 +12,7 @@ On 2026-11-11, four read-only agents surveyed the app (at `45ea31b`): frontend b
 | 4 | terminal-cd | frontend | S | **merged** (3d23a8b) |
 | 5 | focus-and-targets | frontend | M | **merged** (8a3dfc8) |
 | 6 | inspector-perms | both | M | **merged** (41bde85) |
-| 7 | find-replace-safety | both | S | queued: chip offered for a fresh session (last wave-1 task before the tag) |
+| 7 | find-replace-safety | both | S | **running** (fresh session, started 11-12; last wave-1 task before the tag) |
 | 8 | fs-robustness | Rust + `handlers/fileOps.ts` | S–M | merged (2bd2208) |
 | 9 | watcher-fixes | Rust | S | merged (see `git log --grep watcher-fixes`) |
 | **Wave 2: release** |||||
