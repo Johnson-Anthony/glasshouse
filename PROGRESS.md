@@ -1,6 +1,7 @@
 # Progress
 
 ## Done
+- 2026-11-12: **v0.2.0 tagged** on `8911ae0` (CI green on all seven jobs). The release workflow builds the Windows, Linux x64 and Linux arm64 packages into one draft and publishes it only if every build passes. Wave 1 of the second survey (data loss and security), security-deps and the Windows git fix are in it; the CHANGELOG's 0.2.0 section lists everything. Before tagging, the CI site job's 3-hour hang was fixed (`8ded751`: the capture script waited only 10 s for Chromium, then threw while its server kept node alive).
 - 2026-11-10: **Cleanup pass.**
   - Docs: ARCHITECTURE.md rewritten from the code, and CLAUDE.md trimmed.
   - Code, with no behavior change: about 13 backend and 21 frontend dedupes and dead-code removals. New shared helpers are `crate::lock`, `clamp_limit`, `src/errors.ts`, `useEscapeClose` and `handlers/helpers.ts`.
@@ -39,7 +40,7 @@
 
 ## Next
 1. **User decisions:**
-   - tag v0.2.0: wave 1 and security-deps are merged and CI is green. Before the tag, put the release date in the CHANGELOG heading and delete its `TODO(release)` comment (release-check.mjs refuses the tag otherwise);
+   - whether to start wave 2 of `docs/plans/active/survey-2.md` (and resume pane-perf, paused with only its plan);
    - turn on Dependabot alerts and security updates in the repo's GitHub settings;
    - the open questions in `docs/SPEC.md`: remote browsing, macOS, the command-line path, and `origin/feature` (`ddb5466`; see below).
 2. **Manual checks in the real app:**

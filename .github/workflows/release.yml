@@ -40,6 +40,9 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: 22
+          # v5 turns on pnpm caching by itself when package.json names a
+          # packageManager, and this job never installs pnpm.
+          package-manager-cache: false
 
       - name: Check the versions and the changelog
         run: node scripts/release-check.mjs "$GITHUB_REF_NAME" > "$RUNNER_TEMP/notes.md"
