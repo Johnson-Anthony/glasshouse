@@ -52,7 +52,8 @@ import { DISPLAY_MODE_DEFAULT, DISPLAY_MODE_KEY, LAYOUT_KEY, slugify, storedZoom
 import { IS_WINDOWS } from "./platform";
 import { TerminalDrawer } from "./Terminal";
 import { NoticesHost } from "./Notices";
-import { MillerView } from "./Miller";
+import { MillerView, sortView as millerOrder } from "./Miller";
+import { viewRows } from "./viewRows";
 import { joinPath, parentPath, basename } from "./paths";
 import {
   homeDir,
@@ -77,6 +78,7 @@ import {
 import { runTransfer, planTransfer, type TransferOp } from "./transfer";
 import { transferDeps, reportTransfer, pushTransferUndo, asItems, listNames } from "./transferUi";
 import { errText } from "./errors";
+import { findStatusText } from "./findStatus";
 
 const TWEAK_DEFAULTS: TweakState = {
   theme: "gruvbox-dark",
@@ -131,8 +133,11 @@ function FindInFilesModal({ root, onClose, onPick }: FindInFilesModalProps) {
 
   useEffect(() => {
     if (!query.trim()) {
+      // A search still running for the old query is cancelled by the
+      // cleanup below, and a stale search never clears busy itself.
       setMatches([]);
       setRan(false);
+      setBusy(false);
       return;
     }
     const q = query;
@@ -212,7 +217,7 @@ function FindInFilesModal({ root, onClose, onPick }: FindInFilesModalProps) {
         >
           <span style={{ color: "var(--accent)" }}>⌕ find in files</span>
           <span style={{ color: "var(--fg-3)", fontSize: 12 }}>
-            {busy ? "searching…" : ran ? `${matches.length} match${matches.length === 1 ? "" : "es"}` : "esc/click to close"}
+            {findStatusText(query, busy, ran, matches.length)}
           </span>
           <button
             onClick={onClose}
@@ -370,7 +375,6 @@ export function App() {
 
   // Keyed by TabRecord.id, never by position.
   const [tabHandles, setTabHandles] = useState<Record<number, UseTabResult>>({});
-  const [searchQuery, setSearchQuery] = useState("");
   const [paneFocused, setPaneFocused] = useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
 
@@ -751,6 +755,14 @@ export function App() {
       selectedPaths,
       firstPath,
       firstEntry,
+      visibleRows: () => {
+        if (!st) return [];
+        if (displayMode === "Miller Columns (ranger)") return millerOrder(st.entries).map(v => v.orig);
+        return viewRows(liveRows, {
+          searchQuery: st.searchQuery, tagFilter: st.tagFilter, tagStore,
+          sortKey: st.sortKey, sortDir: st.sortDir, foldersFirst: state.foldersFirst,
+        }).map(r => r.origIndex);
+      },
       dispatch: (l: string) => handleMenuCommandRef.current(l),
       openAbout: () => setAboutOpen(true),
       toggleSidebar: () => setShowSidebar(v => !v),
@@ -1071,7 +1083,7 @@ export function App() {
           }
         }}
         onContext={onContext}
-        searchQuery={searchQuery}
+        searchQuery={handle?.state.searchQuery ?? ""}
         tagFilter={handle?.state.tagFilter ?? null}
         tagStore={tagStore}
         onOpen={(i) => {
@@ -1149,8 +1161,8 @@ export function App() {
         onUp={() => activeHandle?.actions.up()}
         onRefresh={() => activeHandle?.actions.refresh()}
         onGoTo={(p) => activeHandle?.actions.goTo(p)}
-        searchQuery={searchQuery}
-        onSearchChange={setSearchQuery}
+        searchQuery={activeHandle?.state.searchQuery ?? ""}
+        onSearchChange={(q) => activeHandle?.actions.setSearchQuery(q)}
         searchInputRef={searchInputRef}
         showHidden={state.hidden}
         onToggleHidden={() => setState(prev => ({ ...prev, hidden: !prev.hidden }))}

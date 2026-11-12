@@ -67,6 +67,7 @@ function makeCtx(names: string[], selected: number[]): HandlerCtx {
     selectedPaths,
     firstPath: selectedPaths[0],
     firstEntry: selected.length ? entries[selected[0]] : undefined,
+    visibleRows: () => entries.map((_, i) => i),
     dispatch: vi.fn(),
     openAbout: vi.fn(),
     toggleSidebar: vi.fn(),
