@@ -136,6 +136,8 @@ describe("cdCommand", () => {
   it("builds each shell's cd", () => {
     expect(cdCommand("posix", "/home/me/a b")).toBe("cd '/home/me/a b'");
     expect(cdCommand("pwsh", "C:\\a b")).toBe("Set-Location -LiteralPath 'C:\\a b'");
+    // PowerShell on Linux and macOS reads `\` as a separator even with -LiteralPath.
+    expect(cdCommand("pwsh", "/tmp/a\\b")).toBeNull();
     expect(cdCommand("cmd", "C:\\a b & c")).toBe("cd /d \"C:\\a b & c\"");
   });
 
@@ -218,11 +220,14 @@ describe("POSIX quoting in real shells", () => {
 
   it.skipIf(!has("pwsh"))("pwsh lands in each folder and runs nothing", () => {
     // NUL separates the paths: it's the one character no folder name has (one is `a|touch PWNED`).
-    const lines = dirs.map(d => `${cdCommand("pwsh", d)}; [Console]::Out.Write((Get-Location).ProviderPath + [char]0)`);
+    // Names with `\` get no command (see cdCommand); every other one must land.
+    const reachable = dirs.filter(d => cdCommand("pwsh", d) !== null);
+    expect(dirs.filter(d => !reachable.includes(d)).every(d => d.includes("\\"))).toBe(true);
+    const lines = reachable.map(d => `${cdCommand("pwsh", d)}; [Console]::Out.Write((Get-Location).ProviderPath + [char]0)`);
     const r = spawnSync("pwsh", ["-NoProfile", "-NonInteractive", "-Command", "-"], {
       cwd: root, encoding: "utf8", input: lines.join("\n") + "\n",
     });
-    expect(r.stdout.split("\0").slice(0, -1)).toEqual(dirs);
+    expect(r.stdout.split("\0").slice(0, -1)).toEqual(reachable);
     expect(pwned()).toEqual([]);
   });
 });

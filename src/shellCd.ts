@@ -75,12 +75,15 @@ const CONTROL = /[\u0000-\u001f\u007f-\u009f]/;
  *  - control characters, in any shell;
  *  - `%`, `!` or `"` in cmd, which expands `%VAR%` (and, with delayed
  *    expansion, `!VAR!`) even inside quotes and has no escape for it on an
- *    interactive line. */
+ *    interactive line;
+ *  - `\` in a POSIX path for PowerShell, which reads it as a separator even
+ *    with `-LiteralPath`, so a folder named `a\b` can't be reached. */
 export function cdCommand(flavor: ShellFlavor, path: string): string | null {
   if (!path || CONTROL.test(path)) return null;
   switch (flavor) {
     case "posix": return `cd ${quotePosix(path)}`;
-    case "pwsh": return `Set-Location -LiteralPath ${quotePwsh(path)}`;
+    case "pwsh":
+      return path.startsWith("/") && path.includes("\\") ? null : `Set-Location -LiteralPath ${quotePwsh(path)}`;
     case "cmd": return /[%!"]/.test(path) ? null : `cd /d "${path}"`;
   }
 }
