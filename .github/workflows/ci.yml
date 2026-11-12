@@ -70,3 +70,69 @@ jobs:
         env:
           RUSTFLAGS: -D warnings
       - run: cargo test
+
+  # Lints every workflow, with shellcheck (preinstalled on the runner) on each
+  # run: script. Uses actionlint's own download script, pinned to a release.
+  actionlint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - run: |
+          bash <(curl -sSfL https://raw.githubusercontent.com/rhysd/actionlint/v1.7.12/scripts/download-actionlint.bash) 1.7.12
+          ./actionlint -color
+
+  # The committed demo (docs/demo) must be what `pnpm site:build` makes from
+  # the current sources, and the landing page's checks must pass.
+  site:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # The demo's build date is its sources' last commit date
+          # (vite.site.config.ts), which needs the history.
+          fetch-depth: 0
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm site:build
+      - name: Check that the committed demo is current
+        run: |
+          stale=$(git status --porcelain -- docs/demo docs/assets/themes.css)
+          if [ -n "$stale" ]; then
+            echo "$stale"
+            echo "::error::docs/demo is out of date. Run pnpm site:build and commit the result."
+            exit 1
+          fi
+      # The image's /usr/bin/chromium is a snapshot build with no AppArmor
+      # profile, so Ubuntu 24.04's user-namespace restriction stops its sandbox
+      # (actions/runner-images#12096). Lift it on this throwaway runner.
+      - run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+      - run: pnpm site:capture check
+
+  # RustSec advisories for src-tauri/Cargo.lock. They're reported (job summary
+  # and a warning) but don't fail CI: bumping dependencies is its own task.
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-audit
+      - name: cargo audit
+        working-directory: src-tauri
+        run: |
+          status=0
+          cargo audit > "$RUNNER_TEMP/audit.txt" 2>&1 || status=$?
+          cat "$RUNNER_TEMP/audit.txt"
+          {
+            echo "## cargo audit (exit $status)"
+            echo '```'
+            cat "$RUNNER_TEMP/audit.txt"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$status" != 0 ]; then
+            echo "::warning::cargo audit exited $status: vulnerable dependencies (or an audit error). See this job's summary."
+          fi

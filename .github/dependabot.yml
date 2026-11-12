@@ -1,0 +1,52 @@
+# Weekly version updates. Minor and patch updates come as one grouped PR per
+# ecosystem, and majors one PR each, a few at a time.
+#
+# - A PR that changes pnpm-lock.yaml or Cargo.lock fails CI's notices job
+#   until someone runs `pnpm notices` and commits src/assets/third-party.json.
+# - The Tauri npm packages and crates must stay on the same minor version, so
+#   they get their own group in each ecosystem: merge those two PRs together.
+# - Cargo treats 0.x minor bumps (0.38 → 0.41) as breaking, but Dependabot
+#   groups them with the minor updates.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: deps
+    groups:
+      tauri:
+        patterns: ["@tauri-apps/*"]
+      npm:
+        update-types: [minor, patch]
+
+  - package-ecosystem: cargo
+    directory: /src-tauri
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: deps
+    groups:
+      tauri:
+        patterns: ["tauri", "tauri-*"]
+      cargo:
+        update-types: [minor, patch]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 2
+    commit-message:
+      prefix: ci
+    groups:
+      actions:
+        update-types: [minor, patch]
+    ignore:
+      # Staying on v0 until deps-bump: v1 renames inputs release.yml uses
+      # (docs/decisions/2026-11-11-release-prep-workflow.md).
+      - dependency-name: tauri-apps/tauri-action
+        update-types: ["version-update:semver-major"]
