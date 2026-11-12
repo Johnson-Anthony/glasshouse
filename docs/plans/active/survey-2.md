@@ -14,7 +14,7 @@ On 2026-11-11, four read-only agents surveyed the app (at `45ea31b`): frontend b
 | 6 | inspector-perms | both | M | **merged** (41bde85) |
 | 7 | find-replace-safety | both | S | queued |
 | 8 | fs-robustness | Rust + `handlers/fileOps.ts` | S–M | **running** (`recursing-allen-a7ecf9`; plus the tar/7z link check and read-only staged folders) |
-| 9 | watcher-fixes | Rust | S | **running** (`cool-gauss-d234ca`) |
+| 9 | watcher-fixes | Rust | S | **paused** (`cool-gauss-d234ca`, 5 uncommitted files; RAM limit) |
 | **Wave 2: release** |||||
 | 10b | security-deps | both | M | queued (before the v0.2.0 tag) |
 | 10 | release-prep | config + CI | S | **merged** (c6dab0c; the tag itself is the user's call) |
@@ -22,7 +22,7 @@ On 2026-11-11, four read-only agents surveyed the app (at `45ea31b`): frontend b
 | 11 | undo-coverage | frontend | M | **running** (`youthful-shtern-2ac1c5`; Find & Replace, Extract and Trash undo left to tasks 7, 1, 12) |
 | 12 | trash-restore | both | M | queued |
 | **Wave 4: performance** |||||
-| 13 | pane-perf | frontend | L | **running** (`cool-satoshi-4102fc`; plus a vitest DOM environment) |
+| 13 | pane-perf | frontend | L | **paused** (`cool-satoshi-4102fc`; plus a vitest DOM environment; no 100k-entry data in headless Chromium) |
 | 14 | refresh-cost | both | M | queued |
 | **Wave 5: promises and UX** (README and site claims first) |||||
 | 15 | palette-commands | frontend | M | queued |
