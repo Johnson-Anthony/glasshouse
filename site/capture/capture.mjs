@@ -286,6 +286,76 @@ async function checkPage(cdp, base) {
   }
   ok("phone: live demo frame hidden, link shown", await js(`getComputedStyle(document.querySelector(".demo-frame")).display === "none" && getComputedStyle(document.querySelector(".demo-small")).display !== "none"`));
 
+  // The demo's file pane: what the selection and filter act on. Opened on its
+  // own, the demo page has no favicon, so Chromium's request for one 404s.
+  const errorsBefore = errors.length;
+  await cdp.send("Emulation.setDeviceMetricsOverride", { width: W, height: H, deviceScaleFactor: 1, mobile: false });
+  await load(cdp, `${base}demo/`);
+  const pane = await js(`(async () => {
+    const sleep = ms => new Promise(r => setTimeout(r, ms));
+    const until = async (cond, ms = 3000) => { for (let t = 0; t < ms && !cond(); t += 50) await sleep(50); return cond(); };
+    const rows = () => [...document.querySelectorAll(".pane .row")];
+    const names = () => rows().map(r => r.querySelector(".name").textContent);
+    const selected = () => rows().filter(r => r.classList.contains("selected")).map(r => r.querySelector(".name").textContent);
+    const row = name => rows().find(r => r.querySelector(".name").textContent === name);
+    const box = () => document.querySelector("input[placeholder*='find in current']");
+    const type = v => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(box(), v); box().dispatchEvent(new Event("input", { bubbles: true })); };
+    const status = () => document.querySelector(".statusbar")?.textContent.match(/sel(\\d+)/)?.[1];
+    const invoke = window.__TAURI_INTERNALS__.invoke;
+    const out = {};
+    row("Pictures").dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    // Another program adds a folder that sorts before it, then removes one.
+    await invoke("make_dir", { path: "/home/demo/Notes" });
+    await until(() => names().includes("Notes"));
+    out.added = selected();
+    await invoke("delete_entry", { path: "/home/demo/Notes" });
+    await until(() => !names().includes("Notes"));
+    out.removed = selected();
+    type("Mus");
+    await until(() => names().length === 1);
+    document.querySelector(".pane").focus();
+    document.querySelector(".pane").dispatchEvent(new KeyboardEvent("keydown", { key: "i", code: "KeyI", ctrlKey: true, bubbles: true }));
+    await until(() => selected().length > 0);
+    await sleep(100);
+    out.inverted = [selected(), status()];
+    type("zzz");
+    await until(() => names().length === 0);
+    out.notice = document.querySelector(".pane .pane-notice")?.textContent;
+    type("pro");
+    await until(() => names().length === 1);
+    row("projects").dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+    // Read as soon as React has rendered the click, well before the new
+    // folder's listing (debounced 60 ms): the old rows must already be gone.
+    await sleep(0);
+    out.leaving = [names(), document.querySelector(".pane .pane-notice")?.textContent, box().value];
+    await until(() => names().includes("website"));
+    out.arrived = names();
+    // Drag website onto a folder while another program adds one before it.
+    await invoke("make_dir", { path: "/home/demo/projects/zz" });
+    await until(() => names().includes("zz"));
+    const at = (type, el, dy = 0) => {
+      const r = el.getBoundingClientRect();
+      window.dispatchEvent(new PointerEvent(type, { bubbles: true, clientX: r.left + 30, clientY: r.top + r.height / 2 + dy, button: 0, pointerId: 1 }));
+    };
+    const src = row("website");
+    src.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, clientX: src.getBoundingClientRect().left + 30, clientY: src.getBoundingClientRect().top + 5, button: 0, pointerId: 1 }));
+    at("pointermove", src, 20);
+    await invoke("make_dir", { path: "/home/demo/projects/apps" });
+    await until(() => names().includes("apps"));
+    at("pointermove", row("zz"));
+    at("pointerup", row("zz"));
+    await until(() => !names().includes("website"));
+    out.dropped = (await invoke("list_dir", { path: "/home/demo/projects/zz", showHidden: false })).map(e => e.name);
+    return out;
+  })()`);
+  const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+  ok("demo: selection stays on its file when the folder re-lists", same(pane.added, ["Pictures"]) && same(pane.removed, ["Pictures"]), JSON.stringify([pane.added, pane.removed]));
+  ok("demo: Invert under a filter selects only visible rows", same(pane.inverted, [["Music"], "1"]), JSON.stringify(pane.inverted));
+  ok("demo: a filter that hides every row says so", pane.notice === `no matches for "zzz"`, pane.notice);
+  ok("demo: navigating drops the old rows and the filter at once", same(pane.leaving, [[], "loading…", ""]) && pane.arrived.includes("website"), JSON.stringify([pane.leaving, pane.arrived]));
+  ok("demo: a drag drops the files it picked up, after a re-list", same(pane.dropped, ["website"]), JSON.stringify(pane.dropped));
+  errors.push(...errors.splice(errorsBefore).filter(e => !e.includes("/favicon.ico")));
+
   ok("no console errors", errors.length === 0, errors.slice(0, 5).join(" | "));
 
   // Jekyll (GitHub Pages) skips names starting with these, outside _config.yml.
