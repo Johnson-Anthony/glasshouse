@@ -26,7 +26,8 @@ interface Indexed {
   orig: number;
 }
 
-function sortView(entries: FileEntry[]): Indexed[] {
+/** The middle column's order: folders first, then names ignoring case. */
+export function sortView(entries: FileEntry[]): Indexed[] {
   return entries
     .map((e, orig) => ({ e, orig }))
     .sort((a, b) => {

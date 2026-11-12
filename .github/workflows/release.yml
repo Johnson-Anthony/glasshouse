@@ -1,5 +1,17 @@
 name: release
 
+# Builds the installers for a version tag and publishes them as one release.
+#
+# Push a tag such as v0.2.0. Before that, package.json, src-tauri/Cargo.toml,
+# src-tauri/tauri.conf.json and src-tauri/Cargo.lock must all have that
+# version, and CHANGELOG.md must have a dated section for it, which becomes
+# the release notes (scripts/release-check.mjs). A manual run must also be
+# started from the tag ("Use workflow from" → Tags).
+#
+# Every build uploads to one draft release. It becomes public only after
+# every build has passed and all six files are on it. If a build fails,
+# the draft stays for a re-run, and nothing is published.
+
 on:
   push:
     tags: ["v*"]
@@ -8,15 +20,84 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      release_id: ${{ steps.draft.outputs.id }}
+    steps:
+      - name: Require a version tag
+        if: github.ref_type != 'tag' || !startsWith(github.ref_name, 'v')
+        run: |
+          echo "::error::Run the release for a v* tag, not the $GITHUB_REF_TYPE '$GITHUB_REF_NAME'."
+          exit 1
+
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+
+      - name: Check the versions and the changelog
+        run: node scripts/release-check.mjs "$GITHUB_REF_NAME" > "$RUNNER_TEMP/notes.md"
+
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Check that Cargo.lock is current
+        run: cargo fetch --locked
+        working-directory: src-tauri
+
+      - name: Add the install notes
+        run: |
+          cat >> "$RUNNER_TEMP/notes.md" <<'EOF'
+
+          ## Install
+
+          - **Windows (x64):** the `.msi` or the `-setup.exe` installer. They aren't signed, so SmartScreen warns the first time: choose More info → Run anyway.
+          - **Linux (x64 and arm64):** the `.deb` (`sudo apt install ./glasshouse_*.deb`) or the `.AppImage` (`chmod +x`, then run it). The AppImage needs FUSE 2: `sudo apt install libfuse2t64` on Ubuntu 24.04+ and Debian 13, `libfuse2` on older releases. Both need glibc 2.35 or newer (Ubuntu 22.04, Debian 12 and later).
+          EOF
+
+      - name: Create the draft release
+        id: draft
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          # A re-run reuses this tag's draft. A published release is never
+          # touched: fix it by hand, or release a new version.
+          existing=$(gh api "repos/$GITHUB_REPOSITORY/releases" --paginate \
+            --jq '.[] | select(.tag_name == env.TAG) | "\(.id) \(.draft)"' | head -n 1)
+          if [ -n "$existing" ]; then
+            read -r id draft <<< "$existing"
+            if [ "$draft" != "true" ]; then
+              echo "::error::The $TAG release is already published."
+              exit 1
+            fi
+            gh api -X PATCH "repos/$GITHUB_REPOSITORY/releases/$id" \
+              -f name="glasshouse $TAG" -F body=@"$RUNNER_TEMP/notes.md" > /dev/null
+          else
+            id=$(gh api -X POST "repos/$GITHUB_REPOSITORY/releases" \
+              -f tag_name="$TAG" -f name="glasshouse $TAG" -F body=@"$RUNNER_TEMP/notes.md" \
+              -F draft=true -F prerelease=false --jq .id)
+          fi
+          echo "id=$id" >> "$GITHUB_OUTPUT"
+
   build:
+    needs: prepare
     strategy:
       fail-fast: false
       matrix:
         include:
           - os: windows-latest
             args: ""
-          - os: ubuntu-latest
+          # Linux packages are built on the oldest Ubuntu with WebKitGTK 4.1,
+          # so they run on glibc 2.35 and newer (Ubuntu 22.04, Debian 12).
+          - os: ubuntu-22.04
+            args: "--bundles appimage,deb"
+          # linuxdeploy can't cross-build an AppImage, so arm64 needs an arm64 runner.
+          - os: ubuntu-22.04-arm
             args: "--bundles appimage,deb"
     runs-on: ${{ matrix.os }}
     steps:
@@ -40,16 +121,39 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
+      # Uploads to the draft. The file names come from the Tauri CLI and
+      # include the architecture, so the jobs never replace each other's files.
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tagName: ${{ github.ref_name }}
-          releaseName: "glasshouse ${{ github.ref_name }}"
-          releaseBody: |
-            Windows installers (`.msi` and NSIS `.exe`) and Linux packages (`.AppImage` and `.deb`).
-
-            The binaries are unsigned, so Windows SmartScreen shows a warning the first time you run the installer: choose More info → Run anyway. On Linux, make the AppImage executable with `chmod +x` before running it.
-          releaseDraft: false
-          prerelease: false
+          releaseId: ${{ needs.prepare.outputs.release_id }}
+          includeUpdaterJson: false
           args: ${{ matrix.args }}
+
+  publish:
+    needs: [prepare, build]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check the files and publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+          ID: ${{ needs.prepare.outputs.release_id }}
+        run: |
+          v=${TAG#v}
+          names=$(gh api "repos/$GITHUB_REPOSITORY/releases/$ID/assets" --paginate --jq '.[].name')
+          echo "On the draft:"
+          echo "$names"
+          missing=0
+          for want in "glasshouse_${v}_x64_en-US.msi" "glasshouse_${v}_x64-setup.exe" \
+                      "glasshouse_${v}_amd64.AppImage" "glasshouse_${v}_amd64.deb" \
+                      "glasshouse_${v}_aarch64.AppImage" "glasshouse_${v}_arm64.deb"; do
+            if ! grep -qxF -- "$want" <<< "$names"; then
+              echo "::error::$want isn't on the draft release; it stays a draft."
+              missing=1
+            fi
+          done
+          [ "$missing" = 0 ] || exit 1
+          gh api -X PATCH "repos/$GITHUB_REPOSITORY/releases/$ID" \
+            -F draft=false -f make_latest=true --jq .html_url

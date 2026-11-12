@@ -53,6 +53,7 @@ function makeCtx(entries: FileEntry[] | null, selected: number[] = [], app: Reco
     selectedPaths,
     firstPath: selectedPaths[0],
     firstEntry: entries && selected.length ? entries[selected[0]] : undefined,
+    visibleRows: () => (entries ?? []).map((_, i) => i),
     dispatch: vi.fn(), toggleSidebar: vi.fn(), pinPath: vi.fn(), tabs: [{}], activeTab: 0,
     setActiveTab: vi.fn(), setBlame: vi.fn(), refresh: vi.fn(),
     app: appCommands(app),

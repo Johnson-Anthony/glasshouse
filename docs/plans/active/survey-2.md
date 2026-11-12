@@ -8,20 +8,21 @@ On 2026-11-11, four read-only agents surveyed the app (at `45ea31b`): frontend b
 | **Wave 1: data loss and security** |||||
 | 1 | archive-safety | Rust + `handlers/archive.ts` | M | **merged** (4c535a0) |
 | 2 | git-safety | Rust + `handlers/git.ts` | S–M | **merged** (3756be3) |
-| 3 | selection-integrity | frontend | M | **running** (`cool-satoshi-4102fc`) |
+| 3 | selection-integrity | frontend | M | **merged** (ee32e5b) |
 | 4 | terminal-cd | frontend | S | **merged** (3d23a8b) |
 | 5 | focus-and-targets | frontend | M | **merged** (8a3dfc8) |
-| 6 | inspector-perms | both | M | queued |
+| 6 | inspector-perms | both | M | **merged** (41bde85) |
 | 7 | find-replace-safety | both | S | queued |
 | 8 | fs-robustness | Rust + `handlers/fileOps.ts` | S–M | **running** (`recursing-allen-a7ecf9`; plus the tar/7z link check and read-only staged folders) |
-| 9 | watcher-fixes | Rust | S | queued |
+| 9 | watcher-fixes | Rust | S | **paused** (`cool-gauss-d234ca`, 5 uncommitted files; RAM limit) |
 | **Wave 2: release** |||||
-| 10 | release-prep | config + CI | S | **running** (`exciting-rubin-44f4c0`; the tag itself is the user's call) |
+| 10b | security-deps | both | M | queued (before the v0.2.0 tag) |
+| 10 | release-prep | config + CI | S | **merged** (c6dab0c; the tag itself is the user's call) |
 | **Wave 3: undo and trash** |||||
 | 11 | undo-coverage | frontend | M | **running** (`youthful-shtern-2ac1c5`; Find & Replace, Extract and Trash undo left to tasks 7, 1, 12) |
 | 12 | trash-restore | both | M | queued |
 | **Wave 4: performance** |||||
-| 13 | pane-perf | frontend | L | queued (after 3 and 5) |
+| 13 | pane-perf | frontend | L | **paused** (`cool-satoshi-4102fc`; plus a vitest DOM environment; no 100k-entry data in headless Chromium) |
 | 14 | refresh-cost | both | M | queued |
 | **Wave 5: promises and UX** (README and site claims first) |||||
 | 15 | palette-commands | frontend | M | queued |
@@ -37,7 +38,7 @@ On 2026-11-11, four read-only agents surveyed the app (at `45ea31b`): frontend b
 | 25 | folder-size | both | S–M | queued |
 | **Wave 6: tests, CI and dependencies** |||||
 | 26 | test-gaps | both | S | queued |
-| 27 | ci-hygiene | CI | S | queued |
+| 27 | ci-hygiene | CI | S | **running** (`exciting-rubin-44f4c0`; plus actionlint) |
 | 28 | deps-bump | both | M | queued |
 
 **Scheduling notes:**
@@ -136,6 +137,20 @@ On 2026-11-11, four read-only agents surveyed the app (at `45ea31b`): frontend b
   - say in the README that the AppImage needs `libfuse2` on Ubuntu 24.04+.
 - **A CHANGELOG** with v0.2.0 notes: the data-loss fixes since July; that saved tweaks reset once (new key); and that Show Ignored, Show Checksums and Browse archive in place are gone.
 - Wave 1 should be merged first, since the site's Download button serves July's v0.1.0, which still has the paste-clobber bugs. Tagging is the user's decision.
+
+## 10b. security-deps (both, M; before the v0.2.0 tag; found 2026-11-12 by ci-hygiene)
+ci-hygiene checked Cargo.lock against OSV (RustSec plus GitHub advisories). The parts of task 28 that must land before a release:
+- **zip 2.4.2 → 9.x:**
+  - GHSA-m665-v7pm-7grj (critical; fixed in 9.0.5): a parser differential makes a zip look different to different readers;
+  - GHSA-q7v9-x93c-xqv3 (high) and GHSA-8hxf-qr8p-62x4 (AES HMAC bypass), both fixed in 9.0.0;
+  - RUSTSEC-2026-0367, 0368, 0369 and 0429, fixed in 9.0.0. They concern `ZipArchive::extract` and SUID bits, which archive-safety's own extraction loop and mode mask probably avoid, but cargo audit flags them.
+
+  This is a major bump through archive-safety's code (`commands/archive.rs`): rerun all its tests, including the ignored 4 GiB one.
+- **tauri 2.10.3 → ≥ 2.11.1:** GHSA-7gmj-67g7-phm9 (moderate), "origin confusion" lets remote pages call local-only IPC commands. glasshouse loads no remote pages, so the impact is probably low, but bump it. Keep the JS `@tauri-apps/*` versions in step.
+- **zstd 0.13.3 → 0.13.4 and zstd-safe → 7.4.0** (RUSTSEC-2026-0391, 0398, 0403), **quick-xml → 0.41** (0194, 0195), **crossbeam-epoch → 0.9.20** (0204) and **libz-sys → 1.1.31** (0418).
+- The warnings-only items (git2 unsound, glib, rand 0.7, unmaintained crates) stay in task 28.
+- Every lockfile change needs `pnpm notices`. Windows CI is the first Windows build.
+- **User decision:** turn on Dependabot alerts and security updates in the repo's GitHub settings. dependabot.yml only covers version updates.
 
 ## 11. undo-coverage (frontend, M)
 - **These push no undo entry**, so Ctrl+Z undoes an older, unrelated action:
@@ -270,6 +285,10 @@ These items do nothing, or something else. Make each work, or remove it. For the
 
 - *(from git-safety)* `launch::tests::run_capped_kills_the_whole_tree_at_the_timeout` failed once at load average ~7 ("background child outlived the timeout"), then passed alone and in three full runs. Possibly flaky under load; for test-gaps or ci-hygiene.
 - *(from git-safety)* git2 0.19's `add_all`/`update_all` callback crashes (null CStr) on an empty pathspec. We no longer hit that path; deps-bump should check whether a newer git2 fixes it.
+
+- *(from selection-integrity)* **dom-tests** (frontend, S): a DOM test environment for vitest (happy-dom or jsdom) so `useTabState` and `FilePane` can be unit-tested; today the hook-level fixes are covered only by the demo checks in `site/capture/capture.mjs`. Lockfile change, so `pnpm notices`.
+- *(from selection-integrity)* A shift/ctrl marquee in progress during a re-list mixes old and new indexes (pre-existing; pane-perf reworks the marquee). "Select by Tag" says "nothing in this folder is tagged" when it means "nothing shown" under a filter. Filter and sort now live in `src/viewRows.ts`; pane-perf's sort-key work goes there.
+- *(from release-prep)* **actionlint** in CI: folded into ci-hygiene.
 
 ## Unconfirmed: check before fixing
 - The terminal has no flow control: `yes` or `cat bigfile` sends one `pty-data` event per 4 KiB read and may freeze the webview (`pty.rs`).

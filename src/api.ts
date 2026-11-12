@@ -87,6 +87,9 @@ export interface FileStatExt {
   owner: string | null;
   file_index: number | null;
   readonly: boolean;
+  /** Permission bits with setuid, setgid and sticky, unix only (a link
+   *  reports its target's). Null on Windows and for a dangling link. */
+  mode: number | null;
   is_symlink: boolean;
   symlink_target: string | null;
 }

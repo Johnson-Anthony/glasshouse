@@ -1,5 +1,5 @@
 import { dialogs } from "../dialogs/DialogHost";
-import { readTags } from "../api";
+import { readTags, type FileEntry } from "../api";
 import type { Handler } from "./types";
 
 function globToRegex(glob: string): RegExp {
@@ -12,24 +12,26 @@ function globToRegex(glob: string): RegExp {
   return new RegExp("^" + out + "$");
 }
 
+// Every command picks from the rows on screen (ctx.visibleRows, in display
+// order), never from the whole listing: a filter that hides rows must not let
+// Select All or Invert put them under a Delete. Indexes are into this ctx's
+// entries; setSelected maps them to the same files if the folder is re-listed
+// while a prompt is open.
 export const selectionHandler: Handler = async (label, ctx) => {
   const handle = ctx.activeHandle;
   if (!handle) return false;
   const { entries, selected } = handle.state;
   const { setSelected } = handle.actions;
+  const pick = (test: (e: FileEntry) => boolean): number[] => ctx.visibleRows().filter(i => test(entries[i]));
 
   switch (label) {
     case "Select All": {
-      setSelected(entries.map((_, i) => i));
+      setSelected(ctx.visibleRows());
       return true;
     }
     case "Invert Selection": {
       const sel = new Set(selected);
-      const next: number[] = [];
-      for (let i = 0; i < entries.length; i++) {
-        if (!sel.has(i)) next.push(i);
-      }
-      setSelected(next);
+      setSelected(ctx.visibleRows().filter(i => !sel.has(i)));
       return true;
     }
     case "Deselect": {
@@ -45,10 +47,7 @@ export const selectionHandler: Handler = async (label, ctx) => {
       });
       if (pattern == null) return true;
       const re = globToRegex(pattern);
-      const next: number[] = [];
-      for (let i = 0; i < entries.length; i++) {
-        if (re.test(entries[i].name)) next.push(i);
-      }
+      const next = pick(e => re.test(e.name));
       setSelected(next);
       dialogs.showToast({
         message: `selected ${next.length} item(s) matching "${pattern}"`,
@@ -74,10 +73,7 @@ export const selectionHandler: Handler = async (label, ctx) => {
       } catch {
         return true;
       }
-      const next: number[] = [];
-      for (let i = 0; i < entries.length; i++) {
-        if (re.test(entries[i].name)) next.push(i);
-      }
+      const next = pick(e => re.test(e.name));
       setSelected(next);
       dialogs.showToast({
         message: `selected ${next.length} item(s)`,
@@ -90,7 +86,7 @@ export const selectionHandler: Handler = async (label, ctx) => {
       // we can surface them as hint text — avoids the user typing a
       // non-existent extension and wondering why nothing happened.
       const extSet = new Set<string>();
-      for (const e of entries) if (e.ext) extSet.add(e.ext.toLowerCase());
+      for (const i of ctx.visibleRows()) if (entries[i].ext) extSet.add(entries[i].ext.toLowerCase());
       const hint = extSet.size > 0
         ? `present: ${[...extSet].sort().slice(0, 10).join(", ")}${extSet.size > 10 ? ", …" : ""}`
         : "no extensions in current folder";
@@ -102,10 +98,7 @@ export const selectionHandler: Handler = async (label, ctx) => {
       });
       if (ext == null) return true;
       const target = ext.replace(/^\./, "").toLowerCase();
-      const next: number[] = [];
-      for (let i = 0; i < entries.length; i++) {
-        if (entries[i].ext.toLowerCase() === target) next.push(i);
-      }
+      const next = pick(e => e.ext.toLowerCase() === target);
       setSelected(next);
       dialogs.showToast({
         message: `selected ${next.length} .${target} file(s)`,
@@ -118,7 +111,7 @@ export const selectionHandler: Handler = async (label, ctx) => {
       // Select by Extension does for extensions.
       const tags = await readTags();
       const present = new Set<string>();
-      for (const e of entries) for (const t of tags[e.path] ?? []) present.add(t);
+      for (const i of ctx.visibleRows()) for (const t of tags[entries[i].path] ?? []) present.add(t);
       if (present.size === 0) {
         dialogs.showToast({ message: "nothing in this folder is tagged", variant: "info" });
         return true;
@@ -133,10 +126,7 @@ export const selectionHandler: Handler = async (label, ctx) => {
       });
       if (tag == null) return true;
       const target = tag.trim();
-      const next: number[] = [];
-      for (let i = 0; i < entries.length; i++) {
-        if ((tags[entries[i].path] ?? []).includes(target)) next.push(i);
-      }
+      const next = pick(e => (tags[e.path] ?? []).includes(target));
       setSelected(next);
       dialogs.showToast({
         message: `selected ${next.length} item(s) tagged "${target}"`,
@@ -146,44 +136,33 @@ export const selectionHandler: Handler = async (label, ctx) => {
     }
     case "Select Modified (Git)": {
       const modified = new Set(["M", "A", "D", "R", "U"]);
-      const next: number[] = [];
-      for (let i = 0; i < entries.length; i++) {
-        const g = entries[i].git;
-        if (g && modified.has(g)) next.push(i);
-      }
-      setSelected(next);
+      setSelected(pick(e => !!e.git && modified.has(e.git)));
       return true;
     }
     case "Select Untracked": {
-      const next: number[] = [];
-      for (let i = 0; i < entries.length; i++) {
-        if (entries[i].git === "?") next.push(i);
-      }
-      setSelected(next);
+      setSelected(pick(e => e.git === "?"));
       return true;
     }
     case "Expand Selection to Folder": {
       const hasFolder = selected.some(i => entries[i]?.kind === "folder");
       if (!hasFolder) return true;
-      setSelected(entries.map((_, i) => i));
+      setSelected(ctx.visibleRows());
       return true;
     }
     case "Extend to Line End (Visual)": {
       // Visual-mode-ish: extend selection from the current anchor to the
-      // last entry of the active pane (inclusive).
-      if (entries.length === 0) return true;
-      const anchor = Math.max(0, Math.min(handle.state.anchorIndex, entries.length - 1));
-      const end = entries.length - 1;
-      const lo = Math.min(anchor, end);
-      const hi = Math.max(anchor, end);
-      const next: number[] = [];
-      for (let i = lo; i <= hi; i++) next.push(i);
-      setSelected(next);
-      handle.actions.setFocusIndex(end);
+      // last row of the active pane (inclusive), in display order.
+      const rows = ctx.visibleRows();
+      if (rows.length === 0) return true;
+      const at = rows.indexOf(handle.state.anchorIndex);
+      const from = at >= 0 ? at : Math.max(0, rows.indexOf(handle.state.focusIndex));
+      setSelected(rows.slice(from));
+      handle.actions.setFocusIndex(rows[rows.length - 1]);
       return true;
     }
     case "Add Next Match": {
-      if (selected.length === 0 || entries.length === 0) return true;
+      const rows = ctx.visibleRows();
+      if (selected.length === 0 || rows.length === 0) return true;
       const first = entries[selected[0]];
       if (!first) return true;
       const escaped = first.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -191,19 +170,15 @@ export const selectionHandler: Handler = async (label, ctx) => {
       const pattern = ext
         ? new RegExp("\\." + ext.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "$", "i")
         : new RegExp("^" + escaped + "$");
+      // The next match after the last selected row on screen, wrapping to
+      // the top.
       const selSet = new Set(selected);
-      const lastIdx = Math.max(...selected);
-      let matchIdx = -1;
-      for (let i = lastIdx + 1; i < entries.length; i++) {
-        if (!selSet.has(i) && pattern.test(entries[i].name)) { matchIdx = i; break; }
-      }
-      if (matchIdx < 0) {
-        for (let i = 0; i < entries.length; i++) {
-          if (!selSet.has(i) && pattern.test(entries[i].name)) { matchIdx = i; break; }
-        }
-      }
-      if (matchIdx < 0) return true;
-      setSelected([...selected, matchIdx]);
+      let last = rows.length - 1;
+      while (last >= 0 && !selSet.has(rows[last])) last--;
+      const order = [...rows.slice(last + 1), ...rows.slice(0, last + 1)];
+      const match = order.find(i => !selSet.has(i) && pattern.test(entries[i].name));
+      if (match === undefined) return true;
+      setSelected([...selected, match]);
       return true;
     }
     default:

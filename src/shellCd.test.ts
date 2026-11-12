@@ -227,7 +227,10 @@ describe("POSIX quoting in real shells", () => {
     const r = spawnSync("pwsh", ["-NoProfile", "-NonInteractive", "-Command", "-"], {
       cwd: root, encoding: "utf8", input: lines.join("\n") + "\n",
     });
-    expect(r.stdout.split("\0").slice(0, -1)).toEqual(reachable);
+    // pwsh writes terminal mode switches (`ESC[?1h ESC[?1l`) to stdout even when
+    // it isn't on a terminal; they aren't part of any path.
+    const out = r.stdout.replace(/\x1b\[[?0-9;]*[A-Za-z]/g, "");
+    expect(out.split("\0").slice(0, -1)).toEqual(reachable);
     expect(pwned()).toEqual([]);
   });
 });

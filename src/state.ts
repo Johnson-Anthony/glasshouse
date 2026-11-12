@@ -13,6 +13,7 @@ import {
 import { normalizePath, parentPath } from "./paths";
 import { navBack, navClear, navForward, navGoTo, navInit, type NavState } from "./history";
 import { errText } from "./errors";
+import { EMPTY_LISTING, relist, withAnchor, withFocus, withSelected, type Listing } from "./listing";
 
 export type SortKey = "name" | "size" | "modified" | "tag" | "git" | "type";
 export type SortDir = "asc" | "desc";
@@ -32,6 +33,8 @@ export interface TabState {
   historyBack: string[];
   historyForward: string[];
   tagFilter: string | null;
+  /** The pane's filter box; per tab, and cleared when the tab navigates. */
+  searchQuery: string;
   private: boolean;
 }
 
@@ -52,6 +55,7 @@ export interface TabActions {
   setSortKey: (k: SortKey) => void;
   setSortDir: (v: SortDir) => void;
   setTagFilter: (v: string | null) => void;
+  setSearchQuery: (v: string) => void;
   clearHistory: () => void;
 }
 
@@ -175,11 +179,10 @@ export function useTabState(initialPath: string, isPrivate: boolean = false): Us
   const navRef = useRef<NavState>(navInit(initialPath));
   const [nav, setNavState] = useState<NavState>(navRef.current);
   const { path, back: historyBack, forward: historyForward } = nav;
-  const [entries, setEntries] = useState<FileEntry[]>([]);
+  // Entries, selection, focus and anchor change together; see listing.ts.
+  const [listing, setListing] = useState<Listing>(EMPTY_LISTING);
+  const { entries, selected, focusIndex, anchorIndex } = listing;
   const [gitInfo, setGitInfo] = useState<GitInfo | null>(null);
-  const [selected, setSelected] = useState<number[]>([]);
-  const [focusIndex, setFocusIndex] = useState<number>(0);
-  const [anchorIndex, setAnchorIndex] = useState<number>(0);
   const [sortKey, setSortKey] = useState<SortKey>("name");
   const [sortDir, setSortDir] = useState<SortDir>("asc");
   const [showHidden, setShowHidden] = useState<boolean>(false);
@@ -187,6 +190,21 @@ export function useTabState(initialPath: string, isPrivate: boolean = false): Us
   const [error, setError] = useState<string | null>(null);
   const [refreshTick, setRefreshTick] = useState<number>(0);
   const [tagFilter, setTagFilter] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState<string>("");
+
+  // The index setters are bound to the entries they were rendered with, so
+  // indexes from this render still mean the same files if a re-list lands
+  // before the update applies (a click racing the poll, or a command that
+  // awaited a prompt).
+  const setSelected = useCallback((sel: number[]) => {
+    setListing(l => withSelected(l, entries, sel));
+  }, [entries]);
+  const setFocusIndex = useCallback((i: number) => {
+    setListing(l => withFocus(l, entries, i));
+  }, [entries]);
+  const setAnchorIndex = useCallback((i: number) => {
+    setListing(l => withAnchor(l, entries, i));
+  }, [entries]);
 
   const showHiddenRef = useRef(showHidden);
   useEffect(() => { showHiddenRef.current = showHidden; }, [showHidden]);
@@ -210,7 +228,7 @@ export function useTabState(initialPath: string, isPrivate: boolean = false): Us
       const dir = await readDir(p, hidden);
       if (seq !== fetchSeq.current) return;
       setError(null);
-      setEntries(dir);
+      setListing(l => relist(l, dir));
       setLoading(false);
       const info = await git;
       if (seq !== fetchSeq.current) return;
@@ -218,7 +236,7 @@ export function useTabState(initialPath: string, isPrivate: boolean = false): Us
     } catch (e) {
       if (seq !== fetchSeq.current) return;
       setError(errText(e));
-      setEntries([]);
+      setListing(l => relist(l, []));
       setGitInfo(null);
     } finally {
       if (seq === fetchSeq.current) setLoading(false);
@@ -279,10 +297,15 @@ export function useTabState(initialPath: string, isPrivate: boolean = false): Us
     };
   }, [path, fetchAll]);
 
+  // Leaving a folder drops its rows at once, so nothing on screen or under
+  // the selection belongs to the folder we left, and drops any fetch of it
+  // still in flight. The new folder's fetch starts after the debounce above.
   const resetNav = () => {
-    setSelected([]);
-    setFocusIndex(0);
-    setAnchorIndex(0);
+    fetchSeq.current++;
+    setListing(EMPTY_LISTING);
+    setLoading(true);
+    setError(null);
+    setSearchQuery("");
   };
 
   // Side effects stay out of state updaters: StrictMode runs updaters twice,
@@ -343,8 +366,9 @@ export function useTabState(initialPath: string, isPrivate: boolean = false): Us
     historyBack,
     historyForward,
     tagFilter,
+    searchQuery,
     private: isPrivate,
-  }), [path, entries, gitInfo, selected, focusIndex, anchorIndex, sortKey, sortDir, showHidden, loading, error, historyBack, historyForward, tagFilter, isPrivate]);
+  }), [path, entries, gitInfo, selected, focusIndex, anchorIndex, sortKey, sortDir, showHidden, loading, error, historyBack, historyForward, tagFilter, searchQuery, isPrivate]);
 
   const actions: TabActions = useMemo(() => ({
     goTo,
@@ -359,8 +383,9 @@ export function useTabState(initialPath: string, isPrivate: boolean = false): Us
     setSortKey,
     setSortDir,
     setTagFilter,
+    setSearchQuery,
     clearHistory,
-  }), [goTo, back, forward, up, refresh, clearHistory]);
+  }), [goTo, back, forward, up, refresh, setSelected, setFocusIndex, setAnchorIndex, clearHistory]);
 
   return useMemo(() => ({ state, actions }), [state, actions]);
 }
