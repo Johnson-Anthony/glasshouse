@@ -2,13 +2,7 @@
 
 What changed in each release, for people using glasshouse. Downloads are on the [Releases page](https://github.com/Johnson-Anthony/glasshouse/releases).
 
-## [0.2.0] - unreleased
-
-<!-- TODO(release): before tagging v0.2.0 (every wave-1 task in
-  docs/plans/active/survey-2.md is in below),
-  1. replace "unreleased" in the heading with the release date (YYYY-MM-DD);
-  2. delete this comment.
-  The release workflow (scripts/release-check.mjs) refuses the tag until both are done. -->
+## [0.2.0] - 2026-11-12
 
 This release is mostly about safety: several ways to lose files are fixed, and the app is harder to misuse. Linux packages now also come for arm64 and run on older distributions.
 
