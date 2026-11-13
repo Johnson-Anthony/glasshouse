@@ -26,14 +26,16 @@ Scope: `## 22. os-drag-drop` in `docs/plans/active/survey-2.md`, plus the lead's
 - The demo can't do OS drags; its internal drag checks must still pass.
 
 ## Status
-- [x] Spike: drag out on Linux, release build (d79d022), test steps to the lead. **Waiting on the user's test on niri.**
+Done; handed to the lead to merge.
+- [x] Spike: drag out on Linux, release build (d79d022), test steps to the lead.
 - [x] Drag in
 - [x] Modifiers, ghost label, cheatsheet
 - [x] Tabs and breadcrumbs as drop targets
 - [x] Windows drag out (`drag` crate): its calls type-check against `x86_64-pc-windows-msvc` in a scratch crate; the full build is CI's
 - [x] Checks at d79d022: `pnpm build`, `pnpm test` (547 passed), `pnpm check:wiring`, `pnpm notices --check` (regenerated: 423 crates), clippy `-D warnings`, `cargo test` (206 passed, 5 ignored), `pnpm site:build`, `pnpm site:capture check` (23 of 23, capped)
-- [x] The lead's review: a drag that overshoots to the titlebar's edge and comes back now moves, as the in-app drag would (`recordHandOff`). Checks after it: `pnpm build`, `pnpm test` (553 passed), `pnpm check:wiring`, `pnpm notices --check`; no Rust change. Release binary rebuilt for the user's test.
-- [ ] The user's results, and any fixes they need
-- [ ] Handoff
+- [x] The lead's review: a drag that overshoots to the titlebar's edge and comes back now moves, as the in-app drag would (`recordHandOff`, dbabe65). Checks after it: `pnpm build`, `pnpm test` (553 passed), `pnpm check:wiring`, `pnpm notices --check`, `pnpm site:build`, `pnpm site:capture check` (23 of 23). Release binary rebuilt at 01:55.
+- [x] **Drag out confirmed by the user on niri (Wayland)** with the 01:55 build: "it seemed to be working". The test steps covered LibreWolf's upload field and kitty; which targets they used isn't reported yet. The lead's stderr log: 8 drags started, 7 ended cleanly, 1 logged `drag-failed` (GTK3 on Wayland reports a refused drop that way, most likely a drop on something that doesn't take files).
+- [x] The `drag-end` log line no longer prints the action: it was always COPY, the only one offered, even after a failed drop. Now the lines are `started with N item(s)`, `failed (…)` and `ended`; only a `failed` line before `ended` means the drop didn't take. Clippy `-D warnings` and `cargo test` (206 passed, 5 ignored) after it.
+- [ ] **Not yet tested by hand:** drag in from another app, Ctrl+drag inside the app, drops on tabs and breadcrumbs, and the overshoot return. The vitest tests cover their logic, and the lead has asked the user.
 
 Decisions: `docs/decisions/2026-11-13-os-drag-drop-design.md`.

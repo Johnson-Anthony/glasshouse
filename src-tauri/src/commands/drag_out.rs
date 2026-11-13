@@ -109,9 +109,10 @@ mod platform {
             eprintln!("drag out: failed ({result:?})");
             gtk::glib::Propagation::Proceed
         });
-        // drag-end comes once per drag, whether it was dropped or not.
-        let end = win.connect_drag_end(|w, ctx| {
-            eprintln!("drag out: ended ({:?})", ctx.selected_action());
+        // drag-end comes once per drag, whether it was dropped or not; only a
+        // drag-failed line before it says the drop didn't take.
+        let end = win.connect_drag_end(|w, _| {
+            eprintln!("drag out: ended");
             clear_handlers(w);
         });
         HANDLERS.with(|h| h.borrow_mut().extend([data, failed, end]));

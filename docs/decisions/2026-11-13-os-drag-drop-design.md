@@ -1,6 +1,6 @@
 # os-drag-drop: a GTK drag source of our own, a handoff at the window's edge, copies from other apps
 
-Date: 2026-11-13. Task: `os-drag-drop` (survey-2 task 22). Status: for review by the lead; the drag out waits on the user's test on niri.
+Date: 2026-11-13. Task: `os-drag-drop` (survey-2 task 22). Status: reviewed by the lead. The user confirmed the drag out on niri; drag in, Ctrl inside the app and the overshoot return aren't hand-tested yet.
 
 ## Drag out: which code starts the native drag
 **Chosen: on Linux, a GTK drag source of our own (`commands/drag_out.rs`); on Windows, the `drag` crate.**
