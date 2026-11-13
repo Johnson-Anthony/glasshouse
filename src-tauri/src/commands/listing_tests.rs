@@ -1,4 +1,4 @@
-//! list_dir.
+//! list_dir and path_kind.
 
 use crate::commands::testing::{put, s, Scratch};
 use super::*;
@@ -66,6 +66,29 @@ fn list_dir_of_a_missing_folder_is_an_error() {
     let err = list_dir(s(&d.join("nope")), true).unwrap_err();
     assert!(err.starts_with("read_dir("), "{}", err);
     assert!(err.contains("nope"), "{}", err);
+}
+
+#[test]
+fn path_kind_tells_a_folder_from_a_file_and_from_nothing() {
+    let d = Scratch::new("path-kind");
+    std::fs::create_dir(d.join("dir")).unwrap();
+    put(&d.join("f.txt"), "x");
+    assert_eq!(path_kind(s(&d.join("dir"))), Some("folder"));
+    assert_eq!(path_kind(s(&d.join("f.txt"))), Some("file"));
+    assert_eq!(path_kind(s(&d.join("gone"))), None);
+    std::fs::remove_dir(d.join("dir")).unwrap();
+    assert_eq!(path_kind(s(&d.join("dir"))), None);
+}
+
+#[cfg(unix)]
+#[test]
+fn path_kind_follows_links_and_calls_a_dangling_one_a_file() {
+    let d = Scratch::new("path-kind-links");
+    std::fs::create_dir(d.join("dir")).unwrap();
+    std::os::unix::fs::symlink(d.join("dir"), d.join("to-dir")).unwrap();
+    std::os::unix::fs::symlink(d.join("nowhere"), d.join("dangling")).unwrap();
+    assert_eq!(path_kind(s(&d.join("to-dir"))), Some("folder"));
+    assert_eq!(path_kind(s(&d.join("dangling"))), Some("file"));
 }
 
 #[cfg(target_os = "linux")]

@@ -224,6 +224,12 @@ export function readDir(path: string, showHidden: boolean): Promise<FileEntry[]>
   return invoke<FileEntry[]>("list_dir", { path, showHidden });
 }
 
+/** What's at `path` now (one stat, following links), or null when nothing
+ *  is. "unknown" when the backend can't be asked. */
+export function pathKind(path: string): Promise<"folder" | "file" | "unknown" | null> {
+  return safe(() => invoke<"folder" | "file" | null>("path_kind", { path }), "unknown");
+}
+
 export function drives(): Promise<Drive[]> {
   return safe(() => invoke<Drive[]>("drives"), []);
 }
