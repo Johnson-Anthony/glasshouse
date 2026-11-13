@@ -12,6 +12,8 @@ What changed in each release, for people using glasshouse. Downloads are on the 
 - **The command palette (Ctrl+P) finds every menu command** (about 155, up from 19), each once, with where it lives in the menus and its shortcut. Typing a path such as `/etc` or `~/src` offers to go there.
 - **Typed paths work:** Go to Path…, Open… and the palette's "Go to" row expand `~`, resolve relative paths and `..`, open http(s) and mailto links in the browser, and open a file's folder with the file selected. A path that doesn't exist is reported in the prompt instead of opening an error pane.
 - **Search results open in place.** A Find in Files result opens its folder with the file selected. Find File by Name lists its matches to pick from, instead of in an alert.
+- **Menus work from the keyboard:** arrow keys, Home/End, Enter and Esc, → and ← into and out of submenus, and a letter jumps to the next item starting with it. Alt alone or F10 opens the menubar, and ← → move between menus. Each menu has its own underlined letter for Alt+letter (Git is now G*i*t, Terminal Te*r*minal). The Menu key or Shift+F10 opens the context menu of the selection, or the New/Paste menu when nothing is selected. Focus goes back where it was when a menu closes.
+- **Type-ahead in the file list:** typing a name's first letters jumps to it, and repeating a letter cycles through the names starting with it.
 - **Big folders are fast.** In Details, Compact List and Tree the file list only draws the rows on screen, so a 10,000-file folder opens in about 0.1 s instead of 0.7 s. Arrow keys, End, box selection and filtering stay instant at any size, and sorting a large folder is about 4× faster.
 - **The app starts with less to load:** the terminal loads the first time you open it.
 - **Move to Trash can be undone:** Ctrl+Z restores the items, and Ctrl+Y trashes them again. Undo refuses, saying why, if a name is taken again or an item has left the trash.
@@ -28,6 +30,7 @@ What changed in each release, for people using glasshouse. Downloads are on the 
 
 ### Fixed
 
+- Ctrl+G then Delete (or an arrow key) acted on the file list instead of cancelling the git chord. A click on the menubar no longer leaves the file list without keyboard focus.
 - Go → Desktop, Documents, Downloads and Pictures open the folders the OS names: OneDrive-redirected folders on Windows, localised folders on Linux.
 - Running a command from the palette with Enter could also confirm the dialog it opened (New Folder created "new-folder" without asking). The palette's arrow keys now follow its rows as shown, and the highlighted row stays in view.
 - **The sidebar tree follows changes on disk.** A deleted, renamed or new folder shows up in the tree without a manual Refresh, and clicking a folder that no longer exists removes its row instead of opening an error.
