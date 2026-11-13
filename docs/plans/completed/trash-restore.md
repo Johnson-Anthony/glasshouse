@@ -23,8 +23,8 @@ Backlog entry: section 12 of `docs/plans/active/survey-2.md`.
   - none: "isn't in the trash any more";
   - several: "more than one trashed item matches".
 
-  It also refuses when the original path is taken (`symlink_metadata`), and when two keys would go back to the same path. All-or-nothing (undo) restores nothing if anything is refused. The view restores what it can and lists the rest. After the crate's `restore_all`, the trash is listed again to see what actually went back. The call runs under `catch_unwind`, because the freedesktop code `assert!`s that the trashed file exists.
-- **`trash_purge(keys)`:** the same matching, then `purge_all`.
+  It also refuses when the original path is taken (`symlink_metadata`), and when two keys would go back to the same path. All-or-nothing (undo) restores nothing if anything is refused. The view restores what it can and lists the rest. After the crate's `restore_all`, the trash is listed again to see what actually went back. The freedesktop code `assert!`s that the trashed file exists, and the release profile aborts on panic, so each item's file is checked first (`file_missing`) instead of relying on `catch_unwind`.
+- **`trash_purge(keys)`:** the same matching, then `purge_all`. An item whose file is missing has only its `.trashinfo` removed.
 - **`trash_unsupported(paths)`:** the paths on a drive with no Recycle Bin, each with why. On Windows: `GetVolumePathNameW`, then `GetDriveTypeW`; only `DRIVE_FIXED` has one. On Linux the list is always empty, because the crate trashes into the drive's own `.Trash-$uid`, or copies, and never deletes for good.
 - **The Windows helper** goes in its own file (`commands/recycle_bin.rs`, std plus `windows` only), so it can be type-checked here with a scratch crate.
 - **Matching is pure code** over a small item type, so it's unit-tested on every platform. One Linux round-trip test uses the real trash, then restores and removes its file.
@@ -51,7 +51,7 @@ Backlog entry: section 12 of `docs/plans/active/survey-2.md`.
   - matching picks the one item in the window; none or two refuses; an id narrows it;
   - a taken path or twin keys refuse; all-or-nothing restores nothing;
   - the Windows drive classification (pure part);
-  - a Linux round trip through the real trash.
+  - a Linux round trip through the real trash, run in a child process of the test binary with a private `XDG_DATA_HOME`, so the user's trash is never touched.
 - vitest:
   - `trashUndo` and `restoreUndo` round trips against a fake `TrashFs`; refusals keep the records; redo's new records are the ones the next undo uses;
   - `trashPaths`' split and confirm text (pure helper);
@@ -59,10 +59,26 @@ Backlog entry: section 12 of `docs/plans/active/survey-2.md`.
 
 ## Status
 - [x] Plan
-- [ ] Backend: trash.rs, recycle_bin.rs, permissions, git discard through trash_path
-- [ ] Frontend: api, undo builders, trashPaths, Trash dialog, Go → Trash
-- [ ] Demo mock
-- [ ] Windows helper type-checked with a scratch crate
-- [ ] Checks
-- [ ] Decision record
-- [ ] Handoff
+- [x] Backend: trash.rs, recycle_bin.rs, permissions, git discard through trash_path (`1a95ada`)
+- [x] Frontend: api, undo builders, trashPaths, Trash dialog, Go → Trash (`0c32bbc`, `f7fd33e`)
+- [x] Demo mock (`0c32bbc`)
+- [x] Windows helper type-checked with a scratch crate
+- [x] Checks (`43ab10b` fixes the routing test's mock, which left vitest exiting 1)
+- [x] Decision record: `docs/decisions/2026-11-13-trash-restore-design.md`
+- [x] Handoff
+
+## Results
+- `pnpm build`, `pnpm test` (38 files, 498 passed, 3 skipped), `pnpm check:wiring` (0 issues), `pnpm notices --check` (up to date).
+- `RUSTFLAGS="-D warnings" cargo clippy --all-targets` is clean; `cargo test` gives 204 passed and 5 ignored (the 3 real-trash children and Move to Trash's own XDG child, each run by its parent test, and an older archive test).
+- Windows: `recycle_bin.rs` and `trash.rs` (Tauri attributes stripped) pass `cargo clippy --target x86_64-pc-windows-msvc -D warnings` in a scratch crate, with the trash crate's Windows code. Not built or run on Windows: the drive check, restore and purge there, and the network-share behavior are unverified until the windows-latest CI job and a real share.
+- Headless run of the demo (`docs/demo`), 15 of 15 steps passed:
+  - Delete trashes a file; Ctrl+Z restores it; Ctrl+Y trashes it again, and the next Ctrl+Z finds the new item;
+  - Go → Trash lists it with its folder; a click selects it; Restore puts it back with "restored 1 item(s)"; Esc closes the dialog;
+  - Ctrl+Z after that restore trashes it again, and Ctrl+Y restores it.
+
+## For review
+- **A dialog, not a virtual folder.** Go → Trash now opens it on Linux too; "open the trash folder" keeps the old browse.
+- **A taken name refuses** (with what's in the way). There's no "keep both", because the crate restores only to the original path.
+- **`trash_path` refuses a drive with no Recycle Bin for every caller.** So git's Discard leaves such an item alone, and Paste's Replace fails for it instead of deleting the replaced item for good.
+- **Cancel in the no-Recycle-Bin question cancels the whole Move to Trash**, including the items that could have gone to the Recycle Bin.
+- **Delete Permanently and Empty Trash** in the dialog call `markIrreversible`, so they clear the undo history.
