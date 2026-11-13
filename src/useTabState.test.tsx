@@ -133,6 +133,19 @@ describe("useTabState re-reads", () => {
     expect(tab.state.entries.map(e => e.name)).toEqual(["a", "b", "c", "d", "e", "f", "g"]);
   });
 
+  it("list at once on an explicit refresh, even right after a report's listing", async () => {
+    act(() => report("/w"));
+    await wait(20);
+    const before = reads();
+    fake.dirs["/w"].push(entry("/w", "renamed"));
+    act(() => tab.actions.refresh());
+    await settle();
+    expect(reads()).toBe(before + 1);
+    expect(tab.state.entries.map(e => e.name)).toContain("renamed");
+    // The rows stayed on screen meanwhile.
+    expect(tab.state.loading).toBe(false);
+  });
+
   it("ask git status for a count since the refresh began", async () => {
     await fsChanged("/w");
     const [path, maxAge] = vi.mocked(gitStatus).mock.calls.at(-1)!;

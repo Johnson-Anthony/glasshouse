@@ -251,14 +251,18 @@ export function useTabState(initialPath: string, isPrivate: boolean = false, act
       if (seq === fetchSeq.current) setLoading(false);
     }
   }, []);
-  // One listing at a time, and quiet ones spaced out: see refreshGate.ts.
+  // One listing at a time, and reports spaced out: see refreshGate.ts. A
+  // navigation or Show Hidden change ("go") shows the loading state; an
+  // explicit refresh (F5, or after the app's own change) keeps the rows on
+  // screen. Both list at once. A watcher report or the poll waits its turn.
   const gateRef = useRef<RefreshGate<{ p: string; hidden: boolean; quiet: boolean }> | null>(null);
   gateRef.current ??= new RefreshGate(list);
   const gate = gateRef.current;
   useEffect(() => () => gate.cancel(), [gate]);
-  const fetchAll = useCallback((p: string, hidden: boolean, quiet = false) => {
-    if (quiet) gate.refresh({ p, hidden, quiet });
-    else gate.start({ p, hidden, quiet });
+  const fetchAll = useCallback((p: string, hidden: boolean, how: "go" | "refresh" | "report") => {
+    const args = { p, hidden, quiet: how !== "go" };
+    if (how === "report") gate.refresh(args);
+    else gate.start(args);
   }, [gate]);
 
   // A tab in the background re-lists once it's shown, if it missed a watcher
@@ -266,14 +270,14 @@ export function useTabState(initialPath: string, isPrivate: boolean = false, act
   const activeRef = useRef(active);
   const missedRef = useRef(false);
   const relistIfShown = useCallback(() => {
-    if (activeRef.current) fetchAll(navRef.current.path, showHiddenRef.current, true);
+    if (activeRef.current) fetchAll(navRef.current.path, showHiddenRef.current, "report");
     else missedRef.current = true;
   }, [fetchAll]);
   useEffect(() => {
     activeRef.current = active;
     if (active && missedRef.current) {
       missedRef.current = false;
-      fetchAll(navRef.current.path, showHiddenRef.current, true);
+      fetchAll(navRef.current.path, showHiddenRef.current, "report");
     }
   }, [active, fetchAll]);
 
@@ -282,9 +286,9 @@ export function useTabState(initialPath: string, isPrivate: boolean = false, act
     if (!path) return;
     const handle = window.setTimeout(() => {
       const key = `${showHidden}:${path}`;
-      const quiet = key === fetchedKey.current;
+      const same = key === fetchedKey.current;
       fetchedKey.current = key;
-      fetchAll(path, showHidden, quiet);
+      fetchAll(path, showHidden, same ? "refresh" : "go");
     }, 60);
     return () => window.clearTimeout(handle);
   }, [path, showHidden, refreshTick, fetchAll]);
