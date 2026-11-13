@@ -108,6 +108,8 @@ interface TabShellProps {
   id: number;
   initialPath: string;
   isPrivate?: boolean;
+  /** The tab shown; the others don't poll (see useTabState). */
+  active: boolean;
   /** Called with the tab's latest state, and with null when it unmounts. */
   onReady: (id: number, r: UseTabResult | null) => void;
 }
@@ -287,8 +289,8 @@ function FindInFilesModal({ root, onClose, onPick }: FindInFilesModalProps) {
   );
 }
 
-function TabShell({ id, initialPath, isPrivate, onReady }: TabShellProps) {
-  const tab = useTabState(initialPath, !!isPrivate);
+function TabShell({ id, initialPath, isPrivate, active, onReady }: TabShellProps) {
+  const tab = useTabState(initialPath, !!isPrivate, active);
   const onReadyRef = useRef(onReady);
   useEffect(() => { onReadyRef.current = onReady; });
   useEffect(() => {
@@ -1136,6 +1138,7 @@ export function App() {
           id={t.id}
           initialPath={t.initialPath}
           isPrivate={t.private}
+          active={t.id === activeTabId}
           onReady={(id, r) => setTabHandles(prev => {
             if (r) return prev[id] === r ? prev : { ...prev, [id]: r };
             if (!(id in prev)) return prev;
