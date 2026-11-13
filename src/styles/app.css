@@ -1242,7 +1242,10 @@ html.no-status .statusbar { display: none; }
   cursor: pointer;
 }
 .pal-row.active { background: var(--bg-sel); color: var(--fg-0); }
+.pal-row.danger { color: var(--red); }
 .pal-row .ic { color: var(--accent); font-size: 12px; }
+.pal-row .name { display: flex; align-items: baseline; gap: 10px; min-width: 0; white-space: nowrap; }
+.pal-row .where { font-size: 11px; color: var(--fg-3); overflow: hidden; text-overflow: ellipsis; }
 .pal-row .kb {
   font-size: 10px; color: var(--fg-3);
   display: flex; gap: 3px;

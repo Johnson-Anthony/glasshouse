@@ -166,8 +166,6 @@ function dataSenders(data) {
   for (const [name, value] of Object.entries(data)) {
     if (name === "MENUS") {
       for (const [menu, items] of Object.entries(value)) walk(items, `data.ts MENUS.${menu}`);
-    } else if (name === "PALETTE") {
-      for (const p of value) sent.push({ label: p.label, where: "data.ts PALETTE" });
     } else if (name === "GIT_CHORDS") {
       for (const label of Object.values(value)) sent.push({ label, where: "data.ts GIT_CHORDS" });
     } else if (isMenuTree(value)) {

@@ -1,13 +1,14 @@
 // glasshouse file manager — components
 import React, { useState, useEffect, useLayoutEffect, useRef, useMemo } from "react";
 import { createPortal } from "react-dom";
-import { PALETTE, THEMES, type FileRow, type FileKind } from "./data";
+import { THEMES, type FileRow, type FileKind } from "./data";
 import { netRate, pathFsType, systemInfo as apiSystemInfo, winClose, winMinimize, winToggleMaximize, type GitInfo, type NetRate, type SystemInfo } from "./api";
-import { fuzzyFilter } from "./fuzzy";
 import { viewRows } from "./viewRows";
 import { remapIndexes } from "./listing";
 import { rowWindow, rowsInSpan, scrollToRow } from "./paneWindow";
 import { splitBreadcrumb } from "./paths";
+import { kbKeys, searchPalette } from "./palette";
+import { IS_WINDOWS } from "./platform";
 import type { SortDir, SortKey } from "./state";
 import { TAG_COLOR_MAP } from "./Sidebar";
 import { isModalOpen } from "./dialogs/modal";
@@ -1003,65 +1004,81 @@ export interface PaletteProps {
   onCommand: (label: string) => void;
 }
 
+const PALETTE_PLACEHOLDER = IS_WINDOWS
+  ? "type a command, or a path (C:\\…, ~\\…)"
+  : "type a command, or a path (/…, ~/…)";
+
+/** Every menu command (see palette.ts), plus "Go to" for a typed path. */
 export function Palette({ onClose, onCommand }: PaletteProps) {
   const [q, setQ] = useState("");
   const [idx, setIdx] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
-  const items = useMemo(() => {
-    if (!q) return PALETTE;
-    return fuzzyFilter(q, PALETTE, p => p.label).map(r => r.item);
-  }, [q]);
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const rows = useMemo(() => searchPalette(q), [q]);
+  const browsing = !q.trim();
 
   useEffect(() => { inputRef.current?.focus(); }, []);
   useEffect(() => { setIdx(0); }, [q]);
+  useEffect(() => {
+    bodyRef.current?.querySelector(".pal-row.active")?.scrollIntoView?.({ block: "nearest" });
+  }, [idx, rows]);
 
   const run = (label: string) => { onCommand(label); onClose(); };
   const onKey = (e: React.KeyboardEvent) => {
     if (e.key === "Escape") onClose();
-    if (e.key === "ArrowDown") { e.preventDefault(); setIdx((idx + 1) % items.length); }
-    if (e.key === "ArrowUp") { e.preventDefault(); setIdx((idx - 1 + items.length) % items.length); }
+    // Focus stays in the box: there's nothing to complete.
+    if (e.key === "Tab") e.preventDefault();
+    if (e.key === "ArrowDown" && rows.length) { e.preventDefault(); setIdx((idx + 1) % rows.length); }
+    if (e.key === "ArrowUp" && rows.length) { e.preventDefault(); setIdx((idx - 1 + rows.length) % rows.length); }
     if (e.key === "Enter") {
+      // The palette owns this Enter. A dialog the command opens adds its
+      // window keydown listener while the event is still bubbling, and
+      // would take it as its own Enter (New Folder made "new-folder").
       e.preventDefault();
-      const sel = items[idx];
-      if (sel) run(sel.label);
+      e.stopPropagation();
+      const sel = rows[idx];
+      if (sel) run(sel.send);
       else onClose();
     }
   };
-
-  const groups: Record<string, Array<(typeof PALETTE)[number] & { _i: number }>> = {};
-  items.forEach((p, i) => { (groups[p.g] = groups[p.g] || []).push({ ...p, _i: i }); });
 
   return (
     <div className="palette-overlay" onClick={onClose}>
       <div className="palette" onClick={(e) => e.stopPropagation()} onKeyDown={onKey}>
         <div className="palette-head">
           <span className="prefix">❯</span>
-          <input ref={inputRef} value={q} onChange={(e) => setQ(e.target.value)} placeholder="type a command, path, or :mode" />
-          <span className="hint">{items.length} results · <span className="kbd">↑↓</span> navigate</span>
+          <input ref={inputRef} value={q} onChange={(e) => setQ(e.target.value)} placeholder={PALETTE_PLACEHOLDER} />
+          <span className="hint">{rows.length} results · <span className="kbd">↑↓</span> navigate</span>
         </div>
-        <div className="palette-body">
-          {Object.entries(groups).map(([g, arr]) => (
-            <div key={g}>
-              <div className="pal-group">{g}</div>
-              {arr.map((p) => (
-                <div key={p._i} className={"pal-row" + (p._i === idx ? " active" : "")} onMouseEnter={() => setIdx(p._i)} onClick={() => run(p.label)}>
-                  <span className="ic">{p.ic}</span>
-                  <span>{p.label}</span>
-                  <span className="kb">{(p.kb || []).map((k, i) => <span key={i}>{k}</span>)}</span>
+        <div className="palette-body" ref={bodyRef}>
+          {rows.map((r, i) => {
+            // Under a group header, the menu's name would only repeat it.
+            const where = browsing && r.where[0] === r.group ? r.where.slice(1) : r.where;
+            return (
+              <React.Fragment key={i}>
+                {browsing && r.group !== rows[i - 1]?.group && <div className="pal-group">{r.group}</div>}
+                {/* Mouse move, not enter: rows scrolled under a still pointer
+                    would otherwise take the highlight from the arrow keys. */}
+                <div className={"pal-row" + (r.danger ? " danger" : "") + (i === idx ? " active" : "")}
+                  onMouseMove={() => { if (i !== idx) setIdx(i); }} onClick={() => run(r.send)}>
+                  <span className="ic">{r.ic}</span>
+                  <span className="name">
+                    <span>{r.label}</span>
+                    {where.length > 0 && <span className="where">{where.join(" › ")}</span>}
+                  </span>
+                  <span className="kb">{r.kb && kbKeys(r.kb).map((k, j) => <span key={j}>{k}</span>)}</span>
                 </div>
-              ))}
-            </div>
-          ))}
-          {items.length === 0 && (
-            <div style={{padding: 20, textAlign: "center", color:"var(--fg-3)"}}>no matches. try <code>:help</code></div>
+              </React.Fragment>
+            );
+          })}
+          {rows.length === 0 && (
+            <div style={{padding: 20, textAlign: "center", color:"var(--fg-3)"}}>no matching command</div>
           )}
         </div>
         <div className="palette-foot">
           <span><span className="kb">↵</span>run</span>
-          <span><span className="kb">Tab</span>autocomplete</span>
-          <span><span className="kb">Ctrl</span><span className="kb">`</span>run in terminal</span>
           <span><span className="kb">Esc</span>close</span>
-          <span style={{marginLeft:"auto"}}>:<i>go</i> · /<i>find</i> · ?<i>help</i> · !<i>shell</i></span>
+          <span style={{marginLeft:"auto"}}>a typed path opens that folder</span>
         </div>
       </div>
     </div>

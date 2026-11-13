@@ -2,7 +2,7 @@ import type { Handler } from "./types";
 import { pickNumbered } from "./helpers";
 import { dialogs } from "../dialogs/DialogHost";
 import { IS_WINDOWS } from "../platform";
-import { joinPath } from "../paths";
+import { joinPath, looksLikePath } from "../paths";
 import {
   spawnNewWindow,
   readPins,
@@ -146,12 +146,8 @@ export const navHandler: Handler = async (label, ctx) => {
       // Fallback: a label that looks like a path (absolute, drive-prefixed,
       // or ~-prefixed) gets navigated to directly. Dynamic menu items attach
       // a `payload` and short-circuit before this handler sees them, so this
-      // only catches stragglers from palette/palette-like dispatches.
-      const looksLikePath =
-        label.startsWith("/") ||
-        label.startsWith("~") ||
-        /^[A-Za-z]:[\\/]/.test(label);
-      if (looksLikePath) {
+      // is the palette's "Go to <path>" row, which sends the typed path.
+      if (looksLikePath(label)) {
         void (async () => {
           let target = label;
           if (target.startsWith("~")) {

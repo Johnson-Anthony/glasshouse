@@ -59,8 +59,7 @@ function checkoutBranch(ctx: Parameters<Handler>[1], branch: string): Promise<vo
 export const gitHandler: Handler = async (label, ctx) => {
   const entries = ctx.activeHandle?.state.entries ?? [];
   switch (label) {
-    case "Stage Selected":
-    case "Git: Stage Selected": {
+    case "Stage Selected": {
       await runGitAction("stage", ctx.selectedPaths, entries, ctx.refresh);
       return true;
     }
@@ -84,7 +83,6 @@ export const gitHandler: Handler = async (label, ctx) => {
       await runAndShow(ctx, "git status", ["status", "--short"], false);
       return true;
     }
-    case "Git: Commit…":
     case "Commit…": {
       const msg = await dialogs.showPrompt({
         title: "git commit",
