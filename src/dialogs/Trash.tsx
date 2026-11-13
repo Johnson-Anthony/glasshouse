@@ -24,6 +24,11 @@ export interface TrashDialogProps {
 
 const BIN = IS_WINDOWS ? "Recycle Bin" : "Trash";
 
+// Columns: check, name, original folder, deleted, size.
+const ROW = {
+  display: "grid", gridTemplateColumns: "3ch minmax(0, 1.2fr) minmax(0, 1.6fr) 17ch 10ch", gap: 8, alignItems: "center",
+} as const;
+
 const button = (enabled: boolean, color = "var(--fg-1)") => ({
   background: "transparent", border: "1px solid var(--fg-3)", color,
   padding: "4px 12px", cursor: enabled ? "pointer" : "not-allowed",
@@ -151,8 +156,17 @@ export function TrashDialog({ onClose, onChanged, onBrowseFolder }: TrashDialogP
             }} style={{ color: "var(--accent)" }}>{allSelected ? "select none" : "select all"}</a>
           )}
         </div>
+        {shown.length > 0 && (
+          <div style={{ ...ROW, padding: "4px 15px 0", fontSize: 10, color: "var(--fg-3)", textTransform: "uppercase" }}>
+            <span />
+            <span>name</span>
+            <span>from</span>
+            <span>deleted</span>
+            <span style={{ textAlign: "right" }}>size</span>
+          </div>
+        )}
         <div style={{ overflow: "auto", flex: 1, padding: 6, display: "flex", flexDirection: "column", gap: 2 }}>
-          {error && <div style={{ color: "var(--red, #f7768e)", padding: 12 }}>couldn't read the {BIN}: {error}</div>}
+          {error &&<div style={{ color: "var(--red, #f7768e)", padding: 12 }}>couldn't read the {BIN}: {error}</div>}
           {entries !== null && !error && shown.length === 0 && (
             <div style={{ color: "var(--fg-3)", padding: 12, fontStyle: "italic", textAlign: "center" }}>
               the {BIN.toLowerCase()} is empty
@@ -162,8 +176,7 @@ export function TrashDialog({ onClose, onChanged, onBrowseFolder }: TrashDialogP
             const on = selected.has(e.id);
             return (
               <div key={e.id} data-trash-row={e.name} onClick={() => toggle(e.id)} title={e.original} style={{
-                display: "grid", gridTemplateColumns: "3ch minmax(0, 1.2fr) minmax(0, 1.6fr) 17ch 10ch", gap: 8,
-                alignItems: "center", padding: "4px 8px", borderRadius: 2, cursor: "pointer", fontSize: 12,
+                ...ROW, padding: "4px 8px", borderRadius: 2, cursor: "pointer", fontSize: 12,
                 background: on ? "var(--bg-3, #24283b)" : "var(--bg-0, #0f0f14)",
                 border: `1px solid ${on ? "var(--accent)" : "transparent"}`,
               }}>
