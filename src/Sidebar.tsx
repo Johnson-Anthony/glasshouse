@@ -1,7 +1,10 @@
 import React, { useState, useEffect, useRef, useMemo } from "react";
-import { drives as apiDrives, homeDir as apiHomeDir, listDir, listWslDistros, pickDirectory, type Drive, type FileEntry, type WslDistro } from "./api";
+import { listen } from "@tauri-apps/api/event";
+import { drives as apiDrives, homeDir as apiHomeDir, listDir, listWslDistros, pathKind, pickDirectory, readDir, unwatchDir, watchDir, type Drive, type FileEntry, type WslDistro } from "./api";
 import { basename, joinPath, normalizePath, parentPath, pathSegments } from "./paths";
 import { isModalOpen } from "./dialogs/modal";
+import { RefreshGate } from "./refreshGate";
+import { dropTree, pruneUnder } from "./treeRefresh";
 
 // ============= Sidebar =============
 interface TreeNodeState {
@@ -222,27 +225,87 @@ export function Sidebar({ activePath, onGoTo, onOpenFile, onRowContext, pins, on
     });
   };
 
-  // List each of `paths` again for the tree, keyed by path.
-  const relist = async (paths: string[]): Promise<Record<string, FileEntry[]>> => {
-    const updates: Record<string, FileEntry[]> = {};
-    for (const p of paths) {
-      const kids = await listDir(p, treePrefs.showHidden);
-      updates[p] = filterKids(kids);
+  // The tree follows the disk. Each open folder on show is watched, and a
+  // report for one lists just that folder again, one listing at a time with
+  // a gap after each, as the pane does (refreshGate.ts). `watched` is keyed
+  // by normalized path and keeps the path as watched, for `unwatchDir`.
+  const watched = useRef(new Map<string, { path: string; gate: RefreshGate<string> }>());
+  // Folders that stopped being watched (collapsed, or a parent was), so
+  // their kept rows may be out of date when they're shown again.
+  const unwatchedSince = useRef(new Set<string>());
+
+  // List folder `p` for the tree. What the tree kept for a child folder
+  // that's no longer there goes too (treeRefresh.ts). A folder that's gone
+  // is forgotten and its parent listed again; one that's there but can't
+  // be read shows empty. Its rows, or null when it's gone.
+  const listTreeFolder = async (p: string): Promise<FileEntry[] | null> => {
+    let kids: FileEntry[];
+    try {
+      kids = filterKids(await readDir(p, treePrefs.showHidden));
+    } catch {
+      const kind = await pathKind(p);
+      if (kind === null || kind === "file") {
+        forgetTreeFolder(p, false);
+        return null;
+      }
+      kids = [];
     }
-    return updates;
+    unwatchedSince.current.delete(normalizePath(p));
+    setChildren(prev => ({ ...pruneUnder(prev, p, kids), [p]: kids }));
+    setExpanded(prev => pruneUnder(prev, p, kids));
+    return kids;
   };
 
+  // List every folder the tree keeps again, parents first, skipping any an
+  // earlier listing in the pass found gone.
+  const relistTree = async () => {
+    let kept = children;
+    const paths = Object.keys(children).sort((a, b) => pathSegments(a).length - pathSegments(b).length);
+    for (const p of paths) {
+      if (!(p in kept)) continue;
+      const kids = await listTreeFolder(p);
+      kept = kids ? pruneUnder(kept, p, kids) : dropTree(kept, p);
+    }
+  };
+  const listTreeFolderRef = useRef(listTreeFolder);
+  listTreeFolderRef.current = listTreeFolder;
+
+  // Drop folder `p` and everything kept under it, then list its parent again
+  // so its row goes: `now`, or as a quiet refresh. The root keeps its row.
+  const forgetTreeFolder = (p: string, now: boolean) => {
+    setChildren(prev => dropTree(prev, p));
+    setExpanded(prev => dropTree(prev, p));
+    if (!rootPath || normalizePath(p) === normalizePath(rootPath)) return;
+    const parent = parentPath(p);
+    const w = watched.current.get(normalizePath(parent));
+    if (!w) void listTreeFolder(parent);
+    else if (now) w.gate.start(w.path);
+    else w.gate.refresh(w.path);
+  };
+
+  // A tree row was clicked or entered. A row whose file or folder is gone
+  // (or a folder that's now a file) goes away instead of opening, and the
+  // pane keeps what it shows.
+  const openTreeRow = async (path: string, isFolder: boolean) => {
+    const kind = await pathKind(path);
+    if (kind === null || (kind !== "unknown" && (kind === "folder") !== isFolder)) {
+      forgetTreeFolder(path, true);
+      return;
+    }
+    openRow(path, !isFolder);
+  };
+
+  // Home, drives and WSL load side by side, so a slow drive or WSL start
+  // doesn't hold up the tree. None of them rejects.
   useEffect(() => {
+    void apiDrives().then(setDriveList);
+    void listWslDistros().then(setWslDistros);
     void (async () => {
       const h = await apiHomeDir();
       setHome(h);
-      setDriveList(await apiDrives());
-      setWslDistros(await listWslDistros());
       if (h) {
         setRootPath(h);
-        const kids = await listDir(h, treePrefs.showHidden);
-        setChildren(prev => ({ ...prev, [h]: filterKids(kids) }));
-        setExpanded(prev => ({ ...prev, [h]: true }));
+        if (await listTreeFolder(h)) setExpanded(prev => ({ ...prev, [h]: true }));
       }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -251,12 +314,7 @@ export function Sidebar({ activePath, onGoTo, onOpenFile, onRowContext, pins, on
   // Re-fetch / re-filter every already-loaded path when prefs change so the
   // tree reflects Show Hidden / Show Files immediately.
   useEffect(() => {
-    const paths = Object.keys(children);
-    if (paths.length === 0) return;
-    void (async () => {
-      const updates = await relist(paths);
-      setChildren(prev => ({ ...prev, ...updates }));
-    })();
+    if (Object.keys(children).length > 0) void relistTree();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [treePrefs.showHidden, treePrefs.showFiles]);
 
@@ -268,12 +326,9 @@ export function Sidebar({ activePath, onGoTo, onOpenFile, onRowContext, pins, on
       const parts = pathSegments(activePath.slice(rootPath.length));
       let cur = rootPath;
       for (let i = 0; i < parts.length - 1; i++) {
-        cur = joinPath(cur, parts[i]);
-        if (!children[cur]) {
-          const kids = await listDir(cur, treePrefs.showHidden);
-          setChildren(prev => ({ ...prev, [cur]: filterKids(kids) }));
-        }
-        setExpanded(prev => ({ ...prev, [cur]: true }));
+        const dir = cur = joinPath(cur, parts[i]);
+        if (!children[dir] && !(await listTreeFolder(dir))) return;
+        setExpanded(prev => ({ ...prev, [dir]: true }));
       }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -285,10 +340,8 @@ export function Sidebar({ activePath, onGoTo, onOpenFile, onRowContext, pins, on
       setExpanded(prev => ({ ...prev, [path]: false }));
       return;
     }
-    if (!children[path]) {
-      const kids = await listDir(path, treePrefs.showHidden);
-      setChildren(prev => ({ ...prev, [path]: filterKids(kids) }));
-    }
+    // Kept rows show at once; the watch below lists them again.
+    if (!children[path] && !(await listTreeFolder(path))) return;
     setExpanded(prev => ({ ...prev, [path]: true }));
   };
 
@@ -298,22 +351,15 @@ export function Sidebar({ activePath, onGoTo, onOpenFile, onRowContext, pins, on
     // no stale descendant entry can keep its own subtree visible. If the root
     // hasn't been listed yet (e.g. Collapse all is hit while still loading)
     // pull its children first so the tree doesn't flash empty.
-    if (!children[rootPath]) {
-      const kids = await listDir(rootPath, treePrefs.showHidden);
-      setChildren(prev => ({ ...prev, [rootPath]: filterKids(kids) }));
-    }
+    if (!children[rootPath] && !(await listTreeFolder(rootPath))) return;
     setExpanded({ [rootPath]: true });
-  };
-
-  const refreshTree = async () => {
-    setChildren(await relist(Object.keys(children)));
   };
 
   const applyNewRoot = async (picked: string) => {
     setRootPath(picked);
     setExpanded({ [picked]: true });
-    const kids = await listDir(picked, treePrefs.showHidden);
-    setChildren({ [picked]: filterKids(kids) });
+    setChildren({});
+    await listTreeFolder(picked);
   };
 
   const changeRoot = async () => {
@@ -356,6 +402,49 @@ export function Sidebar({ activePath, onGoTo, onOpenFile, onRowContext, pins, on
     walk(rootPath, 0, "folder");
     return out;
   }, [rootPath, expanded, children]);
+
+  // Watch the open folders on show. One that's shown again after a while
+  // unwatched is listed again, since it may have changed meanwhile.
+  const openKey = treeRows.filter(r => r.open && r.kind === "folder").map(r => r.path).join("\n");
+  useEffect(() => {
+    const want = new Map(openKey ? openKey.split("\n").map(p => [normalizePath(p), p] as const) : []);
+    for (const [k, w] of watched.current) {
+      if (want.has(k)) continue;
+      w.gate.cancel();
+      void unwatchDir(w.path);
+      watched.current.delete(k);
+      unwatchedSince.current.add(k);
+    }
+    for (const [k, p] of want) {
+      if (watched.current.has(k)) continue;
+      const gate = new RefreshGate<string>(async dir => { await listTreeFolderRef.current(dir); });
+      watched.current.set(k, { path: p, gate });
+      void watchDir(p);
+      if (unwatchedSince.current.delete(k)) gate.refresh(p);
+    }
+  }, [openKey]);
+  useEffect(() => () => {
+    for (const w of watched.current.values()) {
+      w.gate.cancel();
+      void unwatchDir(w.path);
+    }
+    watched.current.clear();
+  }, []);
+  useEffect(() => {
+    let disposed = false;
+    let unlisten: (() => void) | null = null;
+    void listen<string>("fs-changed", evt => {
+      const w = watched.current.get(normalizePath(typeof evt.payload === "string" ? evt.payload : ""));
+      w?.gate.refresh(w.path);
+    }).then(fn => {
+      if (disposed) fn();
+      else unlisten = fn;
+    }).catch(() => { /* no Tauri: nothing reports */ });
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, []);
 
   const tagCounts = useMemo(() => {
     const counts: Record<string, number> = {};
@@ -430,7 +519,7 @@ export function Sidebar({ activePath, onGoTo, onOpenFile, onRowContext, pins, on
   const activateRow = (row: SbNavRow) => {
     if (row.kind === "pin") openRow(row.path, pinFiles.has(row.path));
     else if (row.kind === "drive" || row.kind === "wsl") onGoTo(row.path);
-    else if (row.kind === "tree") openRow(row.path, !row.isFolder);
+    else if (row.kind === "tree") void openTreeRow(row.path, row.isFolder);
     else if (row.kind === "tag") onTagFilter?.(row.label);
     else if (row.kind === "remote") onRemoteClick(savedRemotes[row.idx]);
   };
@@ -723,7 +812,7 @@ export function Sidebar({ activePath, onGoTo, onOpenFile, onRowContext, pins, on
               <div style={{ borderTop: "1px solid var(--fg-3)", margin: "4px 0" }} />
               <div onClick={() => { void collapseAll(); setTreeMenuOpen(false); }}
                    style={{ padding: "4px 10px", cursor: "pointer", paddingLeft: 30 }}>Collapse all</div>
-              <div onClick={() => { void refreshTree(); setTreeMenuOpen(false); }}
+              <div onClick={() => { void relistTree(); setTreeMenuOpen(false); }}
                    style={{ padding: "4px 10px", cursor: "pointer", paddingLeft: 30 }}>Refresh</div>
               <div onClick={() => { void changeRoot(); setTreeMenuOpen(false); }}
                    style={{ padding: "4px 10px", cursor: "pointer", paddingLeft: 30 }}>Change root…</div>
@@ -741,7 +830,7 @@ export function Sidebar({ activePath, onGoTo, onOpenFile, onRowContext, pins, on
                data-sb-nav-idx={navIdx}
                className={"tree-row" + (n.path === activePath ? " active" : "") + (isKb ? " sb-item-focused" : "")}
                style={{paddingLeft: 12 + n.depth * 10, cursor:"pointer"}}
-               onClick={() => openRow(n.path, n.kind !== "folder")}
+               onClick={() => void openTreeRow(n.path, n.kind === "folder")}
                onContextMenu={(e) => {
                  if (!onRowContext) return;
                  e.preventDefault();

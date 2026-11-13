@@ -14,6 +14,10 @@ import { normalizePath, parentPath } from "./paths";
 import { navBack, navClear, navForward, navGoTo, navInit, type NavState } from "./history";
 import { errText } from "./errors";
 import { EMPTY_LISTING, keepGitInfo, relist, withAnchor, withFocus, withSelected, type Listing } from "./listing";
+import { RefreshGate } from "./refreshGate";
+
+/** The safety-net re-list of the shown tab, for changes the watcher missed. */
+const POLL_MS = 30000;
 
 export type SortKey = "name" | "size" | "modified" | "tag" | "git" | "type";
 export type SortDir = "asc" | "desc";
@@ -172,7 +176,10 @@ export function newTab(path?: string, opts?: { private?: boolean }): void {
   tabListMutator?.newTab(path, opts);
 }
 
-export function useTabState(initialPath: string, isPrivate: boolean = false): UseTabResult {
+/** `active`: the tab is the one shown. A tab in the background doesn't
+ *  re-list on the poll or on watcher reports; it notes that it missed one
+ *  and re-lists once when it's shown again. */
+export function useTabState(initialPath: string, isPrivate: boolean = false, active: boolean = true): UseTabResult {
   // Path and history live in one value. navRef is the source of truth for the
   // actions and is updated synchronously, so two navigations in the same tick
   // build on each other; the state copy is what renders.
@@ -214,23 +221,25 @@ export function useTabState(initialPath: string, isPrivate: boolean = false): Us
   // re-reads the same folder (poll, fs event, refresh) and keeps the current
   // rows or error on screen until the result arrives, so nothing blinks.
   const fetchSeq = useRef(0);
-  const fetchAll = useCallback(async (p: string, hidden: boolean, quiet = false) => {
+  const list = useCallback(async ({ p, hidden, quiet }: { p: string; hidden: boolean; quiet: boolean }) => {
     const seq = ++fetchSeq.current;
     if (!quiet) {
       setLoading(true);
       setError(null);
     }
-    // Both start now and run in parallel, but the rows go up as soon as they
-    // arrive: git_status scans the whole repo for its dirty count, which in a
-    // big repo takes longer than the listing. gitStatus never rejects.
-    const git = gitStatus(p);
+    const began = Date.now();
     try {
       const dir = await readDir(p, hidden);
       if (seq !== fetchSeq.current) return;
       setError(null);
       setListing(l => relist(l, dir));
       setLoading(false);
-      const info = await git;
+      // Git status comes after the rows. Its dirty count needs a scan of the
+      // whole repo, and a listing at the repo's root has just done one: a
+      // count from a scan since this fetch began is reused. A navigation
+      // takes a count up to one poll old, when HEAD and the index haven't
+      // moved since. gitStatus never rejects.
+      const info = await gitStatus(p, quiet ? Date.now() - began : POLL_MS);
       if (seq !== fetchSeq.current) return;
       setGitInfo(prev => keepGitInfo(prev, info));
     } catch (e) {
@@ -242,15 +251,44 @@ export function useTabState(initialPath: string, isPrivate: boolean = false): Us
       if (seq === fetchSeq.current) setLoading(false);
     }
   }, []);
+  // One listing at a time, and reports spaced out: see refreshGate.ts. A
+  // navigation or Show Hidden change ("go") shows the loading state; an
+  // explicit refresh (F5, or after the app's own change) keeps the rows on
+  // screen. Both list at once. A watcher report or the poll waits its turn.
+  const gateRef = useRef<RefreshGate<{ p: string; hidden: boolean; quiet: boolean }> | null>(null);
+  gateRef.current ??= new RefreshGate(list);
+  const gate = gateRef.current;
+  useEffect(() => () => gate.cancel(), [gate]);
+  const fetchAll = useCallback((p: string, hidden: boolean, how: "go" | "refresh" | "report") => {
+    const args = { p, hidden, quiet: how !== "go" };
+    if (how === "report") gate.refresh(args);
+    else gate.start(args);
+  }, [gate]);
+
+  // A tab in the background re-lists once it's shown, if it missed a watcher
+  // report or a poll meanwhile.
+  const activeRef = useRef(active);
+  const missedRef = useRef(false);
+  const relistIfShown = useCallback(() => {
+    if (activeRef.current) fetchAll(navRef.current.path, showHiddenRef.current, "report");
+    else missedRef.current = true;
+  }, [fetchAll]);
+  useEffect(() => {
+    activeRef.current = active;
+    if (active && missedRef.current) {
+      missedRef.current = false;
+      fetchAll(navRef.current.path, showHiddenRef.current, "report");
+    }
+  }, [active, fetchAll]);
 
   const fetchedKey = useRef("");
   useEffect(() => {
     if (!path) return;
     const handle = window.setTimeout(() => {
       const key = `${showHidden}:${path}`;
-      const quiet = key === fetchedKey.current;
+      const same = key === fetchedKey.current;
       fetchedKey.current = key;
-      void fetchAll(path, showHidden, quiet);
+      fetchAll(path, showHidden, same ? "refresh" : "go");
     }, 60);
     return () => window.clearTimeout(handle);
   }, [path, showHidden, refreshTick, fetchAll]);
@@ -260,7 +298,7 @@ export function useTabState(initialPath: string, isPrivate: boolean = false): Us
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // notify-based fs watcher: subscribe per-path, with a 30s safety-net refetch
+  // notify-based fs watcher: subscribe per-path, with a safety-net poll
   useEffect(() => {
     if (!path) return;
     let disposed = false;
@@ -272,9 +310,7 @@ export function useTabState(initialPath: string, isPrivate: boolean = false): Us
     void listen<string>("fs-changed", evt => {
       if (disposed) return;
       const payload = typeof evt.payload === "string" ? evt.payload : "";
-      if (normalizePath(payload) === target) {
-        void fetchAll(navRef.current.path, showHiddenRef.current, true);
-      }
+      if (normalizePath(payload) === target) relistIfShown();
     }).then(fn => {
       if (disposed) {
         fn();
@@ -283,9 +319,7 @@ export function useTabState(initialPath: string, isPrivate: boolean = false): Us
       }
     }).catch(() => { /* ignore */ });
 
-    const safetyId = window.setInterval(() => {
-      void fetchAll(navRef.current.path, showHiddenRef.current, true);
-    }, 30000);
+    const safetyId = window.setInterval(relistIfShown, POLL_MS);
 
     return () => {
       disposed = true;
@@ -295,13 +329,14 @@ export function useTabState(initialPath: string, isPrivate: boolean = false): Us
       }
       void unwatchDir(path);
     };
-  }, [path, fetchAll]);
+  }, [path, relistIfShown]);
 
   // Leaving a folder drops its rows at once, so nothing on screen or under
   // the selection belongs to the folder we left, and drops any fetch of it
   // still in flight. The new folder's fetch starts after the debounce above.
   const resetNav = () => {
     fetchSeq.current++;
+    gate.cancel();
     setListing(EMPTY_LISTING);
     setLoading(true);
     setError(null);

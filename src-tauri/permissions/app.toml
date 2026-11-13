@@ -13,6 +13,7 @@ description = "Read files, folders and system info; hash, diff and search files;
 commands.allow = [
   "home_dir",
   "list_dir",
+  "path_kind",
   "drives",
   "list_wsl_distros",
   "system_info",

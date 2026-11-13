@@ -123,9 +123,8 @@ export interface GitInfo {
   branch: string;
   ahead: number;
   behind: number;
+  /** Changed, staged, deleted, conflicted and untracked items. */
   dirty: number;
-  /** Repo-relative path → the same single-char code as `FileEntry.git`. */
-  status: Record<string, string>;
 }
 
 export interface FileStatExt {
@@ -225,6 +224,12 @@ export function readDir(path: string, showHidden: boolean): Promise<FileEntry[]>
   return invoke<FileEntry[]>("list_dir", { path, showHidden });
 }
 
+/** What's at `path` now (one stat, following links), or null when nothing
+ *  is. "unknown" when the backend can't be asked. */
+export function pathKind(path: string): Promise<"folder" | "file" | "unknown" | null> {
+  return safe(() => invoke<"folder" | "file" | null>("path_kind", { path }), "unknown");
+}
+
 export function drives(): Promise<Drive[]> {
   return safe(() => invoke<Drive[]>("drives"), []);
 }
@@ -283,8 +288,11 @@ export function readImageB64(path: string, maxBytes: number = 0): Promise<string
   return mustInvoke<string>("read_image_b64", { path, maxBytes });
 }
 
-export function gitStatus(path: string): Promise<GitInfo | null> {
-  return safe(() => invoke<GitInfo | null>("git_status", { path }), null);
+/** The git line for the repo holding `path`. Its dirty count is reused from
+ *  a scan that started at most `maxAgeMs` ago, if HEAD and the index haven't
+ *  moved since; omitted, the repo is always scanned. */
+export function gitStatus(path: string, maxAgeMs?: number): Promise<GitInfo | null> {
+  return safe(() => invoke<GitInfo | null>("git_status", { path, maxAgeMs }), null);
 }
 
 export function gitBlame(path: string, maxLines: number): Promise<BlameLine[]> {

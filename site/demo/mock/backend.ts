@@ -164,6 +164,10 @@ export function createBackend(hooks: BackendHooks) {
           ? x.name.toLowerCase().localeCompare(y.name.toLowerCase())
           : x.kind === "folder" ? -1 : 1);
     },
+    path_kind: a => {
+      const n = vfs.get(str(a.path));
+      return n ? (n.dir ? "folder" : "file") : null;
+    },
     drives: () => [
       { letter: "/", label: "", total: 512e9, free: 301e9, fs: "ext4" },
       { letter: "/boot/efi", label: "", total: 536e6, free: 498e6, fs: "vfat" },
@@ -419,7 +423,6 @@ export function createBackend(hooks: BackendHooks) {
         ahead: repo.ahead,
         behind: 0,
         dirty: changes.length,
-        status: Object.fromEntries(changes),
       };
     },
     git_branch_list: a => {

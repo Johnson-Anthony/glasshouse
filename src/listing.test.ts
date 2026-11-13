@@ -123,11 +123,11 @@ describe("unchanged re-reads", () => {
   });
 
   it("keep the previous git info when nothing in it changed", () => {
-    const info = (status: Record<string, string>, branch = "main"): GitInfo =>
-      ({ repo_root: "/w", branch, ahead: 0, behind: 0, dirty: Object.keys(status).length, status });
-    const prev = info({ "a.ts": "M" });
-    expect(keepGitInfo(prev, info({ "a.ts": "M" }))).toBe(prev);
-    const changed = [info({ "a.ts": "A" }), info({ "b.ts": "M" }), info({ "a.ts": "M", "b.ts": "?" }), info({ "a.ts": "M" }, "dev")];
+    const info = (more: Partial<GitInfo> = {}): GitInfo =>
+      ({ repo_root: "/w", branch: "main", ahead: 0, behind: 0, dirty: 1, ...more });
+    const prev = info();
+    expect(keepGitInfo(prev, info())).toBe(prev);
+    const changed = [info({ dirty: 2 }), info({ branch: "dev" }), info({ ahead: 1 }), info({ behind: 1 }), info({ repo_root: "/v" })];
     for (const next of changed) expect(keepGitInfo(prev, next)).toBe(next);
     expect(keepGitInfo(prev, null)).toBeNull();
     expect(keepGitInfo(null, prev)).toBe(prev);

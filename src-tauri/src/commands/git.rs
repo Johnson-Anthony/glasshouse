@@ -1,6 +1,8 @@
 use serde::Serialize;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::{Mutex, OnceLock};
+use std::time::{Duration, Instant, SystemTime};
 use super::file_info::read_capped;
 use super::listing::canonicalize_soft;
 #[cfg(windows)]
@@ -35,29 +37,42 @@ fn git_status_code(flags: git2::Status) -> Option<&'static str> {
     }
 }
 
+/// The options every status scan uses: untracked items, but not ignored
+/// ones, and an untracked folder as one entry.
+fn status_options() -> git2::StatusOptions {
+    let mut opts = git2::StatusOptions::new();
+    opts.include_untracked(true)
+        .include_ignored(false)
+        .recurse_untracked_dirs(false);
+    opts
+}
+
 /// Walk `repo.statuses()` once and return a map of absolute paths (canonical
 /// workdir + the repo-relative path) to a single-char status code. Returns
 /// None when we couldn't open a repo at all (treat as "outside-repo; don't
-/// annotate").
+/// annotate"). A scan of the whole repo (the listing is its root) also
+/// stores the repo's dirty count for `git_status`.
 pub(super) fn scan_repo_statuses(dir: &Path) -> Option<HashMap<PathBuf, String>> {
-    use git2::{Repository, StatusOptions};
-    let repo = Repository::discover(dir).ok()?;
+    let repo = git2::Repository::discover(dir).ok()?;
     let workdir = repo.workdir()?.to_path_buf();
     // Only the workdir is canonicalized. Git never descends through a
     // symlink, so every folder in a status path is real; canonicalizing the
     // whole path would resolve a symlink entry to its target.
     let root = canonicalize_soft(&workdir);
-    let mut opts = StatusOptions::new();
-    opts.include_untracked(true)
-        .include_ignored(false)
-        .recurse_untracked_dirs(false);
+    let mut opts = status_options();
     // Only the listed folder's children get a label, so scan just its subtree
     // instead of the whole repo.
-    if let Some(spec) = status_pathspec(&workdir, dir) {
+    let spec = status_pathspec(&workdir, dir);
+    let whole_repo = spec.is_none();
+    if let Some(spec) = spec {
         opts.pathspec(spec);
     }
+    let state = repo_state(&repo);
+    let started = Instant::now();
+    count_scan();
     let statuses = repo.statuses(Some(&mut opts)).ok()?;
     let mut out: HashMap<PathBuf, String> = HashMap::new();
+    let mut dirty = 0;
     for s in statuses.iter() {
         let rel = match s.path() {
             Some(p) => p,
@@ -66,12 +81,16 @@ pub(super) fn scan_repo_statuses(dir: &Path) -> Option<HashMap<PathBuf, String>>
         let Some(code) = git_status_code(s.status()) else {
             continue;
         };
+        dirty += 1;
         // `rel` can include a trailing slash for untracked directories. Trim
         // it, and push its `/`-separated parts one by one so the key uses the
         // platform separator like the FileEntry paths looked up against it.
         let rel_trim = rel.trim_end_matches(['/', '\\']);
         let key = rel_trim.split('/').fold(root.clone(), |k, part| k.join(part));
         out.insert(key, code.to_string());
+    }
+    if whole_repo {
+        store_dirty(root, state, dirty, started);
     }
     Some(out)
 }
@@ -105,8 +124,82 @@ pub struct GitInfo {
     pub branch: String,
     pub ahead: usize,
     pub behind: usize,
+    /// Changed, staged, deleted, conflicted and untracked items (an
+    /// untracked folder counts once).
     pub dirty: usize,
-    pub status: std::collections::HashMap<String, String>, // repo-relative path -> code, as in FileEntry.git
+}
+
+// ---------- dirty counts ----------
+// A dirty count needs a scan of the whole repo, which in a big one takes far
+// longer than listing a folder. Each repo's last count is kept with the repo
+// state it was counted at, so a navigation inside the repo can reuse it.
+
+/// What a dirty count was counted against: the commit HEAD points to and the
+/// index file's size and time. Committing, checking out, resetting or
+/// staging changes one of them. An edit that isn't staged changes neither,
+/// which is why `git_status` also takes how old a count may be.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct RepoState {
+    head: Option<git2::Oid>,
+    index: Option<(u64, SystemTime)>,
+}
+
+fn repo_state(repo: &git2::Repository) -> RepoState {
+    let index = std::fs::metadata(repo.path().join("index"))
+        .ok()
+        .and_then(|m| Some((m.len(), m.modified().ok()?)));
+    RepoState {
+        head: repo.head().ok().and_then(|h| h.target()),
+        index,
+    }
+}
+
+struct Counted {
+    state: RepoState,
+    dirty: usize,
+    /// When the scan started: anything that changed before then is counted.
+    started: Instant,
+}
+
+/// Repos whose count is kept; the one counted longest ago goes first.
+const COUNTED_REPOS: usize = 16;
+
+fn counted() -> &'static Mutex<HashMap<PathBuf, Counted>> {
+    static COUNTED: OnceLock<Mutex<HashMap<PathBuf, Counted>>> = OnceLock::new();
+    COUNTED.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// The count for the repo at `root`, if it was counted at `state` by a scan
+/// that started at most `max_age` ago.
+fn cached_dirty(root: &Path, state: &RepoState, max_age: Duration) -> Option<usize> {
+    let map = crate::lock(counted());
+    let c = map.get(root)?;
+    (c.state == *state && c.started.elapsed() <= max_age).then_some(c.dirty)
+}
+
+/// Keep a count, unless a scan that started later already left one.
+fn store_dirty(root: PathBuf, state: RepoState, dirty: usize, started: Instant) {
+    let mut map = crate::lock(counted());
+    if map.get(&root).is_some_and(|c| c.started > started) {
+        return;
+    }
+    if map.len() >= COUNTED_REPOS && !map.contains_key(&root) {
+        if let Some(oldest) = map.iter().min_by_key(|(_, c)| c.started).map(|(k, _)| k.clone()) {
+            map.remove(&oldest);
+        }
+    }
+    map.insert(root, Counted { state, dirty, started });
+}
+
+#[cfg(test)]
+thread_local! {
+    /// Status scans run on this thread, for the tests that count them.
+    static SCANS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+fn count_scan() {
+    #[cfg(test)]
+    SCANS.with(|n| n.set(n.get() + 1));
 }
 
 /// Commits HEAD is ahead of and behind its upstream. `Ok(None)` when there's
@@ -140,11 +233,17 @@ fn upstream_ahead_behind(repo: &git2::Repository) -> Result<Option<(usize, usize
     repo.graph_ahead_behind(local, upstream_oid).map(Some)
 }
 
+/// The toolbar's git line for the repo holding `path`. The dirty count is
+/// reused when the repo's last one was counted at the same HEAD and index by
+/// a scan that started at most `max_age_ms` ago (none: always scan). A
+/// navigation passes the poll interval; a refresh passes the time since it
+/// began, so a count from its own root listing still serves.
 #[tauri::command(async)]
-pub fn git_status(path: String) -> Option<GitInfo> {
-    use git2::{Repository, StatusOptions};
-    let repo = Repository::discover(&path).ok()?;
-    let root = repo.workdir()?.to_string_lossy().to_string();
+pub fn git_status(path: String, max_age_ms: Option<u64>) -> Option<GitInfo> {
+    let repo = git2::Repository::discover(&path).ok()?;
+    let workdir = repo.workdir()?;
+    let root = workdir.to_string_lossy().to_string();
+    let key = canonicalize_soft(workdir);
     let head = repo.head().ok();
     let branch = head
         .as_ref()
@@ -157,30 +256,28 @@ pub fn git_status(path: String) -> Option<GitInfo> {
         .flatten()
         .unwrap_or((0, 0));
 
-    let mut opts = StatusOptions::new();
-    opts.include_untracked(true).recurse_untracked_dirs(false);
-    let mut status_map = std::collections::HashMap::new();
-    let mut dirty: usize = 0;
-    if let Ok(statuses) = repo.statuses(Some(&mut opts)) {
-        for s in statuses.iter() {
-            let p = match s.path() {
-                Some(p) => p.to_string(),
-                None => continue,
-            };
-            let Some(code) = git_status_code(s.status()) else {
-                continue;
-            };
-            dirty += 1;
-            status_map.insert(p, code.to_string());
-        }
-    }
+    let state = repo_state(&repo);
+    let max_age = Duration::from_millis(max_age_ms.unwrap_or(0));
+    let dirty = cached_dirty(&key, &state, max_age).unwrap_or_else(|| {
+        let started = Instant::now();
+        count_scan();
+        // A failed scan shows no count, and isn't kept.
+        let Ok(statuses) = repo.statuses(Some(&mut status_options())) else {
+            return 0;
+        };
+        let dirty = statuses
+            .iter()
+            .filter(|s| git_status_code(s.status()).is_some())
+            .count();
+        store_dirty(key, state, dirty, started);
+        dirty
+    });
     Some(GitInfo {
         repo_root: root,
         branch,
         ahead,
         behind,
         dirty,
-        status: status_map,
     })
 }
 
@@ -1002,7 +1099,7 @@ mod tests {
             ("untracked.txt", "?"),
             ("staged.txt", "A"),
         ];
-        let info = git_status(dir.to_string_lossy().into_owned()).unwrap();
+        let info = git_status(dir.to_string_lossy().into_owned(), None).unwrap();
         let listed: HashMap<String, String> = scan_repo_statuses(&dir)
             .unwrap()
             .into_iter()
@@ -1010,20 +1107,96 @@ mod tests {
             .collect();
         for (name, code) in expected {
             assert_eq!(
-                info.status.get(name).map(String::as_str),
-                Some(code),
-                "git_status {}",
-                name
-            );
-            assert_eq!(
                 listed.get(name).map(String::as_str),
                 Some(code),
                 "list_dir {}",
                 name
             );
         }
-        assert_eq!(info.status.len(), expected.len());
+        // git_status counts the same entries list_dir labels.
+        assert_eq!(listed.len(), expected.len());
         assert_eq!(info.dirty, expected.len());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The value `f` returns, and how many status scans it ran.
+    fn scans<T>(f: impl FnOnce() -> T) -> (T, usize) {
+        let before = SCANS.with(|n| n.get());
+        let out = f();
+        (out, SCANS.with(|n| n.get()) - before)
+    }
+
+    /// A navigation's age limit: one poll interval.
+    const NAV_AGE: Option<u64> = Some(30_000);
+
+    #[test]
+    fn a_dirty_count_is_reused_until_head_or_the_index_moves() {
+        let (dir, repo) = test_repo("dirtycache");
+        std::fs::write(dir.join("a.txt"), "1").unwrap();
+        commit_all(&repo, "init");
+        std::fs::write(dir.join("a.txt"), "2").unwrap();
+        let cwd = s(&dir);
+        let (info, n) = scans(|| git_status(cwd.clone(), NAV_AGE).unwrap());
+        assert_eq!((info.dirty, n), (1, 1));
+        let (info, n) = scans(|| git_status(cwd.clone(), NAV_AGE).unwrap());
+        assert_eq!((info.dirty, n), (1, 0), "same HEAD and index: reused");
+
+        // Staging rewrites the index.
+        std::fs::write(dir.join("b.txt"), "new").unwrap();
+        let mut index = repo.index().unwrap();
+        index.add_path(Path::new("b.txt")).unwrap();
+        index.write().unwrap();
+        let (info, n) = scans(|| git_status(cwd.clone(), NAV_AGE).unwrap());
+        assert_eq!((info.dirty, n), (2, 1), "staged");
+
+        // A commit moves HEAD.
+        commit_all(&repo, "two");
+        let (info, n) = scans(|| git_status(cwd.clone(), NAV_AGE).unwrap());
+        assert_eq!((info.dirty, n), (0, 1), "committed");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_refresh_counts_an_edit_that_isnt_staged() {
+        let (dir, repo) = test_repo("dirtyedit");
+        std::fs::write(dir.join("a.txt"), "1").unwrap();
+        commit_all(&repo, "init");
+        let cwd = s(&dir);
+        assert_eq!(git_status(cwd.clone(), NAV_AGE).unwrap().dirty, 0);
+        std::fs::write(dir.join("a.txt"), "2").unwrap();
+        // Neither HEAD nor the index moved, so a navigation keeps the count.
+        assert_eq!(git_status(cwd.clone(), NAV_AGE).unwrap().dirty, 0);
+        // A refresh that began just now takes no count from before it.
+        let (info, n) = scans(|| git_status(cwd.clone(), Some(0)).unwrap());
+        assert_eq!((info.dirty, n), (1, 1));
+        let (_, n) = scans(|| git_status(cwd.clone(), None).unwrap());
+        assert_eq!(n, 1, "no age limit given: always scan");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_root_listing_counts_for_the_git_status_after_it() {
+        use crate::commands::listing::list_dir;
+        let (dir, repo) = test_repo("dirtyroot");
+        put(&dir.join("sub/a.txt"), "1");
+        commit_all(&repo, "init");
+        put(&dir.join("sub/a.txt"), "2");
+        put(&dir.join("new.txt"), "x");
+        let cwd = s(&dir);
+
+        // A subfolder's listing scans only that folder: no count for the repo.
+        let (_, n) = scans(|| list_dir(s(&dir.join("sub")), false).unwrap());
+        assert_eq!(n, 1);
+        let (info, n) = scans(|| git_status(cwd.clone(), NAV_AGE).unwrap());
+        assert_eq!((info.dirty, n), (2, 1));
+
+        // The root listing scans the whole repo, and its count serves the
+        // refresh's git status that follows it.
+        put(&dir.join("new2.txt"), "x");
+        let (_, n) = scans(|| list_dir(cwd.clone(), false).unwrap());
+        assert_eq!(n, 1);
+        let (info, n) = scans(|| git_status(cwd.clone(), Some(10_000)).unwrap());
+        assert_eq!((info.dirty, n), (3, 0));
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -1123,7 +1296,7 @@ mod tests {
         std::fs::write(dir.join("a.txt"), "3").unwrap();
         let tip = commit_all(&repo, "three");
         assert_eq!(upstream_ahead_behind(&repo).unwrap(), Some((2, 0)));
-        let info = git_status(cwd).unwrap();
+        let info = git_status(cwd, None).unwrap();
         assert_eq!((info.ahead, info.behind), (2, 0));
 
         // Swap them: local main at the first commit, origin/main at the tip.
@@ -1149,9 +1322,9 @@ mod tests {
         let dir = temp_dir("norepo");
         // Only meaningful when the temp dir isn't itself inside a repo.
         if git2::Repository::discover(&dir).is_err() {
-            assert!(git_status(s(&dir)).is_none());
+            assert!(git_status(s(&dir), None).is_none());
             // libgit2 reports a path that doesn't exist as NotFound too.
-            assert!(git_status(s(&dir.join("missing"))).is_none());
+            assert!(git_status(s(&dir.join("missing")), None).is_none());
         }
         let _ = std::fs::remove_dir_all(&dir);
     }

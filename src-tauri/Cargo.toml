@@ -69,6 +69,8 @@ windows = { version = "0.58", features = [
     "Win32_Security",
     "Win32_Security_Authorization",
     "Win32_System_JobObjects",
+    "Win32_NetworkManagement_WNet",
+    "Win32_System_Diagnostics_Debug",
 ] }
 
 # Both already come in through tauri-plugin-opener; used for the

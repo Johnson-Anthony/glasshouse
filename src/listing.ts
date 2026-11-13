@@ -106,8 +106,5 @@ export function keepGitInfo(prev: GitInfo | null, next: GitInfo | null): GitInfo
   if (!prev || !next) return next;
   if (prev.repo_root !== next.repo_root || prev.branch !== next.branch || prev.ahead !== next.ahead
     || prev.behind !== next.behind || prev.dirty !== next.dirty) return next;
-  const a = Object.keys(prev.status), b = Object.keys(next.status);
-  if (a.length !== b.length) return next;
-  for (const k of a) if (prev.status[k] !== next.status[k]) return next;
   return prev;
 }

@@ -3,6 +3,8 @@
 
 pub mod archive;
 pub mod config;
+#[cfg(windows)]
+pub(crate) mod drive_letters;
 pub mod file_info;
 pub mod fs_ops;
 pub mod git;

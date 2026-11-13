@@ -16,6 +16,8 @@ pub(crate) fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
 }
 
 pub fn run() {
+    #[cfg(windows)]
+    commands::drive_letters::no_critical_error_boxes();
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
@@ -28,6 +30,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::listing::home_dir,
             commands::listing::list_dir,
+            commands::listing::path_kind,
             commands::system::drives,
             commands::wsl::list_wsl_distros,
             commands::system::system_info,

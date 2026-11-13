@@ -126,12 +126,24 @@ pub fn list_dir(path: String, show_hidden: bool) -> Result<Vec<FileEntry>, Strin
             }
         }
     }
-    out.sort_by(|a, b| match (a.kind == "folder", b.kind == "folder") {
-        (true, false) => std::cmp::Ordering::Less,
-        (false, true) => std::cmp::Ordering::Greater,
-        _ => a.name.to_ascii_lowercase().cmp(&b.name.to_ascii_lowercase()),
-    });
+    // Folders first, then by name ignoring ASCII case. The sidebar tree and
+    // the folder picker show this order as it is. Each key is built once,
+    // not twice per comparison, and the sort is stable.
+    out.sort_by_cached_key(|e| (e.kind != "folder", e.name.to_ascii_lowercase()));
     Ok(out)
+}
+
+/// What `path` is now: "folder" or "file", following links (a dangling
+/// link is a "file"), or `None` when nothing is there. One stat, for the
+/// sidebar tree to check a row before it opens it.
+#[tauri::command(async)]
+pub fn path_kind(path: String) -> Option<&'static str> {
+    let p = Path::new(&path);
+    match std::fs::metadata(p) {
+        Ok(m) if m.is_dir() => Some("folder"),
+        Ok(_) => Some("file"),
+        Err(_) => std::fs::symlink_metadata(p).ok().map(|_| "file"),
+    }
 }
 
 #[cfg(windows)]
