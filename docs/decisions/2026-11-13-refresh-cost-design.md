@@ -1,4 +1,4 @@
-# refresh-cost: git status scans, refresh storms, background tabs and startup
+# refresh-cost: git status scans, refresh storms, background tabs, startup and the sidebar tree
 
 Date: 2026-11-13. Task: `refresh-cost` (section 14 of `docs/plans/active/survey-2.md`).
 
@@ -26,9 +26,10 @@ Date: 2026-11-13. Task: `refresh-cost` (section 14 of `docs/plans/active/survey-
 ## Refresh storms
 **Chosen: `RefreshGate` (`src/refreshGate.ts`), one per tab.**
 - One listing at a time.
-- A quiet listing starts no sooner than 500 ms after the last one **ended**, not after it started. That way a slow folder gets a rest between listings instead of being listed back to back.
+- A listing for a watcher report or the poll starts no sooner than 500 ms after the last one **ended**, not after it started. That way a slow folder gets a rest between listings instead of being listed back to back.
 - Reports that come meanwhile become one trailing listing with the latest arguments, so the last change is always shown.
 - A navigation or a Show Hidden change starts at once, even beside a listing that's still running, whose result is dropped as before. It forgets the queued refresh, and so does leaving a folder.
+- **An explicit refresh starts at once too**: F5, and the refresh after the app's own change (`actions.refresh()`). It keeps the rows on screen meanwhile. At first these waited their turn like reports, and a rename then showed in the pane up to 500 ms late when a listing had just ended; the sidebar tree's check in the demo found it.
 
 In the demo, 40 watcher reports 75 ms apart cost 7 listings and 7 git status calls instead of 40 and 40.
 
@@ -52,12 +53,33 @@ In the demo, 40 watcher reports 75 ms apart cost 7 listings and 7 git status cal
 - A failed or timed-out run is kept too, so a hung WSL costs one timeout, not one per menu.
 - A distro installed while the app runs shows up within 5 minutes.
 
-**The terminal drawer** lists profiles the first time it opens.
-- Before, the closed drawer listed them at startup.
-- That change also fixes the first New Terminal Tab on a closed drawer opening two terminals. The new-tab event and the drawer's open effect each added one.
+**The terminal drawer** no longer lists profiles at startup. This task first made the drawer list them on first open, which also stopped the first New Terminal Tab on a closed drawer opening two terminals. pane-perf, merged first, mounts the whole drawer on first open, which does both, so the merge kept pane-perf's version.
 
 **Windows drive letters (`commands/drive_letters.rs`):**
 - Startup calls `SetErrorMode(SEM_FAILCRITICALERRORS)`, as Microsoft advises every app to, keeping any mode already set. An empty removable or CD drive then fails quietly instead of showing "There is no disk in the drive".
 - A letter with no root isn't asked. Neither is a mapped drive for which `WNetGetConnectionW` says the connection is unavailable, or that there's no network.
 - Every other letter is asked on its own thread. One that doesn't answer within 2 s is left out, and its thread ends when the system call gives up.
 - Only type-checked here (clippy for `x86_64-pc-windows-msvc` in a scratch crate). It hasn't run on Windows.
+
+## The sidebar tree follows the disk
+The user deleted `~/kestrel-test`. The tree still listed it, and clicking it showed "can't read this folder". The tree listed a folder once, when first opened, and again only on its menu's Refresh.
+
+**Chosen:**
+- **Watching.** Each open folder on show (an open folder whose parents are all open) is watched through the same ref-counted `watch_dir`/`unwatch_dir` as the tabs. It's unwatched when it's closed, a parent is closed, it's gone, the root changes or the sidebar goes.
+- **Reports.** A report for one of them lists just that folder again, through its own `RefreshGate`, so a burst is spaced out as in the pane.
+- **Pruning.** A listing drops what the tree kept (rows and open state) for each child folder no longer in it, with everything under it (`src/treeRefresh.ts`). A later folder of that name starts closed and is listed afresh.
+- **A failed listing** is checked with a new `path_kind` command (one stat). If the folder is gone, or is now a file, it's dropped and its parent listed again. If it's there but unreadable, it shows empty, as before.
+- **Shown again.** A folder shown again after a while unwatched (opened again, or a parent was) shows its kept rows at once and is listed again.
+- **Clicks.** A click or Enter on a tree row asks `path_kind` first. When the file or folder is gone, its row goes (its parent is listed at once) and the pane isn't sent there. The pane keeps what it shows, including any error it already shows for that folder.
+- **Refresh and the Show Hidden / Show Files toggles** list every kept folder, parents first, and skip any that an earlier listing in the same pass found gone.
+- **The app's own changes** (Delete, Move to Trash, Rename, New Folder) reach the tree through the same watcher reports. In the demo each showed in the tree within about 20 ms. The demo reports at once; the real watcher adds its 300 ms debounce.
+
+**Rejected:**
+- **Listing the parent on every click** to check the row. At a repo's root that's a scan of the repo; a stat is enough.
+- **`file_stat_extended` for the check.** On Windows it also looks up the owner, which is slow.
+- **Watching every folder the tree has listed.** Closed ones don't need it, since they're listed again when shown.
+- **A toast when a clicked row is gone.** The row going away answers the click, and when the pane already shows that folder's error, a toast would be a second one.
+
+**The cost:**
+- A tree click waits for one stat before the pane navigates.
+- Each open folder on show holds one OS watch, shared with any tab on the same folder.

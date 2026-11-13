@@ -50,8 +50,9 @@ A Tauri 2 app. The window is a React 18 UI (`src/`) that calls Rust commands (`s
 - `useTabState` calls `list_dir`, which returns each entry with its git label scanned for that folder only, then `git_status` for the toolbar's git line.
 - It then calls `watch_dir`. The backend sends `fs-changed` for the folder (300 ms debounce) and the tab re-lists. A 30 s poll is the backup.
 - Each `watch_dir` needs one `unwatch_dir`. The backend counts them per folder, so tabs on the same folder share one watch until the last one leaves.
-- `refreshGate.ts` runs one listing at a time per tab. A quiet one (a watcher report, the poll, a refresh) starts no sooner than 500 ms after the last ended, and reports in between become one trailing listing. A navigation starts at once.
+- `refreshGate.ts` runs one listing at a time per tab. One for a watcher report or the poll starts no sooner than 500 ms after the last ended, and reports in between become one trailing listing. A navigation and an explicit refresh (F5, or after the app's own change) start at once.
 - Only the tab shown re-lists on reports and the poll. A tab in the background notes that it missed one and re-lists when shown.
+- The sidebar tree watches its open folders on show the same way, and a report re-lists just that folder (a `RefreshGate` per folder). A listing drops what the tree kept for child folders that are gone (`treeRefresh.ts`). A click on a row asks `path_kind` (one stat) first, and a row whose file or folder is gone goes away instead of opening.
 - The git dirty count needs a scan of the whole repo. `git.rs` keeps each repo's last count with the HEAD commit and index stamp it was counted at. `git_status(path, max_age_ms)` reuses it when those match and the scan is recent enough: a navigation accepts one up to a poll old, and a refresh one since it began, which a listing at the repo's root just made.
 
 **Paths.** Paths are plain strings. `paths.ts` applies the platform's rules (`IS_WINDOWS` comes from the user agent): `\` is a separator, and comparisons are case-insensitive, only on Windows.
