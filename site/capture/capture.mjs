@@ -98,6 +98,9 @@ async function launchChromium() {
     }
   }
   const { proc, profile, port } = started;
+  // However node ends (process.exit on an error included), don't leave a
+  // headless Chromium running: one orphan sat at ~340 MB until found.
+  process.on("exit", () => { if (proc.exitCode === null) proc.kill("SIGKILL"); });
   const pages = await (await fetch(`http://127.0.0.1:${port}/json/list`)).json();
   const page = pages.find(p => p.type === "page");
   const ws = new WebSocket(page.webSocketDebuggerUrl);
