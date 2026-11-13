@@ -6,14 +6,19 @@ What changed in each release, for people using glasshouse. Downloads are on the 
 
 ### New
 
+- **Drag files out into other apps.** Drag files past the edge of the window and drop them into a browser's upload field, a terminal (which types the path) or another file manager. They're always copied.
+- **Drop files in from other apps.** Files dragged from a file manager or a browser's downloads onto a folder, the file list, a tab, a breadcrumb or a sidebar folder are copied there. You're asked before anything is replaced, and Ctrl+Z undoes it.
+- **Tabs and breadcrumbs take drops,** and the folder under the pointer lights up while you drag.
+- **The command palette (Ctrl+P) finds every menu command** (about 155, up from 19), each once, with where it lives in the menus and its shortcut. Typing a path such as `/etc` or `~/src` offers to go there.
 - **Big folders are fast.** In Details, Compact List and Tree the file list only draws the rows on screen, so a 10,000-file folder opens in about 0.1 s instead of 0.7 s. Arrow keys, End, box selection and filtering stay instant at any size, and sorting a large folder is about 4× faster.
 - **The app starts with less to load:** the terminal loads the first time you open it.
-
 - **Move to Trash can be undone:** Ctrl+Z restores the items, and Ctrl+Y trashes them again. Undo refuses, saying why, if a name is taken again or an item has left the trash.
 - **Go → Trash** shows what's in the Trash (the Recycle Bin on Windows): each item's name, original folder, deletion time and size, with Restore, Delete Permanently and Empty Trash. Restore can be undone. A taken name is refused, never replaced.
 
 ### Changed
 
+- **Ctrl+drag copies, as in Explorer and Nautilus.** A plain drag still moves. Shift used to copy; now it moves. The label next to the pointer says which, and changes as you press Ctrl. Ctrl+drag into the folder the files are already in makes copies of them ("name (copy)"), as Copy then Paste does.
+- The palette no longer advertises things it can't do (`:mode`, `:go`, `/find`, `?help`, `!shell`, Tab autocomplete, Ctrl+` to run in the terminal).
 - **Refreshing in a large git repo is faster.** At the repo's root a refresh scans the repo once instead of twice, and moving between folders reuses the last change count (up to 30 s old) unless HEAD or the index moved.
 - **Folders with tens of thousands of files list about 3× faster.**
 - A big paste or another burst of changes re-lists the folder about twice a second, plus once at the end, instead of on every change. Tabs in the background wait until they're shown.
@@ -21,6 +26,7 @@ What changed in each release, for people using glasshouse. Downloads are on the 
 
 ### Fixed
 
+- Running a command from the palette with Enter could also confirm the dialog it opened (New Folder created "new-folder" without asking). The palette's arrow keys now follow its rows as shown, and the highlighted row stays in view.
 - **The sidebar tree follows changes on disk.** A deleted, renamed or new folder shows up in the tree without a manual Refresh, and clicking a folder that no longer exists removes its row instead of opening an error.
 - On Windows, an empty card reader or CD drive no longer shows a "no disk" dialog, and a disconnected network drive no longer stalls the drive list. A drive that takes over 2 s to answer is left out.
 - The file list no longer jumps back to the focused file when something else in the window updates.
