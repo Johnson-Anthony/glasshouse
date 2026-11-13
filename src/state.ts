@@ -10,10 +10,10 @@ import {
   type GitInfo,
 } from "./api";
 
-import { normalizePath, parentPath } from "./paths";
+import { basename, normalizePath, parentPath } from "./paths";
 import { navBack, navClear, navForward, navGoTo, navInit, type NavState } from "./history";
 import { errText } from "./errors";
-import { EMPTY_LISTING, keepGitInfo, relist, withAnchor, withFocus, withSelected, type Listing } from "./listing";
+import { EMPTY_LISTING, indexOfName, keepGitInfo, relist, selectOnly, withAnchor, withFocus, withSelected, type Listing } from "./listing";
 import { RefreshGate } from "./refreshGate";
 
 /** The safety-net re-list of the shown tab, for changes the watcher missed. */
@@ -46,8 +46,17 @@ export interface TabState {
 // read_recent / append_recent / clear_recent) so it survives app restarts.
 // state.ts keeps appendRecent imported from ./api.
 
+/** How a `reveal` ended: the file selected; its folder listed without it
+ *  (hidden files are off, or it's gone); or another navigation, or a failed
+ *  listing, came first. */
+export type RevealResult = "selected" | "not-listed" | "dropped";
+
 export interface TabActions {
   goTo: (path: string) => void;
+  /** Opens `path`'s folder, or re-lists it if it's the one shown, with the
+   *  filter box and tag filter cleared, and selects, focuses and anchors
+   *  `path` when the listing arrives. */
+  reveal: (path: string) => Promise<RevealResult>;
   back: () => void;
   forward: () => void;
   up: () => void;
@@ -221,6 +230,12 @@ export function useTabState(initialPath: string, isPrivate: boolean = false, act
   // re-reads the same folder (poll, fs event, refresh) and keeps the current
   // rows or error on screen until the result arrives, so nothing blinks.
   const fetchSeq = useRef(0);
+  // A reveal waiting for a listing of its folder that started after it.
+  const revealRef = useRef<{ folder: string; name: string; after: number; done: (r: RevealResult) => void } | null>(null);
+  const dropReveal = () => {
+    revealRef.current?.done("dropped");
+    revealRef.current = null;
+  };
   const list = useCallback(async ({ p, hidden, quiet }: { p: string; hidden: boolean; quiet: boolean }) => {
     const seq = ++fetchSeq.current;
     if (!quiet) {
@@ -232,7 +247,15 @@ export function useTabState(initialPath: string, isPrivate: boolean = false, act
       const dir = await readDir(p, hidden);
       if (seq !== fetchSeq.current) return;
       setError(null);
-      setListing(l => relist(l, dir));
+      const want = revealRef.current;
+      if (want && seq > want.after && want.folder === normalizePath(p)) {
+        revealRef.current = null;
+        const at = indexOfName(dir, want.name);
+        setListing(l => (at >= 0 ? selectOnly(relist(l, dir), at) : relist(l, dir)));
+        want.done(at >= 0 ? "selected" : "not-listed");
+      } else {
+        setListing(l => relist(l, dir));
+      }
       setLoading(false);
       // Git status comes after the rows. Its dirty count needs a scan of the
       // whole repo, and a listing at the repo's root has just done one: a
@@ -244,6 +267,7 @@ export function useTabState(initialPath: string, isPrivate: boolean = false, act
       setGitInfo(prev => keepGitInfo(prev, info));
     } catch (e) {
       if (seq !== fetchSeq.current) return;
+      if (revealRef.current?.folder === normalizePath(p)) dropReveal();
       setError(errText(e));
       setListing(l => relist(l, []));
       setGitInfo(null);
@@ -259,6 +283,7 @@ export function useTabState(initialPath: string, isPrivate: boolean = false, act
   gateRef.current ??= new RefreshGate(list);
   const gate = gateRef.current;
   useEffect(() => () => gate.cancel(), [gate]);
+  useEffect(() => () => dropReveal(), []);
   const fetchAll = useCallback((p: string, hidden: boolean, how: "go" | "refresh" | "report") => {
     const args = { p, hidden, quiet: how !== "go" };
     if (how === "report") gate.refresh(args);
@@ -337,6 +362,7 @@ export function useTabState(initialPath: string, isPrivate: boolean = false, act
   const resetNav = () => {
     fetchSeq.current++;
     gate.cancel();
+    dropReveal();
     setListing(EMPTY_LISTING);
     setLoading(true);
     setError(null);
@@ -379,6 +405,20 @@ export function useTabState(initialPath: string, isPrivate: boolean = false, act
     setRefreshTick(t => t + 1);
   }, []);
 
+  const reveal = useCallback((target: string): Promise<RevealResult> => {
+    const folder = parentPath(target);
+    const stay = navRef.current.path === folder;
+    // A move drops the rows, the filter box and any older reveal.
+    goTo(folder);
+    dropReveal();
+    setTagFilter(null);
+    setSearchQuery("");
+    return new Promise<RevealResult>(resolve => {
+      revealRef.current = { folder: normalizePath(folder), name: basename(target), after: fetchSeq.current, done: resolve };
+      if (stay) refresh();
+    });
+  }, [goTo, refresh]);
+
   const clearHistory = useCallback(() => {
     const next = navClear(navRef.current);
     if (next === navRef.current) return;
@@ -407,6 +447,7 @@ export function useTabState(initialPath: string, isPrivate: boolean = false, act
 
   const actions: TabActions = useMemo(() => ({
     goTo,
+    reveal,
     back,
     forward,
     up,
@@ -420,7 +461,7 @@ export function useTabState(initialPath: string, isPrivate: boolean = false, act
     setTagFilter,
     setSearchQuery,
     clearHistory,
-  }), [goTo, back, forward, up, refresh, setSelected, setFocusIndex, setAnchorIndex, clearHistory]);
+  }), [goTo, reveal, back, forward, up, refresh, setSelected, setFocusIndex, setAnchorIndex, clearHistory]);
 
   return useMemo(() => ({ state, actions }), [state, actions]);
 }

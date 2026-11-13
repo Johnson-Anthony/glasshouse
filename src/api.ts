@@ -1,7 +1,9 @@
 import { invoke } from "@tauri-apps/api/core";
+import { desktopDir, documentDir, downloadDir, pictureDir } from "@tauri-apps/api/path";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { errText } from "./errors";
+import { joinPath } from "./paths";
 
 export async function winClose(): Promise<void> {
   if (!TAURI_AVAILABLE) return;
@@ -181,6 +183,20 @@ function mustInvoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> 
 
 export function homeDir(): Promise<string | null> {
   return safe(() => invoke<string | null>("home_dir"), null);
+}
+
+const KNOWN_FOLDERS = { Desktop: desktopDir, Documents: documentDir, Downloads: downloadDir, Pictures: pictureDir };
+export type KnownFolder = keyof typeof KNOWN_FOLDERS;
+
+/** Where the OS keeps the user's Desktop, Documents, Downloads or Pictures
+ *  folder: OneDrive's copy when it has moved them on Windows, the localised
+ *  XDG folders on Linux. When the OS has none set (Linux without
+ *  user-dirs.dirs), home plus the English name, as XDG itself defaults. */
+export async function knownFolder(name: KnownFolder): Promise<string | null> {
+  const dir = await safe<string | null>(() => KNOWN_FOLDERS[name](), null);
+  if (dir) return dir;
+  const home = await homeDir();
+  return home ? joinPath(home, name) : null;
 }
 
 /** Browser-only (dev server, no Tauri): `?mockRows=N` fills every directory

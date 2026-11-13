@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { FileEntry, GitInfo } from "./api";
-import { EMPTY_LISTING, keepGitInfo, relist, remapIndexes, sameEntries, withAnchor, withFocus, withSelected, type Listing } from "./listing";
+import { EMPTY_LISTING, indexOfName, keepGitInfo, relist, remapIndexes, sameEntries, selectOnly, withAnchor, withFocus, withSelected, type Listing } from "./listing";
 
 function entry(name: string): FileEntry {
   return {
@@ -131,5 +131,16 @@ describe("unchanged re-reads", () => {
     for (const next of changed) expect(keepGitInfo(prev, next)).toBe(next);
     expect(keepGitInfo(prev, null)).toBeNull();
     expect(keepGitInfo(null, prev)).toBe(prev);
+  });
+});
+
+describe("selectOnly and indexOfName", () => {
+  it("selects, focuses and anchors one entry, found by name", () => {
+    const l = listing(list("a", "b", "c"), [0, 2], 0, 2);
+    const i = indexOfName(l.entries, "b");
+    expect(i).toBe(1);
+    expect(selectOnly(l, i)).toEqual(listing(l.entries, [1], 1, 1));
+    expect(indexOfName(l.entries, "B")).toBe(-1);
+    expect(indexOfName(l.entries, "gone")).toBe(-1);
   });
 });

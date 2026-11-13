@@ -18,8 +18,8 @@ A Tauri 2 app. The window is a React 18 UI (`src/`) that calls Rust commands (`s
 | `components.tsx` | Titlebar, Toolbar, FilePane (the file list), StatusBar, Palette, Tweaks |
 | `menus.tsx`, `Sidebar.tsx`, `Miller.tsx`, `Terminal.tsx` | Menubar and context menu; the sidebar (pins, tree, tags, devices); the miller-column view; the xterm drawer |
 | `preview/` | `Inspector.tsx` (details, permissions, checksums) and `FilePreview.tsx` (type-aware previews and Quick Look) |
-| `dialogs/` | One file per dialog. `DialogHost.tsx` holds the promise-based `dialogs` API (prompt, alert, confirm, toast) and its host |
-| `state.ts` | `useTabState`: per-tab listing, selection, sort, history (`history.ts`) and fs watching. Also the undo and redo stacks |
+| `dialogs/` | One file per dialog. `DialogHost.tsx` holds the promise-based `dialogs` API (prompt, alert, confirm, choice, pick list, toast) and its host |
+| `state.ts` | `useTabState`: per-tab listing, selection, sort, history (`history.ts`) and fs watching; `reveal` opens a file's folder with the file selected once the listing arrives. Also the undo and redo stacks |
 | `handlers/` | Command handlers, chained as `COMMAND_CHAIN` in `index.ts`: `target` (context-menu target), `app` (App-level), `fileOps` (file ops on the active tab), then the feature handlers in `HANDLERS` (selection, view, git, archive, tools, nav, misc). `types.ts` defines `HandlerCtx` |
 | `keymap.ts` | Window shortcuts as a table (`KEYMAP`), which also feeds the Keybindings cheatsheet |
 | `data.ts` | Menu and context-menu trees, the commands only the palette lists (`PALETTE_ONLY`), and Windows-only item stripping |
@@ -28,7 +28,7 @@ A Tauri 2 app. The window is a React 18 UI (`src/`) that calls Rust commands (`s
 | `transfer.ts`, `transferUi.ts` | Copy and move planning (conflicts, "(copy)" names, keep both / replace / skip) and running, shared by paste, drag and drop, Move to… and Duplicate |
 | `undoActions.ts` | Undo and redo entries for moves, copies (fingerprinted), creations, replaced file content, and the trash (Move to Trash and Restore) |
 | `findReplace.ts` | Find & Replace in Files: the preview confirm, the report and the undo entry. The search and the writes are the backend's `replace.rs` |
-| `names.ts`, `paths.ts`, `tabs.ts`, `fuzzy.ts`, `shellCd.ts`, `octal.ts` | Pure helpers: name conflicts and bulk-rename ordering; path rules per platform; tab-list operations; fuzzy matching; terminal `cd`; chmod parsing |
+| `names.ts`, `paths.ts`, `typedPath.ts`, `tabs.ts`, `fuzzy.ts`, `shellCd.ts`, `octal.ts` | Pure helpers: name conflicts and bulk-rename ordering; path rules per platform; what a typed path or link means (`~`, relative, `..`, `file://`); tab-list operations; fuzzy matching; terminal `cd`; chmod parsing |
 | `ops.ts`, `opStore.ts`, `OpsTray.tsx` | Long operations (hash, copy, find) with progress and Cancel |
 | `dragDrop.ts`, `OsDrop.tsx` | Drag and drop. The pane's own drag uses pointer events (FilePane); at the window's edge it hands off to the OS (`start_drag_out`). Drops from other apps come through Tauri's drag-drop event and copy. Every drop target carries `data-drop-path`: folder rows, the pane, tabs, breadcrumb segments, sidebar rows |
 | `NoticesScreen.tsx`, `notices.ts`, `noticesData.ts` | Help → Third-party Notices, from `assets/fonts` and the generated `assets/third-party.json` (lazy chunk) |
@@ -42,7 +42,7 @@ A Tauri 2 app. The window is a React 18 UI (`src/`) that calls Rust commands (`s
 - Components also signal each other with window events (`glasshouse:*`) and attributes on `<html>`.
 
 **Commands are identified by their display label.**
-- Menus, the palette, context menus and `KEYMAP` bindings all send a label string to `handleMenuCommand`. A palette row sends what a click on its menu item sends; its "Go to" row sends the typed path, which `navHandler`'s fallback opens (`looksLikePath` in `paths.ts`).
+- Menus, the palette, context menus and `KEYMAP` bindings all send a label string to `handleMenuCommand`. A palette row sends what a click on its menu item sends; its "Go to" row sends the typed path, which `navHandler`'s fallback opens (`looksLikePath` in `paths.ts`) as Go to Path… and Open… do: `openTyped` (`handlers/helpers.ts`) opens a link in the browser, a folder in the tab, or a file's folder with the file selected. See `docs/decisions/2026-11-13-paths-and-search-design.md`.
 - It builds a `HandlerCtx` (with App's state and setters as `ctx.app`) and runs `COMMAND_CHAIN`. The first handler to return true wins, and the router shows errors in a dialog.
 - Dynamic menu items (recents, bookmarks, open-with apps) carry a `payload` and go to `handleMenuPayload` instead.
 - Renaming a label breaks routing unless its case changes too. `pnpm check:wiring` (`scripts/audit-wiring.mjs`, run in CI) fails on labels that nothing handles, cases that never run, no-op cases and cases nothing sends.

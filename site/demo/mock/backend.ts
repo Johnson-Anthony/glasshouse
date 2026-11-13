@@ -6,6 +6,9 @@ import { GitRepo } from "./git";
 import { FakeShell } from "./shell";
 import { Vfs, basename, join, parent, type VNode } from "./vfs";
 
+/** Tauri's BaseDirectory numbers for the folders the app asks for. */
+const USER_DIRS: Record<number, string> = { 6: "Documents", 7: "Downloads", 8: "Pictures", 18: "Desktop", 21: "~" };
+
 type Args = Record<string, unknown>;
 type Handler = (a: Args) => unknown;
 
@@ -541,6 +544,13 @@ export function createBackend(hooks: BackendHooks) {
     spawn_new_window: notInDemo("Opening a second window"),
     start_drag_out: notInDemo("Dragging files into other apps"),
 
+    // @tauri-apps/api/path's documentDir() and the rest (Go → Documents…),
+    // by BaseDirectory number. Tauri rejects a folder the OS has none for.
+    "plugin:path|resolve_directory": a => {
+      const name = USER_DIRS[Number(a.directory)];
+      if (!name) throw "unknown path";
+      return name === "~" ? HOME : join(HOME, name);
+    },
     "plugin:app|version": () => __DEMO_VERSION__,
     "plugin:app|name": () => "glasshouse",
     "plugin:app|tauri_version": () => "2",

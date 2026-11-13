@@ -20,6 +20,7 @@ const dialogs = vi.hoisted(() => ({
   showAlert: vi.fn(async () => {}),
   showConfirm: vi.fn(async () => false),
   showChoice: vi.fn(async (): Promise<string | null> => null),
+  showPick: vi.fn(async (): Promise<number | null> => null),
   showToast: vi.fn(),
 }));
 vi.mock("../dialogs/DialogHost", () => ({ dialogs }));
@@ -54,7 +55,7 @@ function makeCtx(names: string[], selected: number[]): HandlerCtx {
   const handle = {
     state: { path: "/w", entries, selected, private: false },
     actions: {
-      goTo: vi.fn(), back: vi.fn(), forward: vi.fn(), up: vi.fn(), refresh: vi.fn(),
+      goTo: vi.fn(), reveal: vi.fn(async () => "dropped"), back: vi.fn(), forward: vi.fn(), up: vi.fn(), refresh: vi.fn(),
       setSelected: vi.fn(), setFocusIndex: vi.fn(), setAnchorIndex: vi.fn(),
       setShowHidden: vi.fn(), setSortKey: vi.fn(),
       setSortDir: vi.fn(), setTagFilter: vi.fn(), clearHistory: vi.fn(),
@@ -391,5 +392,107 @@ describe("typed paths", () => {
 
   it("leaves other unknown labels alone", async () => {
     expect(await owner("src/app", makeCtx([], []))).toBeNull();
+  });
+
+  /** A prompt the user types each of `typed` into in turn, pressing OK;
+   *  what its `submit` said to each (null: it closed). */
+  function typeIntoPrompt(typed: string[]): Array<string | null> {
+    const said: Array<string | null> = [];
+    const prompt = async (opts: { submit?: (v: string) => Promise<string | null> }) => {
+      for (const t of typed) said.push(await opts.submit!(t));
+      return null;
+    };
+    dialogs.showPrompt.mockImplementationOnce(prompt as unknown as () => Promise<string | null>);
+    return said;
+  }
+
+  it("Go to Path… and Open… open a folder, a file in its folder, or a link, and stay open on a mistake", async () => {
+    vi.mocked(api.homeDir).mockResolvedValue("/home/me");
+    vi.mocked(api.pathKind).mockImplementation(async p => (p === "/w/docs" ? "folder" : p === "/home/me/a.txt" ? "file" : null));
+    for (const [label, handler] of [["Go to Path…", toolsHandler], ["Open…", navHandler]] as const) {
+      const ctx = makeCtx([], []);
+      const said = typeIntoPrompt(["nope", "docs/", "~/x/../a.txt", "https://example.com/?a&b", "ftp://example.com"]);
+      expect(await owner(label, ctx), label).toBe(handler);
+      expect(said, label).toEqual([
+        "no such file or folder: /w/nope", null, null, null, "can't open ftp:// links: only http, https and mailto",
+      ]);
+      const { goTo, reveal } = ctx.activeHandle!.actions;
+      expect(vi.mocked(goTo).mock.calls, label).toEqual([["/w/docs"]]);
+      expect(vi.mocked(reveal).mock.calls, label).toEqual([["/home/me/a.txt"]]);
+      expect(api.openUrl).toHaveBeenLastCalledWith("https://example.com/?a&b");
+    }
+  });
+
+  it("the palette's row opens a file's folder with the file selected, and says when nothing's there", async () => {
+    vi.mocked(api.pathKind).mockImplementation(async p => (p === "/w/notes.txt" ? "file" : null));
+    const ctx = makeCtx([], []);
+    expect(await owner("/w/notes.txt", ctx)).toBe(navHandler);
+    await vi.waitFor(() => expect(ctx.activeHandle!.actions.reveal).toHaveBeenCalledWith("/w/notes.txt"));
+    expect(await owner("/w/nope", ctx)).toBe(navHandler);
+    await vi.waitFor(() => expect(dialogs.showAlert).toHaveBeenCalledWith(
+      expect.objectContaining({ message: "no such file or folder: /w/nope", variant: "error" })));
+    expect(ctx.activeHandle!.actions.goTo).not.toHaveBeenCalled();
+  });
+
+  it("revealing a file that isn't listed says hidden files are off", async () => {
+    vi.mocked(api.homeDir).mockResolvedValue("/home/me");
+    vi.mocked(api.pathKind).mockResolvedValue("file");
+    const ctx = makeCtx([], []);
+    vi.mocked(ctx.activeHandle!.actions.reveal).mockResolvedValue("not-listed");
+    await owner("~/.bashrc", ctx);
+    await vi.waitFor(() => expect(dialogs.showToast).toHaveBeenCalledWith(
+      expect.objectContaining({ message: ".bashrc isn't listed: hidden files are off (Ctrl+H)" })));
+    expect(ctx.activeHandle!.actions.reveal).toHaveBeenCalledWith("/home/me/.bashrc");
+  });
+});
+
+describe("known folders", () => {
+  // Localised XDG folders, as Tauri's documentDir() and the rest report them.
+  const OS: Record<string, string> = {
+    Desktop: "/home/me/Schreibtisch", Documents: "/home/me/Dokumente", Downloads: "/home/me/Downloads", Pictures: "/home/me/Bilder",
+  };
+
+  it("Go → Desktop, Documents, Downloads and Pictures open the folders the OS names", async () => {
+    vi.mocked(api.knownFolder).mockImplementation(async name => OS[name]);
+    for (const label of Object.keys(OS)) {
+      const ctx = makeCtx([], []);
+      expect(await owner(label, ctx), label).toBe(navHandler);
+      await vi.waitFor(() => expect(ctx.activeHandle!.actions.goTo).toHaveBeenCalledWith(OS[label]));
+      expect(api.knownFolder).toHaveBeenLastCalledWith(label);
+    }
+  });
+
+  it("says so when there's no such folder", async () => {
+    vi.mocked(api.knownFolder).mockResolvedValue(null);
+    const ctx = makeCtx([], []);
+    await owner("Pictures", ctx);
+    await vi.waitFor(() => expect(dialogs.showAlert).toHaveBeenCalledWith(
+      expect.objectContaining({ message: "Pictures folder unavailable" })));
+    expect(ctx.activeHandle!.actions.goTo).not.toHaveBeenCalled();
+  });
+});
+
+describe("Find File by Name", () => {
+  it("lists the matches under the folder searched and opens the one picked in its folder", async () => {
+    dialogs.showPrompt.mockResolvedValueOnce("notes");
+    vi.mocked(api.findFileByName).mockResolvedValue(["/w/a/notes.md", "/w/b/notes.txt"]);
+    dialogs.showPick.mockResolvedValueOnce(1);
+    const ctx = makeCtx([], []);
+    expect(await owner("Find File by Name (fuzzy)", ctx)).toBe(toolsHandler);
+    expect(dialogs.showPick).toHaveBeenCalledWith(expect.objectContaining({
+      title: "2 matches", items: ["a/notes.md", "b/notes.txt"],
+    }));
+    expect(ctx.activeHandle!.actions.reveal).toHaveBeenCalledWith("/w/b/notes.txt");
+    expect(dialogs.showAlert).not.toHaveBeenCalled();
+  });
+
+  it("does nothing when the list is cancelled", async () => {
+    dialogs.showPrompt.mockResolvedValueOnce("notes");
+    vi.mocked(api.findFileByName).mockResolvedValue(["/w/a/notes.md"]);
+    const ctx = makeCtx([], []);
+    await owner("Find File by Name (fuzzy)", ctx);
+    expect(dialogs.showPick).toHaveBeenCalledOnce();
+    expect(ctx.activeHandle!.actions.reveal).not.toHaveBeenCalled();
+    expect(ctx.activeHandle!.actions.goTo).not.toHaveBeenCalled();
   });
 });

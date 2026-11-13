@@ -194,3 +194,83 @@ describe("useTabState navigation", () => {
     expect(vi.mocked(gitStatus).mock.calls.at(-1)).toEqual(["/x", 30000]);
   });
 });
+
+describe("useTabState reveal", () => {
+  const sel = () => tab.state.selected.map(i => tab.state.entries[i].name);
+  const at = (i: number) => tab.state.entries[i]?.name;
+
+  it("opens the file's folder with the file alone selected, focused and anchored, and the filters cleared", async () => {
+    fake.dirs["/x"] = ["y", "z"].map(n => entry("/x", n));
+    act(() => { tab.actions.setSearchQuery("a"); tab.actions.setTagFilter("red"); });
+    let shown!: Promise<string>;
+    act(() => { shown = tab.actions.reveal("/x/z"); });
+    await settle();
+    await expect(shown).resolves.toBe("selected");
+    expect(tab.state.path).toBe("/x");
+    expect(sel()).toEqual(["z"]);
+    expect([at(tab.state.focusIndex), at(tab.state.anchorIndex)]).toEqual(["z", "z"]);
+    expect([tab.state.searchQuery, tab.state.tagFilter]).toEqual(["", null]);
+    expect(tab.state.historyBack).toEqual(["/w"]);
+  });
+
+  it("re-lists the folder shown, so a file made since is found, without blanking the rows", async () => {
+    act(() => tab.actions.setSelected([0]));
+    fake.dirs["/w"].push(entry("/w", "new"));
+    let shown!: Promise<string>;
+    act(() => { shown = tab.actions.reveal("/w/new"); });
+    expect(tab.state.entries.map(e => e.name)).toEqual(["a", "b", "c"]);
+    await settle();
+    await expect(shown).resolves.toBe("selected");
+    expect(sel()).toEqual(["new"]);
+    expect(tab.state.loading).toBe(false);
+    expect(tab.state.historyBack).toEqual([]);
+  });
+
+  it("says so when the listing doesn't have the file (hidden files off)", async () => {
+    let shown!: Promise<string>;
+    act(() => { shown = tab.actions.reveal("/x/.secret"); });
+    await settle();
+    await expect(shown).resolves.toBe("not-listed");
+    expect(tab.state.path).toBe("/x");
+    expect(tab.state.selected).toEqual([]);
+  });
+
+  it("gives way to a navigation that comes before the listing", async () => {
+    let shown!: Promise<string>;
+    act(() => { shown = tab.actions.reveal("/x/z"); });
+    act(() => tab.actions.goTo("/w"));
+    await expect(shown).resolves.toBe("dropped");
+    await settle();
+    expect(tab.state.path).toBe("/w");
+    expect(tab.state.selected).toEqual([]);
+  });
+
+  it("gives up when the folder can't be listed", async () => {
+    vi.mocked(readDir).mockImplementationOnce(async () => { throw "Permission denied (os error 13)"; });
+    let shown!: Promise<string>;
+    act(() => { shown = tab.actions.reveal("/locked/f"); });
+    await settle();
+    await expect(shown).resolves.toBe("dropped");
+    expect(tab.state.error).toContain("Permission denied");
+  });
+
+  it("doesn't take a listing that began before it", async () => {
+    // A report's listing is in flight when the reveal asks for a fresh one.
+    let release!: () => void;
+    vi.mocked(readDir).mockImplementationOnce(async () => {
+      const before = fake.copy(fake.dirs["/w"]);
+      await new Promise<void>(r => { release = r; });
+      return before;
+    });
+    await wait(REFRESH_GAP_MS);
+    act(() => report("/w"));
+    await wait(10);
+    fake.dirs["/w"].push(entry("/w", "late"));
+    let shown!: Promise<string>;
+    act(() => { shown = tab.actions.reveal("/w/late"); });
+    act(() => release());
+    await settle();
+    await expect(shown).resolves.toBe("selected");
+    expect(sel()).toEqual(["late"]);
+  });
+});
