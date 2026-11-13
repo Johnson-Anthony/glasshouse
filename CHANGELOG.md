@@ -6,6 +6,7 @@ What changed in each release, for people using glasshouse. Downloads are on the 
 
 ### New
 
+- **Preferences… (Ctrl+, or Edit → Preferences…) is a proper settings dialog** with Appearance (theme, font, density, scanlines, zoom), Files (hidden files, file extensions, folders first, git gutters) and Terminal (follow folder). Changes apply as you make them. It replaces the floating Tweaks panel and its ◉ button, and your settings carry over.
 - **Drag files out into other apps.** Drag files past the edge of the window and drop them into a browser's upload field, a terminal (which types the path) or another file manager. They're always copied.
 - **Drop files in from other apps.** Files dragged from a file manager or a browser's downloads onto a folder, the file list, a tab, a breadcrumb or a sidebar folder are copied there. You're asked before anything is replaced, and Ctrl+Z undoes it.
 - **Tabs and breadcrumbs take drops,** and the folder under the pointer lights up while you drag.
@@ -22,6 +23,8 @@ What changed in each release, for people using glasshouse. Downloads are on the 
 
 ### Changed
 
+- **Zoom (Ctrl+= / Ctrl+- / Ctrl+0) scales the whole window,** from 50% to 200%, and is remembered. It used to change only the Inspector's text. A zoom set in 0.2 starts at 100% again.
+- **The window follows the theme's dark or light scheme,** so parts the system draws (such as GTK popup menus) match the dark themes instead of opening white.
 - **Ctrl+drag copies, as in Explorer and Nautilus.** A plain drag still moves. Shift used to copy; now it moves. The label next to the pointer says which, and changes as you press Ctrl. Ctrl+drag into the folder the files are already in makes copies of them ("name (copy)"), as Copy then Paste does.
 - The palette no longer advertises things it can't do (`:mode`, `:go`, `/find`, `?help`, `!shell`, Tab autocomplete, Ctrl+` to run in the terminal).
 - **Refreshing in a large git repo is faster.** At the repo's root a refresh scans the repo once instead of twice, and moving between folders reuses the last change count (up to 30 s old) unless HEAD or the index moved.
