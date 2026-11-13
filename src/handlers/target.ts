@@ -1,5 +1,6 @@
 import { dialogs } from "../dialogs/DialogHost";
-import { spawnTerminal, spawnVscodeStrict, revealInExplorer, renameEntry, homeDir, listDir, openWithDefault } from "../api";
+import { spawnTerminal, spawnVscodeStrict, revealInExplorer, homeDir, listDir, openWithDefault } from "../api";
+import { renamePath } from "../tags";
 import { basename, parentPath, joinPath, normalizePath } from "../paths";
 import { namesIn, unlessTaken, transferDeps, pushTransferUndo, reportTransfer } from "../transferUi";
 import { NameSet, nameProblem } from "../names";
@@ -159,7 +160,7 @@ export const targetHandler: Handler = (label, ctx) => {
               initialValue: base,
               placeholder: "new name",
               validate: (v) => nameProblem(v, taken, base),
-              submit: (v) => unlessTaken(v, async () => { if (v !== base) await renameEntry(target, joinPath(dir, v)); }),
+              submit: (v) => unlessTaken(v, async () => { if (v !== base) await renamePath(target, joinPath(dir, v)); }),
             });
             if (!next || next === base) return;
             const dst = joinPath(dir, next);

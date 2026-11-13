@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useMemo } from "react";
-import { readTags, writeTags } from "../api";
 import { SEED_TAGS, TAG_COLOR_MAP } from "../Sidebar";
+import { getTags, setTags, useTags, useTagsLoaded } from "../tags";
 import { useEscapeClose } from "./useEscapeClose";
 import { useModal } from "./modal";
 
@@ -8,26 +8,28 @@ import { useModal } from "./modal";
 export interface TagPickerDialogProps {
   path: string;
   onClose: () => void;
-  onSaved: (tagStore: Record<string, string[]>) => void;
+  /** Called once the path's tags are in the store (which writes the file). */
+  onSaved: () => void;
 }
 
 export function TagPickerDialog({ path, onClose, onSaved }: TagPickerDialogProps) {
-  const [store, setStore] = useState<Record<string, string[]>>({});
+  const store = useTags();
+  const loaded = useTagsLoaded();
+  // This path's labels as edited here, from the store; null until it has
+  // loaded. Save writes only this path's entry, so a change the app made to
+  // other paths meanwhile (a move, a prune) stands.
+  const [draft, setDraft] = useState<string[] | null>(() => (loaded ? getTags()[path] ?? [] : null));
   const [newTag, setNewTag] = useState("");
-  const [loaded, setLoaded] = useState(false);
-  const [saving, setSaving] = useState(false);
   const newTagRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    void (async () => {
-      const s = await readTags();
-      setStore(s);
-      setLoaded(true);
-    })();
-  }, []);
+    if (loaded) setDraft(d => d ?? getTags()[path] ?? []);
+  }, [loaded, path]);
 
   useEscapeClose(onClose);
   useModal();
+
+  const current = useMemo(() => draft ?? [], [draft]);
 
   const allTags = useMemo(() => {
     const set = new Set<string>();
@@ -36,44 +38,35 @@ export function TagPickerDialog({ path, onClose, onSaved }: TagPickerDialogProps
     return Array.from(set);
   }, [store]);
 
-  const current = store[path] ?? [];
   const hasTag = (t: string) => current.includes(t);
 
   const toggleTag = (t: string) => {
-    setStore(prev => {
-      const cur = prev[path] ?? [];
-      const next = { ...prev };
-      if (cur.includes(t)) {
-        const filtered = cur.filter(x => x !== t);
-        if (filtered.length === 0) delete next[path];
-        else next[path] = filtered;
-      } else {
-        next[path] = [...cur, t];
-      }
-      return next;
+    setDraft(prev => {
+      const cur = prev ?? [];
+      return cur.includes(t) ? cur.filter(x => x !== t) : [...cur, t];
     });
   };
 
   const addNewTag = () => {
     const t = newTag.trim();
     if (!t) return;
-    setStore(prev => {
-      const cur = prev[path] ?? [];
-      if (cur.includes(t)) return prev;
-      return { ...prev, [path]: [...cur, t] };
+    setDraft(prev => {
+      const cur = prev ?? [];
+      return cur.includes(t) ? cur : [...cur, t];
     });
     setNewTag("");
     newTagRef.current?.focus();
   };
 
-  const save = async () => {
-    setSaving(true);
-    try {
-      await writeTags(store);
-      onSaved(store);
-    } finally {
-      setSaving(false);
-    }
+  const save = () => {
+    if (!draft) return;
+    setTags(prev => {
+      const next = { ...prev };
+      if (draft.length === 0) delete next[path];
+      else next[path] = draft;
+      return next;
+    });
+    onSaved();
   };
 
   const shownTags = useMemo(() => {
@@ -161,14 +154,14 @@ export function TagPickerDialog({ path, onClose, onSaved }: TagPickerDialogProps
             padding: "4px 12px", cursor: "pointer", borderRadius: 2, fontFamily: "inherit",
           }}>cancel</button>
           <button
-            onClick={() => { void save(); }}
-            disabled={saving}
+            onClick={save}
+            disabled={!draft}
             style={{
               background: "var(--accent)", border: "1px solid var(--accent)", color: "var(--bg-0)",
-              padding: "4px 12px", cursor: saving ? "wait" : "pointer",
+              padding: "4px 12px", cursor: draft ? "pointer" : "wait",
               borderRadius: 2, fontFamily: "inherit",
             }}
-          >{saving ? "saving…" : "save"}</button>
+          >save</button>
         </div>
       </div>
     </div>

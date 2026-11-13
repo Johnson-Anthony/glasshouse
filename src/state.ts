@@ -15,6 +15,7 @@ import { navBack, navClear, navForward, navGoTo, navInit, type NavState } from "
 import { errText } from "./errors";
 import { EMPTY_LISTING, indexOfName, keepGitInfo, relist, selectOnly, withAnchor, withFocus, withSelected, type Listing } from "./listing";
 import { RefreshGate } from "./refreshGate";
+import { pruneListed } from "./tags";
 
 /** The safety-net re-list of the shown tab, for changes the watcher missed. */
 const POLL_MS = 30000;
@@ -257,6 +258,9 @@ export function useTabState(initialPath: string, isPrivate: boolean = false, act
         setListing(l => relist(l, dir));
       }
       setLoading(false);
+      // Tagged items this listing lacks may be gone (changed outside the
+      // app): a stat each, and their tags go if nothing is there.
+      void pruneListed(p, dir.map(e => e.name));
       // Git status comes after the rows. Its dirty count needs a scan of the
       // whole repo, and a listing at the repo's root has just done one: a
       // count from a scan since this fetch began is reused. A navigation

@@ -20,13 +20,13 @@ import {
   createHardLink,
   createShortcut,
   shred,
-  renameEntry,
   hashSha256,
   readDir,
 } from "../api";
 import { errText } from "../errors";
 import { markIrreversible, pushUndo } from "../state";
 import { contentUndo, createUndo, madeUndo, moveUndo } from "../undoActions";
+import { droppingTags, renamePath } from "../tags";
 const REPO_URL = "https://github.com/Johnson-Anthony/glasshouse";
 
 async function promptAndCreate(ctx: HandlerCtx, defaultName: string, body = ""): Promise<void> {
@@ -330,7 +330,7 @@ export const miscHandler: Handler = async (label, ctx) => {
       });
       if (!confirmed) return true;
       try {
-        await shred(target, 3);
+        await droppingTags(shred)(target, 3);
       } finally {
         // Even a failed shred may have overwritten part of the file.
         markIrreversible(`shred ${basename(target)}`);
@@ -439,7 +439,7 @@ export const miscHandler: Handler = async (label, ctx) => {
       const dest = joinPath(parentPath(target), name);
       try {
         await assertFree(parentPath(target), name, self);
-        await renameEntry(target, dest);
+        await renamePath(target, dest);
         pushUndo(moveUndo(`rename ${self} → ${name}`, [{ src: target, dst: dest }], "rename"));
       } catch (e) {
         await dialogs.showAlert({
