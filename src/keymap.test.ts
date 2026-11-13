@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { CONTEXT_EMPTY, CONTEXT_FILE, GIT_CHORDS, MENUS, PALETTE_ONLY, type MenuItemDef } from "./data";
-import { CHEATSHEET, KEYMAP, findBinding, matches, parseCombo, type KeyAction, type KeyEventLike, type KeyState } from "./keymap";
+import { BOUND_CHARS, CHEATSHEET, GIT_CHORD_MS, KEYMAP, chordPending, findBinding, gitChord, matches, parseCombo, type KeyAction, type KeyEventLike, type KeyState } from "./keymap";
 
 function key(combo: string, extra: Partial<KeyEventLike> = {}): KeyEventLike {
   const p = parseCombo(combo);
@@ -234,6 +234,8 @@ describe("CHEATSHEET", () => {
   it("lists the keys no menu item advertises", () => {
     expect(CHEATSHEET.map(c => `${c.keys} ${c.label}`).sort()).toEqual([
       "/ Focus search",
+      "Alt or F10 Open the menu bar",
+      "Alt+letter Open a menu by its underlined letter",
       "Backspace Open parent",
       "Ctrl+Drag Copy to a folder, tab or breadcrumb",
       "Ctrl+Shift+Tab Previous Tab",
@@ -242,8 +244,41 @@ describe("CHEATSHEET", () => {
       "Drag Move to a folder, tab or breadcrumb",
       "Drag out of the window Copy into another app",
       "Enter Open selected",
+      "Enter Run the highlighted menu item",
+      "Esc Close a menu",
       "Esc Close modal / palette",
+      "Menu or Shift+F10 Context menu of the selection",
       "Shift+Del Delete permanently",
+      "Type its first letters Jump to a file by name",
+      "↑ ↓ → ← Move in a menu; into and out of submenus",
     ]);
+  });
+});
+
+describe("BOUND_CHARS", () => {
+  it("holds the printable keys a binding takes without Ctrl or Alt, for type-ahead to leave alone", () => {
+    expect([...BOUND_CHARS].sort()).toEqual([" ", "*", "/"]);
+  });
+
+  it("follows the keymap: every such key's binding matches it", () => {
+    for (const ch of BOUND_CHARS) {
+      const e = { key: ch, ctrlKey: false, metaKey: false, shiftKey: ch === "*", altKey: false, defaultPrevented: false };
+      expect(KEYMAP.some(b => matches(b, e)), ch).toBe(true);
+    }
+  });
+});
+
+describe("chordPending", () => {
+  it("is true for GIT_CHORD_MS after Ctrl+G, then lapses", () => {
+    const saved = gitChord.at;
+    try {
+      gitChord.at = 0;
+      expect(chordPending(1000)).toBe(false);
+      gitChord.at = 1000;
+      expect(chordPending(1000 + GIT_CHORD_MS - 1)).toBe(true);
+      expect(chordPending(1000 + GIT_CHORD_MS)).toBe(false);
+    } finally {
+      gitChord.at = saved;
+    }
   });
 });

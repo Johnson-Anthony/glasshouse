@@ -44,7 +44,8 @@ import {
 import { COMMAND_CHAIN, type HandlerCtx } from "./handlers";
 import { cmdState } from "./commandState";
 import { sshProfileFor } from "./remotes";
-import { findBinding, type KeyAction } from "./keymap";
+import { findBinding, gitChord, GIT_CHORD_MS, type KeyAction } from "./keymap";
+import type { MenuAnchor } from "./menuNav";
 import { isModalOpen, useModal } from "./dialogs/modal";
 import { makeTab, closeTab, closeOtherTabs, moveTab as moveTabIn, tabLabel, type TabRecord } from "./tabs";
 import { canExtractArchive } from "./handlers/archive";
@@ -104,11 +105,10 @@ interface CtxState {
   x: number;
   y: number;
   items: MenuItemDef[];
+  keyboard?: boolean;
 }
 
 const FALLBACK_PATH = IS_WINDOWS ? "C:\\" : "/";
-/** How long a Ctrl+G chord waits for its second key. */
-const GIT_CHORD_MS = 1500;
 
 interface TabShellProps {
   id: number;
@@ -569,8 +569,6 @@ export function App() {
   // Keep a ref to the latest handleMenuCommand so the keydown listener below
   // (which installs once) always dispatches through the current closure.
   const handleMenuCommandRef = useRef<(label: string) => void>(() => {});
-  // Time of the Ctrl+G that opened a pending git chord; 0 when none.
-  const gitChordAt = useRef(0);
 
   // The keymap's App-local actions (bindings that aren't commands).
   const runKeyAction = (a: KeyAction) => {
@@ -584,7 +582,7 @@ export function App() {
         searchInputRef.current?.focus();
         searchInputRef.current?.select();
         return;
-      case "gitChord": gitChordAt.current = Date.now(); return;
+      case "gitChord": gitChord.at = Date.now(); return;
       case "quickLook": setQuickLookOpen(v => !v); return;
     }
   };
@@ -608,10 +606,10 @@ export function App() {
       // without Ctrl still held (Ctrl+G Ctrl+P is Pull, not the palette). A
       // key that doesn't match cancels the chord and is swallowed, so a typo
       // after Ctrl+G can't fall through to Delete and friends.
-      if (gitChordAt.current) {
+      if (gitChord.at) {
         if (e.key === "Control" || e.key === "Meta" || e.key === "Shift" || e.key === "Alt") return;
-        const live = Date.now() - gitChordAt.current < GIT_CHORD_MS;
-        gitChordAt.current = 0;
+        const live = Date.now() - gitChord.at < GIT_CHORD_MS;
+        gitChord.at = 0;
         if (live && !inText) {
           e.preventDefault();
           const label = e.altKey || e.shiftKey ? undefined : GIT_CHORDS[e.key.toLowerCase()];
@@ -878,12 +876,12 @@ export function App() {
     }
   };
 
-  const openCtxMenu = (e: React.MouseEvent, items: MenuItemDef[]) => {
+  const openCtxMenu = (e: MenuAnchor, items: MenuItemDef[]) => {
     // Raw cursor coords — ContextMenu measures itself and clamps into view.
-    setCtx({ x: e.clientX, y: e.clientY, items });
+    setCtx({ x: e.clientX, y: e.clientY, items, keyboard: e.keyboard });
   };
 
-  const onContext = (e: React.MouseEvent, kind: ContextKind, rowIndex?: number) => {
+  const onContext = (e: MenuAnchor, kind: ContextKind, rowIndex?: number) => {
     // File-pane surfaces act on the current selection; clear the module target
     // so stale sidebar/tab/breadcrumb right-clicks can't leak into file ops.
     cmdState.contextTarget = null;
@@ -1300,7 +1298,7 @@ export function App() {
       />
 
       {palOpen && <Palette onClose={() => setPalOpen(false)} onCommand={handleMenuCommand} />}
-      {ctx && <ContextMenu items={ctx.items} x={ctx.x} y={ctx.y} onClose={() => { setCtx(null); cmdState.contextTarget = null; }} onCommand={handleMenuCommand} onPayload={handleMenuPayload} />}
+      {ctx && <ContextMenu items={ctx.items} x={ctx.x} y={ctx.y} keyboard={ctx.keyboard} onClose={() => { setCtx(null); cmdState.contextTarget = null; }} onCommand={handleMenuCommand} onPayload={handleMenuPayload} />}
       {quickLookOpen && selectedFile && (
         <QuickLook file={selectedFile} onClose={() => setQuickLookOpen(false)} />
       )}

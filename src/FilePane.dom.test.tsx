@@ -6,10 +6,12 @@
 import { act, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { FilePane } from "./components";
+import { FilePane, type ContextKind } from "./components";
 import type { FileRow } from "./data";
 import { remapIndexes } from "./listing";
 import { OVERSCAN } from "./paneWindow";
+import { gitChord } from "./keymap";
+import type { MenuAnchor } from "./menuNav";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -42,6 +44,7 @@ afterAll(() => {
 interface S { files: Row[]; selected: number[]; focus: number; anchor: number; tick: number }
 let set: (f: (s: S) => S) => void;
 let current: () => S;
+let onContext: (e: MenuAnchor, kind: ContextKind, rowIndex?: number) => void = () => {};
 function Host({ files }: { files: Row[] }) {
   const [s, setS] = useState<S>({ files, selected: [], focus: 0, anchor: 0, tick: 0 });
   set = setS;
@@ -51,7 +54,7 @@ function Host({ files }: { files: Row[] }) {
       focusIndex={s.focus} setFocusIndex={i => setS(p => ({ ...p, focus: i }))}
       anchorIndex={s.anchor} setAnchorIndex={i => setS(p => ({ ...p, anchor: i }))}
       paneFocused={true} setPaneFocused={() => {}} sortKey="name" sortDir="asc"
-      onSortChange={() => {}} onContext={() => {}} />
+      onSortChange={() => {}} onContext={(e, kind, i) => onContext(e, kind, i)} />
   );
 }
 
@@ -59,6 +62,7 @@ let host: HTMLDivElement;
 let root: Root;
 beforeEach(() => {
   rowH = ROW_H;
+  onContext = () => {};
   host = document.createElement("div");
   document.body.append(host);
   root = createRoot(host);
@@ -77,8 +81,8 @@ const scrollTo = (top: number) => act(() => {
   rowsEl().scrollTop = top;
   rowsEl().dispatchEvent(new Event("scroll"));
 });
-const key = (k: string) => act(() => {
-  host.querySelector(".pane")!.dispatchEvent(new KeyboardEvent("keydown", { key: k, bubbles: true }));
+const key = (k: string, mods: KeyboardEventInit = {}) => act(() => {
+  host.querySelector(".pane")!.dispatchEvent(new KeyboardEvent("keydown", { key: k, bubbles: true, cancelable: true, ...mods }));
 });
 const range = (a: number, b: number) => Array.from({ length: b - a }, (_, i) => a + i);
 
@@ -178,5 +182,138 @@ describe("marquee in the windowed list", () => {
     // remap, index 5 (now f0004) would have been added instead.
     expect(current().selected.map(i => next[i].name).sort()).toEqual(["f0005", next[34].name, next[35].name].sort());
     up();
+  });
+});
+
+
+describe("type-ahead", () => {
+  const names = ["alpha", "apple", "Banana", "beta", "bet", "cherry", "date"];
+  const files = () => names.map(n => row(n));
+  const focusName = () => names[current().focus];
+  let now = 10_000;
+  beforeEach(() => { now += 10_000; vi.spyOn(Date, "now").mockImplementation(() => now); });
+  const typeKeys = (text: string, gap = 100) => {
+    for (const ch of text) { key(ch); now += gap; }
+  };
+
+  it("jumps to the next name starting with a letter, and selects only it", () => {
+    mount(files());
+    typeKeys("b");
+    expect(focusName()).toBe("Banana");
+    expect(current().selected).toEqual([2]);
+    expect(current().anchor).toBe(2);
+  });
+
+  it("adds letters typed quickly into one prefix", () => {
+    mount(files());
+    // Sorted by name, "bet" comes before "beta".
+    typeKeys("bet");
+    expect(focusName()).toBe("bet");
+    now += 2000;
+    typeKeys("beta");
+    expect(focusName()).toBe("beta");
+    now += 2000;
+    typeKeys("ch");
+    expect(focusName()).toBe("cherry");
+  });
+
+  it("cycles through the names with a letter typed again and again", () => {
+    mount(files());
+    typeKeys("b");
+    typeKeys("b");
+    expect(focusName()).toBe("bet");
+    typeKeys("b");
+    expect(focusName()).toBe("beta");
+    typeKeys("b");
+    expect(focusName()).toBe("Banana");
+  });
+
+  it("starts over after a pause", () => {
+    mount(files());
+    typeKeys("d", 1500);
+    typeKeys("a");
+    expect(focusName()).toBe("alpha");
+  });
+
+  it("stays put when nothing matches", () => {
+    mount(files());
+    typeKeys("c");
+    typeKeys("x");
+    expect(focusName()).toBe("cherry");
+  });
+
+  it("leaves /, *, Space and modified keys to the keymap", () => {
+    mount([row("/x"), row("*y"), row(" z"), row("a"), row("b")]);
+    act(() => set(p => ({ ...p, focus: 4, selected: [4] })));
+    for (const k of ["/", "*", " "]) {
+      key(k);
+      expect(current().focus).toBe(4);
+    }
+    key("a", { ctrlKey: true });
+    key("a", { altKey: true });
+    key("a", { metaKey: true });
+    expect(current().focus).toBe(4);
+  });
+
+  it("takes Space inside a name, so Quick Look doesn't open mid-word", () => {
+    mount([row("my file"), row("my notes"), row("myth")]);
+    act(() => set(p => ({ ...p, focus: 2 })));
+    const space = new KeyboardEvent("keydown", { key: " ", bubbles: true, cancelable: true });
+    typeKeys("my");
+    act(() => { host.querySelector(".pane")!.dispatchEvent(space); });
+    expect(space.defaultPrevented).toBe(true);
+    typeKeys("n");
+    expect(current().focus).toBe(1);
+  });
+
+  it("leaves every key to App while a Ctrl+G chord waits for its second", () => {
+    mount(files());
+    gitChord.at = now;
+    try {
+      typeKeys("b");
+      key("ArrowDown");
+      expect(current().focus).toBe(0);
+    } finally {
+      gitChord.at = 0;
+    }
+    typeKeys("b");
+    expect(focusName()).toBe("Banana");
+  });
+});
+
+describe("Menu key and Shift+F10", () => {
+  const calls: Array<{ at: MenuAnchor; kind: ContextKind }> = [];
+  beforeEach(() => {
+    calls.length = 0;
+    onContext = (at, kind) => calls.push({ at, kind });
+  });
+
+  it("opens the selection's menu under the focused row, scrolled into view", () => {
+    mount(make(1000));
+    act(() => set(p => ({ ...p, focus: 500, selected: [500] })));
+    scrollTo(0);
+    key("ContextMenu");
+    expect(calls).toHaveLength(1);
+    expect(calls[0].kind).toBe("file");
+    expect(calls[0].at.keyboard).toBe(true);
+    // Row 500 is now the last row in view; the menu opens under it.
+    expect(rowsEl().scrollTop).toBe(501 * ROW_H - VIEW_H);
+    expect(calls[0].at.clientY).toBe(VIEW_H);
+    expect(rendered()).toContain(500);
+  });
+
+  it("opens the empty-pane menu when nothing is selected, also in an empty folder", () => {
+    mount(make(20));
+    key("F10", { shiftKey: true });
+    expect(calls.map(c => c.kind)).toEqual(["empty"]);
+    mount([]);
+    key("ContextMenu");
+    expect(calls.map(c => c.kind)).toEqual(["empty", "empty"]);
+  });
+
+  it("is only Shift+F10, not F10 alone (the menubar's)", () => {
+    mount(make(20));
+    key("F10");
+    expect(calls).toEqual([]);
   });
 });
