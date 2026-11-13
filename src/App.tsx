@@ -26,6 +26,7 @@ import { OpsTray } from "./OpsTray";
 import { isCancelled, newOpId } from "./ops";
 import { FolderPickerDialog } from "./dialogs/FolderPicker";
 import { BookmarkManagerDialog } from "./dialogs/BookmarkManager";
+import { TrashDialog } from "./dialogs/Trash";
 import { useEscapeClose } from "./dialogs/useEscapeClose";
 import { Inspector, type InspectableFile } from "./preview/Inspector";
 import { QuickLook } from "./preview/FilePreview";
@@ -63,6 +64,7 @@ import {
   openWithDefault,
   spawnVscode,
   moveToTrash,
+  trashDir,
   writeText,
   readPins,
   writePins,
@@ -404,6 +406,7 @@ export function App() {
   } | null>(null);
   const [savedRemotes, setSavedRemotes] = useState<SavedRemote[]>([]);
   const [connectOpen, setConnectOpen] = useState(false);
+  const [trashOpen, setTrashOpen] = useState(false);
   const [manageRemotesOpen, setManageRemotesOpen] = useState(false);
   const [tagPickerPath, setTagPickerPath] = useState<string | null>(null);
   const [bookmarkManagerOpen, setBookmarkManagerOpen] = useState(false);
@@ -817,6 +820,7 @@ export function App() {
         setTagStore,
         setTermOpen,
         setTermProfile,
+        setTrashOpen,
         setTweaksOpen,
         state,
         tagStore,
@@ -1307,7 +1311,7 @@ export function App() {
           clipboardMode={pasteSpecial.clipboardMode}
           copyEntry={transferDeps.copy}
           moveEntry={moveEntry}
-          trashEntry={moveToTrash}
+          trashEntry={async p => { await moveToTrash(p); }}
           planTransfer={(items, dstDir, op) => planTransfer(items, dstDir, op, transferDeps)}
           onClose={() => setPasteSpecial(null)}
           onDone={(clear) => {
@@ -1342,6 +1346,19 @@ export function App() {
           onSaved={(store) => {
             setTagStore(store);
             setTagPickerPath(null);
+          }}
+        />
+      )}
+      {trashOpen && (
+        <TrashDialog
+          onClose={() => setTrashOpen(false)}
+          onChanged={() => activeHandle?.actions.refresh()}
+          onBrowseFolder={IS_WINDOWS ? undefined : () => {
+            setTrashOpen(false);
+            void trashDir().then(dir => {
+              if (dir) activeHandle?.actions.goTo(dir);
+              else void dialogs.showAlert({ title: "Navigation", message: "trash folder unavailable" });
+            });
           }}
         />
       )}

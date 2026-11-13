@@ -7,7 +7,7 @@ import {
   CONTEXT_BREADCRUMB, CONTEXT_SIDEBAR, CONTEXT_SIDEBAR_DRIVE, CONTEXT_SIDEBAR_FILE, CONTEXT_SIDEBAR_FOLDER,
   CONTEXT_SIDEBAR_REMOTE, CONTEXT_TAB, type MenuItemDef,
 } from "../data";
-import type { UseTabResult } from "../state";
+import { undoStack, type UseTabResult } from "../state";
 import { COMMAND_CHAIN, HANDLERS, type AppCommands, type Handler, type HandlerCtx } from "./index";
 import { appHandler } from "./app";
 import { deleteConfirmText, fileOpsHandler } from "./fileOps";
@@ -79,6 +79,9 @@ const caseLabels = (file: string) =>
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // Every drive has a Recycle Bin unless a test says otherwise.
+  vi.mocked(api.trashUnsupported).mockResolvedValue([]);
+  undoStack.length = 0;
   cmdState.contextTarget = null;
   cmdState.clipboard = null;
   vi.spyOn(console, "log").mockImplementation(() => {});
@@ -141,6 +144,31 @@ describe("fileOpsHandler", () => {
     }));
   });
 
+  it("Move to Trash asks before deleting what has no Recycle Bin, and Cancel does nothing", async () => {
+    const ctx = makeCtx([entry("a.txt"), entry("b.txt")], [0, 1]);
+    const refresh = withRefresh(ctx);
+    vi.mocked(api.trashUnsupported).mockResolvedValue([{ path: "/w/b.txt", reason: "it's on a network drive" }]);
+    await owner("Move to Trash", ctx);
+    expect(dialogs.showConfirm).toHaveBeenCalledWith(expect.objectContaining({
+      okLabel: "delete permanently",
+      message: expect.stringContaining("1 of the 2 items can't go to the Recycle Bin:\nb.txt: it's on a network drive"),
+    }));
+    expect(api.moveToTrash).not.toHaveBeenCalled();
+    expect(api.deleteEntry).not.toHaveBeenCalled();
+    expect(refresh).not.toHaveBeenCalled();
+
+    dialogs.showConfirm.mockResolvedValueOnce(true);
+    vi.mocked(api.moveToTrash).mockResolvedValueOnce({ original: "/w/a.txt", from: 1, to: 1 });
+    await owner("Move to Trash", ctx);
+    expect(vi.mocked(api.moveToTrash).mock.calls).toEqual([["/w/a.txt"]]);
+    expect(vi.mocked(api.deleteEntry).mock.calls).toEqual([["/w/b.txt", true]]);
+    // Ctrl+Z restores a.txt, then says the deletion can't be undone.
+    expect(undoStack.map(e => [e.label, Boolean(e.irreversible)])).toEqual([
+      ["delete 1 item(s) permanently", true],
+      ["move 1 item(s) to the Trash", false],
+    ]);
+  });
+
   it("Delete Permanently deletes nothing when the question is cancelled", async () => {
     const ctx = makeCtx([entry("a.txt")], [0]);
     const refresh = withRefresh(ctx);
@@ -155,10 +183,12 @@ describe("fileOpsHandler", () => {
     dialogs.showConfirm.mockResolvedValueOnce(true);
     vi.mocked(api.moveToTrash)
       .mockRejectedValueOnce(new Error("busy"))
-      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce({ original: "/w/b.txt", from: 1, to: 1 })
       .mockRejectedValueOnce("gone");
     await owner("Move to Trash", ctx);
     expect(vi.mocked(api.moveToTrash).mock.calls).toEqual([["/w/a.txt"], ["/w/b.txt"], ["/w/c.txt"]]);
+    // One undo entry, for the one that went.
+    expect(undoStack.map(e => e.label)).toEqual(["move 1 item(s) to the Trash"]);
     expect(refresh).toHaveBeenCalledTimes(1);
     expect(dialogs.showAlert).toHaveBeenCalledWith(expect.objectContaining({
       title: "couldn't move 2 of 3 item(s) to the Trash",
@@ -238,7 +268,10 @@ describe("targetHandler", () => {
     cmdState.contextTarget = { kind: "sidebar", rowKind: "tree-file", path: "/w/t.txt" };
     expect(await owner("Move to Trash", ctx)).toBe(targetHandler);
     await vi.waitFor(() => expect(refresh).toHaveBeenCalled());
-    expect(dialogs.showAlert).toHaveBeenCalledWith(expect.objectContaining({ message: "trash failed: busy" }));
+    expect(dialogs.showAlert).toHaveBeenCalledWith(expect.objectContaining({
+      title: "couldn't move 1 of 1 item(s) to the Trash",
+      message: "t.txt: busy",
+    }));
   });
 
   it("Copy as Command copies nothing for a path with control characters", async () => {

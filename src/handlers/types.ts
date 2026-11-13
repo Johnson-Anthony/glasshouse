@@ -45,6 +45,7 @@ export interface AppCommands {
   setTagStore: React.Dispatch<React.SetStateAction<Record<string, string[]>>>;
   setTermOpen: React.Dispatch<React.SetStateAction<boolean>>;
   setTermProfile: React.Dispatch<React.SetStateAction<ShellProfile | null>>;
+  setTrashOpen: React.Dispatch<React.SetStateAction<boolean>>;
   setTweaksOpen: React.Dispatch<React.SetStateAction<boolean>>;
   state: TweakState;
   tagStore: Record<string, string[]>;

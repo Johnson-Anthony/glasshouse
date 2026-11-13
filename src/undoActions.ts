@@ -11,8 +11,8 @@
 // What each action does: docs/decisions/2026-11-12-undo-coverage-policy.md
 
 import {
-  copyEntry, createTextFile, deleteEntry, fileStatExtended, makeDir, moveEntry, readDir, readText, renameEntry, rewriteText,
-  setPermissions, writeText, type FileEntry,
+  copyEntry, createTextFile, deleteEntry, fileStatExtended, makeDir, moveEntry, moveToTrash, readDir, readText, renameEntry,
+  rewriteText, setPermissions, trashRestore, writeText, type FileEntry, type Trashed, type TrashKey, type TrashResult,
 } from "./api";
 import { renameFailure, renameStepsProblem, reverseRenameSteps, runRenameSteps, type RenameStep } from "./names";
 import { basename, normalizePath, parentPath } from "./paths";
@@ -60,7 +60,7 @@ export type Created = { kind: "folder" } | { kind: "file"; content: string };
 
 const samePath = (a: string, b: string) => normalizePath(a) === normalizePath(b);
 
-async function findEntry(fs: UndoFs, path: string): Promise<FileEntry | null> {
+async function findEntry(fs: Pick<UndoFs, "list">, path: string): Promise<FileEntry | null> {
   const name = normalizePath(basename(path));
   const entries = await fs.list(parentPath(path));
   return entries.find(e => normalizePath(e.name) === name) ?? null;
@@ -411,4 +411,68 @@ export function permissionsUndo(label: string, changes: PermChange[], perms: Per
     for (const c of changes) await perms.set(c.path, c[next]);
   };
   return { label, inverse: () => swap("after", "before"), redo: () => swap("before", "after") };
+}
+
+/** The trash as trashUndo and restoreUndo use it. `restore` is all or
+ *  nothing: any refusal restores none of the keys. */
+export interface TrashFs {
+  trash(path: string): Promise<Trashed>;
+  restore(keys: TrashKey[]): Promise<TrashResult>;
+  list: UndoFs["list"];
+}
+
+const realTrash: TrashFs = {
+  trash: moveToTrash,
+  restore: keys => trashRestore(keys, true),
+  list: realFs.list,
+};
+
+/** Both directions between `paths` being in place and being in the trash.
+ *  `inTrash` is how they were trashed, or null while they're in place. Each
+ *  trashing replaces it, so a restore after a redo finds the new items, not
+ *  the ones an earlier restore already took out. */
+function trashSwitch(paths: string[], inTrash: Trashed[] | null, fs: TrashFs) {
+  let records = inTrash;
+  const restore = async () => {
+    if (!records) throw new Error("Nothing was restored: the items aren't recorded as trashed");
+    const res = await fs.restore(records.map(({ original, from, to }) => ({ original, from, to })));
+    if (res.problems.length > 0) {
+      throw new Error(`Nothing was restored:\n${bullets(res.problems.map(p => `${basename(p.path)}: ${p.reason}`))}`);
+    }
+    records = null;
+  };
+  const trash = async () => {
+    const missing: string[] = [];
+    for (const p of paths) {
+      const there = await findEntry(fs, p).catch(() => null);
+      if (!there) missing.push(`${basename(p)} isn't in ${parentPath(p)} any more`);
+    }
+    if (missing.length > 0) throw new Error(`Nothing was moved to the trash:\n${bullets(missing)}`);
+    const done: Trashed[] = [];
+    for (const p of paths) {
+      try {
+        done.push(await fs.trash(p));
+      } catch (e) {
+        const moved = done.length > 0 ? ` (${done.length} of ${paths.length} were moved before it)` : "";
+        throw new Error(`${basename(p)} couldn't be moved to the trash${moved}: ${errText(e)}`);
+      }
+    }
+    records = done;
+  };
+  return { restore, trash };
+}
+
+/** Move to Trash: undo restores exactly the items it trashed (by original
+ *  path and deletion time), refusing if any is gone from the trash or its
+ *  name is taken again; redo trashes them again. */
+export function trashUndo(label: string, trashed: Trashed[], fs: TrashFs = realTrash): UndoEntry {
+  const s = trashSwitch(trashed.map(t => t.original), trashed, fs);
+  return { label, inverse: s.restore, redo: s.trash };
+}
+
+/** A restore from the Trash view: undo trashes the restored paths again,
+ *  redo restores those same items. */
+export function restoreUndo(label: string, restored: string[], fs: TrashFs = realTrash): UndoEntry {
+  const s = trashSwitch(restored, null, fs);
+  return { label, inverse: s.trash, redo: s.restore };
 }

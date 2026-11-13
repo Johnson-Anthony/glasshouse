@@ -1,10 +1,10 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import type { FileEntry } from "./api";
+import type { FileEntry, Trashed, TrashKey, TrashResult } from "./api";
 import { pushUndo, redoLast, redoStack, undoLast, undoStack, type UndoEntry } from "./state";
 import { orderRenames, runRenameSteps, type RenameStep } from "./names";
 import {
   contentUndo, contentsUndo, copyUndo, createUndo, emptyFolderUndo, groupUndo, madeUndo, moveUndo, permissionsUndo, renameStepsUndo,
-  type PermFs, type UndoFs,
+  restoreUndo, trashUndo, type PermFs, type TrashFs, type UndoFs,
 } from "./undoActions";
 
 // In-memory POSIX file system. Unlike the real backend, which refuses a taken
@@ -623,5 +623,115 @@ describe("permissionsUndo", () => {
     pushUndo(permissionsUndo("chmod 444", [{ path: "C:/d/a.txt", before: 0o200, after: 0o444 }], fs, true));
     expect((await undoLast()).status).toBe("done");
     expect(fs.modes.get("C:/d/a.txt")).toBe(0o200);
+  });
+});
+
+// A trash over a MemFs, matching items the way the backend does: by original
+// path and a deletion-time window, all or nothing. Each trashing gets the
+// next tick of its own clock as its deletion time.
+class MemTrash implements TrashFs {
+  now = 1000;
+  bin: Array<{ original: string; deleted: number; nodes: Array<[string, Node]> }> = [];
+  constructor(readonly fs: MemFs) {}
+
+  list(dir: string) { return this.fs.list(dir); }
+
+  async trash(path: string): Promise<Trashed> {
+    const nodes = [...this.fs.nodes].filter(([k]) => k === path || k.startsWith(path + "/"));
+    if (nodes.length === 0) throw new Error(`no such file: ${path}`);
+    for (const [k] of nodes) this.fs.nodes.delete(k);
+    const deleted = ++this.now;
+    this.bin.push({ original: path, deleted, nodes });
+    return { original: path, from: deleted, to: deleted };
+  }
+
+  async restore(keys: TrashKey[]): Promise<TrashResult> {
+    const problems: TrashResult["problems"] = [];
+    const picked = keys.map(k => {
+      const found = this.bin.filter(b => b.original === k.original && b.deleted >= k.from && b.deleted <= k.to);
+      if (found.length !== 1) problems.push({ path: k.original, reason: "isn't in the trash any more" });
+      else if (this.fs.nodes.has(k.original)) problems.push({ path: k.original, reason: "something with that name is there now" });
+      return found[0];
+    });
+    if (problems.length > 0) return { done: [], problems };
+    for (const item of picked) {
+      for (const [k, n] of item.nodes) this.fs.nodes.set(k, n);
+      this.bin.splice(this.bin.indexOf(item), 1);
+    }
+    return { done: picked.map(i => i.original), problems: [] };
+  }
+}
+
+describe("trashUndo (Move to Trash)", () => {
+  async function trashed(init: Record<string, string | null>, paths: string[]) {
+    const fs = new MemFs(init);
+    const trash = new MemTrash(fs);
+    const before = fs.tree();
+    const records: Trashed[] = [];
+    for (const p of paths) records.push(await trash.trash(p));
+    return { fs, trash, before, entry: trashUndo(`move ${paths.length} item(s) to the trash`, records, trash) };
+  }
+
+  it("restores what it trashed; redo trashes again, and the next undo finds the new items", async () => {
+    const { fs, trash, before, entry } = await trashed({ "/d/a.txt": "a", "/d/sub": null, "/d/sub/x": "x" }, ["/d/a.txt", "/d/sub"]);
+    await roundTrip(fs, entry, before);
+    expect(trash.bin).toEqual([]);
+  });
+
+  it("restores nothing if a name has been taken again", async () => {
+    const { fs, trash, entry } = await trashed({ "/d/a.txt": "a", "/d/b.txt": "b" }, ["/d/a.txt", "/d/b.txt"]);
+    fs.writeSync("/d/b.txt", "new");
+    pushUndo(entry);
+    const out = await undoLast();
+    expect(out.status).toBe("failed");
+    expect(String((out as { error: unknown }).error)).toContain("b.txt: something with that name is there now");
+    expect(fs.tree()).toEqual({ "/d": null, "/d/b.txt": "new" });
+    expect(trash.bin).toHaveLength(2);
+  });
+
+  it("restores nothing if an item has left the trash", async () => {
+    const { fs, trash, entry } = await trashed({ "/d/a.txt": "a", "/d/b.txt": "b" }, ["/d/a.txt", "/d/b.txt"]);
+    trash.bin.shift(); // emptied from the Trash view
+    pushUndo(entry);
+    const out = await undoLast();
+    expect(out.status).toBe("failed");
+    expect(String((out as { error: unknown }).error)).toContain("a.txt: isn't in the trash any more");
+    expect(fs.tree()).toEqual({ "/d": null });
+  });
+
+  it("an older trashing of the same path isn't taken for this one", async () => {
+    const fs = new MemFs({ "/d/a.txt": "old" });
+    const trash = new MemTrash(fs);
+    await trash.trash("/d/a.txt");
+    fs.writeSync("/d/a.txt", "new");
+    const entry = trashUndo("move 1 item(s) to the trash", [await trash.trash("/d/a.txt")], trash);
+    pushUndo(entry);
+    expect((await undoLast()).status).toBe("done");
+    expect(fs.tree()).toEqual({ "/d": null, "/d/a.txt": "new" });
+    expect(trash.bin.map(b => b.original)).toEqual(["/d/a.txt"]);
+  });
+
+  it("redo trashes nothing if a path has gone since", async () => {
+    const { fs, entry } = await trashed({ "/d/a.txt": "a", "/d/b.txt": "b" }, ["/d/a.txt", "/d/b.txt"]);
+    pushUndo(entry);
+    await undoLast();
+    await fs.remove("/d/a.txt", false);
+    const out = await redoLast();
+    expect(out.status).toBe("failed");
+    expect(String((out as { error: unknown }).error)).toContain("a.txt isn't in /d any more");
+    expect(fs.tree()).toEqual({ "/d": null, "/d/b.txt": "b" });
+  });
+});
+
+describe("restoreUndo (Restore in the Trash view)", () => {
+  it("trashes what was restored; redo restores the items that trashing made", async () => {
+    const fs = new MemFs({ "/d/a.txt": "a", "/e/b": null, "/e/b/y": "y" });
+    const trash = new MemTrash(fs);
+    const records = [await trash.trash("/d/a.txt"), await trash.trash("/e/b")];
+    const before = fs.tree();
+    const res = await trash.restore(records);
+    const entry = restoreUndo(`restore ${res.done.length} item(s) from the trash`, res.done, trash);
+    await roundTrip(fs, entry, before);
+    expect(trash.bin).toHaveLength(2);
   });
 });
