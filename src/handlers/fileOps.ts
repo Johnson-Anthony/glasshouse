@@ -1,4 +1,4 @@
-import { type FileEntry, openWithDefault, renameEntry, deleteEntry, moveToTrash, makeDir, createTextFile, spawnTerminal, spawnVscodeStrict, revealInExplorer, archiveCreate, hashSha256, homeDir } from "../api";
+import { type FileEntry, type Trashed, type TrashProblem, openWithDefault, renameEntry, deleteEntry, moveToTrash, trashUnsupported, makeDir, createTextFile, spawnTerminal, spawnVscodeStrict, revealInExplorer, archiveCreate, hashSha256, homeDir } from "../api";
 import { MUTATING_LABELS } from "../data";
 import { dialogs } from "../dialogs/DialogHost";
 import { basename, parentPath, joinPath } from "../paths";
@@ -6,7 +6,8 @@ import type { BulkRenameItem } from "../dialogs/BulkRename";
 import { namesIn, unlessTaken, asItems, transferDeps, pushTransferUndo, reportTransfer } from "../transferUi";
 import { nameProblem, freeNewName } from "../names";
 import { markIrreversible, pushUndo, type TabState } from "../state";
-import { moveUndo, createUndo, madeUndo, type Created } from "../undoActions";
+import { moveUndo, createUndo, madeUndo, trashUndo, type Created } from "../undoActions";
+import { noBinText } from "../trashView";
 import { IS_WINDOWS } from "../platform";
 import { isCancelled, runOp } from "../ops";
 import { type TransferOp, runTransfer, type TransferItem, type TransferResult } from "../transfer";
@@ -61,6 +62,46 @@ export async function removeEach(
   const lines = failed.slice(0, 5);
   if (failed.length > 5) lines.push(`…and ${failed.length - 5} more`);
   void dialogs.showAlert({ title: failTitle(failed.length), variant: "error", message: lines.join("\n") });
+}
+
+/** Move to Trash, from the file menu or a target's menu: one undo entry
+ *  puts back what went to the trash. Asks first for more than one item.
+ *  Paths on a Windows drive with no Recycle Bin would be deleted for good,
+ *  so then the question says so, and those are deleted permanently only if
+ *  the user agrees (Cancel does nothing at all). */
+export async function trashPaths(paths: string[], refresh: () => void): Promise<void> {
+  if (paths.length === 0) return;
+  const bin = IS_WINDOWS ? "Recycle Bin" : "Trash";
+  let noBin: TrashProblem[] = [];
+  try {
+    noBin = await trashUnsupported(paths);
+  } catch {
+    // move_to_trash checks again, and refuses rather than deletes.
+  }
+  if (noBin.length > 0 || paths.length > 1) {
+    const ok = await dialogs.showConfirm(noBin.length > 0
+      ? { title: "no recycle bin", message: noBinText(noBin, paths.length), danger: true, okLabel: "delete permanently" }
+      : { title: "move to trash", message: `Move ${paths.length} items to ${bin}?`, okLabel: "move" });
+    if (!ok) return;
+  }
+  const permanent = new Set(noBin.map(p => p.path));
+  const trashed: Trashed[] = [];
+  let deleted = 0;
+  try {
+    await removeEach(paths, async p => {
+      if (permanent.has(p)) {
+        await deleteEntry(p, true);
+        deleted++;
+      } else {
+        trashed.push(await moveToTrash(p));
+      }
+    }, refresh, n => permanent.size > 0
+      ? `couldn't remove ${n} of ${paths.length} item(s)`
+      : `couldn't move ${n} of ${paths.length} item(s) to the ${bin}`);
+  } finally {
+    if (deleted > 0) markIrreversible(`delete ${deleted} item(s) permanently`);
+    if (trashed.length > 0) pushUndo(trashUndo(`move ${trashed.length} item(s) to the ${bin}`, trashed));
+  }
 }
 
 /** New Folder, Text File, Markdown Note and Script: prompt for a free name in
@@ -210,20 +251,8 @@ export const fileOpsHandler: Handler = async (label, ctx) => {
       return true;
     }
     case "Move to Trash": {
-      if (selectedPaths.length === 0) return true;
-      // Trash is reversible — only prompt for multi-select. Single items
-      // go straight to the recycle bin without ceremony.
-      if (selectedPaths.length > 1) {
-        const ok = await dialogs.showConfirm({
-          title: "move to trash",
-          message: `Move ${selectedPaths.length} items to ${IS_WINDOWS ? "Recycle Bin" : "Trash"}?`,
-          okLabel: "move",
-        });
-        if (!ok) return true;
-      }
-      const total = selectedPaths.length;
-      await removeEach(selectedPaths, moveToTrash, refresh,
-        n => `couldn't move ${n} of ${total} item(s) to the ${IS_WINDOWS ? "Recycle Bin" : "Trash"}`);
+      // Trash is reversible, so a single item goes without a question.
+      await trashPaths(selectedPaths, refresh);
       return true;
     }
     case "Copy": {

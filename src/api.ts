@@ -396,8 +396,76 @@ export function openWithDefaultStrict(path: string): Promise<void> {
   return mustInvoke<void>("open_with_default", { path });
 }
 
-export function moveToTrash(path: string): Promise<void> {
-  return mustInvoke<void>("move_to_trash", { path });
+/** What Move to Trash did with one path: enough to find the item in the
+ *  trash again (commands/trash.rs). */
+export interface Trashed {
+  /** The path as the trash records it: the real folder plus the name. */
+  original: string;
+  /** Unix seconds just before and after; the deletion time is between. */
+  from: number;
+  to: number;
+}
+
+/** Names one trashed item: its original path and a deletion-time window,
+ *  plus its id when it comes from the Trash view. */
+export interface TrashKey {
+  original: string;
+  from: number;
+  to: number;
+  id?: string;
+}
+
+export interface TrashProblem {
+  path: string;
+  reason: string;
+}
+
+/** What a restore or purge did: the original paths it handled, and what
+ *  it left in the trash and why. */
+export interface TrashResult {
+  done: string[];
+  problems: TrashProblem[];
+}
+
+/** One item in the trash. */
+export interface TrashEntry {
+  id: string;
+  name: string;
+  original_parent: string;
+  original: string;
+  /** Unix seconds. */
+  deleted: number;
+  /** A file's size in bytes. */
+  size: number | null;
+  /** A folder's entry count, not counting what's inside its subfolders. */
+  entries: number | null;
+}
+
+/** Refused for a path on a Windows drive with no Recycle Bin, where the
+ *  system would delete it for good. */
+export function moveToTrash(path: string): Promise<Trashed> {
+  return mustInvoke<Trashed>("move_to_trash", { path });
+}
+
+/** The paths that can't go to the trash (Windows drives with no Recycle
+ *  Bin), each with why. Always empty on Linux. */
+export function trashUnsupported(paths: string[]): Promise<TrashProblem[]> {
+  return mustInvoke<TrashProblem[]>("trash_unsupported", { paths });
+}
+
+export function trashList(): Promise<TrashEntry[]> {
+  return mustInvoke<TrashEntry[]>("trash_list");
+}
+
+/** Put trashed items back. With `allOrNothing`, any refusal (taken path,
+ *  item gone) restores nothing. */
+export function trashRestore(keys: TrashKey[], allOrNothing: boolean): Promise<TrashResult> {
+  return mustInvoke<TrashResult>("trash_restore", { keys, allOrNothing });
+}
+
+/** Delete trashed items for good. */
+export function trashPurge(keys: TrashKey[]): Promise<TrashResult> {
+  return mustInvoke<TrashResult>("trash_purge", { keys });
 }
 
 /** The browsable trash folder (`$XDG_DATA_HOME/Trash/files`); null on Windows. */

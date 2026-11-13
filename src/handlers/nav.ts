@@ -8,7 +8,6 @@ import {
   readPins,
   readRecent,
   homeDir,
-  trashDir,
   clearRecent,
   listWslDistros,
 } from "../api";
@@ -136,26 +135,12 @@ export const navHandler: Handler = async (label, ctx) => {
       })();
       return true;
 
-    case "Trash": {
-      // Windows: in-app only — spawning Explorer here (shell:RecycleBinFolder)
-      // yanks the user out of Glasshouse and was a repeat complaint. A real
-      // in-app Recycle Bin view needs FOLDERID_RecycleBinFolder + IShellFolder
-      // COM enumeration; stub it with a toast until that ships.
-      // Linux: the XDG trash is a plain directory — browse it in-app.
-      if (IS_WINDOWS) {
-        dialogs.showToast({ message: "trash view coming in v2", variant: "info" });
-        return true;
-      }
-      void (async () => {
-        const trash = await trashDir();
-        if (!trash) {
-          await dialogs.showAlert({ title: "Navigation", message: "trash folder unavailable" });
-          return;
-        }
-        ctx.activeHandle?.actions.goTo(trash);
-      })();
+    case "Trash":
+      // The Trash dialog (dialogs/Trash.tsx), on both platforms: the items,
+      // where they came from, and Restore. On Linux it also links to the
+      // trash folder, which Go → Trash used to open.
+      ctx.app?.setTrashOpen(true);
       return true;
-    }
 
     default: {
       // Fallback: a label that looks like a path (absolute, drive-prefixed,
