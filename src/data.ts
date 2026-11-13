@@ -68,15 +68,6 @@ export type DynamicSource = "recent" | "bookmarks-pinned" | "terminal-profiles" 
 
 export type MenusData = Record<string, MenuItemDef[]>;
 
-export interface PaletteItem {
-  g: string;
-  ic: string;
-  label: string;
-  kb?: string[];
-  /** Same meaning as on MenuItemDef items. */
-  mutates?: boolean;
-}
-
 export const MENUS: MenusData = {
   File: [
     { kind: "item", ic: "", label: "New Tab",            kb: "Ctrl+T" },
@@ -310,27 +301,20 @@ export const MENUS: MenusData = {
   ],
 };
 
-export const PALETTE: PaletteItem[] = [
-  { g: "NAVIGATE", ic: "", label: "Go to Path…",          kb: ["Ctrl", "L"] },
-  // no kb hint: Ctrl+P toggles this palette
-  { g: "NAVIGATE", ic: "", label: "Find File by Name (fuzzy)" },
-  { g: "NAVIGATE", ic: "", label: "Find in Files",        kb: ["Ctrl", "Shift", "F"] },
-  { g: "NAVIGATE", ic: "", label: "Jump to Bookmark →" },
-  { g: "NAVIGATE", ic: "", label: "Open Recent →" },
-  { g: "FILE",     ic: "", label: "New Folder",            kb: ["Ctrl", "Shift", "D"] },
-  { g: "FILE",     ic: "", label: "Bulk Rename…",          kb: ["Ctrl", "Shift", "R"], mutates: true },
-  { g: "FILE",     ic: "", label: "Paste Special…",        kb: ["Ctrl", "Shift", "V"] },
-  { g: "FILE",     ic: "", label: "Batch Permissions…", mutates: true },
-  { g: "FILE",     ic: "", label: "Hash SHA256 of Selection" },
-  { g: "GIT",      ic: "", label: "Git: Stage Selected", mutates: true },
-  { g: "GIT",      ic: "", label: "Git: Commit…",          kb: ["Ctrl","G","C"] },
-  { g: "GIT",      ic: "", label: "Git: Checkout Branch →"  },
-  { g: "VIEW",     ic: "", label: "Switch Theme →"  },
-  { g: "VIEW",     ic: "", label: "Toggle Hidden Files",   kb: ["Ctrl","H"] },
-  { g: "VIEW",     ic: "", label: "Change Layout →" },
-  { g: "TOOLS",    ic: "", label: "Open in Terminal" },
-  { g: "TOOLS",    ic: "", label: "Open in VS Code",        kb: ["Ctrl","Shift","E"] },
-  { g: "TOOLS",    ic: "", label: "Run Script on Selection…", mutates: true },
+// Commands the palette lists that no menu holds (the rest of its entries come
+// from the menus; see palette.ts). The "→" ones stand in for a menu's dynamic
+// list, which the palette can't open: they prompt with a numbered list.
+export const PALETTE_ONLY: MenuItemDef[] = [
+  { kind: "item", label: "Find in Files",             kb: "Ctrl+Shift+F" },
+  { kind: "item", label: "Find File by Name (fuzzy)" },
+  { kind: "item", label: "Open Recent →" },
+  { kind: "item", label: "Jump to Bookmark →" },
+  { kind: "item", label: "Next Tab",                  kb: "Ctrl+Tab" },
+  { kind: "item", label: "Previous Tab", action: "Prev Tab", kb: "Ctrl+Shift+Tab" },
+  { kind: "item", label: "Paste Special…",            kb: "Ctrl+Shift+V" },
+  { kind: "item", label: "Hash SHA256 of Selection" },
+  { kind: "item", label: "Git: Checkout Branch →" },
+  { kind: "item", label: "Switch Theme →" },
 ];
 
 export const CONTEXT_FILE: MenuItemDef[] = [
@@ -572,7 +556,7 @@ if (!IS_WINDOWS) {
 // ─── Derived lookups ───────────────────────────────────────────────────────
 // Built after platform gating so they see the final dispatch keys.
 
-const ALL_MENU_TREES: MenuItemDef[][] = [...Object.values(MENUS), ...CONTEXT_MENUS];
+const ALL_MENU_TREES: MenuItemDef[][] = [...Object.values(MENUS), ...CONTEXT_MENUS, PALETTE_ONLY];
 
 function collectMutating(items: MenuItemDef[], out: Set<string>): void {
   for (const it of items) {
@@ -590,7 +574,6 @@ const MUTATING_CODE_LABELS = [
 export const MUTATING_LABELS: ReadonlySet<string> = (() => {
   const out = new Set<string>(MUTATING_CODE_LABELS);
   ALL_MENU_TREES.forEach(t => collectMutating(t, out));
-  PALETTE.forEach(p => { if (p.mutates) out.add(p.label); });
   return out;
 })();
 

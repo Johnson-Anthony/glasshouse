@@ -302,7 +302,6 @@ export const fileOpsHandler: Handler = async (label, ctx) => {
       setPasteSpecial({ items, dstDir: cwd, clipboardMode: op });
       return true;
     }
-    case "New Folder":
     case "Folder":
       await createNew(cwd, refresh, { kind: "folder" }, {
         title: "new folder", message: "folder name:", base: "new-folder", placeholder: "folder-name", noun: "folder",

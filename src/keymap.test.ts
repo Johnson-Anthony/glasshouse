@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { CONTEXT_EMPTY, CONTEXT_FILE, GIT_CHORDS, MENUS, PALETTE, type MenuItemDef } from "./data";
+import { CONTEXT_EMPTY, CONTEXT_FILE, GIT_CHORDS, MENUS, PALETTE_ONLY, type MenuItemDef } from "./data";
 import { CHEATSHEET, KEYMAP, findBinding, matches, parseCombo, type KeyAction, type KeyEventLike, type KeyState } from "./keymap";
 
 function key(combo: string, extra: Partial<KeyEventLike> = {}): KeyEventLike {
@@ -151,8 +151,6 @@ describe("menu shortcut hints", () => {
   const ALIAS: Record<string, string> = {
     "Show Hidden Files": "Toggle Hidden Files",
     "Bookmark Folder": "Bookmark This Folder",
-    "New Folder": "Folder",
-    "Git: Commit…": "Commit…",
   };
   // Handled outside the window keymap.
   const ELSEWHERE: Record<string, string> = {
@@ -167,8 +165,7 @@ describe("menu shortcut hints", () => {
       else if (it.kind === "sub") walk(it.children);
     }
   };
-  for (const tree of [...Object.values(MENUS), CONTEXT_FILE, CONTEXT_EMPTY]) walk(tree);
-  for (const p of PALETTE) if (p.kb) hinted.push({ send: p.label, kb: p.kb.join("+") });
+  for (const tree of [...Object.values(MENUS), CONTEXT_FILE, CONTEXT_EMPTY, PALETTE_ONLY]) walk(tree);
   const norm = (kb: string) => {
     const p = parseCombo(kb.replace(/\bDel\b/, "Delete").replace("↑", "ArrowUp").replace(/^Esc$/, "Escape"));
     return [p.ctrl, p.shift, p.alt, p.key].join();
@@ -177,9 +174,9 @@ describe("menu shortcut hints", () => {
     KEYMAP.some(b => norm(b.combo) === norm(h.kb) && (
       (b.send !== undefined && (b.send === h.send || b.send === ALIAS[h.send])) ||
       (b.run !== undefined && b.run === RUN_FOR[h.send])));
-  // "Ctrl+G C" in menus, ["Ctrl","G","C"] in the palette.
+  // "Ctrl+G C".
   const chord = (h: { send: string; kb: string }) => {
-    const m = /^Ctrl\+G[ +]([A-Z])$/.exec(h.kb);
+    const m = /^Ctrl\+G ([A-Z])$/.exec(h.kb);
     return !!m && (GIT_CHORDS[m[1].toLowerCase()] === h.send || GIT_CHORDS[m[1].toLowerCase()] === ALIAS[h.send]);
   };
 

@@ -1,5 +1,4 @@
 import type { Handler } from "./types";
-import { dialogs } from "../dialogs/DialogHost";
 
 const ZOOM_KEY = "glasshouse.zoom";
 const ZOOM_DEFAULT = 13;
@@ -68,21 +67,6 @@ export const viewHandler: Handler = (label, ctx) => {
     case "Reset Zoom":
       resetZoom();
       return true;
-
-    case "Change Layout →": {
-      // Palette-friendly: cycle through the canonical layouts instead of
-      // requiring submenu navigation.
-      const LAYOUTS = [
-        "Tree + Pane + Inspector",
-        "Single Pane",
-      ];
-      const current = localStorage.getItem(LAYOUT_KEY) ?? LAYOUTS[0];
-      const idx = LAYOUTS.indexOf(current);
-      const next = LAYOUTS[(idx < 0 ? 0 : idx + 1) % LAYOUTS.length];
-      setLayout(next);
-      dialogs.showToast({ message: `layout → ${next}`, variant: "success" });
-      return true;
-    }
 
     case "Name":
       ctx.activeHandle?.actions.setSortKey("name");

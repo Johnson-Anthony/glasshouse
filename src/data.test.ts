@@ -12,7 +12,7 @@ import {
   GIT_CHORDS,
   MENUS,
   MUTATING_LABELS,
-  PALETTE,
+  PALETTE_ONLY,
   THEMES,
   type MenuItemDef,
 } from "./data";
@@ -27,6 +27,7 @@ const TREES: MenuItemDef[][] = [
   CONTEXT_TAB,
   CONTEXT_BREADCRUMB,
   CONTEXT_EMPTY,
+  PALETTE_ONLY,
 ];
 
 function items(list: MenuItemDef[]): Array<Extract<MenuItemDef, { kind: "item" }>> {
@@ -36,10 +37,7 @@ function items(list: MenuItemDef[]): Array<Extract<MenuItemDef, { kind: "item" }
 }
 
 const ALL_ITEMS = TREES.flatMap(items);
-const DISPATCHABLE = new Set([
-  ...ALL_ITEMS.map(it => it.action ?? it.label),
-  ...PALETTE.map(p => p.label),
-]);
+const DISPATCHABLE = new Set(ALL_ITEMS.map(it => it.action ?? it.label));
 
 describe("MUTATING_LABELS", () => {
   it("covers the selection-writing ops", () => {
@@ -53,7 +51,7 @@ describe("MUTATING_LABELS", () => {
       "ZIP (bundled)", "ZIP (each individually)", "TAR.GZ", "7-Zip",
       "Extract Here", "Extract to Folder…",
       // Git
-      "Stage Selected", "Git: Stage Selected", "Unstage Selected", "Discard Changes",
+      "Stage Selected", "Unstage Selected", "Discard Changes",
       "Git: Stage", "Git: Unstage", "Git: Discard changes",
       // dispatched from code (Inspector compress chip)
       "Compress to ZIP…",
@@ -98,7 +96,6 @@ describe("GIT_CHORDS", () => {
 
 describe("shortcut hints", () => {
   it("only the palette toggle advertises Ctrl+P", () => {
-    expect(PALETTE.filter(p => p.kb?.join("+") === "Ctrl+P")).toEqual([]);
     expect(ALL_ITEMS.filter(it => it.kb === "Ctrl+P").map(it => it.label)).toEqual(["Command Palette"]);
   });
 

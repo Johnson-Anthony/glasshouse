@@ -377,3 +377,19 @@ describe("routed commands", () => {
     expect(writeText).toHaveBeenCalledWith("\\\\localhost\\C$\\Users\\me\\a.txt");
   });
 });
+
+describe("typed paths", () => {
+  // The palette's "Go to <path>" row sends the path as its label.
+  it("opens a label that looks like a path, with ~ expanded", async () => {
+    vi.mocked(api.homeDir).mockResolvedValue("/home/me");
+    for (const [label, opened] of [["/usr/share", "/usr/share"], ["~/src", "/home/me/src"], ["~", "/home/me"], ["C:\\Users", "C:\\Users"]]) {
+      const ctx = makeCtx([], []);
+      expect(await owner(label, ctx), label).toBe(navHandler);
+      await vi.waitFor(() => expect(ctx.activeHandle!.actions.goTo).toHaveBeenCalledWith(opened));
+    }
+  });
+
+  it("leaves other unknown labels alone", async () => {
+    expect(await owner("src/app", makeCtx([], []))).toBeNull();
+  });
+});

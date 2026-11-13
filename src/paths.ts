@@ -120,3 +120,10 @@ export const {
   pathSegments,
   splitBreadcrumb,
 } = pathOps(IS_WINDOWS);
+
+/** A typed string the router opens as a path rather than runs as a command:
+ *  absolute (`/…`), home-relative (`~…`) or drive-prefixed (`C:\…`, `C:/…`).
+ *  navHandler's fallback and the palette's "Go to" row both use it. */
+export function looksLikePath(s: string): boolean {
+  return s.startsWith("/") || s.startsWith("~") || /^[A-Za-z]:[\\/]/.test(s);
+}
