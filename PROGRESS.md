@@ -77,6 +77,7 @@
    - `scripts/*.ps1` and `scripts/win-*.sh` (WSL → Windows build helpers) aren't referenced or documented anywhere: document them in CLAUDE.md or drop them.
 
 ## Broken / known issues
+- The sidebar tree never refreshes on its own (user-reported 2026-11-13): a folder deleted on disk stays listed, and clicking it shows "can't read this folder". `Sidebar.tsx` loads each expanded folder once and doesn't listen to `fs-changed`. Being fixed in refresh-cost.
 - On the GitHub runner, headless Chromium sometimes never opens its DevTools port. `site/capture/capture.mjs` starts it up to three times (20 s each; `9f63f1a`), and the site job has a 20-minute cap. The first attempt hung on 9f63f1a's own run, so it's common; if all three fail, re-run the job.
 - Esc doesn't clear the selection in Miller columns (its key handler has no Escape case).
 - Renames can still race where `renameat2(RENAME_NOREPLACE)` isn't available (non-Linux unix, NFS, older FUSE), which falls back to check-then-rename.
