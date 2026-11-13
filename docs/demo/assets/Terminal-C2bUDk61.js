@@ -1,4 +1,8 @@
+<<<<<<<< HEAD:docs/demo/assets/Terminal-C2bUDk61.js
 import{r as W,l as Jr,j as de,s as Zr,P as Qr,f as en,m as tn,p as os,a as sn,b as as,c as rn,d as hs,e as nn}from"./index-CSyVqpw5.js";/**
+========
+import{r as W,l as Jr,j as de,s as Zr,P as Qr,f as en,m as tn,p as os,a as sn,b as as,c as rn,d as hs,e as nn}from"./index-Bv5wLHtB.js";/**
+>>>>>>>> claude/cool-satoshi-4102fc:docs/demo/assets/Terminal-_tYc4Hnk.js
  * Copyright (c) 2014-2024 The xterm.js authors. All rights reserved.
  * @license MIT
  *

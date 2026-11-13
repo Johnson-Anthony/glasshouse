@@ -747,7 +747,7 @@ export function Sidebar({ activePath, onGoTo, onOpenFile, onRowContext, pins, on
           const isKb = selectedIdx === navIdx;
           return (
             <div key={i}
-                 data-sidebar-drop-path={p}
+                 data-drop-path={pinFiles.has(p) ? undefined : p}
                  data-sb-nav-idx={navIdx}
                  className={"sb-item" + (p === activePath ? " active" : "") + (isKb ? " sb-item-focused" : "")}
                  onClick={() => openRow(p, pinFiles.has(p))}
@@ -826,7 +826,7 @@ export function Sidebar({ activePath, onGoTo, onOpenFile, onRowContext, pins, on
         const isKb = selectedIdx === navIdx;
         return (
           <div key={n.path}
-               data-sidebar-drop-path={n.kind === "folder" ? n.path : undefined}
+               data-drop-path={n.kind === "folder" ? n.path : undefined}
                data-sb-nav-idx={navIdx}
                className={"tree-row" + (n.path === activePath ? " active" : "") + (isKb ? " sb-item-focused" : "")}
                style={{paddingLeft: 12 + n.depth * 10, cursor:"pointer"}}

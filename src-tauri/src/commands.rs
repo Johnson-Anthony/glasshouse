@@ -3,6 +3,7 @@
 
 pub mod archive;
 pub mod config;
+pub mod drag_out;
 #[cfg(windows)]
 pub(crate) mod drive_letters;
 pub mod file_info;

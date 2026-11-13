@@ -89,6 +89,7 @@ pub fn run() {
             commands::launch::spawn_new_window,
             pty::profiles::list_shell_profiles,
             commands::launch::spawn_terminal_profile,
+            commands::drag_out::start_drag_out,
             commands::config::read_recent,
             commands::config::append_recent,
             commands::config::clear_recent,

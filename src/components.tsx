@@ -7,6 +7,7 @@ import { fuzzyFilter } from "./fuzzy";
 import { viewRows } from "./viewRows";
 import { remapIndexes } from "./listing";
 import { rowWindow, rowsInSpan, scrollToRow } from "./paneWindow";
+import { DropHighlight, dragCopies, dropTargetOf, leftWindow, notAlreadyIn } from "./dragDrop";
 import { splitBreadcrumb } from "./paths";
 import type { SortDir, SortKey } from "./state";
 import { TAG_COLOR_MAP } from "./Sidebar";
@@ -26,9 +27,11 @@ export interface TitlebarProps {
   onCloseTab: (i: number) => void;
   onNewTab: () => void;
   onTabContext?: (e: React.MouseEvent, tabIndex: number) => void;
+  /** Each tab's folder, where a drop on the tab goes. */
+  tabPaths?: (string | undefined)[];
 }
 
-export function Titlebar({ tabs, activeTab, onSelectTab, onCloseTab, onNewTab, onTabContext }: TitlebarProps) {
+export function Titlebar({ tabs, activeTab, onSelectTab, onCloseTab, onNewTab, onTabContext, tabPaths }: TitlebarProps) {
   return (
     <div className="titlebar" data-tauri-drag-region>
       <div className="traffic">
@@ -41,6 +44,7 @@ export function Titlebar({ tabs, activeTab, onSelectTab, onCloseTab, onNewTab, o
           <div
             key={i}
             className={"tab" + (i === activeTab ? " active" : "")}
+            data-drop-path={tabPaths?.[i]}
             onClick={() => onSelectTab(i)}
             onContextMenu={(e) => {
               if (!onTabContext) return;
@@ -100,6 +104,7 @@ export function Toolbar({ path, gitInfo, canBack, canForward, onBack, onForward,
           <React.Fragment key={i}>
             <span
               className={"crumb" + (i === parts.length - 1 ? " last" : "")}
+              data-drop-path={p.path}
               onClick={() => onGoTo(p.path)}
               onContextMenu={(e) => {
                 if (!onCrumbContext) return;
@@ -245,7 +250,12 @@ export interface FilePaneProps {
   /** External drop: drag from this pane to elsewhere (sidebar tree, another pane).
    *  App handles the drop site via a global window "glasshouse-extern-drop" event. */
   onExternalDrag?: (sourceOrigIndices: number[], clientX: number, clientY: number, copy: boolean) => void;
+  /** The drag left the window: hand these rows to the OS as a drag, for
+   *  dropping into another app. `copy`: Ctrl was held as it left. */
+  onDragOut?: (sourceOrigIndices: number[], copy: boolean) => void;
   paneRootRef?: React.Ref<HTMLElement>;
+  /** The pane's folder: a drop on the pane outside a folder row goes here. */
+  dropPath?: string;
   onActivate?: () => void;
   /** Paths currently in "cut" mode in the app clipboard — rendered dimmed. */
   cutPaths?: string[];
@@ -314,6 +324,7 @@ const PaneRow = React.memo(function PaneRow({
   const ki = kindIcon(f.kind);
   return (
     <div data-orig={i}
+         data-drop-path={f.kind === "folder" ? rowPath(f) : undefined}
          className={"row" + (isSel ? " selected" : "") + (isFocus ? " focused" : "") + (isDragOver ? " drop-target" : "") + (isCut ? " clip-cut" : "")}
          onPointerDown={(e) => h.pointerDown(i, isSel, e)}
          onClick={(e) => h.click(i, e)}
@@ -371,7 +382,9 @@ export function FilePane({
   tagStore,
   onRowDrop,
   onExternalDrag,
+  onDragOut,
   paneRootRef,
+  dropPath,
   onActivate,
   cutPaths,
   error,
@@ -710,7 +723,7 @@ export function FilePane({
   const cutSet = useMemo(() => new Set(cutPaths ?? []), [cutPaths]);
 
   // Live-state escape hatch for the stable row handlers below.
-  const live = { files, selected, visibleOrig, windowed: view.windowed, rowH: view.rowH, handleRowClick, onOpen, onContext, onRowDrop, onExternalDrag, setSelected, setAnchorIndex, setFocusIndex };
+  const live = { files, selected, visibleOrig, windowed: view.windowed, rowH: view.rowH, handleRowClick, onOpen, onContext, onRowDrop, onExternalDrag, onDragOut, setSelected, setAnchorIndex, setFocusIndex };
   const latest = useRef(live);
   latest.current = live;
 
@@ -724,19 +737,53 @@ export function FilePane({
       // The same files as indexes into the rows on screen at the drop, in
       // case the folder re-listed during the drag.
       const sourcesNow = () => remapIndexes(startFiles, latest.current.files, sources, rowPath);
+      const sourcePaths = sources.map(s => rowPath(startFiles[s])).filter((p): p is string => !!p);
+      // Tabs, breadcrumbs and sidebar rows light up as the drag passes over;
+      // folder rows have their own highlight (dragOverIndex).
+      const highlight = new DropHighlight();
       let dragging = false;
       let moved = false;
+      const stop = () => {
+        window.removeEventListener("pointermove", onMove);
+        window.removeEventListener("pointerup", onPointerUp);
+        window.removeEventListener("pointercancel", onPointerUp);
+        window.removeEventListener("mouseout", onOut);
+        window.removeEventListener("keydown", onKey);
+        window.removeEventListener("keyup", onKey);
+        highlight.set(null);
+        setDragOverIndex(null);
+        setGhost(null);
+      };
+      // Pressing or letting go of Ctrl mid-drag changes the operation, and
+      // the ghost says so before the pointer moves again.
+      const onKey = (ev: KeyboardEvent) => {
+        if (dragging) setGhost(g => g && { ...g, copy: dragCopies(ev) });
+      };
+      // Out of the window with the button still down: the OS takes the drag
+      // from here, so it can be dropped into another app.
+      const handOff = (ev: MouseEvent) => {
+        stop();
+        const dropped = sourcesNow();
+        if (dropped.length > 0) latest.current.onDragOut?.(dropped, dragCopies(ev));
+      };
+      const onOut = (ev: MouseEvent) => {
+        if (dragging && ev.relatedTarget === null && latest.current.onDragOut) handOff(ev);
+      };
       const onMove = (ev: PointerEvent) => {
         moved = true;
         const dx = ev.clientX - startX;
         const dy = ev.clientY - startY;
         if (!dragging && Math.hypot(dx, dy) < DRAG_THRESHOLD_PX) return;
         dragging = true;
+        if (latest.current.onDragOut && leftWindow(ev.clientX, ev.clientY, window.innerWidth, window.innerHeight)) {
+          handOff(ev);
+          return;
+        }
         setGhost({
           x: ev.clientX,
           y: ev.clientY,
           count: sources.length,
-          copy: ev.shiftKey,
+          copy: dragCopies(ev),
         });
         // Locate the row under the cursor and decide whether it's a valid drop target.
         const hit = document.elementFromPoint(ev.clientX, ev.clientY);
@@ -746,15 +793,13 @@ export function FilePane({
         const hoverFile = origIdx >= 0 ? latest.current.files[origIdx] : undefined;
         const validTarget = hoverFile && hoverFile.kind === "folder" && !sources.includes(origIdx);
         setDragOverIndex(validTarget ? origIdx : null);
+        const other = row ? null : dropTargetOf(hit);
+        highlight.set(other && notAlreadyIn(sourcePaths, other.path).length > 0 ? other.el : null);
       };
       const onPointerUp = (ev: PointerEvent) => {
-        window.removeEventListener("pointermove", onMove);
-        window.removeEventListener("pointerup", onPointerUp);
-        window.removeEventListener("pointercancel", onPointerUp);
-        setDragOverIndex(null);
-        setGhost(null);
+        stop();
         if (!dragging) return;
-        const copy = ev.shiftKey;
+        const copy = dragCopies(ev);
         const hit = document.elementFromPoint(ev.clientX, ev.clientY);
         const row = hit?.closest("[data-orig]") as HTMLElement | null;
         const origAttr = row?.getAttribute("data-orig");
@@ -778,6 +823,9 @@ export function FilePane({
       window.addEventListener("pointermove", onMove);
       window.addEventListener("pointerup", onPointerUp);
       window.addEventListener("pointercancel", onPointerUp);
+      window.addEventListener("mouseout", onOut);
+      window.addEventListener("keydown", onKey);
+      window.addEventListener("keyup", onKey);
       // Let click/dblclick still work when no drag happened.
       void moved;
     },
@@ -798,6 +846,7 @@ export function FilePane({
     <section
       ref={paneRef}
       className={"pane" + (paneFocused ? " pane-focused" : "")}
+      data-drop-path={dropPath || undefined}
       tabIndex={0}
       onFocus={() => { setPaneFocused(true); if (onActivate) onActivate(); }}
       onBlur={(e) => {
@@ -864,24 +913,7 @@ export function FilePane({
         * otherwise make it the containing block for this fixed-position ghost
         * and its viewport clientX/Y coords would land in the wrong place. */}
       {ghost && createPortal(
-        <div
-          className="drag-ghost"
-          style={{
-            position: "fixed",
-            left: ghost.x + 10,
-            top: ghost.y + 10,
-            pointerEvents: "none",
-            background: "var(--bg-1)",
-            color: "var(--accent)",
-            border: "1px solid var(--accent)",
-            padding: "3px 8px",
-            borderRadius: 3,
-            fontSize: 11,
-            fontFamily: "var(--font-mono)",
-            zIndex: 2000,
-            whiteSpace: "nowrap",
-          }}
-        >
+        <div className="drag-ghost" style={{ left: ghost.x + 10, top: ghost.y + 10 }}>
           {ghost.copy ? "copy " : "move "}
           {ghost.count} item{ghost.count === 1 ? "" : "s"}
         </div>,
