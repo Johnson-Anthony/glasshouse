@@ -32,7 +32,7 @@ Scope: `## 13. pane-perf` in `docs/plans/active/survey-2.md`.
   - `relist` returns the previous listing when the new one is equal, and `gitInfo` is only set when it changed, so a no-change poll renders nothing.
 - **Sort keys once:** `viewRows` computes each row's key once, then sorts indexes by key. Same order as before; the existing `viewRows` tests guard it.
 - **Lazy xterm:** App loads `TerminalDrawer` through `React.lazy`, and mounts it the first time the terminal is wanted. The drawer gets one closed frame, so the first open still slides in.
-- **noticesData:** split the generated JSON into its own lazy chunk, so no chunk is over 500 kB.
+- **noticesData:** left as one lazy chunk (542 kB, data only), so Vite still warns for it; see the decision note for why and the follow-up.
 
 ## Tests
 - happy-dom tests for `useTabState` and FilePane, as above.
@@ -40,12 +40,36 @@ Scope: `## 13. pane-perf` in `docs/plans/active/survey-2.md`.
 - The demo checks in `pnpm site:capture check` must all still pass: keyboard, marquee, drag, scroll.
 
 ## Status
-- [ ] happy-dom + notices
-- [ ] Baseline numbers
-- [ ] viewRows keys
-- [ ] Memoised rows, unchanged-listing skip
-- [ ] Windowed list, marquee, focus scroll
-- [ ] Lazy xterm, notices chunk
-- [ ] After numbers
-- [ ] Checks: build, test, check:wiring, site:build, site:capture check
+- [x] happy-dom + notices (`pnpm notices` regenerates nothing: third-party.json lists runtime deps only)
+- [x] Baseline numbers
+- [x] viewRows keys
+- [x] Memoised rows, unchanged-listing skip
+- [x] Windowed list, marquee, focus scroll
+- [x] Lazy xterm; noticesData left as is (decision note)
+- [x] Tests: paneWindow, listing, FilePane in happy-dom, useTabState in happy-dom
+- [ ] After numbers (Chromium at 10k)
+- [ ] Checks: build, test, check:wiring, notices --check, site:build, site:capture check
 - [ ] Handoff
+
+Decisions: `docs/decisions/2026-11-13-pane-perf-design.md`.
+
+## Numbers
+Before → after. The 100k numbers come from vitest; Chromium is capped at 10k (the lead's memory rule).
+
+| | before | after |
+|---|---|---|
+| viewRows, sort by name, 100k (bench mean) | 297 ms | 72 ms |
+| by name, descending | 286 ms | 75 ms |
+| by type | 155 ms | 76 ms |
+| by size | 39 ms | 25 ms |
+| by modified | 56 ms | 30 ms |
+| filter "a1", then sort | 32 ms | 23 ms |
+| FilePane in happy-dom, 10k: mount | 2132 ms | 81 ms |
+| DOM nodes | 108,586 | 731 |
+| rows in the DOM | 10,000 | 65 |
+| arrow key, new rows array per render (App before) | 640 ms | 63 ms |
+| arrow key, same rows | 115 ms | 28 ms |
+| End | 192 ms | 14 ms |
+| marquee move | 384 ms | 3 ms |
+| FilePane in happy-dom, 100k | out of heap (also at 25k) | mount 169 ms, 731 nodes, arrow 37 ms, End 19 ms, marquee 8 ms |
+| main JS chunk | 759 kB | 433 kB (+ Terminal 342 kB, lazy) |
