@@ -81,6 +81,8 @@ beforeEach(() => {
   vi.clearAllMocks();
   // Every drive has a Recycle Bin unless a test says otherwise.
   vi.mocked(api.trashUnsupported).mockResolvedValue([]);
+  // A trashing reports where the item went, as the backend does.
+  vi.mocked(api.moveToTrash).mockImplementation(async p => ({ original: p, from: 1, to: 1 }));
   undoStack.length = 0;
   cmdState.contextTarget = null;
   cmdState.clipboard = null;
