@@ -1,11 +1,12 @@
 // glasshouse file manager — components
-import React, { useState, useEffect, useRef, useMemo } from "react";
+import React, { useState, useEffect, useLayoutEffect, useRef, useMemo } from "react";
 import { createPortal } from "react-dom";
 import { PALETTE, THEMES, type FileRow, type FileKind } from "./data";
 import { netRate, pathFsType, systemInfo as apiSystemInfo, winClose, winMinimize, winToggleMaximize, type GitInfo, type NetRate, type SystemInfo } from "./api";
 import { fuzzyFilter } from "./fuzzy";
 import { viewRows } from "./viewRows";
 import { remapIndexes } from "./listing";
+import { rowWindow, rowsInSpan, scrollToRow } from "./paneWindow";
 import { splitBreadcrumb } from "./paths";
 import type { SortDir, SortKey } from "./state";
 import { TAG_COLOR_MAP } from "./Sidebar";
@@ -406,6 +407,46 @@ export function FilePane({
     return m;
   }, [visibleOrig]);
 
+  // Windowed list. In the list modes (Details, Compact List, Tree) rows are
+  // one fixed height in one column, so only the rows in view plus an
+  // overscan are rendered, between two spacers that keep the scrollbar
+  // honest; see paneWindow.ts. The card modes (Grid, Icons, Tiles) lay rows
+  // out in wrapping columns and render every row, as before. Which kind of
+  // layout `.rows` has, the row height (it follows density and display
+  // mode) and the viewport height are read from the DOM.
+  const rowsRef = useRef<HTMLDivElement>(null);
+  const [view, setView] = useState({ windowed: true, rowH: 26, viewH: 0, top: 0 });
+  useLayoutEffect(() => {
+    const el = rowsRef.current;
+    if (!el) return;
+    const windowed = getComputedStyle(el).display === "block";
+    const rowH = el.querySelector<HTMLElement>(".row")?.offsetHeight || view.rowH;
+    const viewH = el.clientHeight;
+    if (windowed !== view.windowed || rowH !== view.rowH || viewH !== view.viewH) {
+      setView(v => ({ ...v, windowed, rowH, viewH, top: el.scrollTop }));
+    }
+  });
+  useEffect(() => {
+    const el = rowsRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(() => setView(v => (v.viewH === el.clientHeight ? v : { ...v, viewH: el.clientHeight })));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  const win = view.windowed
+    ? rowWindow(displayFiles.length, view.rowH, view.top, view.viewH)
+    : { start: 0, end: displayFiles.length };
+  // A scroll only re-renders when it moves the window.
+  const onRowsScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    const top = e.currentTarget.scrollTop;
+    if (!view.windowed) return;
+    setView(v => {
+      const a = rowWindow(displayFiles.length, v.rowH, v.top, v.viewH);
+      const b = rowWindow(displayFiles.length, v.rowH, top, v.viewH);
+      return a.start === b.start && a.end === b.end ? v : { ...v, top };
+    });
+  };
+
   // The selection only holds rows on screen: when a filter or re-list hides a
   // selected row it drops out, so no command acts on a file you can't see.
   // A hidden focused row hands focus to the first visible one.
@@ -523,15 +564,25 @@ export function FilePane({
     }
   };
 
-  // Scroll focused row into view when it changes via keyboard.
-  useEffect(() => {
+  // Scroll focused row into view when it changes via keyboard. In the
+  // windowed list the row may not be rendered yet, so the scroll position
+  // comes from its index, and the window moves in the same commit, before
+  // paint, so the jump never shows blank rows.
+  useLayoutEffect(() => {
     if (!paneFocused) return;
     const pos = visiblePos.get(focusIndex);
     if (pos === undefined) return;
-    const root = paneRef.current;
-    if (!root) return;
-    const el = root.querySelector<HTMLDivElement>(`.row[data-orig="${focusIndex}"]`);
-    if (el) el.scrollIntoView({ block: "nearest" });
+    const el = rowsRef.current;
+    if (!el) return;
+    if (!view.windowed) {
+      el.querySelector<HTMLDivElement>(`.row[data-orig="${focusIndex}"]`)?.scrollIntoView({ block: "nearest" });
+      return;
+    }
+    const top = scrollToRow(pos, view.rowH, el.scrollTop, el.clientHeight);
+    if (top === null) return;
+    el.scrollTop = top;
+    setView(v => ({ ...v, top: el.scrollTop }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focusIndex, paneFocused, visiblePos]);
 
   const sortArrow = (col: SortKey) => (sortKey === col ? (sortDir === "asc" ? "↑" : "↓") : "");
@@ -563,6 +614,9 @@ export function FilePane({
     const rootRect = root.getBoundingClientRect();
     const startX = e.clientX - rootRect.left;
     const startY = e.clientY - rootRect.top;
+    // Held as indexes into the rows at mousedown; matched by path to the rows
+    // on screen at each move, in case the folder re-lists mid-drag.
+    const baseFiles = files;
     const baseSelection = selected.slice();
     const shift = e.shiftKey;
     const ctrl = e.ctrlKey || e.metaKey;
@@ -572,33 +626,45 @@ export function FilePane({
     const updateSelection = (curMarquee: { x: number; y: number; w: number; h: number }) => {
       // The hits are rows on screen now, so they go through this render's
       // setter, which is bound to the same listing.
-      const { setSelected } = latest.current;
-      const rows = root.querySelectorAll<HTMLElement>("[data-orig]");
+      const L = latest.current;
+      const { setSelected } = L;
       const hit: number[] = [];
       const mx1 = curMarquee.x;
       const my1 = curMarquee.y;
       const mx2 = curMarquee.x + curMarquee.w;
       const my2 = curMarquee.y + curMarquee.h;
-      rows.forEach((row) => {
-        const r = row.getBoundingClientRect();
-        const rx1 = r.left - rootRect.left;
-        const ry1 = r.top - rootRect.top;
-        const rx2 = rx1 + r.width;
-        const ry2 = ry1 + r.height;
-        const overlap = rx1 < mx2 && rx2 > mx1 && ry1 < my2 && ry2 > my1;
-        if (overlap) {
-          const n = parseInt(row.getAttribute("data-orig") || "-1", 10);
-          if (n >= 0) hit.push(n);
-        }
-      });
+      const rowsEl = rowsRef.current;
+      if (L.windowed && rowsEl) {
+        // Rows span the container's width, one rowH each from its top.
+        const rr = rowsEl.getBoundingClientRect();
+        const rx1 = rr.left - rootRect.left;
+        const rx2 = rx1 + rowsEl.clientWidth;
+        const y0 = rr.top - rootRect.top - rowsEl.scrollTop;
+        const span = rx1 < mx2 && rx2 > mx1 ? rowsInSpan(my1 - y0, my2 - y0, L.rowH, L.visibleOrig.length) : null;
+        if (span) for (let p = span[0]; p <= span[1]; p++) hit.push(L.visibleOrig[p]);
+      } else {
+        root.querySelectorAll<HTMLElement>("[data-orig]").forEach((row) => {
+          const r = row.getBoundingClientRect();
+          const rx1 = r.left - rootRect.left;
+          const ry1 = r.top - rootRect.top;
+          const rx2 = rx1 + r.width;
+          const ry2 = ry1 + r.height;
+          const overlap = rx1 < mx2 && rx2 > mx1 && ry1 < my2 && ry2 > my1;
+          if (overlap) {
+            const n = parseInt(row.getAttribute("data-orig") || "-1", 10);
+            if (n >= 0) hit.push(n);
+          }
+        });
+      }
+      const base = remapIndexes(baseFiles, L.files, baseSelection, rowPath);
       if (shift) {
         // Additive
-        const s = new Set(baseSelection);
+        const s = new Set(base);
         for (const n of hit) s.add(n);
         setSelected(Array.from(s));
       } else if (ctrl) {
         // XOR toggle
-        const s = new Set(baseSelection);
+        const s = new Set(base);
         for (const n of hit) {
           if (s.has(n)) s.delete(n);
           else s.add(n);
@@ -621,7 +687,7 @@ export function FilePane({
       setMarquee(rect);
       updateSelection(rect);
       // Auto-scroll the .rows container when dragging near its edges.
-      const rowsEl = root.querySelector<HTMLElement>(".rows");
+      const rowsEl = rowsRef.current;
       if (rowsEl) {
         const rr = rowsEl.getBoundingClientRect();
         const EDGE = 24;
@@ -644,8 +710,9 @@ export function FilePane({
   const cutSet = useMemo(() => new Set(cutPaths ?? []), [cutPaths]);
 
   // Live-state escape hatch for the stable row handlers below.
-  const latest = useRef({ files, selected, handleRowClick, onOpen, onContext, onRowDrop, onExternalDrag, setSelected, setAnchorIndex, setFocusIndex });
-  latest.current = { files, selected, handleRowClick, onOpen, onContext, onRowDrop, onExternalDrag, setSelected, setAnchorIndex, setFocusIndex };
+  const live = { files, selected, visibleOrig, windowed: view.windowed, rowH: view.rowH, handleRowClick, onOpen, onContext, onRowDrop, onExternalDrag, setSelected, setAnchorIndex, setFocusIndex };
+  const latest = useRef(live);
+  latest.current = live;
 
   const rowHandlers = useMemo<RowHandlers>(() => ({
     pointerDown: (i, isSel, e) => {
@@ -749,8 +816,9 @@ export function FilePane({
         <div className="col c-date" onClick={() => onSortChange("modified")}>modified <span className="sort">{sortArrow("modified")}</span></div>
         <div className="col c-git" style={{justifyContent:"flex-end"}} onClick={() => onSortChange("git")}>git <span className="sort">{sortArrow("git")}</span></div>
       </div>
-      <div className="rows">
-        {displayFiles.map(({ file: f, origIndex: i }) => {
+      <div className="rows" ref={rowsRef} onScroll={onRowsScroll}>
+        {win.start > 0 && <div className="rows-spacer" aria-hidden="true" style={{ height: win.start * view.rowH }} />}
+        {displayFiles.slice(win.start, win.end).map(({ file: f, origIndex: i }) => {
           const fPath = rowPath(f);
           return (
             <PaneRow key={i}
@@ -766,6 +834,7 @@ export function FilePane({
             />
           );
         })}
+        {win.end < displayFiles.length && <div className="rows-spacer" aria-hidden="true" style={{ height: (displayFiles.length - win.end) * view.rowH }} />}
         {files.length === 0 && (
           error
             ? <div className="pane-notice error" role="alert"><b>can't read this folder</b><span>{error}</span></div>

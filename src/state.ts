@@ -13,7 +13,7 @@ import {
 import { normalizePath, parentPath } from "./paths";
 import { navBack, navClear, navForward, navGoTo, navInit, type NavState } from "./history";
 import { errText } from "./errors";
-import { EMPTY_LISTING, relist, withAnchor, withFocus, withSelected, type Listing } from "./listing";
+import { EMPTY_LISTING, keepGitInfo, relist, withAnchor, withFocus, withSelected, type Listing } from "./listing";
 import { RefreshGate } from "./refreshGate";
 
 /** The safety-net re-list of the shown tab, for changes the watcher missed. */
@@ -241,7 +241,7 @@ export function useTabState(initialPath: string, isPrivate: boolean = false, act
       // moved since. gitStatus never rejects.
       const info = await gitStatus(p, quiet ? Date.now() - began : POLL_MS);
       if (seq !== fetchSeq.current) return;
-      setGitInfo(info);
+      setGitInfo(prev => keepGitInfo(prev, info));
     } catch (e) {
       if (seq !== fetchSeq.current) return;
       setError(errText(e));

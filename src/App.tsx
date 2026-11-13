@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import {
   Titlebar,
   Toolbar,
@@ -51,7 +51,6 @@ import { canExtractArchive } from "./handlers/archive";
 import { showBlame } from "./handlers/helpers";
 import { DISPLAY_MODE_DEFAULT, DISPLAY_MODE_KEY, LAYOUT_KEY, slugify, storedZoom } from "./handlers/view";
 import { IS_WINDOWS } from "./platform";
-import { TerminalDrawer } from "./Terminal";
 import { NoticesHost } from "./NoticesScreen";
 import { MillerView, sortView as millerOrder } from "./Miller";
 import { viewRows } from "./viewRows";
@@ -81,6 +80,10 @@ import { runTransfer, planTransfer, type TransferOp } from "./transfer";
 import { transferDeps, reportTransfer, pushTransferUndo, asItems, listNames } from "./transferUi";
 import { errText } from "./errors";
 import { findStatusText } from "./findStatus";
+
+// xterm is most of the terminal's weight, so the drawer is its own chunk,
+// loaded the first time the terminal opens.
+const TerminalDrawer = lazy(() => import("./Terminal").then(m => ({ default: m.TerminalDrawer })));
 
 const TWEAK_DEFAULTS: TweakState = {
   theme: "gruvbox-dark",
@@ -423,6 +426,10 @@ export function App() {
   } | null>(null);
   const [termOpen, setTermOpen] = useState(false);
   const [termProfile, setTermProfile] = useState<ShellProfile | null>(null);
+  // Set for good the first time the drawer is wanted; it stays mounted after
+  // that, so closing it keeps its shells.
+  const termWanted = useRef(false);
+  termWanted.current ||= termOpen || termProfile !== null;
   const [termHeight, setTermHeight] = useState(() => {
     if (typeof window === "undefined") return 260;
     return Math.max(160, Math.floor(window.innerHeight * 0.3));
@@ -1042,9 +1049,9 @@ export function App() {
 
   const renderActivePane = () => {
     const handle = activeHandle;
-    const rows: InspectableFile[] = handle
-      ? handle.state.entries.map(e => entryToRow(e, tagStore))
-      : [];
+    // Memoised: a new array on every App render made FilePane re-filter and
+    // re-sort, re-render every row, and scroll back to the focused row.
+    const rows = liveRows;
     const sel = handle?.state.selected ?? [];
     if (displayMode === "Miller Columns (ranger)") {
       return (
@@ -1260,15 +1267,19 @@ export function App() {
           />
         )}
       </div>
-      <TerminalDrawer
-        open={termOpen}
-        cwd={activeHandle?.state.path ?? ""}
-        profile={termProfile}
-        follow={state.termFollow}
-        height={termHeight}
-        onHeightChange={setTermHeight}
-        onClose={() => setTermOpen(false)}
-      />
+      {termWanted.current && (
+        <Suspense fallback={null}>
+          <TerminalDrawer
+            open={termOpen}
+            cwd={activeHandle?.state.path ?? ""}
+            profile={termProfile}
+            follow={state.termFollow}
+            height={termHeight}
+            onHeightChange={setTermHeight}
+            onClose={() => setTermOpen(false)}
+          />
+        </Suspense>
+      )}
       <StatusBar
         selectedCount={selectedForInspector.length}
         totalCount={liveRows.length}

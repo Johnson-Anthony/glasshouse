@@ -6,11 +6,17 @@ What changed in each release, for people using glasshouse. Downloads are on the 
 
 ### New
 
+- **Big folders are fast.** In Details, Compact List and Tree the file list only draws the rows on screen, so a 10,000-file folder opens in about 0.1 s instead of 0.7 s. Arrow keys, End, box selection and filtering stay instant at any size, and sorting a large folder is about 4× faster.
+- **The app starts with less to load:** the terminal loads the first time you open it.
+
 - **Move to Trash can be undone:** Ctrl+Z restores the items, and Ctrl+Y trashes them again. Undo refuses, saying why, if a name is taken again or an item has left the trash.
 - **Go → Trash** shows what's in the Trash (the Recycle Bin on Windows): each item's name, original folder, deletion time and size, with Restore, Delete Permanently and Empty Trash. Restore can be undone. A taken name is refused, never replaced.
 
 ### Fixed
 
+- The file list no longer jumps back to the focused file when something else in the window updates.
+- A folder check that finds nothing new no longer redraws the window, in any tab.
+- A box selection with Shift or Ctrl held keeps the files it started with if the folder changes mid-drag.
 - On Windows, Move to Trash on a network or removable drive, which has no Recycle Bin, now asks before deleting permanently instead of deleting with no warning.
 
 ## [0.2.0] - 2026-11-12

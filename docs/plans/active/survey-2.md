@@ -22,8 +22,8 @@ On 2026-11-11, four read-only agents surveyed the app (at `45ea31b`): frontend b
 | 11 | undo-coverage | frontend | M | merged (e225489; Extract undo done here; Find & Replace and Trash left to tasks 7 and 12) |
 | 12 | trash-restore | both | M | merged (`cool-gauss-d234ca`, 11-13) |
 | **Wave 4: performance** |||||
-| 13 | pane-perf | frontend | L | **running** (`cool-satoshi-4102fc`, resumed 11-13; 100k baselines in vitest only, ≤ 10k in capped Chromium) |
-| 14 | refresh-cost | both | M | **running** (`cool-gauss-d234ca`, started 11-13; backend and startup first, fetchAll after pane-perf) |
+| 13 | pane-perf | frontend | L | merged (`cool-satoshi-4102fc`, 11-13) |
+| 14 | refresh-cost | both | M | **running** (`cool-gauss-d234ca`, started 11-13; backend and startup first, fetchAll after pane-perf; plus the user-reported stale sidebar tree) |
 | **Wave 5: promises and UX** (README and site claims first) |||||
 | 15 | palette-commands | frontend | M | queued |
 | 16 | menu-honesty | frontend | S–M | queued (needs user decisions) |
@@ -32,7 +32,7 @@ On 2026-11-11, four read-only agents surveyed the app (at `45ea31b`): frontend b
 | 19 | keyboard-menus | frontend | M | queued |
 | 20 | git-ux | frontend + `GIT_RUN_ALLOWED` | S–M | queued |
 | 21 | open-with | both | S–M | queued |
-| 22 | os-drag-drop | both | M–L | queued |
+| 22 | os-drag-drop | both | M–L | **running** (`cool-satoshi-4102fc`, started 11-13; user-requested drag-out first, Wayland spike) |
 | 23 | miller-parity | frontend | M | queued |
 | 24 | tags-follow | frontend | M | queued |
 | 25 | folder-size | both | S–M | queued |
@@ -243,6 +243,7 @@ These items do nothing, or something else. Make each work, or remove it. For the
 - **No drag and drop with other apps.** `dragDropEnabled` is on, but nothing listens for drops, so files dragged in from Explorer or Nautilus do nothing, and you can't drag files out.
 - **Modifier keys.** Shift+drag copies, while Explorer and Nautilus use Ctrl to copy (and Shift to move).
 - **Drop targets.** Make tabs and breadcrumbs accept drops.
+- **User request (2026-11-13):** dragging files out into browsers (upload fields) and terminal panes matters most. The internal drag has used pointer events since `c7cfdba` (April), so it can't leave the window; a native drag is needed, e.g. `tauri-plugin-drag` (offers `text/uri-list`). Start with a spike on the user's machine (niri, Wayland): drag a file into LibreWolf and a terminal. If the plugin's Linux path fails on Wayland, fall back to a GTK drag source in our own Rust. Starts after pane-perf, which rewrites the pane's drag code.
 
 ## 23. miller-parity (frontend, M)
 - Miller columns has no context menu (App blocks the browser's), no multi-select and no drag, and it ignores the sort setting. Share the pane's context menu and selection model. PROGRESS Next already lists Esc to deselect; fold it in.
@@ -292,6 +293,7 @@ These items do nothing, or something else. Make each work, or remove it. For the
 - *(from release-prep)* **actionlint** in CI: folded into ci-hygiene.
 - *(from fs-robustness)* 7-Zip 25 fails a whole extraction on one climbing link ("Dangerous link path was ignored", exit 2), where zip and tar now skip the link and report it. Could map that one 7z error to a skip.
 - *(from fs-robustness)* On Windows a failed top-level single-file CopyFileW is left to CopyFileW's own cleanup (some of its errors mean the target was already there and isn't ours). Check on a real Windows machine.
+- *(from pane-perf)* Vite still warns about the lazy `noticesData` chunk (542 kB, data only): fetch the license JSON as an asset, or have `pnpm notices` write the license texts to a separate file. The card modes (Grid, Icons, Tiles) still render every row. A keydown dispatched on `window` itself makes App's key handler throw (`sidebar.contains(window)`); only scripts do that.
 - *(from trash-restore)* Not covered: a full or turned-off Recycle Bin on a fixed drive; in the repeated DST hour on Linux a deletion time can read back an hour early, so undo says the item isn't in the trash (the Trash view still finds it); macOS has no list or restore in the trash crate. Restore keeps no "keep both", because the crate restores only to the original path.
 - *(from find-replace-safety)* On Windows, std can't read a file's hard-link count, so Find & Replace splits hard links there silently (unix skips such files). A file owned by someone else but writable through its group fails rather than changing owner. A match-case toggle could be added: the backend already takes `caseInsensitive`.
 - *(from security-deps)* zip 9 fails an extraction on Windows device and stream names (`CON`, `a:b`) with "points outside the folder", which misdescribes them. On Linux zip 9 reads `\` in an entry name as a separator (`a\b.txt` extracts as `a/b.txt`).
