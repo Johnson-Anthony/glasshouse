@@ -4,7 +4,13 @@ Branch: `claude/peaceful-shamir-c528aa` (worktree `peaceful-shamir-c528aa`), sta
 Backlog entry: section 19 of `docs/plans/active/survey-2.md`. Frontend only.
 
 ## Status
-**In progress** 2026-11-13.
+**Done** 2026-11-13. Commits: `7c6034e` (the change), `fc3c5c3` (demo rebuild).
+- Everything in the approach below is in, plus one rule found while testing: a submenu the pointer opened keeps the keys in its parent menu until → or Enter goes in (Windows and GTK do this).
+- Found in the demo and fixed: the context menu gave focus back from a layout-effect cleanup, which runs inside React's commit, when React ignores focus events. DOM focus went back to the pane, but its `onFocus` didn't run, so the focused row wasn't drawn. Focus now goes back in a passive cleanup, and a test covers it.
+- Checks: `pnpm build`; `pnpm test` 675 passed, 3 skipped (50 files); `pnpm check:wiring` clean (315 sent labels, 212 cases); `pnpm site:build` (reproducible); `pnpm site:capture check` 23/23 under a 3 GB cap. In the site demo (browser pane, real key events): type-ahead (prefix, cycling, pause), Shift+F10 menu with ↓ → ← Esc and focus back on the pane, letter jump to Rename and its prompt keeping focus, Alt → ← ↓ between menus, Esc twice, Alt+I opening Git, hover-opened submenu then ↓, mouse click on a menubar item.
+- Not checked: the desktop app itself (WebKitGTK), and Windows (WebView2): whether a bare Alt tap also opens the native window menu there, and whether F10 reaches the page.
+- Not done (possible follow-ups): the Menu key in the sidebar (it has a row cursor), tabs and breadcrumbs; Miller has no context menu at all. ↑ on a closed title opens on its last static item, before dynamic entries load.
+- Media: no clip shows menus being driven from the keyboard; the tour clips weren't re-recorded.
 
 ## Problems
 1. `menus.tsx` has no key handling. A menu opened with the mouse can't be driven by keys, and nothing opens the menubar or a context menu from the keyboard.
