@@ -126,11 +126,10 @@ pub fn list_dir(path: String, show_hidden: bool) -> Result<Vec<FileEntry>, Strin
             }
         }
     }
-    out.sort_by(|a, b| match (a.kind == "folder", b.kind == "folder") {
-        (true, false) => std::cmp::Ordering::Less,
-        (false, true) => std::cmp::Ordering::Greater,
-        _ => a.name.to_ascii_lowercase().cmp(&b.name.to_ascii_lowercase()),
-    });
+    // Folders first, then by name ignoring ASCII case. The sidebar tree and
+    // the folder picker show this order as it is. Each key is built once,
+    // not twice per comparison, and the sort is stable.
+    out.sort_by_cached_key(|e| (e.kind != "folder", e.name.to_ascii_lowercase()));
     Ok(out)
 }
 

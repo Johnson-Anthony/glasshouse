@@ -419,7 +419,6 @@ export function createBackend(hooks: BackendHooks) {
         ahead: repo.ahead,
         behind: 0,
         dirty: changes.length,
-        status: Object.fromEntries(changes),
       };
     },
     git_branch_list: a => {
