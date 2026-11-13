@@ -20,9 +20,9 @@ On 2026-11-11, four read-only agents surveyed the app (at `45ea31b`): frontend b
 | 10 | release-prep | config + CI | S | **merged** (c6dab0c; the tag itself is the user's call) |
 | **Wave 3: undo and trash** |||||
 | 11 | undo-coverage | frontend | M | merged (e225489; Extract undo done here; Find & Replace and Trash left to tasks 7 and 12) |
-| 12 | trash-restore | both | M | queued |
+| 12 | trash-restore | both | M | **running** (`cool-gauss-d234ca`, started 11-13) |
 | **Wave 4: performance** |||||
-| 13 | pane-perf | frontend | L | **paused** (`cool-satoshi-4102fc`, plan only; resume after the 12:20 usage reset; no 100k-entry data in headless Chromium) |
+| 13 | pane-perf | frontend | L | **running** (`cool-satoshi-4102fc`, resumed 11-13; 100k baselines in vitest only, ≤ 10k in capped Chromium) |
 | 14 | refresh-cost | both | M | queued |
 | **Wave 5: promises and UX** (README and site claims first) |||||
 | 15 | palette-commands | frontend | M | queued |
