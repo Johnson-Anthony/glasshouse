@@ -7,7 +7,7 @@ import { fuzzyFilter } from "./fuzzy";
 import { viewRows } from "./viewRows";
 import { remapIndexes } from "./listing";
 import { rowWindow, rowsInSpan, scrollToRow } from "./paneWindow";
-import { DropHighlight, dragCopies, dropTargetOf, leftWindow, notAlreadyIn } from "./dragDrop";
+import { DropHighlight, dragCopies, dropPaths, dropTargetOf, leftWindow, type DropTarget } from "./dragDrop";
 import { splitBreadcrumb } from "./paths";
 import type { SortDir, SortKey } from "./state";
 import { TAG_COLOR_MAP } from "./Sidebar";
@@ -741,6 +741,11 @@ export function FilePane({
       // Tabs, breadcrumbs and sidebar rows light up as the drag passes over;
       // folder rows have their own highlight (dragOverIndex).
       const highlight = new DropHighlight();
+      // What's under the pointer, when it isn't a folder row: lit only if a
+      // drop there would do something, which Ctrl can change.
+      let over: DropTarget | null = null;
+      const light = (copy: boolean) =>
+        highlight.set(over && dropPaths(sourcePaths, over.path, copy).length > 0 ? over.el : null);
       let dragging = false;
       let moved = false;
       const stop = () => {
@@ -757,7 +762,9 @@ export function FilePane({
       // Pressing or letting go of Ctrl mid-drag changes the operation, and
       // the ghost says so before the pointer moves again.
       const onKey = (ev: KeyboardEvent) => {
-        if (dragging) setGhost(g => g && { ...g, copy: dragCopies(ev) });
+        if (!dragging) return;
+        setGhost(g => g && { ...g, copy: dragCopies(ev) });
+        light(dragCopies(ev));
       };
       // Out of the window with the button still down: the OS takes the drag
       // from here, so it can be dropped into another app.
@@ -793,12 +800,17 @@ export function FilePane({
         const hoverFile = origIdx >= 0 ? latest.current.files[origIdx] : undefined;
         const validTarget = hoverFile && hoverFile.kind === "folder" && !sources.includes(origIdx);
         setDragOverIndex(validTarget ? origIdx : null);
-        const other = row ? null : dropTargetOf(hit);
-        highlight.set(other && notAlreadyIn(sourcePaths, other.path).length > 0 ? other.el : null);
+        over = validTarget ? null : dropTargetOf(hit);
+        light(dragCopies(ev));
       };
       const onPointerUp = (ev: PointerEvent) => {
         stop();
         if (!dragging) return;
+        // The click that follows a drop isn't one: with Ctrl, a drop on the
+        // row it started from would flip that row's selection.
+        const swallow = (c: MouseEvent) => { c.stopPropagation(); c.preventDefault(); };
+        window.addEventListener("click", swallow, { capture: true, once: true });
+        setTimeout(() => window.removeEventListener("click", swallow, true), 0);
         const copy = dragCopies(ev);
         const hit = document.elementFromPoint(ev.clientX, ev.clientY);
         const row = hit?.closest("[data-orig]") as HTMLElement | null;

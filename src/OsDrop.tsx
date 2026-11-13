@@ -7,13 +7,18 @@
 // recordHandOff), which moves as it would have.
 import { useEffect, useRef, useState } from "react";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
-import { DropHighlight, clearHandOff, dropTargetAt, handOffCopies, notAlreadyIn, type DropTarget } from "./dragDrop";
+import { DropHighlight, clearHandOff, dropPaths, dropTargetAt, handOffCopies, type DropTarget } from "./dragDrop";
 import { basename } from "./paths";
 
-/** What a drop of `paths` at a target does, or null when it does nothing. */
-export function osDropPlan(paths: string[], target: DropTarget | null, copy = true): { paths: string[]; dir: string; copy: boolean; label: string } | null {
+/** What a drop of `paths` at a target does, or null when it does nothing.
+ *  `own` is handOffCopies: for the pane's own drag coming back, whether it
+ *  copies, which makes duplicates in the folder it came from, as in the
+ *  window. Null for a drop from another app: a copy that leaves out what's
+ *  already there. */
+export function osDropPlan(paths: string[], target: DropTarget | null, own: boolean | null = null): { paths: string[]; dir: string; copy: boolean; label: string } | null {
   if (!target) return null;
-  const moving = notAlreadyIn(paths, target.path);
+  const copy = own ?? true;
+  const moving = dropPaths(paths, target.path, own === true);
   if (moving.length === 0) return null;
   const what = moving.length === 1 ? basename(moving[0]) : `${moving.length} items`;
   return { paths: moving, dir: target.path, copy, label: `${copy ? "copy" : "move"} ${what} to ${basename(target.path) || target.path}` };
@@ -35,7 +40,7 @@ export function OsDrop({ onDrop }: { onDrop: (paths: string[], dir: string, copy
     const planAt = (pos: { x: number; y: number }) => {
       const { x, y } = at(pos);
       const target = dropTargetAt(x, y);
-      return { x, y, target, plan: osDropPlan(dragged, target, handOffCopies(dragged) ?? true) };
+      return { x, y, target, plan: osDropPlan(dragged, target, handOffCopies(dragged)) };
     };
     const clear = () => { highlight.set(null); setHint(null); };
 
