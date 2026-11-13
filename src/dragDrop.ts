@@ -54,6 +54,22 @@ export function notAlreadyIn(
   });
 }
 
+/** The paths a drop into `dir` acts on; none when it would change nothing.
+ *  A move leaves out the ones already in `dir`. A copy keeps them: runTransfer
+ *  gives each a free name ("a (copy).txt"), as Copy then Paste into their
+ *  own folder does, which is Explorer's and Nautilus's Ctrl+drag there.
+ *  Neither takes `dir` itself. */
+export function dropPaths(
+  paths: string[],
+  dir: string,
+  copy: boolean,
+  ops: Pick<PathOps, "normalizePath" | "parentPath"> = { normalizePath, parentPath },
+): string[] {
+  if (!copy) return notAlreadyIn(paths, dir, ops);
+  const d = ops.normalizePath(dir);
+  return paths.filter(p => ops.normalizePath(p) !== d);
+}
+
 /** The one element showing "a drop goes here", during a drag. */
 export class DropHighlight {
   private el: HTMLElement | null = null;

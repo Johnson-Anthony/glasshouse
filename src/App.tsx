@@ -81,7 +81,7 @@ import { runTransfer, planTransfer, type TransferOp } from "./transfer";
 import { transferDeps, reportTransfer, pushTransferUndo, asItems, listNames } from "./transferUi";
 import { errText } from "./errors";
 import { findStatusText } from "./findStatus";
-import { clearHandOff, dropTargetAt, notAlreadyIn, recordHandOff } from "./dragDrop";
+import { clearHandOff, dropPaths, dropTargetAt, recordHandOff } from "./dragDrop";
 import { OsDrop } from "./OsDrop";
 
 // xterm is most of the terminal's weight, so the drawer is its own chunk,
@@ -1125,9 +1125,10 @@ export function App() {
             .map(i => rows[i]?.entry.path)
             .filter((p): p is string => !!p);
           // A tab, a breadcrumb segment, a sidebar row, or the pane outside
-          // a folder row (its own folder, where nothing needs to move).
+          // a folder row (its own folder: a move there does nothing, a copy
+          // makes duplicates).
           const target = dropTargetAt(x, y);
-          const moving = target ? notAlreadyIn(sources, target.path) : [];
+          const moving = target ? dropPaths(sources, target.path, copy) : [];
           if (target && moving.length > 0) performDrop(moving, target.path, copy, () => handle?.actions.refresh());
         }}
         onDragOut={(sourceOrigIndices, copy) => {

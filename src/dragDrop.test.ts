@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
-  DropHighlight, HANDOFF_GRACE_MS, clearHandOff, dragCopies, dropTargetOf, handOffCopies, leftWindow, notAlreadyIn,
+  DropHighlight, HANDOFF_GRACE_MS, clearHandOff, dragCopies, dropPaths, dropTargetOf, handOffCopies, leftWindow, notAlreadyIn,
   recordHandOff,
 } from "./dragDrop";
 import { osDropPlan } from "./OsDrop";
@@ -39,6 +39,16 @@ describe("notAlreadyIn", () => {
   });
 });
 
+describe("dropPaths", () => {
+  const posix = pathOps(false), win = pathOps(true);
+  it("leaves out what's already there for a move, keeps it for a copy, never the folder itself", () => {
+    const paths = ["/w/a.txt", "/w/sub", "/x/b.txt", "/w"];
+    expect(dropPaths(paths, "/w", false, posix)).toEqual(["/x/b.txt"]);
+    expect(dropPaths(paths, "/w", true, posix)).toEqual(["/w/a.txt", "/w/sub", "/x/b.txt"]);
+    expect(dropPaths(["C:\\W\\a.txt", "c:\\w"], "C:/w", true, win)).toEqual(["C:\\W\\a.txt"]);
+  });
+});
+
 describe("drop targets", () => {
   document.body.innerHTML = `
     <section class="pane" data-drop-path="/w">
@@ -67,6 +77,13 @@ describe("drop targets", () => {
 
   it("plans a move for the pane's own drag coming back", () => {
     expect(osDropPlan(["/d/a"], dropTargetOf(q(".tab")), false)).toMatchObject({ copy: false, label: "move a to x" });
+  });
+
+  it("copies the pane's own drag back into its folder as duplicates only with Ctrl", () => {
+    const pane = dropTargetOf(q('[data-orig="1"] .name'));
+    expect(osDropPlan(["/w/a.txt"], pane, true)).toEqual({ paths: ["/w/a.txt"], dir: "/w", copy: true, label: "copy a.txt to w" });
+    expect(osDropPlan(["/w/a.txt"], pane, false)).toBeNull();
+    expect(osDropPlan(["/w/a.txt"], pane)).toBeNull();
   });
 
   it("highlights one element at a time", () => {

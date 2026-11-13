@@ -29,6 +29,10 @@ Date: 2026-11-13. Task: `os-drag-drop` (survey-2 task 22). Status: reviewed by t
 
 ## Modifiers inside the app
 **Chosen: a drag moves, Ctrl (Cmd) copies, Shift moves,** as in Explorer and Nautilus. It was Shift to copy. The ghost says "move" or "copy" and follows Ctrl as it's pressed and released before the pointer moves. The cheatsheet lists the gestures.
+- **A Ctrl drop into the items' own folder makes duplicates** ("a (copy).txt"), as Copy then Paste there does, and as Ctrl+drag does in Explorer and Nautilus. That's the pane outside a folder row, or the folder's own tab or breadcrumb. `dropPaths` keeps those items for a copy and `runTransfer` names them, with undo as for Paste. A plain drag there still does nothing. The user's first try found this: the hint said "copy" and nothing happened, because the drop left out what was already there.
+  - The pane outlines itself only when a drop there would do something, so it lights up as Ctrl goes down and goes dark as it's let go.
+  - The handed-off drag coming back with Ctrl duplicates the same way. A drop from another app into the folder the file is already in still does nothing.
+- **The click after a drop is swallowed.** A drop on the row the drag started from also fires a click there, and with Ctrl held that click flipped the row's selection.
 - **Not done:** Explorer's "copy by default to another drive". A plain drag always moves, as it did before.
 
 ## Not built here

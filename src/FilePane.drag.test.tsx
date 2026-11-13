@@ -1,7 +1,8 @@
 // @vitest-environment happy-dom
-// The pane's own drag: Ctrl copies, a plain or Shift drag moves, the ghost
-// follows Ctrl mid-drag, and leaving the window hands the drag to the OS,
-// with the Ctrl state.
+// The pane's own drag: Ctrl copies (into the rows' own folder too, as
+// duplicates), a plain or Shift drag moves, the ghost and the highlight follow
+// Ctrl mid-drag, the click after a drop is no click, and leaving the window
+// hands the drag to the OS, with the Ctrl state.
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -23,30 +24,37 @@ let root: Root;
 const onRowDrop = vi.fn();
 const onExternalDrag = vi.fn();
 const onDragOut = vi.fn();
-beforeEach(() => {
-  host = document.createElement("div");
-  document.body.append(host);
-  root = createRoot(host);
+const setSelected = vi.fn();
+const mount = (selected: number[] = []) => {
   const noop = () => {};
   act(() => root.render(
-    <FilePane files={files} selected={[]} setSelected={noop} focusIndex={0} setFocusIndex={noop}
+    <FilePane files={files} selected={selected} setSelected={setSelected} focusIndex={0} setFocusIndex={noop}
       anchorIndex={0} setAnchorIndex={noop} paneFocused={false} setPaneFocused={noop}
       sortKey="name" sortDir="asc" onSortChange={noop} onContext={noop} dropPath="/w"
       onRowDrop={onRowDrop} onExternalDrag={onExternalDrag} onDragOut={onDragOut} />,
   ));
+};
+beforeEach(() => {
+  host = document.createElement("div");
+  document.body.append(host);
+  root = createRoot(host);
+  mount();
 });
 afterEach(() => {
   act(() => root.unmount());
   host.remove();
   vi.restoreAllMocks();
-  onRowDrop.mockReset(); onExternalDrag.mockReset(); onDragOut.mockReset();
+  onRowDrop.mockReset(); onExternalDrag.mockReset(); onDragOut.mockReset(); setSelected.mockReset();
 });
 
 const rowEl = (orig: number) => host.querySelector<HTMLElement>(`.row[data-orig="${orig}"]`)!;
 // happy-dom has no layout: the pointer is over whatever this returns.
 const over = (el: Element | null) => { document.elementFromPoint = () => el; };
-const press = (orig: number) => act(() => {
-  rowEl(orig).dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0, clientX: 100, clientY: 100 }));
+const press = (orig: number, keys: PointerEventInit = {}) => act(() => {
+  rowEl(orig).dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0, clientX: 100, clientY: 100, ...keys }));
+});
+const key = (type: "keydown" | "keyup", ctrlKey: boolean) => act(() => {
+  window.dispatchEvent(new KeyboardEvent(type, { key: "Control", ctrlKey }));
 });
 const move = (x: number, y: number, keys: PointerEventInit = {}) => act(() => {
   window.dispatchEvent(new PointerEvent("pointermove", { clientX: x, clientY: y, ...keys }));
@@ -97,6 +105,50 @@ describe("dragging rows inside the window", () => {
     release();
     expect(onExternalDrag).toHaveBeenCalledWith([2], 140, 140, false);
     tab.remove();
+  });
+
+  it("with Ctrl, lights up the rows' own folder and drops into it, for duplicates", () => {
+    const pane = host.querySelector(".pane")!;
+    over(rowEl(3));
+    press(2, { ctrlKey: true });
+    move(140, 140, { ctrlKey: true });
+    expect(pane.classList.contains("drop-target")).toBe(true);
+    key("keyup", false);
+    expect(pane.classList.contains("drop-target")).toBe(false);
+    key("keydown", true);
+    expect(pane.classList.contains("drop-target")).toBe(true);
+    release({ ctrlKey: true });
+    expect(onExternalDrag).toHaveBeenCalledWith([2], 140, 140, true);
+    expect(pane.classList.contains("drop-target")).toBe(false);
+  });
+});
+
+describe("a press with Ctrl held", () => {
+  it("drags the row it started on, or the selection it's part of", () => {
+    over(rowEl(0));
+    press(2, { ctrlKey: true });
+    move(140, 140, { ctrlKey: true });
+    release({ ctrlKey: true });
+    expect(onRowDrop).toHaveBeenLastCalledWith(0, [2], true);
+    mount([2, 3]);
+    press(3, { ctrlKey: true });
+    move(140, 140, { ctrlKey: true });
+    release({ ctrlKey: true });
+    expect(onRowDrop).toHaveBeenLastCalledWith(0, [2, 3], true);
+  });
+
+  it("doesn't take the click after a drop on its own row as a Ctrl+click", async () => {
+    mount([2]);
+    over(rowEl(2));
+    press(2, { ctrlKey: true });
+    move(140, 140, { ctrlKey: true });
+    release({ ctrlKey: true });
+    const ctrlClick = () => act(() => { rowEl(2).dispatchEvent(new MouseEvent("click", { bubbles: true, ctrlKey: true })); });
+    ctrlClick();
+    expect(setSelected).not.toHaveBeenCalled();
+    await act(() => new Promise(r => setTimeout(r, 0)));
+    ctrlClick();
+    expect(setSelected).toHaveBeenCalledWith([]);
   });
 });
 
