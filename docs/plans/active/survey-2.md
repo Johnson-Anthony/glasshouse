@@ -27,7 +27,7 @@ On 2026-11-11, four read-only agents surveyed the app (at `45ea31b`): frontend b
 | **Wave 5: promises and UX** (README and site claims first) |||||
 | 15 | palette-commands | frontend | M | merged (`laughing-shirley-d547ce`, 11-13) |
 | 16 | menu-honesty | frontend | S–M | queued (needs user decisions) |
-| 17 | paths-and-search | frontend | S–M | **running** (`blissful-pare-68a0fc`, started 11-13) |
+| 17 | paths-and-search | frontend | S–M | merged (`blissful-pare-68a0fc`, 11-13) |
 | 18 | session-persistence | both | S–M | queued |
 | 19 | keyboard-menus | frontend | M | **running** (`peaceful-shamir-c528aa`, started 11-13) |
 | 20 | git-ux | frontend + `GIT_RUN_ALLOWED` | S–M | queued |
@@ -309,6 +309,7 @@ These items do nothing, or something else. Make each work, or remove it. For the
 - *(from refresh-cost)* `site/capture/capture.mjs` leaves its Chromium profile in `/tmp` (tmpfs on Debian 13, so RAM) when a run fails: the `exit` handler kills Chromium but doesn't remove the profile, and the start-failure path removes it straight after the kill, while Chromium's helpers may still be writing. Kill the whole process group (spawn detached, also on SIGINT/SIGTERM) and remove the profile after it. Small; for test-gaps.
 - *(from palette-commands)* List recents, pins, branches and terminal profiles as palette rows instead of the numbered-prompt stand-ins; put right-click-only commands that could act on the selection (Reveal in File Manager, Open in New Tab, Duplicate Tab) on the palette; show ✓ on toggles; path completion.
 - *(from os-drag-drop)* Drops from other apps always copy (Tauri's drop event carries no keys or source action); a drag between two glasshouse windows copies; Explorer's "another drive copies by default" isn't done. Not hand-tested: drops on tabs and breadcrumbs from another folder, and the overshoot return.
+- *(from paths-and-search)* The palette footer still says "a typed path opens that folder"; a file path now opens its folder with the file selected (one line in components.tsx). UNC paths aren't recognised by the palette's Go-to row (`looksLikePath` would need the platform). Find File by Name's "(fuzzy)" label is a substring match (task 16).
 - *(from undo-coverage)* Task 7 can push `contentUndo(label, path, before, after)` per file; task 12 (Move to Trash) is the last file change with neither an undo entry nor `markIrreversible`. Change Owner could get an undo if `file_stat_extended` returned uid:gid. Paste Special's undo entry and the "can't undo" toast aren't unit-tested (no DOM; see dom-tests).
 
 ## Unconfirmed: check before fixing
