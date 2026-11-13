@@ -45,8 +45,8 @@ window.addEventListener("keydown", e => {
   }
 }, true);
 
-// Tell the page when the app's theme changes (the palette, the tweaks
-// panel), so the site follows the demo as well as the other way round.
+// Tell the page when the app's theme changes (the palette, Preferences), so
+// the site follows the demo as well as the other way round.
 if (window.parent !== window) {
   new MutationObserver(() => {
     const theme = document.documentElement.getAttribute("data-theme");

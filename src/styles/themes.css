@@ -1,9 +1,12 @@
 /* glasshouse file manager — theme tokens
    Each theme is a set of CSS custom properties.
-   Applied by setting data-theme="<name>" on <html>. */
+   Applied by setting data-theme="<name>" on <html>. Each theme names its
+   color-scheme (dark or light), which native controls follow and App passes
+   on to the window. */
 
 :root {
   /* default to tokyo-night */
+  color-scheme: dark;
   --bg-0: #1a1b26;
   --bg-1: #16161e;
   --bg-2: #1f2335;
@@ -29,6 +32,7 @@
 }
 
 [data-theme="tokyo-night"] {
+  color-scheme: dark;
   --bg-0: #1a1b26;
   --bg-1: #16161e;
   --bg-2: #1f2335;
@@ -53,6 +57,7 @@
 }
 
 [data-theme="catppuccin-mocha"] {
+  color-scheme: dark;
   --bg-0: #1e1e2e;
   --bg-1: #181825;
   --bg-2: #252538;
@@ -77,6 +82,7 @@
 }
 
 [data-theme="gruvbox-dark"] {
+  color-scheme: dark;
   --bg-0: #282828;
   --bg-1: #1d2021;
   --bg-2: #32302f;
@@ -101,6 +107,7 @@
 }
 
 [data-theme="rose-pine"] {
+  color-scheme: dark;
   --bg-0: #191724;
   --bg-1: #13111c;
   --bg-2: #1f1d2e;
@@ -125,6 +132,7 @@
 }
 
 [data-theme="everforest"] {
+  color-scheme: dark;
   --bg-0: #2d353b;
   --bg-1: #232a2e;
   --bg-2: #343f44;
@@ -149,6 +157,7 @@
 }
 
 [data-theme="solarized-dark"] {
+  color-scheme: dark;
   --bg-0: #002b36;
   --bg-1: #001e26;
   --bg-2: #073642;
@@ -173,6 +182,7 @@
 }
 
 [data-theme="green-crt"] {
+  color-scheme: dark;
   --bg-0: #0a0f08;
   --bg-1: #050805;
   --bg-2: #0d130a;
@@ -198,6 +208,7 @@
 }
 
 [data-theme="synthwave"] {
+  color-scheme: dark;
   --bg-0: #1a1033;
   --bg-1: #0f0821;
   --bg-2: #241847;

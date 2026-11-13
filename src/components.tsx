@@ -1,7 +1,7 @@
 // glasshouse file manager — components
 import React, { useState, useEffect, useLayoutEffect, useRef, useMemo } from "react";
 import { createPortal } from "react-dom";
-import { THEMES, type FileRow, type FileKind } from "./data";
+import type { FileRow, FileKind } from "./data";
 import { netRate, pathFsType, systemInfo as apiSystemInfo, winClose, winMinimize, winToggleMaximize, type GitInfo, type NetRate, type SystemInfo } from "./api";
 import { viewRows } from "./viewRows";
 import { remapIndexes } from "./listing";
@@ -1183,7 +1183,9 @@ export function Palette({ onClose, onCommand }: PaletteProps) {
   );
 }
 
-// ============= Tweaks panel =============
+// ============= Settings =============
+// The display settings, saved in localStorage["glasshouse.tweaks"] and set
+// from Preferences… (dialogs/Preferences.tsx) and the View menu.
 export type TweakDensity = "compact" | "default" | "comfy";
 
 export interface TweakState {
@@ -1197,96 +1199,6 @@ export interface TweakState {
   foldersFirst: boolean;
   /** The terminal types a `cd` when the active tab's folder changes. */
   termFollow: boolean;
-}
-
-export interface TweaksProps {
-  state: TweakState;
-  setState: (s: TweakState) => void;
-  onClose: () => void;
-}
-
-export function Tweaks({ state, setState, onClose }: TweaksProps) {
-  const fonts = [
-    '"JetBrainsMono Nerd Font", "JetBrains Mono", ui-monospace, monospace',
-    '"JetBrains Mono", ui-monospace, monospace',
-    '"Iosevka", ui-monospace, monospace',
-    '"IBM Plex Mono", ui-monospace, monospace',
-    '"Fira Code", ui-monospace, monospace',
-    '"Berkeley Mono", ui-monospace, monospace',
-  ];
-  const fontLabels = ["JetBrainsMono Nerd Font", "JetBrains Mono", "Iosevka", "IBM Plex Mono", "Fira Code", "Berkeley Mono"];
-
-  return (
-    <div className="tweaks">
-      <div className="tweaks-head">
-        <span>◉</span>
-        <span>tweaks</span>
-        <span className="close" onClick={onClose}>×</span>
-      </div>
-      <div className="tweaks-body">
-        <div className="tweak">
-          <label>theme</label>
-          <select value={state.theme} onChange={(e) => setState({...state, theme: e.target.value})}>
-            {THEMES.map(t => <option key={t} value={t}>{t}</option>)}
-          </select>
-        </div>
-        <div className="tweak">
-          <label>font family</label>
-          <select value={state.font} onChange={(e) => setState({...state, font: e.target.value})}>
-            {fonts.map((f, i) => <option key={f} value={f}>{fontLabels[i]}</option>)}
-          </select>
-        </div>
-        <div className="tweak">
-          <label>density</label>
-          <div className="segmented">
-            {(["compact","default","comfy"] as TweakDensity[]).map(d => (
-              <button key={d} className={state.density === d ? "active" : ""} onClick={() => setState({...state, density: d})}>{d}</button>
-            ))}
-          </div>
-        </div>
-        <div className="tweak">
-          <label>scanlines (CRT)</label>
-          <div className="segmented">
-            <button className={state.scanlines ? "" : "active"} onClick={() => setState({...state, scanlines: false})}>off</button>
-            <button className={state.scanlines ? "active" : ""} onClick={() => setState({...state, scanlines: true})}>on</button>
-          </div>
-        </div>
-        <div className="tweak">
-          <label>hidden files</label>
-          <div className="segmented">
-            <button className={state.hidden ? "" : "active"} onClick={() => setState({...state, hidden: false})}>hide</button>
-            <button className={state.hidden ? "active" : ""} onClick={() => setState({...state, hidden: true})}>show</button>
-          </div>
-        </div>
-        <div className="tweak">
-          <label>file extensions</label>
-          <div className="segmented">
-            <button className={state.showExtensions ? "" : "active"} onClick={() => setState({...state, showExtensions: false})}>hide</button>
-            <button className={state.showExtensions ? "active" : ""} onClick={() => setState({...state, showExtensions: true})}>show</button>
-          </div>
-        </div>
-        <div className="tweak">
-          <label>git gutters</label>
-          <div className="segmented">
-            <button className={state.showGitGutters ? "" : "active"} onClick={() => setState({...state, showGitGutters: false})}>hide</button>
-            <button className={state.showGitGutters ? "active" : ""} onClick={() => setState({...state, showGitGutters: true})}>show</button>
-          </div>
-        </div>
-        <div className="tweak">
-          <label>folders first</label>
-          <div className="segmented">
-            <button className={state.foldersFirst ? "" : "active"} onClick={() => setState({...state, foldersFirst: false})}>off</button>
-            <button className={state.foldersFirst ? "active" : ""} onClick={() => setState({...state, foldersFirst: true})}>on</button>
-          </div>
-        </div>
-        <div className="tweak">
-          <label>terminal follows folder</label>
-          <div className="segmented">
-            <button className={state.termFollow ? "" : "active"} onClick={() => setState({...state, termFollow: false})}>off</button>
-            <button className={state.termFollow ? "active" : ""} onClick={() => setState({...state, termFollow: true})}>on</button>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
+  /** The window's zoom, as a factor (1 = 100%; see zoom.ts). */
+  zoom: number;
 }

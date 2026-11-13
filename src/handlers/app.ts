@@ -21,7 +21,7 @@ export const appHandler: Handler = (label, ctx) => {
     setShowInspector,
     setState,
     setTermOpen,
-    setTweaksOpen,
+    setPrefsOpen,
     state,
   } = ctx.app;
   switch (label) {
@@ -35,9 +35,8 @@ export const appHandler: Handler = (label, ctx) => {
       setCheatsheetOpen(true); return true;
     case "Find in Files":
       setShowFindModal(true); return true;
-    case "Tweaks":
     case "Preferences…":
-      setTweaksOpen(v => !v); return true;
+      setPrefsOpen(true); return true;
     case "Manage Bookmarks…":
       setBookmarkManagerOpen(true); return true;
     case "Manage Remotes…":

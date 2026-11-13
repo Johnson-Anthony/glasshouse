@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ContextMenu, Menubar } from "./menus";
 import { MENUS, type MenuItemDef } from "./data";
 import { holdModal } from "./dialogs/modal";
+import type { TweakState } from "./components";
 
 vi.mock("@tauri-apps/api/app", () => ({ getVersion: () => Promise.reject(new Error("no tauri")) }));
 vi.mock("./api", async (orig) => ({
@@ -376,5 +377,20 @@ describe("menubar", () => {
     await act(async () => { document.body.dispatchEvent(new MouseEvent("mousedown", { bubbles: true })); });
     expect(openTitle()).toBeNull();
     expect(document.activeElement).toBe(before);
+  });
+
+  it("View's toggles show the settings as they are, which Preferences… also sets", async () => {
+    const tweaks = { hidden: true, showExtensions: false, showGitGutters: true } as TweakState;
+    await act(async () => root.render(<Menubar onOpenPalette={() => {}} onCommand={onCommand} toggles={{ tweaks }} />));
+    await click(titleEl("View"));
+    const ticked = (label: string) => {
+      const row = [...host.querySelectorAll(".mi")].find(m => labelOf(m) === label);
+      return row?.querySelector(".ic")?.textContent === "✓";
+    };
+    expect(ticked("Show Hidden Files")).toBe(true);
+    expect(ticked("Show File Extensions")).toBe(false);
+    expect(ticked("Show Git Gutters")).toBe(true);
+    // The floating Tweaks panel is gone, and its menu item with it.
+    expect([...host.querySelectorAll(".mi")].map(labelOf)).not.toContain("Tweaks");
   });
 });

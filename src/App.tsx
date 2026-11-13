@@ -5,7 +5,6 @@ import {
   FilePane,
   StatusBar,
   Palette,
-  Tweaks,
   formatDate,
   type TweakState,
   type ContextKind,
@@ -21,6 +20,7 @@ import { TagPickerDialog } from "./dialogs/TagPicker";
 import { PropertiesDialog } from "./dialogs/Properties";
 import { AboutDialog } from "./dialogs/About";
 import { KeybindingsDialog } from "./dialogs/Keybindings";
+import { PreferencesDialog } from "./dialogs/Preferences";
 import { DialogHost, dialogs } from "./dialogs/DialogHost";
 import { OpsTray } from "./OpsTray";
 import { isCancelled, newOpId } from "./ops";
@@ -50,7 +50,8 @@ import { isModalOpen, useModal } from "./dialogs/modal";
 import { makeTab, closeTab, closeOtherTabs, moveTab as moveTabIn, tabLabel, type TabRecord } from "./tabs";
 import { canExtractArchive } from "./handlers/archive";
 import { revealPath, showBlame } from "./handlers/helpers";
-import { DISPLAY_MODE_DEFAULT, DISPLAY_MODE_KEY, LAYOUT_KEY, slugify, storedZoom } from "./handlers/view";
+import { DISPLAY_MODE_DEFAULT, DISPLAY_MODE_KEY, LAYOUT_KEY, slugify } from "./handlers/view";
+import { applyZoom, validZoom, ZOOM_DEFAULT } from "./zoom";
 import { IS_WINDOWS } from "./platform";
 import { NoticesHost } from "./NoticesScreen";
 import { MillerView, sortView as millerOrder } from "./Miller";
@@ -62,6 +63,7 @@ import {
   openWithDefault,
   startDragOut,
   spawnVscode,
+  winSetTheme,
   trashDir,
   writeText,
   readPins,
@@ -96,6 +98,7 @@ const TWEAK_DEFAULTS: TweakState = {
   showGitGutters: true,
   foldersFirst: true,
   termFollow: true,
+  zoom: ZOOM_DEFAULT,
 };
 
 interface CtxState {
@@ -366,7 +369,7 @@ export function App() {
   const [state, setState] = useState<TweakState>(() => {
     try {
       const saved = JSON.parse(localStorage.getItem("glasshouse.tweaks") || "null");
-      return saved ? { ...TWEAK_DEFAULTS, ...saved } : TWEAK_DEFAULTS;
+      return saved ? { ...TWEAK_DEFAULTS, ...saved, zoom: validZoom(saved.zoom) } : TWEAK_DEFAULTS;
     } catch { return TWEAK_DEFAULTS; }
   });
 
@@ -374,7 +377,7 @@ export function App() {
   const [activeTab, setActiveTab] = useState(0);
   const [palOpen, setPalOpen] = useState(false);
   const [ctx, setCtx] = useState<CtxState | null>(null);
-  const [tweaksOpen, setTweaksOpen] = useState(false);
+  const [prefsOpen, setPrefsOpen] = useState(false);
   const [quickLookOpen, setQuickLookOpen] = useState(false);
   const [showInspector, setShowInspector] = useState(true);
   const [showSidebar, setShowSidebar] = useState(true);
@@ -468,10 +471,9 @@ export function App() {
     if (layout) {
       document.documentElement.setAttribute("data-layout", slugify(layout));
     }
-    const zoomPx = storedZoom();
-    if (Number.isFinite(zoomPx)) {
-      document.documentElement.style.setProperty("--fs-base", `${zoomPx}px`);
-    }
+    // 0.2 kept the zoom here, as a font size only the Inspector followed;
+    // it's now `zoom` in the tweaks.
+    localStorage.removeItem("glasshouse.zoom");
   }, []);
 
   useEffect(() => {
@@ -518,8 +520,16 @@ export function App() {
     document.documentElement.setAttribute("data-density", state.density);
     document.documentElement.setAttribute("data-scanlines", state.scanlines ? "on" : "off");
     document.documentElement.style.setProperty("--font-mono", state.font);
+    applyZoom(state.zoom);
     localStorage.setItem("glasshouse.tweaks", JSON.stringify(state));
   }, [state]);
+
+  // The theme's color-scheme (themes.css) for the window too, so what the
+  // system draws (GTK popups on Linux) is dark or light to match.
+  useEffect(() => {
+    const scheme = getComputedStyle(document.documentElement).colorScheme ?? "";
+    void winSetTheme(/\bdark\b/.test(scheme) || !/\blight\b/.test(scheme) ? "dark" : "light");
+  }, [state.theme]);
 
   // `glasshouse:set-theme` (detail: theme name) switches to a given theme;
   // the project site's demo uses it for its theme picker.
@@ -575,7 +585,6 @@ export function App() {
       case "palette": setPalOpen(v => !v); return;
       case "findInFiles": setShowFindModal(v => !v); return;
       case "terminal": setTermOpen(v => !v); return;
-      case "tweaks": setTweaksOpen(v => !v); return;
       case "cheatsheet": setCheatsheetOpen(v => !v); return;
       case "focusSearch":
         searchInputRef.current?.focus();
@@ -830,7 +839,7 @@ export function App() {
         setTermOpen,
         setTermProfile,
         setTrashOpen,
-        setTweaksOpen,
+        setPrefsOpen,
         state,
         tagStore,
       },
@@ -1301,7 +1310,6 @@ export function App() {
       {quickLookOpen && selectedFile && (
         <QuickLook file={selectedFile} onClose={() => setQuickLookOpen(false)} />
       )}
-      {tweaksOpen && <Tweaks state={state} setState={setState} onClose={() => setTweaksOpen(false)} />}
       {blame && <BlameDialog blame={blame} onClose={() => setBlame(null)} />}
       {gitOutput && <GitOutputDialog state={gitOutput} onClose={() => setGitOutput(null)} />}
       {diffView && <DiffDialog a={diffView.a} b={diffView.b} diff={diffView.diff} onClose={() => setDiffView(null)} />}
@@ -1394,6 +1402,7 @@ export function App() {
       <PropertiesDialog entry={propsEntry} onClose={() => setPropsEntry(null)} />
       <AboutDialog open={aboutOpen} onClose={() => setAboutOpen(false)} />
       <KeybindingsDialog open={cheatsheetOpen} onClose={() => setCheatsheetOpen(false)} />
+      <PreferencesDialog open={prefsOpen} state={state} setState={setState} onClose={() => setPrefsOpen(false)} />
 
       {folderPicker && (
         <FolderPickerDialog
@@ -1406,15 +1415,6 @@ export function App() {
       <DialogHost />
       <OpsTray />
       <NoticesHost />
-
-      {!tweaksOpen && (
-        <button
-          className="tab-btn"
-          style={{position:"fixed", right: 14, bottom: 30, zIndex: 50, width: 36, height: 28, borderColor: "var(--accent)", color:"var(--accent)"}}
-          onClick={() => setTweaksOpen(true)}
-          title="tweaks (Ctrl+,)"
-        >◉</button>
-      )}
     </div>
   );
 }

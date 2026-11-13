@@ -1,36 +1,9 @@
-import type { Handler } from "./types";
+import { stepZoom, ZOOM_DEFAULT } from "../zoom";
+import type { HandlerCtx, Handler } from "./types";
 
-const ZOOM_KEY = "glasshouse.zoom";
-const ZOOM_DEFAULT = 13;
-
-/** The zoom saved in localStorage, or NaN when there's none. */
-export function storedZoom(): number {
-  const stored = localStorage.getItem(ZOOM_KEY);
-  return stored ? parseInt(stored, 10) : NaN;
-}
-
-function readZoom(): number {
-  const el = document.documentElement;
-  const fromVar = el.style.getPropertyValue("--fs-base").trim();
-  const parsedVar = parseInt(fromVar, 10);
-  if (Number.isFinite(parsedVar)) return parsedVar;
-  const parsedStored = storedZoom();
-  return Number.isFinite(parsedStored) ? parsedStored : ZOOM_DEFAULT;
-}
-
-function applyZoom(px: number): void {
-  const clamped = Math.max(10, Math.min(24, px));
-  document.documentElement.style.setProperty("--fs-base", `${clamped}px`);
-  localStorage.setItem(ZOOM_KEY, String(clamped));
-}
-
-function adjustZoom(delta: number): void {
-  applyZoom(readZoom() + delta);
-}
-
-function resetZoom(): void {
-  document.documentElement.style.removeProperty("--fs-base");
-  localStorage.removeItem(ZOOM_KEY);
+/** Zoom In / Out / Reset: the zoom is a saved tweak, which App applies. */
+function setZoom(ctx: HandlerCtx, zoom: (z: number) => number): void {
+  if (ctx.tweaks && ctx.setTweaks) ctx.setTweaks({ ...ctx.tweaks, zoom: zoom(ctx.tweaks.zoom) });
 }
 
 export const DISPLAY_MODE_KEY = "glasshouse.displayMode";
@@ -59,13 +32,13 @@ function setLayout(layout: string): void {
 export const viewHandler: Handler = (label, ctx) => {
   switch (label) {
     case "Zoom In":
-      adjustZoom(1);
+      setZoom(ctx, z => stepZoom(z, 1));
       return true;
     case "Zoom Out":
-      adjustZoom(-1);
+      setZoom(ctx, z => stepZoom(z, -1));
       return true;
     case "Reset Zoom":
-      resetZoom();
+      setZoom(ctx, () => ZOOM_DEFAULT);
       return true;
 
     case "Name":

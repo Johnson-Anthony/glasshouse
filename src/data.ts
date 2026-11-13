@@ -180,7 +180,6 @@ export const MENUS: MenusData = {
     { kind: "item", ic: "", label: "Sidebar",             kb: "Ctrl+B", check: true },
     { kind: "item", ic: "", label: "Inspector",           kb: "Ctrl+J", check: true },
     { kind: "item", ic: "", label: "Status Bar",          check: true },
-    { kind: "item", ic: "", label: "Tweaks",              kb: "Ctrl+," },
     { kind: "sep" },
     { kind: "item", ic: "", label: "Zoom In",             kb: "Ctrl+=" },
     { kind: "item", ic: "", label: "Zoom Out",            kb: "Ctrl+-" },

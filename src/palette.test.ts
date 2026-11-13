@@ -117,7 +117,7 @@ describe("palette entries", () => {
       // Platform stripping removes both or neither.
       expect(READ_SENDS.has(from), from).toBe(READ_SENDS.has(to));
     }
-    expect(entryOf("Tweaks")!.names.map(n => n.label)).toEqual(["Preferences…", "Tweaks"]);
+    expect(entryOf("New Window")!.names.map(n => n.label)).toEqual(["New Window", "Open in New Window"]);
     expect(entryOf("Git: Stage")).toBe(entryOf("Stage Selected"));
   });
 
@@ -203,7 +203,7 @@ describe("searchPalette", () => {
   });
 
   it("shows the name that matched", () => {
-    expect(top("tweaks")).toMatchObject({ label: "Tweaks", where: ["View"], send: "Preferences…" });
+    expect(top("open in new window")).toMatchObject({ label: "Open in New Window", where: ["Terminal"], send: "New Window" });
     expect(top("preferences")).toMatchObject({ label: "Preferences…", where: ["Edit"] });
     const rows = searchPalette("checksum");
     expect(rows.filter(r => r.send === "Checksum (SHA256)")).toHaveLength(1);

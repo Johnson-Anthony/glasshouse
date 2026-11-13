@@ -7,8 +7,10 @@
 // recordHandOff), which moves as it would have.
 import { useEffect, useRef, useState } from "react";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { DropHighlight, clearHandOff, dropPaths, dropTargetAt, handOffCopies, type DropTarget } from "./dragDrop";
 import { basename } from "./paths";
+import { currentZoom } from "./zoom";
 
 /** What a drop of `paths` at a target does, or null when it does nothing.
  *  `own` is handOffCopies: for the pane's own drag coming back, whether it
@@ -32,9 +34,18 @@ export function OsDrop({ onDrop }: { onDrop: (paths: string[], dir: string, copy
   useEffect(() => {
     let dragged: string[] = [];
     const highlight = new DropHighlight();
-    // Physical pixels from the webview's corner, to CSS pixels.
+    // Physical pixels from the webview's corner, to CSS pixels: divided by
+    // the screen's scale and the window's zoom. Not by devicePixelRatio,
+    // which counts the zoom in Chromium (WebView2) but not in WebKit.
+    let scale: number | null = null;
+    const readScale = () => {
+      try {
+        getCurrentWindow().scaleFactor().then(s => { if (s > 0) scale = s; }, () => { /* keep the last */ });
+      } catch { /* no Tauri window */ }
+    };
+    readScale();
     const at = (p: { x: number; y: number }) => {
-      const r = window.devicePixelRatio || 1;
+      const r = scale !== null ? scale * currentZoom() : (window.devicePixelRatio || 1);
       return { x: p.x / r, y: p.y / r };
     };
     const planAt = (pos: { x: number; y: number }) => {
@@ -50,7 +61,7 @@ export function OsDrop({ onDrop }: { onDrop: (paths: string[], dir: string, copy
       getCurrentWebview().onDragDropEvent(e => {
         const ev = e.payload;
         if (ev.type === "enter" || ev.type === "over") {
-          if (ev.type === "enter") dragged = ev.paths;
+          if (ev.type === "enter") { dragged = ev.paths; readScale(); }
           const { x, y, target, plan } = planAt(ev.position);
           highlight.set(plan ? target!.el : null);
           setHint(plan ? { x, y, label: plan.label } : null);

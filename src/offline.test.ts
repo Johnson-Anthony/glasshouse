@@ -33,7 +33,7 @@ describe("no third-party requests", () => {
   });
 
   it("each font the picker offers from the bundle has its faces", () => {
-    // The Tweaks picker's families that used to come from Google Fonts, at
+    // The Preferences font families that used to come from Google Fonts, at
     // the weights Google served. Iosevka and Berkeley Mono are never
     // bundled: they apply only when installed.
     const css = read("./styles/app.css");

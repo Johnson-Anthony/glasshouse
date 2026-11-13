@@ -51,7 +51,6 @@ export const PALETTE_SOURCES: readonly Source[] = [
  *  the palette is here); the rest run the same code from separate cases. */
 export const SAME_COMMAND: Readonly<Record<string, string>> = {
   // One case.
-  "Tweaks": "Preferences…",
   "Type": "Type / Extension",
   "Bookmark Folder": "Bookmark This Folder",
   "Copy as WSL Path": "Copy Path (WSL)",
