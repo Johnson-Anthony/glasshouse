@@ -264,6 +264,9 @@ html, body {
   color: var(--fg-1);
   user-select: none;
 }
+/* The menubar, a dropdown's items and a context menu take focus for their
+   keys; the highlighted title or item shows where it is. */
+.menubar:focus-visible, .ctx-menu:focus-visible { outline: none; }
 .menubar-item {
   padding: 4px 10px;
   border-radius: 4px;
@@ -271,7 +274,7 @@ html, body {
   letter-spacing: 0.02em;
   position: relative;
 }
-.menubar-item:hover, .menubar-item.open {
+.menubar-item:hover, .menubar-item.open, .menubar-item.hot {
   background: var(--bg-3);
   color: var(--fg-0);
 }
@@ -318,12 +321,11 @@ html, body {
   cursor: pointer;
   position: relative;
 }
-.dropdown .mi:hover,
 .dropdown .mi.hover { background: var(--bg-sel); color: var(--fg-0); }
 .dropdown .mi .ic { color: var(--fg-3); font-size: 11px; }
 .dropdown .mi .kb { font-size: 10.5px; color: var(--fg-3); letter-spacing: 0.03em; }
 .dropdown .mi .chev { color: var(--fg-3); }
-.dropdown .mi.danger:hover { background: color-mix(in oklch, var(--red) 30%, var(--bg-sel)); color: var(--red); }
+.dropdown .mi.danger.hover { background: color-mix(in oklch, var(--red) 30%, var(--bg-sel)); color: var(--red); }
 .dropdown .sep { height: 1px; background: var(--border); margin: 4px 2px; }
 .dropdown .group-label {
   padding: 6px 8px 3px;
@@ -1291,12 +1293,11 @@ html.no-status .statusbar { display: none; }
   cursor: pointer;
   position: relative;
 }
-.ctx-menu .mi:hover,
 .ctx-menu .mi.hover { background: var(--bg-sel); color: var(--fg-0); }
 .ctx-menu .mi .ic { color: var(--fg-3); font-size: 11px; }
 .ctx-menu .mi .kb { font-size: 10.5px; color: var(--fg-3); letter-spacing: 0.03em; }
 .ctx-menu .mi .chev { color: var(--fg-3); }
-.ctx-menu .mi.danger:hover { background: color-mix(in oklch, var(--red) 30%, var(--bg-sel)); color: var(--red); }
+.ctx-menu .mi.danger.hover { background: color-mix(in oklch, var(--red) 30%, var(--bg-sel)); color: var(--red); }
 .ctx-menu .sep { height: 1px; background: var(--border); margin: 4px 2px; }
 .ctx-menu .group-label {
   padding: 6px 8px 3px;

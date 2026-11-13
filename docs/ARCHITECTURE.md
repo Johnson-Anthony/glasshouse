@@ -21,7 +21,8 @@ A Tauri 2 app. The window is a React 18 UI (`src/`) that calls Rust commands (`s
 | `dialogs/` | One file per dialog. `DialogHost.tsx` holds the promise-based `dialogs` API (prompt, alert, confirm, choice, pick list, toast) and its host |
 | `state.ts` | `useTabState`: per-tab listing, selection, sort, history (`history.ts`) and fs watching; `reveal` opens a file's folder with the file selected once the listing arrives. Also the undo and redo stacks |
 | `handlers/` | Command handlers, chained as `COMMAND_CHAIN` in `index.ts`: `target` (context-menu target), `app` (App-level), `fileOps` (file ops on the active tab), then the feature handlers in `HANDLERS` (selection, view, git, archive, tools, nav, misc). `types.ts` defines `HandlerCtx` |
-| `keymap.ts` | Window shortcuts as a table (`KEYMAP`), which also feeds the Keybindings cheatsheet |
+| `keymap.ts` | Window shortcuts as a table (`KEYMAP`), which also feeds the Keybindings cheatsheet; the Ctrl+G chord's pending state, which the file pane defers to |
+| `menuNav.ts` | Keyboard rules for the menus (a highlighted path per open level, moved by keys and hover), the menubar's mnemonics, and the file list's type-ahead. `menus.tsx` takes focus while a menu is open and gives it back when it closes |
 | `data.ts` | Menu and context-menu trees, the commands only the palette lists (`PALETTE_ONLY`), and Windows-only item stripping |
 | `palette.ts` | The command palette's rows: every command in `MENUS`, the file and empty-area context menus and `PALETTE_ONLY`, once each (`SAME_COMMAND` folds labels that run one command), with its menu path and shortcut; the search; a "Go to" row for a typed path |
 | `api.ts` | Typed wrappers over `invoke`. `safe()` swallows an error and returns a fallback |

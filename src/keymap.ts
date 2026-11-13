@@ -130,6 +130,14 @@ const CODE_CHEATS: CheatEntry[] = [
   { label: "Move to a folder, tab or breadcrumb", keys: "Drag", group: "Edit" },
   { label: "Copy to a folder, tab or breadcrumb", keys: "Ctrl+Drag", group: "Edit" },
   { label: "Copy into another app", keys: "Drag out of the window", group: "Edit" },
+  // Menus (menus.tsx) and the file list's own keys (FilePane).
+  { label: "Open the menu bar", keys: "Alt or F10", group: "Menus" },
+  { label: "Open a menu by its underlined letter", keys: "Alt+letter", group: "Menus" },
+  { label: "Context menu of the selection", keys: "Menu or Shift+F10", group: "Menus" },
+  { label: "Move in a menu; into and out of submenus", keys: "↑ ↓ → ←", group: "Menus" },
+  { label: "Run the highlighted menu item", keys: "Enter", group: "Menus" },
+  { label: "Close a menu", keys: "Esc", group: "Menus" },
+  { label: "Jump to a file by name", keys: "Type its first letters", group: "Navigate" },
 ];
 
 export interface CheatEntry { label: string; keys: string; group: string }
@@ -139,6 +147,18 @@ export const CHEATSHEET: CheatEntry[] = [
   ...KEYMAP.filter(b => b.cheat).map(b => ({ label: b.cheat!.label, keys: b.cheat!.keys ?? b.combo, group: b.cheat!.group })),
   ...CODE_CHEATS,
 ];
+
+/** How long Ctrl+G waits for its second key. */
+export const GIT_CHORD_MS = 1500;
+
+/** The Ctrl+G git chord: when its first key was pressed, 0 when none is
+ *  pending. App's listener starts and takes it; the file pane, whose key
+ *  handler runs first, leaves the second key to it. */
+export const gitChord = { at: 0 };
+
+export function chordPending(now = Date.now()): boolean {
+  return gitChord.at > 0 && now - gitChord.at < GIT_CHORD_MS;
+}
 
 export interface ParsedCombo { ctrl: boolean; shift: boolean; alt: boolean; key: string }
 
@@ -203,3 +223,13 @@ export function findBinding(e: KeyEventLike, state: KeyState): KeyBinding | unde
   }
   return undefined;
 }
+
+/** Printable keys a binding takes without Ctrl or Alt (/, *, Space): the
+ *  file list's type-ahead leaves them to the keymap. */
+export const BOUND_CHARS: ReadonlySet<string> = new Set(
+  KEYMAP.flatMap(b => {
+    const p = parseCombo(b.combo);
+    if (p.ctrl || p.alt) return [];
+    return [p.key, ...(b.alsoKeys ?? []).map(k => k.toLowerCase())].filter(k => [...k].length === 1);
+  }),
+);

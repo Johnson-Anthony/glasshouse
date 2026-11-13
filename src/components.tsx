@@ -13,6 +13,8 @@ import { IS_WINDOWS } from "./platform";
 import type { SortDir, SortKey } from "./state";
 import { TAG_COLOR_MAP } from "./Sidebar";
 import { isModalOpen } from "./dialogs/modal";
+import { BOUND_CHARS, chordPending } from "./keymap";
+import { isContextMenuKey, TypeAhead, typeAheadMatch, type MenuAnchor } from "./menuNav";
 
 // ============= Titlebar =============
 export interface TabDef {
@@ -238,7 +240,7 @@ export interface FilePaneProps {
   foldersFirst?: boolean;
   showExtensions?: boolean;
   showGitGutters?: boolean;
-  onContext: (e: React.MouseEvent, kind: ContextKind, rowIndex?: number) => void;
+  onContext: (e: MenuAnchor, kind: ContextKind, rowIndex?: number) => void;
   onOpen?: (index: number) => void;
   onUp?: () => void;
   onCopy?: () => void;
@@ -294,6 +296,9 @@ interface RowHandlers {
 // FileRow is a display-only type without a filesystem path, but the host
 // (App.tsx) always passes rows that carry their entry.
 const rowPath = (f: FileRow): string | undefined => (f as { entry?: { path?: string } }).entry?.path;
+/** The row's whole name, extension included, for type-ahead. */
+const rowName = (f: FileRow): string =>
+  (f as { entry?: { name?: string } }).entry?.name ?? (f.ext ? `${f.name}.${f.ext}` : f.name);
 
 /** The pane's context menu for a right-click: the file menu on a row, the
  *  empty-space menu (New, Paste…) anywhere else, whatever is selected. */
@@ -495,11 +500,47 @@ export function FilePane({
     }
   };
 
+  // The Menu key or Shift+F10: the selection's menu under the focused row
+  // (scrolled into view first), or with nothing selected the empty-pane
+  // menu (New, Paste…) at the top of the list.
+  const openMenuFromKeys = () => {
+    const el = rowsRef.current;
+    const box = el?.getBoundingClientRect();
+    const at: MenuAnchor = { clientX: (box?.left ?? 0) + 24, clientY: (box?.top ?? 0) + 8, keyboard: true };
+    const pos = visiblePos.get(focusIndex);
+    if (selected.length > 0 && el && box && pos !== undefined) {
+      if (view.windowed) {
+        const top = scrollToRow(pos, view.rowH, el.scrollTop, el.clientHeight);
+        if (top !== null) {
+          el.scrollTop = top;
+          setView(v => ({ ...v, top: el.scrollTop }));
+        }
+        at.clientY = box.top + (pos + 1) * view.rowH - el.scrollTop;
+      } else {
+        const rowEl = el.querySelector<HTMLElement>(`.row[data-orig="${focusIndex}"]`);
+        rowEl?.scrollIntoView?.({ block: "nearest" });
+        const r = rowEl?.getBoundingClientRect();
+        if (r) { at.clientX = r.left + 24; at.clientY = r.bottom; }
+      }
+    }
+    onContext(at, selected.length > 0 ? "file" : "empty");
+  };
+
+  // Letters typed into the list, for type-ahead.
+  const typeAhead = useRef<TypeAhead | null>(null);
+
   // Pane-local keyboard handling. Fires only when focus is inside the pane
   // (the global App-level listener covers app-wide shortcuts; we do NOT want
   // arrow-key selection to fire while focus is in the search box or sidebar).
   const onKeyDown = (e: React.KeyboardEvent) => {
-    if (displayFiles.length === 0 || isModalOpen()) return;
+    // The second key of a Ctrl+G chord is App's, whatever it is.
+    if (isModalOpen() || chordPending()) return;
+    if (isContextMenuKey(e)) {
+      e.preventDefault();
+      openMenuFromKeys();
+      return;
+    }
+    if (displayFiles.length === 0) return;
 
     const currentPos = visiblePos.get(focusIndex);
     const safePos = currentPos ?? 0;
@@ -576,6 +617,19 @@ export function FilePane({
         if (onDelete) onDelete(e.shiftKey);
         return;
     }
+
+    // Type-ahead: a printable key jumps to the next name starting with what
+    // has been typed. Keys the keymap binds alone (/, *) stay its own, and
+    // Space only continues a name (alone it's Quick Look). AltGr types
+    // characters with Ctrl and Alt down on Windows.
+    const altGr = e.ctrlKey && e.altKey && e.getModifierState("AltGraph");
+    if ([...e.key].length !== 1 || e.metaKey || ((e.ctrlKey || e.altKey) && !altGr) || e.nativeEvent.isComposing) return;
+    const now = Date.now();
+    const ta = (typeAhead.current ??= new TypeAhead());
+    if (e.key === " " ? !ta.active(now) : BOUND_CHARS.has(e.key.toLowerCase())) return;
+    e.preventDefault();
+    const hit = typeAheadMatch(displayFiles.map(d => rowName(d.file)), currentPos ?? -1, ta.push(e.key, now));
+    if (hit >= 0) move(hit, false);
   };
 
   // Scroll focused row into view when it changes via keyboard. In the
