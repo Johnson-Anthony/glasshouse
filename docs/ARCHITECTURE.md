@@ -15,10 +15,11 @@ A Tauri 2 app. The window is a React 18 UI (`src/`) that calls Rust commands (`s
 | Path | What |
 |---|---|
 | `main.tsx` → `App.tsx` | The shell: tabs, panels, dialogs, theme, drag and drop, the keydown listener, and `handleMenuCommand`, the command router |
-| `components.tsx` | Titlebar, Toolbar, FilePane (the file list), StatusBar, Palette, Tweaks |
+| `components.tsx` | Titlebar, Toolbar, FilePane (the file list), StatusBar, Palette, and `TweakState` (the saved settings) |
 | `menus.tsx`, `Sidebar.tsx`, `Miller.tsx`, `Terminal.tsx` | Menubar and context menu; the sidebar (pins, tree, tags, devices); the miller-column view; the xterm drawer |
 | `preview/` | `Inspector.tsx` (details, permissions, checksums) and `FilePreview.tsx` (type-aware previews and Quick Look) |
-| `dialogs/` | One file per dialog. `DialogHost.tsx` holds the promise-based `dialogs` API (prompt, alert, confirm, choice, pick list, toast) and its host |
+| `dialogs/` | One file per dialog. `DialogHost.tsx` holds the promise-based `dialogs` API (prompt, alert, confirm, choice, pick list, toast) and its host. `Preferences.tsx` (Edit → Preferences…, Ctrl+,) edits the saved settings live |
+| `zoom.ts` | Window zoom: the webview's page zoom (`setZoom`), stepped by Zoom In/Out and saved as `zoom` in the settings. See `docs/decisions/2026-11-13-settings-dialog-zoom.md` |
 | `state.ts` | `useTabState`: per-tab listing, selection, sort, history (`history.ts`) and fs watching; `reveal` opens a file's folder with the file selected once the listing arrives. Also the undo and redo stacks |
 | `handlers/` | Command handlers, chained as `COMMAND_CHAIN` in `index.ts`: `target` (context-menu target), `app` (App-level), `fileOps` (file ops on the active tab), then the feature handlers in `HANDLERS` (selection, view, git, archive, tools, nav, misc). `types.ts` defines `HandlerCtx` |
 | `keymap.ts` | Window shortcuts as a table (`KEYMAP`), which also feeds the Keybindings cheatsheet; the Ctrl+G chord's pending state, which the file pane defers to |
@@ -34,10 +35,10 @@ A Tauri 2 app. The window is a React 18 UI (`src/`) that calls Rust commands (`s
 | `dragDrop.ts`, `OsDrop.tsx` | Drag and drop. The pane's own drag uses pointer events (FilePane); at the window's edge it hands off to the OS (`start_drag_out`). Drops from other apps come through Tauri's drag-drop event and copy. Every drop target carries `data-drop-path`: folder rows, the pane, tabs, breadcrumb segments, sidebar rows |
 | `NoticesScreen.tsx`, `notices.ts`, `noticesData.ts` | Help → Third-party Notices, from `assets/fonts` and the generated `assets/third-party.json` (lazy chunk) |
 | `commandState.ts`, `remotes.ts`, `platform.ts` | `cmdState` (app clipboard, context-menu target); ssh profiles for saved remotes; `IS_WINDOWS` |
-| `styles/themes.css`, `styles/app.css` | 8 themes as CSS variables on `[data-theme]`; layout and component CSS |
+| `styles/themes.css`, `styles/app.css` | 8 themes as CSS variables on `[data-theme]`, each with its `color-scheme` (App passes it to the window, so GTK popups match); layout and component CSS |
 
 **State.** There's no store or reducer.
-- `App()` holds about 40 `useState` hooks. Display tweaks persist in `localStorage["glasshouse.tweaks"]`.
+- `App()` holds about 40 `useState` hooks. The settings (`TweakState`: theme, font, density, zoom, the file-list toggles…) persist in `localStorage["glasshouse.tweaks"]`; Preferences… and the View menu change them.
 - Each tab is a headless `<TabShell>` running `useTabState` and passing `{state, actions}` up into `tabHandles`.
 - Module-level state: `cmdState`, the undo stacks, the `dialogs` API and the git cwd.
 - Components also signal each other with window events (`glasshouse:*`) and attributes on `<html>`.

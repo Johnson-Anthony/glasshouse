@@ -86,9 +86,9 @@ describe("Palette", () => {
   });
 
   it("sends the item's dispatch label, not its name", async () => {
-    await type("tweaks");
+    await type("open in new window");
     await press("Enter");
-    expect(onCommand).toHaveBeenCalledWith("Preferences…");
+    expect(onCommand).toHaveBeenCalledWith("New Window");
   });
 
   it("moves the highlight down the rows as shown", async () => {

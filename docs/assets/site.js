@@ -224,7 +224,7 @@
     fit();
   }
 
-  // The demo reports theme changes made inside it (palette, tweaks panel).
+  // The demo reports theme changes made inside it (palette, Preferences).
   window.addEventListener("message", function (ev) {
     if (ev.origin !== location.origin || !iframe || ev.source !== iframe.contentWindow) return;
     var msg = ev.data || {};

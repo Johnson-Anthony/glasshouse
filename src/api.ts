@@ -20,6 +20,14 @@ export async function winToggleMaximize(): Promise<void> {
   try { await getCurrentWindow().toggleMaximize(); } catch {}
 }
 
+/** Tells the window whether the app's theme is dark or light, so what the
+ *  system draws for it (on Linux, GTK popups such as a <select>'s list)
+ *  matches. */
+export async function winSetTheme(scheme: "dark" | "light"): Promise<void> {
+  if (!TAURI_AVAILABLE) return;
+  try { await getCurrentWindow().setTheme(scheme); } catch {}
+}
+
 export interface FileEntry {
   name: string;
   path: string;

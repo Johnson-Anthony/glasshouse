@@ -143,8 +143,6 @@ describe("menu shortcut hints", () => {
     "Command Palette": "palette",
     "Find in Files": "findInFiles",
     "Toggle Drawer": "terminal",
-    "Tweaks": "tweaks",
-    "Preferences…": "tweaks",
     "Keybindings Cheatsheet": "cheatsheet",
   };
   // Labels one switch case handles together.

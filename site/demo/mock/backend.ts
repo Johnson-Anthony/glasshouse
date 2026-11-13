@@ -543,6 +543,13 @@ export function createBackend(hooks: BackendHooks) {
     spawn_vscode: notInDemo("Opening VS Code"),
     spawn_new_window: notInDemo("Opening a second window"),
     start_drag_out: notInDemo("Dragging files into other apps"),
+    // The app zooms its whole webview. A page can't zoom itself that way (CSS
+    // `zoom` would misplace menus and drags), so the demo leaves it to the
+    // browser.
+    "plugin:webview|set_webview_zoom": a => {
+      if (Number(a.value) !== 1) hooks.notice("Zoom scales the whole window in the app. In the browser demo, use the browser's zoom.");
+      return null;
+    },
 
     // @tauri-apps/api/path's documentDir() and the rest (Go → Documents…),
     // by BaseDirectory number. Tauri rejects a folder the OS has none for.

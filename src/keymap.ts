@@ -12,7 +12,7 @@
 // is open: the dialog owns the keyboard.
 
 export type KeyAction =
-  | "palette" | "findInFiles" | "terminal" | "tweaks" | "cheatsheet"
+  | "palette" | "findInFiles" | "terminal" | "cheatsheet"
   | "focusSearch" | "gitChord" | "quickLook";
 
 type Mod = "Ctrl" | "Shift" | "Alt";
@@ -55,7 +55,7 @@ export const KEYMAP: KeyBinding[] = [
   { combo: "Ctrl+`", any: ["Alt"], inText: true, run: "terminal", cheat: { label: "Toggle terminal", group: "View" } },
   // Shift+` is ~ on US layouts.
   { combo: "Ctrl+Shift+`", alsoKeys: ["~"], any: ["Alt"], inText: true, send: "New Terminal Tab" },
-  { combo: "Ctrl+,", any: ["Shift", "Alt"], inText: true, run: "tweaks" },
+  { combo: "Ctrl+,", any: ["Shift", "Alt"], inText: true, send: "Preferences…" },
   // Panel/layout toggles work even while a text input has focus: they don't
   // insert text (VS Code treats Ctrl+B the same way).
   { combo: "Ctrl+B", inText: true, send: "Sidebar" },

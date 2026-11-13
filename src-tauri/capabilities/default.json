@@ -12,6 +12,8 @@
     "core:window:allow-toggle-maximize",
     "core:window:allow-close",
     "core:window:allow-is-maximized",
+    "core:window:allow-set-theme",
+    "core:webview:allow-set-webview-zoom",
     "core:app:allow-version",
     "dialog:default",
     "fs:default",
