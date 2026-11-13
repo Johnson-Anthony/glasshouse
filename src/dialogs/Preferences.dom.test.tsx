@@ -32,7 +32,8 @@ const onClose = vi.fn();
 function Harness() {
   const [state, setState] = useState(START);
   latest = state;
-  return <PreferencesDialog open state={state} setState={setState} onClose={onClose} />;
+  // A new onClose each render, as App passes it.
+  return <PreferencesDialog open state={state} setState={setState} onClose={() => onClose()} />;
 }
 
 const group = (name: string) => host.querySelector<HTMLElement>(`[role="group"][aria-label="${name}"]`)!;
@@ -76,6 +77,14 @@ describe("PreferencesDialog", () => {
   it("holds the modal flag and takes the focus", () => {
     expect(isModalOpen()).toBe(true);
     expect(document.activeElement).toBe(host.querySelector(".prefs"));
+  });
+
+  it("leaves focus on the control just used", async () => {
+    const comfy = button("density", "comfy");
+    comfy.focus();
+    await click(comfy);
+    expect(latest.density).toBe("comfy");
+    expect(document.activeElement).toBe(comfy);
   });
 
   it("uses no native <select>, whose list WebKitGTK draws with GTK", () => {

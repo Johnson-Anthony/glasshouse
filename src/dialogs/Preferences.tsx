@@ -39,9 +39,14 @@ export function PreferencesDialog({ open, state, setState, onClose }: Preference
   useModal(open);
   const panelRef = useRef<HTMLDivElement>(null);
 
+  // On open only: App passes a new onClose each render, and a change of
+  // setting re-renders it, which mustn't pull focus off the control used.
+  useEffect(() => {
+    if (open) panelRef.current?.focus({ preventScroll: true });
+  }, [open]);
+
   useEffect(() => {
     if (!open) return;
-    panelRef.current?.focus({ preventScroll: true });
     const h = (e: KeyboardEvent) => {
       if (PREFS_KEYS.some(b => matches(b, e))) { e.preventDefault(); onClose(); }
     };
