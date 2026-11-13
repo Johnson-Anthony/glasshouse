@@ -4,7 +4,11 @@ Branch: `claude/festive-leakey-a10edf` (worktree `festive-leakey-a10edf`), start
 Backlog entry: section 24 of `docs/plans/active/survey-2.md`. Frontend only.
 
 ## Status
-**In progress.**
+**Done** 2026-11-13. Commits: `93b3d2a` (the change), `9dc80ba` (demo rebuild).
+- Everything in the approach below is in. Also found while doing it: Shred deletes too, so it drops the file's tags (`droppingTags(shred)`); Git → Discard's trashed items lose theirs at the refresh's listing (the backend reports only counts).
+- Checks: `pnpm build`; `pnpm test` 756 passed, 3 skipped (57 files; 41 new tests); `pnpm check:wiring` clean (315 sent labels, 212 cases); `pnpm site:build` (reproducible); `pnpm site:capture check` 24/24 under a 3 GB cap. In the site demo (browser pane): F2 rename of a tagged file keeps its tag under the new name, Ctrl+Z takes it back; Move to Trash takes the count to 0 and Ctrl+Z brings the item and its tag back.
+- Not checked: the desktop app itself (WebKitGTK) and Windows; the Windows path rules are covered by unit tests only.
+- Not done (possible follow-ups): tags for items in the trash aren't kept across a restart; two windows editing tags can still overwrite each other (each writes its whole map); a file created outside the app at a tagged path inherits the tags (only paths are compared).
 
 ## Problems
 1. Tags are a `{ path: labels[] }` map keyed by path. Rename, move, transfer, trash and delete never touch it, so a renamed or moved file loses its tags, the sidebar's counts include files that are gone, and a new file at an old path inherits that path's tags.
