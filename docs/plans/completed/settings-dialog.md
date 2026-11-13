@@ -48,7 +48,23 @@ Tweaks panel with real settings; dropdowns render white on dark themes.
 - View handler: Zoom In/Out/Reset step `zoom`.
 
 ## Status
-- [ ] zoom
-- [ ] Preferences dialog, Tweaks removed
-- [ ] color-scheme, selects
-- [ ] checks: build, test, wiring, clippy/test (capabilities), site build + capture check, release binary
+Done 2026-11-13. Commits: 94d9cff (the task), 1d10b70 (merge of main at
+3abc775), 4c12081 (focus stays on the control used), 8bdd4dc (demo rebuild). Decisions: `docs/decisions/2026-11-13-settings-dialog-zoom.md`,
+`docs/decisions/2026-11-13-settings-dialog-controls.md`.
+- [x] Zoom: webview zoom, 50–200%, saved as `zoom` in `glasshouse.tweaks`;
+  OsDrop divides by scale factor × zoom; the demo answers with a notice.
+- [x] Preferences dialog (Edit → Preferences…, Ctrl+,); the Tweaks panel,
+  its ◉ button, View → Tweaks and the `tweaks` key action are gone. The View
+  menu's toggles show their state (test in `menus.dom.test.tsx`).
+- [x] `color-scheme` on each theme, passed to the window (`setTheme`); no
+  native `<select>` left in the app; a base `select` style for later ones.
+- [x] Checks: `pnpm build`, `pnpm test` (776 passed, 3 skipped),
+  `pnpm check:wiring`, clippy `-D warnings` and `cargo test` (214 passed;
+  only `capabilities/default.json` changed under `src-tauri/`),
+  `pnpm site:build` and `pnpm site:capture check` (24/24), release binary.
+
+Not checked here:
+- WebKitGTK and WebView2 by hand: the zoom, the window theme, and drops
+  from other apps at a zoom other than 100%. The demo runs in Chromium.
+- `docs/media` (hero images and tour clips) still shows the old ◉ button;
+  re-recording them (`pnpm site:capture`) is left to the lead.
