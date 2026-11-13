@@ -23,7 +23,7 @@ On 2026-11-11, four read-only agents surveyed the app (at `45ea31b`): frontend b
 | 12 | trash-restore | both | M | merged (`cool-gauss-d234ca`, 11-13) |
 | **Wave 4: performance** |||||
 | 13 | pane-perf | frontend | L | merged (`cool-satoshi-4102fc`, 11-13) |
-| 14 | refresh-cost | both | M | **running** (`cool-gauss-d234ca`, started 11-13; backend and startup first, fetchAll after pane-perf; plus the user-reported stale sidebar tree) |
+| 14 | refresh-cost | both | M | merged (`cool-gauss-d234ca`, 11-13; includes the user-reported stale sidebar tree) |
 | **Wave 5: promises and UX** (README and site claims first) |||||
 | 15 | palette-commands | frontend | M | queued |
 | 16 | menu-honesty | frontend | S–M | queued (needs user decisions) |
@@ -274,7 +274,7 @@ These items do nothing, or something else. Make each work, or remove it. For the
 - Every lockfile change needs `pnpm notices`.
 
 ## Found by tasks (not yet scheduled)
-- *(from focus-and-targets)* The sidebar tree doesn't re-list after file ops in the pane: delete `Documents` in the pane and the tree still shows it. Seen in the demo; not yet checked in the real app. Small.
+- *(from focus-and-targets)* ~~The sidebar tree doesn't re-list after file ops in the pane.~~ Fixed by refresh-cost.
 - *(from focus-and-targets)* Pinned files show the folder icon. The sidebar now knows which pins are files (`pinFiles`). Cosmetic, small.
 
 - *(from terminal-cd)* **pty-foreground** (Rust + a little frontend): follow-folder still sends a (harmless, failing) `cd` when ssh or a Python REPL started from the local shell owns the terminal. The backend could report whether the shell is the pty's foreground process: `tcgetpgrp` on the master vs the child pid on unix (portable-pty's `process_group_leader`), child processes on Windows.

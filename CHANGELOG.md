@@ -12,8 +12,17 @@ What changed in each release, for people using glasshouse. Downloads are on the 
 - **Move to Trash can be undone:** Ctrl+Z restores the items, and Ctrl+Y trashes them again. Undo refuses, saying why, if a name is taken again or an item has left the trash.
 - **Go → Trash** shows what's in the Trash (the Recycle Bin on Windows): each item's name, original folder, deletion time and size, with Restore, Delete Permanently and Empty Trash. Restore can be undone. A taken name is refused, never replaced.
 
+### Changed
+
+- **Refreshing in a large git repo is faster.** At the repo's root a refresh scans the repo once instead of twice, and moving between folders reuses the last change count (up to 30 s old) unless HEAD or the index moved.
+- **Folders with tens of thousands of files list about 3× faster.**
+- A big paste or another burst of changes re-lists the folder about twice a second, plus once at the end, instead of on every change. Tabs in the background wait until they're shown.
+- The sidebar loads drives and WSL distros alongside the home folder. The WSL list has a 5 s time limit and is kept for 5 minutes.
+
 ### Fixed
 
+- **The sidebar tree follows changes on disk.** A deleted, renamed or new folder shows up in the tree without a manual Refresh, and clicking a folder that no longer exists removes its row instead of opening an error.
+- On Windows, an empty card reader or CD drive no longer shows a "no disk" dialog, and a disconnected network drive no longer stalls the drive list. A drive that takes over 2 s to answer is left out.
 - The file list no longer jumps back to the focused file when something else in the window updates.
 - A folder check that finds nothing new no longer redraws the window, in any tab.
 - A box selection with Shift or Ctrl held keeps the files it started with if the folder changes mid-drag.
