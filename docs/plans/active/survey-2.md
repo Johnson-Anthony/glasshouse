@@ -27,9 +27,9 @@ On 2026-11-11, four read-only agents surveyed the app (at `45ea31b`): frontend b
 | **Wave 5: promises and UX** (README and site claims first) |||||
 | 15 | palette-commands | frontend | M | merged (`laughing-shirley-d547ce`, 11-13) |
 | 16 | menu-honesty | frontend | S–M | queued (needs user decisions) |
-| 17 | paths-and-search | frontend | S–M | queued |
+| 17 | paths-and-search | frontend | S–M | **running** (`blissful-pare-68a0fc`, started 11-13) |
 | 18 | session-persistence | both | S–M | queued |
-| 19 | keyboard-menus | frontend | M | queued |
+| 19 | keyboard-menus | frontend | M | **running** (`peaceful-shamir-c528aa`, started 11-13) |
 | 20 | git-ux | frontend + `GIT_RUN_ALLOWED` | S–M | queued |
 | 21 | open-with | both | S–M | queued |
 | 22 | os-drag-drop | both | M–L | merged (`cool-satoshi-4102fc`, 11-13; drag out and in confirmed by the user on niri) |
@@ -40,6 +40,8 @@ On 2026-11-11, four read-only agents surveyed the app (at `45ea31b`): frontend b
 | 26 | test-gaps | both | S | queued |
 | 27 | ci-hygiene | CI | S | merged (7bb4385) |
 | 28 | deps-bump | both | M | queued |
+| **User requests** |||||
+| 29 | settings-dialog | frontend | M | queued (user-requested 11-13; first in line) |
 
 **Scheduling notes:**
 - Run at most two Rust tasks at once (RAM).
@@ -272,6 +274,12 @@ These items do nothing, or something else. Make each work, or remove it. For the
 - **From security-deps (2026-11-12):** the warnings-only "unsound" advisories have semver-compatible fixes in one command, `cargo update -p anyhow -p event-listener -p memmap2 -p rustix -p tokio`; git2, glib and the unmaintained crates (instant, proc-macro-error, zbus_names, zvariant, zvariant_derive) remain. npm dev tools (none ship in the app): in-range fixes for @babel/core, browserslist, baseline-browser-mapping, nanoid, postcss, source-map-js; majors needed for vite (6.4.4+), vitest (3.2.6+), esbuild (0.25) and tinypool (2.1.2), which carry critical tinypool and vitest-UI advisories. Dependabot PRs #3–#8 overlap; close the ones the merged versions supersede.
 - **Rust.** git2 0.19 and notify 7 are a major version behind. git2 0.21 exposes `CheckoutBuilder::disable_pathspec_match`, so its bump can replace `checkout_head_exact`'s raw `libgit2-sys` call in `commands/git.rs` and drop that direct dependency.
 - Every lockfile change needs `pnpm notices`.
+
+## 29. settings-dialog (frontend, M; user request 2026-11-13)
+- **Zoom only scales the Inspector.** Zoom In/Out/Reset (Ctrl+= / Ctrl+- / Ctrl+0, `handlers/view.ts`) set `--fs-base` on `<html>`, but `[data-density=…]` in `styles/app.css` sets `--fs-base` again lower down, so the density value wins everywhere except the Inspector, and about 80 rules use fixed `px` font sizes anyway. Make zoom scale the whole window. Tauri's webview zoom (`getCurrentWebview().setZoom`, needs its permission in `capabilities/`) is one way; rem-based sizes are another. Pick one and record it; keep the zoom saved across restarts.
+- **The floating Tweaks panel goes.** The user wants it removed and its settings moved into the proper settings menus. Today Preferences… (Ctrl+,) and Tweaks only toggle that panel (`handlers/app.ts`, `Tweaks` in `components.tsx`). Replace it with a real Preferences dialog: Appearance (theme, font family, density, scanlines, zoom), Files (hidden files, file extensions, folders first, git gutters), Terminal (follow folder). The View menu's matching toggles stay, and show their real state with ✓. Settings stay under `glasshouse.tweaks`, so nothing resets. Remove the panel's toggle button and every way to open the floating panel.
+- **Dropdowns render white.** The panel's `<select>`s show a light native popup on the dark themes (WebKitGTK draws them with the GTK theme). Set `color-scheme` from the theme (dark or light) and style the selects, so the new dialog's dropdowns are dark too. Check every other `<select>` in the app.
+- Overlaps: task 16 (menu-honesty) owns Zoom Pane and Full Screen; task 18 (session-persistence) persists sidebar/Inspector visibility. Don't take those on.
 
 ## Found by tasks (not yet scheduled)
 - *(from focus-and-targets)* ~~The sidebar tree doesn't re-list after file ops in the pane.~~ Fixed by refresh-cost.
