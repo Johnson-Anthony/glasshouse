@@ -1615,10 +1615,32 @@ html[data-focused-pane="terminal"] .term-drawer {
   outline-offset: -2px;
 }
 
-/* Sidebar row highlight while DnD-hovering as a drop target. */
-.sidebar [data-sidebar-drop-path].drop-target {
+/* A drop target with a drag over it: sidebar rows, tabs, breadcrumb
+   segments (dragDrop.ts), and the whole pane for its own folder. */
+.sidebar [data-drop-path].drop-target,
+.tab.drop-target,
+.crumb.drop-target {
   background: color-mix(in oklch, var(--accent) 25%, transparent);
   outline: 1px solid var(--accent);
+}
+.pane.drop-target {
+  outline: 2px dashed var(--accent);
+  outline-offset: -3px;
+}
+/* Says what a drop does, next to the pointer: the pane's own drag and
+   drags from other apps (OsDrop.tsx). */
+.drag-ghost {
+  position: fixed;
+  pointer-events: none;
+  background: var(--bg-1);
+  color: var(--accent);
+  border: 1px solid var(--accent);
+  padding: 3px 8px;
+  border-radius: 3px;
+  font-size: 11px;
+  font-family: var(--font-mono);
+  z-index: 2000;
+  white-space: nowrap;
 }
 
 /* ------- Running ops (OpsTray): hash, copy, find with a Cancel ------- */

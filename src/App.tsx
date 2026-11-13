@@ -61,6 +61,7 @@ import {
   renameEntry,
   moveEntry,
   openWithDefault,
+  startDragOut,
   spawnVscode,
   moveToTrash,
   trashDir,
@@ -80,6 +81,8 @@ import { runTransfer, planTransfer, type TransferOp } from "./transfer";
 import { transferDeps, reportTransfer, pushTransferUndo, asItems, listNames } from "./transferUi";
 import { errText } from "./errors";
 import { findStatusText } from "./findStatus";
+import { dropTargetAt, notAlreadyIn } from "./dragDrop";
+import { OsDrop } from "./OsDrop";
 
 // xterm is most of the terminal's weight, so the drawer is its own chunk,
 // loaded the first time the terminal opens.
@@ -1019,14 +1022,6 @@ export function App() {
     setDynamicGitCwd(currentCwd);
   }, [currentCwd]);
 
-  // Resolve a sidebar drop path from the drop point. Returns null when the
-  // cursor is not on a drop-target sidebar row.
-  const resolveSidebarDrop = (clientX: number, clientY: number): string | null => {
-    const hit = document.elementFromPoint(clientX, clientY);
-    const row = hit?.closest("[data-sidebar-drop-path]") as HTMLElement | null;
-    return row?.getAttribute("data-sidebar-drop-path") ?? null;
-  };
-
   // Perform a move-or-copy of paths into dstDir, with undo and a refresh.
   const performDrop = (
     srcPaths: string[],
@@ -1073,6 +1068,7 @@ export function App() {
         error={handle?.state.error ?? null}
         loading={handle?.state.loading ?? false}
         paneRootRef={pane0RootRef}
+        dropPath={handle?.state.path}
         onActivate={() => setFocusedPane("files")}
         files={rows}
         selected={sel}
@@ -1126,10 +1122,17 @@ export function App() {
           const sources = sourceOrigIndices
             .map(i => rows[i]?.entry.path)
             .filter((p): p is string => !!p);
-          if (sources.length === 0) return;
-          const dstDir = resolveSidebarDrop(x, y);
-          if (!dstDir) return;
-          performDrop(sources, dstDir, copy, () => handle?.actions.refresh());
+          // A tab, a breadcrumb segment, a sidebar row, or the pane outside
+          // a folder row (its own folder, where nothing needs to move).
+          const target = dropTargetAt(x, y);
+          const moving = target ? notAlreadyIn(sources, target.path) : [];
+          if (target && moving.length > 0) performDrop(moving, target.path, copy, () => handle?.actions.refresh());
+        }}
+        onDragOut={(sourceOrigIndices) => {
+          const paths = sourceOrigIndices
+            .map(i => rows[i]?.entry.path)
+            .filter((p): p is string => !!p);
+          startDragOut(paths).catch(e => dialogs.showToast({ message: `couldn't drag out: ${errText(e)}`, variant: "error" }));
         }}
       />
     );
@@ -1159,7 +1162,9 @@ export function App() {
         onCloseTab={closeTabAt}
         onNewTab={openNewTab}
         onTabContext={onTabContext}
+        tabPaths={tabs.map(t => tabHandles[t.id]?.state.path)}
       />
+      <OsDrop onDrop={(paths, dir) => performDrop(paths, dir, true, () => activeHandle?.actions.refresh())} />
       <Menubar
         onOpenPalette={() => setPalOpen(true)}
         onCommand={handleMenuCommand}

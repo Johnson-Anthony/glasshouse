@@ -1306,6 +1306,20 @@
    ]
   },
   {
+   "name": "drag",
+   "version": "2.1.1",
+   "license": "Apache-2.0 OR MIT",
+   "platforms": [
+    "windows"
+   ],
+   "licenses": [
+    {
+     "id": "MIT",
+     "text": 23
+    }
+   ]
+  },
+  {
    "name": "dtoa",
    "version": "1.0.11",
    "license": "MIT OR Apache-2.0",
@@ -5350,6 +5364,20 @@
   },
   {
    "name": "windows",
+   "version": "0.52.0",
+   "license": "MIT OR Apache-2.0",
+   "platforms": [
+    "windows"
+   ],
+   "licenses": [
+    {
+     "id": "MIT",
+     "text": 23
+    }
+   ]
+  },
+  {
+   "name": "windows",
    "version": "0.56.0",
    "license": "MIT OR Apache-2.0",
    "platforms": [
@@ -5448,6 +5476,20 @@
   },
   {
    "name": "windows-core",
+   "version": "0.52.0",
+   "license": "MIT OR Apache-2.0",
+   "platforms": [
+    "windows"
+   ],
+   "licenses": [
+    {
+     "id": "MIT",
+     "text": 23
+    }
+   ]
+  },
+  {
+   "name": "windows-core",
    "version": "0.56.0",
    "license": "MIT OR Apache-2.0",
    "platforms": [
@@ -5518,6 +5560,20 @@
   },
   {
    "name": "windows-implement",
+   "version": "0.52.0",
+   "license": "MIT OR Apache-2.0",
+   "platforms": [
+    "windows"
+   ],
+   "licenses": [
+    {
+     "id": "MIT",
+     "text": 23
+    }
+   ]
+  },
+  {
+   "name": "windows-implement",
    "version": "0.56.0",
    "license": "MIT OR Apache-2.0",
    "platforms": [
@@ -5561,6 +5617,20 @@
   {
    "name": "windows-implement",
    "version": "0.60.2",
+   "license": "MIT OR Apache-2.0",
+   "platforms": [
+    "windows"
+   ],
+   "licenses": [
+    {
+     "id": "MIT",
+     "text": 23
+    }
+   ]
+  },
+  {
+   "name": "windows-interface",
+   "version": "0.52.0",
    "license": "MIT OR Apache-2.0",
    "platforms": [
     "windows"

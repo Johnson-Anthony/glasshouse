@@ -71,11 +71,19 @@ windows = { version = "0.58", features = [
     "Win32_System_JobObjects",
 ] }
 
+# Dragging files out on Windows: OLE DoDragDrop with CF_HDROP
+# (commands/drag_out.rs), as tauri-plugin-drag does.
+[target.'cfg(windows)'.dependencies.drag]
+version = "2.1"
+
 # Both already come in through tauri-plugin-opener; used for the
 # FileManager1.ShowItems reveal call.
 [target.'cfg(target_os = "linux")'.dependencies]
 zbus = "5"
 url = "2"
+# Already in the lock file through tauri (same version); the drag source for
+# dragging files out (commands/drag_out.rs).
+gtk = "0.18"
 
 # Already in the lock file through several dependencies; used for renameat2
 # (Linux) and to kill a timed-out script's process group (proc_tree.rs).

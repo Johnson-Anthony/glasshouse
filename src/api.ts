@@ -378,6 +378,13 @@ export function revealInExplorer(path: string): Promise<void> {
   return safe(() => invoke<void>("reveal_in_explorer", { path }), undefined);
 }
 
+/** Hands `paths` to the OS as a drag (copies), to drop into another app.
+ *  Call it while the mouse button is still down: under Wayland a drag can
+ *  only start then. Rejects when the drag couldn't start. */
+export function startDragOut(paths: string[]): Promise<void> {
+  return mustInvoke<void>("start_drag_out", { paths });
+}
+
 export function spawnTerminal(path: string): Promise<void> {
   return safe(() => invoke<void>("spawn_terminal", { path }), undefined);
 }

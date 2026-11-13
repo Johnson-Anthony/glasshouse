@@ -238,9 +238,12 @@ describe("CHEATSHEET", () => {
     expect(CHEATSHEET.map(c => `${c.keys} ${c.label}`).sort()).toEqual([
       "/ Focus search",
       "Backspace Open parent",
+      "Ctrl+Drag Copy to a folder, tab or breadcrumb",
       "Ctrl+Shift+Tab Previous Tab",
       "Ctrl+Tab Next Tab",
       "Ctrl+` Toggle terminal",
+      "Drag Move to a folder, tab or breadcrumb",
+      "Drag out of the window Copy into another app",
       "Enter Open selected",
       "Esc Close modal / palette",
       "Shift+Del Delete permanently",

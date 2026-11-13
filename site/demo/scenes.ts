@@ -137,7 +137,7 @@ async function typeShell(t: number, text: string): Promise<void> {
 
 // ---- UI lookups ----
 const sidebarItem = (path: string) =>
-  document.querySelector(`.sb-item[data-sidebar-drop-path="${CSS.escape(path)}"]`);
+  document.querySelector(`.sb-item[data-drop-path="${CSS.escape(path)}"]`);
 
 function row(name: string): HTMLElement | null {
   for (const r of document.querySelectorAll<HTMLElement>(".row")) {

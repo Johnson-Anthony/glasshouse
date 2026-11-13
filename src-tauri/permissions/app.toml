@@ -97,7 +97,7 @@ commands.allow = [
 
 [[permission]]
 identifier = "launch"
-description = "Hand a file, folder or URL to another program: the default app, the system file manager, a terminal window, VS Code, the browser, a new glasshouse window."
+description = "Hand a file, folder or URL to another program: the default app, the system file manager, a terminal window, VS Code, the browser, a new glasshouse window, or a drag into another app."
 commands.allow = [
   "open_with_default",
   "reveal_in_explorer",
@@ -106,6 +106,7 @@ commands.allow = [
   "open_url",
   "spawn_new_window",
   "spawn_terminal_profile",
+  "start_drag_out",
 ]
 
 [[permission]]

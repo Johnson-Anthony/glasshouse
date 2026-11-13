@@ -3,6 +3,7 @@
 
 pub mod archive;
 pub mod config;
+pub mod drag_out;
 pub mod file_info;
 pub mod fs_ops;
 pub mod git;

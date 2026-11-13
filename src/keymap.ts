@@ -126,6 +126,10 @@ export const KEYMAP: KeyBinding[] = [
 /** Keys App handles in code rather than through KEYMAP, for the cheatsheet. */
 const CODE_CHEATS: CheatEntry[] = [
   { label: "Close modal / palette", keys: "Esc", group: "View" },
+  // Drag and drop (FilePane, dragDrop.ts): the keys held at the drop.
+  { label: "Move to a folder, tab or breadcrumb", keys: "Drag", group: "Edit" },
+  { label: "Copy to a folder, tab or breadcrumb", keys: "Ctrl+Drag", group: "Edit" },
+  { label: "Copy into another app", keys: "Drag out of the window", group: "Edit" },
 ];
 
 export interface CheatEntry { label: string; keys: string; group: string }
