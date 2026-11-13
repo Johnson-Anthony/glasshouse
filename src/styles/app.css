@@ -590,7 +590,9 @@ html, body {
   content-visibility: auto;
   contain-intrinsic-size: auto var(--row-h);
 }
-.row:nth-child(odd) { background: color-mix(in oklch, var(--bg-1) 40%, transparent); }
+/* Counted among rows only: the windowed list's spacers aren't rows, and the
+ * window always starts on an even row, so the stripes stay put on scroll. */
+.row:nth-child(odd of .row) { background: color-mix(in oklch, var(--bg-1) 40%, transparent); }
 .row:hover { background: var(--bg-2); color: var(--fg-0); }
 .row.selected {
   background: var(--bg-sel);

@@ -13,7 +13,7 @@ import {
 import { normalizePath, parentPath } from "./paths";
 import { navBack, navClear, navForward, navGoTo, navInit, type NavState } from "./history";
 import { errText } from "./errors";
-import { EMPTY_LISTING, relist, withAnchor, withFocus, withSelected, type Listing } from "./listing";
+import { EMPTY_LISTING, keepGitInfo, relist, withAnchor, withFocus, withSelected, type Listing } from "./listing";
 
 export type SortKey = "name" | "size" | "modified" | "tag" | "git" | "type";
 export type SortDir = "asc" | "desc";
@@ -232,7 +232,7 @@ export function useTabState(initialPath: string, isPrivate: boolean = false): Us
       setLoading(false);
       const info = await git;
       if (seq !== fetchSeq.current) return;
-      setGitInfo(info);
+      setGitInfo(prev => keepGitInfo(prev, info));
     } catch (e) {
       if (seq !== fetchSeq.current) return;
       setError(errText(e));

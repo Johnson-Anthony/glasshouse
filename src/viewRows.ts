@@ -55,56 +55,43 @@ export function viewRows<T extends FileRow>(files: T[], opts: ViewOptions): View
       })
     : afterSearch;
 
-  const tagKey = (x: { file: FileRow }): string => {
-    const path = entryOf(x.file)?.path;
-    if (!path) return "";
-    return (tagStore?.[path] ?? []).join(",");
-  };
-
-  const dir = sortDir === "asc" ? 1 : -1;
-  return [...filtered].sort((a, b) => {
-    if (foldersFirst) {
-      const af = a.file.kind === "folder" ? 0 : 1;
-      const bf = b.file.kind === "folder" ? 0 : 1;
-      if (af !== bf) return af - bf;
-    }
-    if (sortKey === "type") {
-      const ae = (a.file.ext ?? "").toLowerCase();
-      const be = (b.file.ext ?? "").toLowerCase();
-      if (ae !== be) return ae < be ? -1 * dir : 1 * dir;
-      const an = a.file.name.toLowerCase();
-      const bn = b.file.name.toLowerCase();
-      return an < bn ? -1 * dir : an > bn ? 1 * dir : 0;
-    }
-    if (sortKey === "name") {
-      const an = (a.file.name + (a.file.ext ? "." + a.file.ext : "")).toLowerCase();
-      const bn = (b.file.name + (b.file.ext ? "." + b.file.ext : "")).toLowerCase();
-      return an < bn ? -1 * dir : an > bn ? 1 * dir : 0;
-    }
-    if (sortKey === "size") {
-      const as = entryOf(a.file)?.size ?? 0;
-      const bs = entryOf(b.file)?.size ?? 0;
-      return (as - bs) * dir;
-    }
-    if (sortKey === "tag") {
-      const at = tagKey(a);
-      const bt = tagKey(b);
-      // Untagged rows ("") sort to the end on asc, start on desc — matches
-      // convention for "group the boring stuff last".
-      if (at === "" && bt !== "") return 1;
-      if (bt === "" && at !== "") return -1;
-      return at < bt ? -1 * dir : at > bt ? 1 * dir : 0;
-    }
-    if (sortKey === "git") {
+  // Each row's sort key is computed once, not inside the comparator: at
+  // 100k rows the comparator runs about 1.7M times, and lower-casing two
+  // names per call was most of the sort's time.
+  const primary = (f: T): string | number => {
+    switch (sortKey) {
+      case "type": return (f.ext ?? "").toLowerCase();
+      case "name": return (f.name + (f.ext ? "." + f.ext : "")).toLowerCase();
+      case "size": return entryOf(f)?.size ?? 0;
+      case "tag": {
+        const path = entryOf(f)?.path;
+        return path ? (tagStore?.[path] ?? []).join(",") : "";
+      }
       // Tilde sorts after letters in ASCII, so null/clean rows group at the
       // end in asc order — keeps the noisy stuff up top.
-      const ag = a.file.git ?? "~";
-      const bg = b.file.git ?? "~";
-      return ag < bg ? -1 * dir : ag > bg ? 1 * dir : 0;
+      case "git": return f.git ?? "~";
+      case "modified": return entryOf(f)?.modified_ms ?? 0;
     }
-    // modified
-    const am = entryOf(a.file)?.modified_ms ?? 0;
-    const bm = entryOf(b.file)?.modified_ms ?? 0;
-    return (am - bm) * dir;
+  };
+  const keyed = filtered.map(x => ({
+    x,
+    folder: foldersFirst && x.file.kind !== "folder" ? 1 : 0,
+    key: primary(x.file),
+    // Only "type" has a second key: the name, within one extension.
+    name: sortKey === "type" ? x.file.name.toLowerCase() : "",
+  }));
+  const cmp = (a: string | number, b: string | number): number => (a < b ? -1 : a > b ? 1 : 0);
+
+  const dir = sortDir === "asc" ? 1 : -1;
+  keyed.sort((a, b) => {
+    if (a.folder !== b.folder) return a.folder - b.folder;
+    if (sortKey === "tag") {
+      // Untagged rows ("") sort to the end, in either direction.
+      if (a.key === "" && b.key !== "") return 1;
+      if (b.key === "" && a.key !== "") return -1;
+    }
+    if (sortKey === "size" || sortKey === "modified") return ((a.key as number) - (b.key as number)) * dir;
+    return (cmp(a.key, b.key) || cmp(a.name, b.name)) * dir;
   });
+  return keyed.map(k => k.x);
 }
