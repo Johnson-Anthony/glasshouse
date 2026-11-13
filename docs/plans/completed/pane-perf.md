@@ -47,9 +47,10 @@ Scope: `## 13. pane-perf` in `docs/plans/active/survey-2.md`.
 - [x] Windowed list, marquee, focus scroll
 - [x] Lazy xterm; noticesData left as is (decision note)
 - [x] Tests: paneWindow, listing, FilePane in happy-dom, useTabState in happy-dom
-- [ ] After numbers (Chromium at 10k)
-- [ ] Checks: build, test, check:wiring, notices --check, site:build, site:capture check
-- [ ] Handoff
+- [x] After numbers (Chromium at 10k)
+- [x] Real-browser checks (Chromium, 400 rows): End scrolls the last row fully into view, striping holds after scrolling an odd number of rows, Tiles renders every row and Details windows again, the terminal isn't loaded until opened and slides in on the first open
+- [x] Checks, after merging main (trash-restore): `pnpm build`, `pnpm test` (534 passed, 3 skipped), `pnpm check:wiring`, `pnpm notices --check`, `pnpm site:build`, `pnpm site:capture check` (23 of 23, capped at 3G). No Rust changes, so no cargo.
+- [x] Handoff
 
 Decisions: `docs/decisions/2026-11-13-pane-perf-design.md`.
 
@@ -72,4 +73,14 @@ Before → after. The 100k numbers come from vitest; Chromium is capped at 10k (
 | End | 192 ms | 14 ms |
 | marquee move | 384 ms | 3 ms |
 | FilePane in happy-dom, 100k | out of heap (also at 25k) | mount 169 ms, 731 nodes, arrow 37 ms, End 19 ms, marquee 8 ms |
-| main JS chunk | 759 kB | 433 kB (+ Terminal 342 kB, lazy) |
+| main JS chunk | 759 kB | 433 kB (+ Terminal 342 kB, lazy); 441 kB with trash-restore merged |
+| Chromium, demo, 10k: open the folder | 692 ms | 106 ms |
+| pane DOM nodes | 110,013 | 509 |
+| arrow key (keydown to two frames) | 117 ms | 33 ms |
+| End | 110 ms | 33 ms |
+| no-change poll | 82 ms | 33 ms |
+| filter keystroke | 51 ms | 16 ms |
+| clear the filter | 516 ms | 33 ms |
+| marquee move | 147 ms | 33 ms |
+
+33 ms is two frames, the floor of the Chromium method (keydown, then two `requestAnimationFrame`s), so those rows are at the floor rather than measured exactly.
