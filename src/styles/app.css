@@ -1609,14 +1609,25 @@ html[data-display-mode="tiles"] .pane .pane-head {
   display: none;
 }
 
-/* Miller Columns (ranger): parent | current | preview */
+/* Miller Columns (ranger): parent | current | preview. The middle column is
+ * the file pane (Miller.tsx), shown as icon, name and size with no header. */
 .miller {
   display: grid;
   grid-template-columns: 1fr 1.4fr 1fr;
+  grid-template-rows: minmax(0, 1fr);
   min-height: 0;
   background: var(--bg-0);
   outline: none;
 }
+.miller > .pane {
+  min-height: 0;
+  border-right: 1px solid var(--border);
+}
+.miller > .pane .pane-head { display: none; }
+.miller > .pane .row { grid-template-columns: 24px 1fr 90px; }
+.miller > .pane .c-tag,
+.miller > .pane .c-date,
+.miller > .pane .c-git { display: none; }
 .miller .mcol {
   overflow-y: auto;
   border-right: 1px solid var(--border);
@@ -1638,18 +1649,21 @@ html[data-display-mode="tiles"] .pane .pane-head {
   contain-intrinsic-size: auto var(--row-h);
 }
 .miller .mrow:hover { background: var(--bg-2); color: var(--fg-0); }
-.miller .mrow.active {
-  background: var(--bg-sel);
-  color: var(--fg-0);
-  border-left: 2px solid var(--accent);
-  padding-left: 8px;
-}
 .miller .mrow.hilite { color: var(--accent); }
 .miller .mrow.dim { color: var(--fg-3); }
-.miller .mrow.merror { color: var(--red); }
+/* A drag over an outer column (the folder it lists) or one of its folder
+ * rows (dragDrop.ts). */
+.miller .mcol.drop-target {
+  outline: 2px dashed var(--accent);
+  outline-offset: -3px;
+}
+.miller .mrow.drop-target {
+  background: color-mix(in oklch, var(--accent) 25%, transparent);
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
+}
 .miller .mic { color: var(--fg-3); width: 12px; flex: none; }
 .miller .mname { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
-.miller .msize { margin-left: auto; color: var(--fg-3); font-size: 11px; flex: none; }
 .miller .mpreview { padding: 14px; font-size: 12px; }
 .miller .mp-name {
   color: var(--fg-0);

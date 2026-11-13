@@ -54,8 +54,8 @@ import { DISPLAY_MODE_DEFAULT, DISPLAY_MODE_KEY, LAYOUT_KEY, slugify } from "./h
 import { applyZoom, validZoom, ZOOM_DEFAULT } from "./zoom";
 import { IS_WINDOWS } from "./platform";
 import { NoticesHost } from "./NoticesScreen";
-import { MillerView, sortView as millerOrder } from "./Miller";
-import { viewRows } from "./viewRows";
+import { MillerView } from "./Miller";
+import { entryName, viewRows } from "./viewRows";
 import { joinPath, basename } from "./paths";
 import {
   homeDir,
@@ -343,12 +343,7 @@ function entryToRow(
   tagStore: Record<string, string[]>,
 ): InspectableFile {
   const kind = kindFromEntry(e.kind);
-  // A folder's name is shown whole: `list_dir` gives `foo.d` the extension
-  // "d", but it isn't one, and the pane never draws a folder's extension.
-  const ext = kind === "folder" ? "" : e.ext;
-  const nameNoExt = ext && e.name.toLowerCase().endsWith("." + ext.toLowerCase())
-    ? e.name.slice(0, -(ext.length + 1))
-    : e.name;
+  const { name: nameNoExt, ext } = entryName(e);
   const rowTags = tagStore[e.path];
   const firstTag = rowTags && rowTags.length > 0 ? rowTags[0] : null;
   return {
@@ -453,7 +448,7 @@ export function App() {
   };
 
   // Display mode is mostly CSS driven off <html data-display-mode>, but
-  // Miller columns needs a different pane component, so App mirrors the mode
+  // Miller columns wraps the pane in more columns, so App mirrors the mode
   // in state (updated via the event setDisplayMode fires in handlers/view.ts).
   const [displayMode, setDisplayModeState] = useState<string>(
     () => localStorage.getItem(DISPLAY_MODE_KEY) ?? DISPLAY_MODE_DEFAULT,
@@ -782,7 +777,6 @@ export function App() {
       firstEntry,
       visibleRows: () => {
         if (!st) return [];
-        if (displayMode === "Miller Columns (ranger)") return millerOrder(st.entries).map(v => v.orig);
         return viewRows(liveRows, {
           searchQuery: st.searchQuery, tagFilter: st.tagFilter, tagStore,
           sortKey: st.sortKey, sortDir: st.sortDir, foldersFirst: state.foldersFirst,
@@ -1054,23 +1048,8 @@ export function App() {
     // re-sort, re-render every row, and scroll back to the focused row.
     const rows = liveRows;
     const sel = handle?.state.selected ?? [];
-    if (displayMode === "Miller Columns (ranger)") {
-      return (
-        <MillerView
-          cwd={handle?.state.path ?? ""}
-          entries={handle?.state.entries ?? []}
-          showHidden={handle?.state.showHidden ?? false}
-          focusIndex={handle?.state.focusIndex ?? 0}
-          setFocusIndex={handle?.actions.setFocusIndex ?? (() => {})}
-          setSelected={handle?.actions.setSelected ?? (() => {})}
-          onNavigate={(p) => handle?.actions.goTo(p)}
-          onOpenFile={(p) => { void openWithDefault(p); }}
-          onActivate={() => setFocusedPane("files")}
-          error={handle?.state.error ?? null}
-        />
-      );
-    }
-    return (
+    const miller = displayMode === "Miller Columns (ranger)";
+    const pane = (
       <FilePane
         cutPaths={cutPaths}
         error={handle?.state.error ?? null}
@@ -1078,6 +1057,7 @@ export function App() {
         paneRootRef={pane0RootRef}
         dropPath={handle?.state.path}
         onActivate={() => setFocusedPane("files")}
+        millerKeys={miller}
         files={rows}
         selected={sel}
         setSelected={handle?.actions.setSelected ?? (() => {})}
@@ -1130,9 +1110,9 @@ export function App() {
           const sources = sourceOrigIndices
             .map(i => rows[i]?.entry.path)
             .filter((p): p is string => !!p);
-          // A tab, a breadcrumb segment, a sidebar row, or the pane outside
-          // a folder row (its own folder: a move there does nothing, a copy
-          // makes duplicates).
+          // A tab, a breadcrumb segment, a sidebar row, a Miller column or
+          // its folder row, or the pane outside a folder row (its own
+          // folder: a move there does nothing, a copy makes duplicates).
           const target = dropTargetAt(x, y);
           const moving = target ? dropPaths(sources, target.path, copy) : [];
           if (target && moving.length > 0) performDrop(moving, target.path, copy, () => handle?.actions.refresh());
@@ -1148,6 +1128,24 @@ export function App() {
           });
         }}
       />
+    );
+    if (!miller) return pane;
+    // Miller columns: the pane is the middle column, between its folder's
+    // parent and the focused row's preview.
+    return (
+      <MillerView
+        cwd={handle?.state.path ?? ""}
+        focused={handle?.state.entries[handle.state.focusIndex]}
+        showHidden={handle?.state.showHidden ?? false}
+        sortKey={handle?.state.sortKey ?? "name"}
+        sortDir={handle?.state.sortDir ?? "asc"}
+        foldersFirst={state.foldersFirst}
+        tagStore={tagStore}
+        onNavigate={(p) => handle?.actions.goTo(p)}
+        onPathContext={(e, p, isFolder) => onSidebarContext(e, p, isFolder ? "tree-folder" : "tree-file")}
+      >
+        {pane}
+      </MillerView>
     );
   };
 

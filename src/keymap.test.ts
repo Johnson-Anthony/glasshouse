@@ -132,7 +132,7 @@ describe("focus and targets", () => {
   });
 
   it("doesn't Open again when a widget already handled Enter", () => {
-    // Miller opens the file itself and calls preventDefault.
+    // The file pane opens the file itself and calls preventDefault.
     expect(sends("Enter", { selected: 1 }, { defaultPrevented: true })).toBeUndefined();
   });
 });
@@ -243,11 +243,13 @@ describe("CHEATSHEET", () => {
       "Drag out of the window Copy into another app",
       "Enter Open selected",
       "Enter Run the highlighted menu item",
+      "Esc Clear the selection",
       "Esc Close a menu",
       "Esc Close modal / palette",
       "Menu or Shift+F10 Context menu of the selection",
       "Shift+Del Delete permanently",
       "Type its first letters Jump to a file by name",
+      "h l j k or ← → ↓ ↑ Miller columns: parent folder, open, down, up",
       "↑ ↓ → ← Move in a menu; into and out of submenus",
     ]);
   });

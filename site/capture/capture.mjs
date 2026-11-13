@@ -387,6 +387,32 @@ async function checkPage(cdp, base) {
     window.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
     await until(() => selected().includes("todo.txt"));
     out.revealed = [selected(), names().includes("recipes"), document.activeElement === document.querySelector(".pane")];
+    // Miller columns (Ctrl+7): the middle column is the pane, so Ctrl+click
+    // adds to the selection, a right-click opens the file menu for both
+    // rows, Esc closes the menu and a second Esc deselects.
+    const key = (k, init = {}) => (document.activeElement ?? document.body).dispatchEvent(new KeyboardEvent("keydown", { key: k, bubbles: true, cancelable: true, ...init }));
+    key("7", { code: "Digit7", ctrlKey: true });
+    await until(() => !!document.querySelector(".miller > .pane .row"));
+    document.querySelector(".miller > .pane").focus();
+    // Each click in its own task, as a person's are, so the second sees
+    // the first's selection.
+    row("budget-2026.ods").dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await sleep(50);
+    row("todo.txt").dispatchEvent(new MouseEvent("click", { bubbles: true, ctrlKey: true }));
+    await sleep(50);
+    const picked = selected();
+    row("todo.txt").dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 400, clientY: 200 }));
+    await until(() => !!document.querySelector(".ctx-menu"));
+    const menu = [...document.querySelectorAll(".ctx-menu .mi")].some(m => m.textContent.includes("Bulk Rename…"));
+    key("Escape");
+    await until(() => !document.querySelector(".ctx-menu"));
+    const kept = selected();
+    key("Escape");
+    await sleep(50);
+    const parent = document.querySelector(".miller > .mcol .mrow.hilite .mname")?.textContent;
+    out.miller = [picked, menu, kept, selected(), parent];
+    key("1", { code: "Digit1", ctrlKey: true });
+    await until(() => !document.querySelector(".miller"));
     return out;
   })()`);
   const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
@@ -396,6 +422,8 @@ async function checkPage(cdp, base) {
   ok("demo: navigating drops the old rows and the filter at once", same(pane.leaving, [[], "loading…", ""]) && pane.arrived.includes("website"), JSON.stringify([pane.leaving, pane.arrived]));
   ok("demo: a drag drops the files it picked up, after a re-list", same(pane.dropped, ["website"]), JSON.stringify(pane.dropped));
   ok("demo: Go to Path with a file opens its folder with the file selected", same(pane.revealed, [["todo.txt"], true, true]), JSON.stringify(pane.revealed));
+  ok("demo: Miller columns multi-select, file menu, Esc closes then deselects",
+    same(pane.miller, [["budget-2026.ods", "todo.txt"], true, ["budget-2026.ods", "todo.txt"], [], "Documents"]), JSON.stringify(pane.miller));
   errors.push(...errors.splice(errorsBefore).filter(e => !e.includes("/favicon.ico")));
 
   ok("no console errors", errors.length === 0, errors.slice(0, 5).join(" | "));

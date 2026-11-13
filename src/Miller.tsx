@@ -1,43 +1,52 @@
 // Miller columns (ranger-style): parent | current | preview. The middle
-// column mirrors the active tab's entries and selection; the outer columns
-// are fetched on demand and stay read-only apart from navigation clicks.
-import { useEffect, useMemo, useRef, useState } from "react";
-import { listDir, type FileEntry } from "./api";
+// column is the file pane itself (App passes it as `children`, with
+// `millerKeys`), so it has the pane's selection, menus, drag, sort and
+// filter. Miller adds the outer columns: they list with the pane's sort and
+// hidden-files setting, their rows navigate, and each column and folder row
+// takes drops and has the per-path menu of the folder or file it shows.
+// See docs/decisions/2026-11-13-miller-parity-design.md.
+import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { listen } from "@tauri-apps/api/event";
+import { listDir, unwatchDir, watchDir, type FileEntry } from "./api";
 import { normalizePath, parentPath } from "./paths";
+import { RefreshGate } from "./refreshGate";
 import { LinkMark } from "./components";
-import { isModalOpen } from "./dialogs/modal";
+import { entryName, viewRows } from "./viewRows";
+import type { FileKind, FileRow, GitStatus } from "./data";
+import type { SortDir, SortKey } from "./state";
 
 export interface MillerViewProps {
   cwd: string;
-  entries: FileEntry[];
+  /** The pane's focused entry, which the preview column shows. */
+  focused: FileEntry | undefined;
   showHidden: boolean;
-  focusIndex: number;
-  setFocusIndex: (i: number) => void;
-  setSelected: (sel: number[]) => void;
+  sortKey: SortKey;
+  sortDir: SortDir;
+  foldersFirst: boolean;
+  tagStore?: Record<string, string[]>;
   onNavigate: (path: string) => void;
-  onOpenFile: (path: string) => void;
-  onActivate?: () => void;
-  /** Why the current folder couldn't be listed. */
-  error?: string | null;
+  /** A right-click in an outer column: on a row, its path; elsewhere, the
+   *  folder the column lists. */
+  onPathContext?: (e: React.MouseEvent, path: string, isFolder: boolean) => void;
+  /** The middle column: the file pane. */
+  children: ReactNode;
 }
 
-interface Indexed {
-  e: FileEntry;
-  orig: number;
+/** A listing entry as `viewRows` sorts it. */
+function sortRow(e: FileEntry): FileRow & { entry: FileEntry } {
+  return {
+    ...entryName(e), kind: e.kind as FileKind, size: "", date: "", tag: null,
+    git: e.git as GitStatus | null, hidden: e.hidden, link: e.is_symlink, entry: e,
+  };
 }
 
-/** The middle column's order: folders first, then names ignoring case. */
-export function sortView(entries: FileEntry[]): Indexed[] {
-  return entries
-    .map((e, orig) => ({ e, orig }))
-    .sort((a, b) => {
-      const af = a.e.kind === "folder" ? 0 : 1;
-      const bf = b.e.kind === "folder" ? 0 : 1;
-      if (af !== bf) return af - bf;
-      const an = a.e.name.toLowerCase();
-      const bn = b.e.name.toLowerCase();
-      return an < bn ? -1 : an > bn ? 1 : 0;
-    });
+/** An outer column's order: the pane's sort, without its filters, which are
+ *  about the current folder. */
+export function columnOrder(
+  entries: FileEntry[],
+  opts: { sortKey: SortKey; sortDir: SortDir; foldersFirst: boolean; tagStore?: Record<string, string[]> },
+): FileEntry[] {
+  return viewRows(entries.map(sortRow), opts).map(r => r.file.entry);
 }
 
 function rowIcon(e: FileEntry): string {
@@ -51,128 +60,110 @@ function fmtBytes(n: number): string {
   return `${(n / 1024 / 1024 / 1024).toFixed(1)} G`;
 }
 
+/** A folder's entries, tagged with the folder, so a column never shows one
+ *  folder's rows under another's path while the new listing is on its way. */
+type Column = { path: string; entries: FileEntry[] };
+
+/** `path`'s entries; null while they haven't arrived, or with no path. The
+ *  folder is watched while it's shown, and re-listed when the watcher reports
+ *  it (through a RefreshGate, as the tab and the sidebar tree do), so a drop
+ *  into a column, or a rename from its menu, shows there. */
+function useColumn(path: string | null, showHidden: boolean): FileEntry[] | null {
+  const [col, setCol] = useState<Column | null>(null);
+  useEffect(() => {
+    if (path === null) return;
+    let live = true;
+    let unlisten: (() => void) | null = null;
+    const gate = new RefreshGate<void>(async () => {
+      const entries = await listDir(path, showHidden);
+      if (live) setCol({ path, entries });
+    });
+    gate.start();
+    void watchDir(path);
+    const target = normalizePath(path);
+    void listen<string>("fs-changed", evt => {
+      if (normalizePath(typeof evt.payload === "string" ? evt.payload : "") === target) gate.refresh();
+    }).then(fn => {
+      if (live) unlisten = fn;
+      else fn();
+    }).catch(() => { /* no Tauri: nothing reports */ });
+    return () => {
+      live = false;
+      gate.cancel();
+      unlisten?.();
+      void unwatchDir(path);
+    };
+  }, [path, showHidden]);
+  return path !== null && col?.path === path ? col.entries : null;
+}
+
 export function MillerView({
   cwd,
-  entries,
+  focused,
   showHidden,
-  focusIndex,
-  setFocusIndex,
-  setSelected,
+  sortKey,
+  sortDir,
+  foldersFirst,
+  tagStore,
   onNavigate,
-  onOpenFile,
-  onActivate,
-  error,
+  onPathContext,
+  children,
 }: MillerViewProps) {
   const parent = parentPath(cwd);
   const atRoot = normalizePath(parent) === normalizePath(cwd);
+  const folder = focused?.kind === "folder" ? focused : undefined;
 
-  const [parentEntries, setParentEntries] = useState<FileEntry[]>([]);
-  const [childEntries, setChildEntries] = useState<FileEntry[] | null>(null);
+  const parentEntries = useColumn(atRoot ? null : parent, showHidden);
+  const childEntries = useColumn(folder?.path ?? null, showHidden);
 
-  const view = useMemo(() => sortView(entries), [entries]);
-  const focused: FileEntry | undefined = entries[focusIndex];
+  const parentView = useMemo(
+    () => (parentEntries ? columnOrder(parentEntries, { sortKey, sortDir, foldersFirst, tagStore }) : []),
+    [parentEntries, sortKey, sortDir, foldersFirst, tagStore],
+  );
+  const childView = useMemo(
+    () => (childEntries ? columnOrder(childEntries, { sortKey, sortDir, foldersFirst, tagStore }) : null),
+    [childEntries, sortKey, sortDir, foldersFirst, tagStore],
+  );
 
-  // Parent column follows cwd.
-  useEffect(() => {
-    let live = true;
-    if (atRoot) { setParentEntries([]); return; }
-    void listDir(parent, showHidden).then(es => { if (live) setParentEntries(es); });
-    return () => { live = false; };
-  }, [parent, showHidden, atRoot]);
-
-  // Preview column follows the focused entry.
-  useEffect(() => {
-    let live = true;
-    if (!focused || focused.kind !== "folder") { setChildEntries(null); return; }
-    void listDir(focused.path, showHidden).then(es => { if (live) setChildEntries(es); });
-    return () => { live = false; };
-  }, [focused?.path, focused?.kind, showHidden]);
-
-  const parentView = useMemo(() => sortView(parentEntries), [parentEntries]);
-  const childView = useMemo(() => (childEntries ? sortView(childEntries) : null), [childEntries]);
-
-  // Keep the focused middle row visible when focus moves by keyboard.
-  const midRef = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    const el = midRef.current?.querySelector<HTMLElement>(".mrow.active");
-    el?.scrollIntoView({ block: "nearest" });
-  }, [focusIndex]);
-
-  const focusAt = (orig: number) => {
-    setFocusIndex(orig);
-    setSelected([orig]);
-  };
-
-  const onKeyDown = (ev: React.KeyboardEvent) => {
-    if (isModalOpen()) return;
-    const pos = view.findIndex(v => v.orig === focusIndex);
-    if (ev.key === "ArrowDown" || ev.key === "j") {
-      ev.preventDefault();
-      const next = view[Math.min(pos < 0 ? 0 : pos + 1, view.length - 1)];
-      if (next) focusAt(next.orig);
-    } else if (ev.key === "ArrowUp" || ev.key === "k") {
-      ev.preventDefault();
-      const prev = view[Math.max(pos < 0 ? 0 : pos - 1, 0)];
-      if (prev) focusAt(prev.orig);
-    } else if (ev.key === "ArrowLeft" || ev.key === "h") {
-      ev.preventDefault();
-      if (!atRoot) onNavigate(parent);
-    } else if (ev.key === "ArrowRight" || ev.key === "l" || ev.key === "Enter") {
-      ev.preventDefault();
-      if (!focused) return;
-      if (focused.kind === "folder") onNavigate(focused.path);
-      else onOpenFile(focused.path);
-    }
+  const menu = (e: React.MouseEvent, path: string, isFolder: boolean) => {
+    e.preventDefault();
+    e.stopPropagation();
+    onPathContext?.(e, path, isFolder);
   };
 
   const cwdNorm = normalizePath(cwd);
+  const row = (e: FileEntry, onClick: () => void, extra = "") => (
+    <div key={e.path}
+         className={"mrow" + extra + (e.hidden ? " dim" : "")}
+         data-drop-path={e.kind === "folder" ? e.path : undefined}
+         onClick={onClick}
+         onContextMenu={ev => menu(ev, e.path, e.kind === "folder")}>
+      <span className="mic">{rowIcon(e)}</span>
+      <span className="mname">{e.name}</span>
+      {e.is_symlink && <LinkMark />}
+    </div>
+  );
 
   return (
-    <section className="miller" tabIndex={0} onKeyDown={onKeyDown} onFocus={onActivate}>
-      <div className="mcol">
+    <section className="miller">
+      <div className="mcol"
+           data-drop-path={atRoot ? undefined : parent}
+           onContextMenu={e => { if (!atRoot) menu(e, parent, true); }}>
         {atRoot
           ? <div className="mrow dim">{cwd}</div>
-          : parentView.map(({ e }) => (
-              <div key={e.path}
-                   className={"mrow" + (normalizePath(e.path) === cwdNorm ? " hilite" : "") + (e.hidden ? " dim" : "")}
-                   onClick={() => { if (e.kind === "folder") onNavigate(e.path); }}>
-                <span className="mic">{rowIcon(e)}</span>
-                <span className="mname">{e.name}</span>
-                {e.is_symlink && <LinkMark />}
-              </div>
+          : parentView.map(e => row(
+              e,
+              () => { if (e.kind === "folder") onNavigate(e.path); },
+              normalizePath(e.path) === cwdNorm ? " hilite" : "",
             ))}
       </div>
-      <div className="mcol mid" ref={midRef}>
-        {view.map(({ e, orig }) => (
-          <div key={e.path}
-               className={"mrow" + (orig === focusIndex ? " active" : "") + (e.hidden ? " dim" : "")}
-               onClick={() => focusAt(orig)}
-               onDoubleClick={() => {
-                 if (e.kind === "folder") onNavigate(e.path);
-                 else onOpenFile(e.path);
-               }}>
-            <span className="mic">{rowIcon(e)}</span>
-            <span className="mname">{e.name}</span>
-            {e.is_symlink && <LinkMark />}
-            {e.kind !== "folder" && <span className="msize">{fmtBytes(e.size)}</span>}
-          </div>
-        ))}
-        {view.length === 0 && (error
-          ? <div className="mrow merror" role="alert" title={error}>can't read: {error}</div>
-          : <div className="mrow dim">empty</div>)}
-      </div>
-      <div className="mcol">
-        {focused && focused.kind === "folder" && childView && (
+      {children}
+      <div className="mcol"
+           data-drop-path={folder?.path}
+           onContextMenu={e => { if (folder) menu(e, folder.path, true); }}>
+        {folder && childView && (
           childView.length > 0
-            ? childView.map(({ e }) => (
-                <div key={e.path}
-                     className={"mrow" + (e.hidden ? " dim" : "")}
-                     onClick={() => onNavigate(focused.path)}>
-                  <span className="mic">{rowIcon(e)}</span>
-                  <span className="mname">{e.name}</span>
-                  {e.is_symlink && <LinkMark />}
-                </div>
-              ))
+            ? childView.map(e => row(e, () => onNavigate(folder.path)))
             : <div className="mrow dim">empty</div>
         )}
         {focused && focused.kind !== "folder" && (
