@@ -40,7 +40,7 @@ export const transferDeps: TransferDeps = {
   copy: (src, dst) =>
     runOp(`copying ${basename(src)}`, track => copyEntry(src, dst, track())),
   move: moveEntry,
-  trash: moveToTrash,
+  trash: async p => { await moveToTrash(p); },
   windows: IS_WINDOWS,
 };
 

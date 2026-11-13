@@ -25,7 +25,7 @@ A Tauri 2 app. The window is a React 18 UI (`src/`) that calls Rust commands (`s
 | `data.ts` | Menu, palette and context-menu trees, and Windows-only item stripping |
 | `api.ts` | Typed wrappers over `invoke`. `safe()` swallows an error and returns a fallback |
 | `transfer.ts`, `transferUi.ts` | Copy and move planning (conflicts, "(copy)" names, keep both / replace / skip) and running, shared by paste, drag and drop, Move to… and Duplicate |
-| `undoActions.ts` | Undo and redo entries for moves, copies (fingerprinted), creations and replaced file content |
+| `undoActions.ts` | Undo and redo entries for moves, copies (fingerprinted), creations, replaced file content, and the trash (Move to Trash and Restore) |
 | `findReplace.ts` | Find & Replace in Files: the preview confirm, the report and the undo entry. The search and the writes are the backend's `replace.rs` |
 | `names.ts`, `paths.ts`, `tabs.ts`, `fuzzy.ts`, `shellCd.ts`, `octal.ts` | Pure helpers: name conflicts and bulk-rename ordering; path rules per platform; tab-list operations; fuzzy matching; terminal `cd`; chmod parsing |
 | `ops.ts`, `opStore.ts`, `OpsTray.tsx` | Long operations (hash, copy, find) with progress and Cancel |
@@ -57,7 +57,7 @@ A Tauri 2 app. The window is a React 18 UI (`src/`) that calls Rust commands (`s
 | Path | What |
 |---|---|
 | `lib.rs` | Plugins, managed state, and every command in `generate_handler!` |
-| `commands/` | The commands, one module per area: `listing`, `fs_ops`, `file_info`, `search`, `replace`, `archive`, `hash`, `git`, `config`, `system`, `wsl`, `launch`. Tests are inline or in `<module>_tests.rs`; shared helpers are in `testing.rs` |
+| `commands/` | The commands, one module per area: `listing`, `fs_ops`, `file_info`, `search`, `replace`, `archive`, `hash`, `git`, `config`, `system`, `wsl`, `launch`, `trash` (Move to Trash, and the Trash dialog's list, restore and purge; `recycle_bin.rs` checks a Windows drive has a Recycle Bin). Tests are inline or in `<module>_tests.rs`; shared helpers are in `testing.rs` |
 | `ops.rs` | `OpRegistry` and `Op`: `op-progress` events (at most every 100 ms) and cancellation for calls given an `op_id`, plus `cancel_op` |
 | `pty.rs`, `pty/profiles.rs` | Terminal sessions (portable-pty; per session a reader, a wait and a writer thread, with `pty_write` queuing onto the writer); shell, WSL and ssh profile detection and `check_profile` |
 | `watcher.rs` | Folder watching (notify, 300 ms debounce) emitting `fs-changed` |

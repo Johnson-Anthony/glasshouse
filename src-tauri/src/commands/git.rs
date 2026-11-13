@@ -585,7 +585,7 @@ fn discard_skip(path: &str, reason: impl Into<String>) -> DiscardSkip {
 
 #[tauri::command(async)]
 pub fn git_discard(paths: Vec<String>) -> Result<DiscardResult, String> {
-    discard_paths(&paths, |p| trash::delete(p).map_err(|e| e.to_string()))
+    discard_paths(&paths, |p| super::trash::trash_path(p).map(|_| ()))
 }
 
 /// Discard makes each path match HEAD, but never destroys what git can't

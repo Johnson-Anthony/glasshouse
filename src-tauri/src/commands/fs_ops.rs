@@ -583,12 +583,12 @@ pub fn delete_entry(path: String, recursive: bool) -> Result<(), String> {
     }
 }
 
-/// Move a file or directory to the system recycle bin. Uses the `trash`
-/// crate, which dispatches to `IFileOperation` with `FOFX_RECYCLEONDELETE`
-/// on Windows — items land in the recycle bin and can be restored.
+/// Move a file or folder to the trash (the Recycle Bin on Windows), and say
+/// how to find it there again (`commands::trash`). A path on a Windows drive
+/// with no Recycle Bin is refused rather than deleted for good.
 #[tauri::command(async)]
-pub fn move_to_trash(path: String) -> Result<(), String> {
-    trash::delete(&path).map_err(|e| format!("move_to_trash({}): {}", path, e))
+pub fn move_to_trash(path: String) -> Result<super::trash::Trashed, String> {
+    super::trash::trash_path(Path::new(&path)).map_err(|e| format!("move_to_trash({}): {}", path, e))
 }
 
 /// The folder holding trashed files: the XDG home trash on unix, `None` on

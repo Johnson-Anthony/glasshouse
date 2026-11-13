@@ -1,5 +1,5 @@
 import { dialogs } from "../dialogs/DialogHost";
-import { spawnTerminal, spawnVscodeStrict, revealInExplorer, renameEntry, homeDir, moveToTrash, listDir, openWithDefault } from "../api";
+import { spawnTerminal, spawnVscodeStrict, revealInExplorer, renameEntry, homeDir, listDir, openWithDefault } from "../api";
 import { basename, parentPath, joinPath, normalizePath } from "../paths";
 import { namesIn, unlessTaken, transferDeps, pushTransferUndo, reportTransfer } from "../transferUi";
 import { NameSet, nameProblem } from "../names";
@@ -9,6 +9,7 @@ import { moveUndo } from "../undoActions";
 import { runTransfer } from "../transfer";
 import type { Handler } from "./types";
 import { clearAllTags, copyWslPath, removeTagPrompt } from "./helpers";
+import { trashPaths } from "./fileOps";
 import { cmdState } from "../commandState";
 import { sshProfileFor } from "../remotes";
 import { errText } from "../errors";
@@ -195,16 +196,7 @@ export const targetHandler: Handler = (label, ctx) => {
         }
         case "Move to Trash": {
           cmdState.contextTarget = null;
-          void (async () => {
-            try {
-              await moveToTrash(target);
-            } catch (err) {
-              const msg = errText(err);
-              void dialogs.showAlert({ message: `trash failed: ${msg}`, variant: "error" });
-            } finally {
-              activeHandle?.actions.refresh();
-            }
-          })();
+          void trashPaths([target], () => activeHandle?.actions.refresh());
           return true;
         }
         case "Pin":

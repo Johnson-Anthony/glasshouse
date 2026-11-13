@@ -125,6 +125,17 @@ export function createBackend(hooks: BackendHooks) {
   const vfs = new Vfs(SEED, BASE_TIME);
   const repo = new GitRepo(vfs, REPO);
   const trash = `${HOME}/.local/share/Trash/files`;
+  // What Move to Trash put there, for the Trash dialog and undo: where each
+  // item came from, when (unix seconds) and where it sits in `trash`.
+  type Binned = { id: string; original: string; deleted: number; at: string };
+  let bin: Binned[] = [];
+  type Key = { original: string; from: number; to: number; id?: string };
+  // The one item a key names, as the real backend matches (commands/trash.rs).
+  const binned = (k: Key) => {
+    const found = bin.filter(b => b.original === k.original && b.deleted >= k.from - 1 && b.deleted <= k.to + 1
+      && (k.id === undefined || k.id === b.id));
+    return found.length === 1 ? found[0] : null;
+  };
   let pins = [...PINS];
   let tags: Record<string, string[]> = structuredClone(TAGS);
   let recent = [...RECENT];
@@ -247,8 +258,49 @@ export function createBackend(hooks: BackendHooks) {
       let dst = join(trash, basename(p));
       for (let i = 2; vfs.exists(dst); i++) dst = join(trash, `${basename(p)}.${i}`);
       vfs.transfer(p, dst, true, now());
+      const deleted = Math.floor(now() / 1000);
+      bin.push({ id: dst, original: p, deleted, at: dst });
       changed(parent(p));
-      return null;
+      return { original: p, from: deleted, to: deleted };
+    },
+    trash_unsupported: () => [],
+    trash_list: () => bin.flatMap(b => {
+      const n = vfs.get(b.at);
+      if (!n) return [];
+      return [{
+        id: b.id, name: basename(b.original), original_parent: parent(b.original), original: b.original,
+        deleted: b.deleted, size: n.dir ? null : n.size ?? 0, entries: n.dir ? n.children?.size ?? 0 : null,
+      }];
+    }),
+    trash_restore: a => {
+      const keys = a.keys as Key[];
+      const problems: Array<{ path: string; reason: string }> = [];
+      const picked: Binned[] = [];
+      for (const k of keys) {
+        const b = binned(k);
+        if (!b) problems.push({ path: k.original, reason: "isn't in the trash any more" });
+        else if (vfs.exists(b.original)) problems.push({ path: b.original, reason: "something with that name is there now" });
+        else picked.push(b);
+      }
+      if (a.allOrNothing && problems.length > 0) return { done: [], problems };
+      for (const b of picked) {
+        vfs.transfer(b.at, b.original, true, now());
+        changed(parent(b.original));
+      }
+      bin = bin.filter(b => !picked.includes(b));
+      return { done: picked.map(b => b.original), problems };
+    },
+    trash_purge: a => {
+      const done: string[] = [];
+      const problems: Array<{ path: string; reason: string }> = [];
+      for (const k of a.keys as Key[]) {
+        const b = binned(k);
+        if (!b) { problems.push({ path: k.original, reason: "isn't in the trash any more" }); continue; }
+        if (vfs.exists(b.at)) vfs.remove(b.at);
+        bin = bin.filter(x => x !== b);
+        done.push(b.original);
+      }
+      return { done, problems };
     },
     create_symlink: a => { const p = str(a.linkPath); vfs.write(p, `-> ${str(a.target)}\n`, now()); changed(parent(p)); return null; },
     create_hard_link: a => { vfs.transfer(str(a.target), str(a.linkPath), false, now()); changed(parent(str(a.linkPath))); return null; },

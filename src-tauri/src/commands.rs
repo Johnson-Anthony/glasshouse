@@ -9,9 +9,11 @@ pub mod git;
 pub mod hash;
 pub mod launch;
 pub mod listing;
+mod recycle_bin;
 pub mod replace;
 pub mod search;
 pub mod system;
+pub mod trash;
 pub mod wsl;
 
 #[cfg(test)]
