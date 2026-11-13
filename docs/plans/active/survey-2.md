@@ -23,7 +23,7 @@ On 2026-11-11, four read-only agents surveyed the app (at `45ea31b`): frontend b
 | 12 | trash-restore | both | M | merged (`cool-gauss-d234ca`, 11-13) |
 | **Wave 4: performance** |||||
 | 13 | pane-perf | frontend | L | **running** (`cool-satoshi-4102fc`, resumed 11-13; 100k baselines in vitest only, ≤ 10k in capped Chromium) |
-| 14 | refresh-cost | both | M | queued |
+| 14 | refresh-cost | both | M | **running** (`cool-gauss-d234ca`, started 11-13; backend and startup first, fetchAll after pane-perf) |
 | **Wave 5: promises and UX** (README and site claims first) |||||
 | 15 | palette-commands | frontend | M | queued |
 | 16 | menu-honesty | frontend | S–M | queued (needs user decisions) |
