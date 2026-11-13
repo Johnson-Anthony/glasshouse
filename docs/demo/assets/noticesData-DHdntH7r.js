@@ -1,4 +1,4 @@
-import{g as t,h as o,i,I as r}from"./index-DZ51YTjP.js";const s=`# Bundled fonts: sources and licenses
+import{g as t,h as o,i,I as r}from"./index-Bv5wLHtB.js";const s=`# Bundled fonts: sources and licenses
 
 Every font file in this folder, where it came from, and the license texts that cover it. \`src/offline.test.ts\` checks that each font file is listed here and that every linked file exists.
 
