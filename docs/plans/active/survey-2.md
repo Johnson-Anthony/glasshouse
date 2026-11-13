@@ -32,7 +32,7 @@ On 2026-11-11, four read-only agents surveyed the app (at `45ea31b`): frontend b
 | 19 | keyboard-menus | frontend | M | queued |
 | 20 | git-ux | frontend + `GIT_RUN_ALLOWED` | S–M | queued |
 | 21 | open-with | both | S–M | queued |
-| 22 | os-drag-drop | both | M–L | queued |
+| 22 | os-drag-drop | both | M–L | queued: **next after pane-perf** (user-requested 11-13: drag files out to browsers and terminals) |
 | 23 | miller-parity | frontend | M | queued |
 | 24 | tags-follow | frontend | M | queued |
 | 25 | folder-size | both | S–M | queued |
@@ -243,6 +243,7 @@ These items do nothing, or something else. Make each work, or remove it. For the
 - **No drag and drop with other apps.** `dragDropEnabled` is on, but nothing listens for drops, so files dragged in from Explorer or Nautilus do nothing, and you can't drag files out.
 - **Modifier keys.** Shift+drag copies, while Explorer and Nautilus use Ctrl to copy (and Shift to move).
 - **Drop targets.** Make tabs and breadcrumbs accept drops.
+- **User request (2026-11-13):** dragging files out into browsers (upload fields) and terminal panes matters most. The internal drag has used pointer events since `c7cfdba` (April), so it can't leave the window; a native drag is needed, e.g. `tauri-plugin-drag` (offers `text/uri-list`). Start with a spike on the user's machine (niri, Wayland): drag a file into LibreWolf and a terminal. If the plugin's Linux path fails on Wayland, fall back to a GTK drag source in our own Rust. Starts after pane-perf, which rewrites the pane's drag code.
 
 ## 23. miller-parity (frontend, M)
 - Miller columns has no context menu (App blocks the browser's), no multi-select and no drag, and it ignores the sort setting. Share the pane's context menu and selection model. PROGRESS Next already lists Esc to deselect; fold it in.
