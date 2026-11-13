@@ -5,6 +5,7 @@ import { basename, joinPath, normalizePath, parentPath, pathSegments } from "./p
 import { isModalOpen } from "./dialogs/modal";
 import { RefreshGate } from "./refreshGate";
 import { dropTree, pruneUnder } from "./treeRefresh";
+import { pruneGoneTags } from "./tags";
 
 // ============= Sidebar =============
 interface TreeNodeState {
@@ -192,6 +193,11 @@ export function Sidebar({ activePath, onGoTo, onOpenFile, onRowContext, pins, on
   useEffect(() => {
     try { localStorage.setItem(SB_COLLAPSED_KEY, JSON.stringify(sbCollapsed)); } catch { /* quota */ }
   }, [sbCollapsed]);
+  // When the TAGS group is shown, its counts drop tagged items that are gone.
+  const tagsShown = !sbCollapsed["TAGS"];
+  useEffect(() => {
+    if (tagsShown) void pruneGoneTags();
+  }, [tagsShown]);
   useEffect(() => {
     try { localStorage.setItem(SB_ORDER_KEY, JSON.stringify(sbOrder)); } catch { /* quota */ }
   }, [sbOrder]);

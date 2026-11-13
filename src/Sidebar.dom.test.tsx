@@ -34,6 +34,9 @@ vi.mock("./api", () => {
     pickDirectory: vi.fn(async () => null),
     watchDir: vi.fn(async () => {}),
     unwatchDir: vi.fn(async () => {}),
+    // The TAGS group prunes the tag store when shown (tags.ts).
+    readTags: vi.fn(async () => ({})),
+    writeTags: vi.fn(async () => {}),
   };
 });
 vi.mock("@tauri-apps/api/event", () => ({

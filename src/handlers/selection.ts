@@ -1,5 +1,6 @@
 import { dialogs } from "../dialogs/DialogHost";
-import { readTags, type FileEntry } from "../api";
+import type { FileEntry } from "../api";
+import { getTags } from "../tags";
 import type { Handler } from "./types";
 
 function globToRegex(glob: string): RegExp {
@@ -109,7 +110,7 @@ export const selectionHandler: Handler = async (label, ctx) => {
     case "Select by Tag →": {
       // Only offer tags that something in this folder carries, as
       // Select by Extension does for extensions.
-      const tags = await readTags();
+      const tags = getTags();
       const present = new Set<string>();
       for (const i of ctx.visibleRows()) for (const t of tags[entries[i].path] ?? []) present.add(t);
       if (present.size === 0) {

@@ -29,6 +29,7 @@ A Tauri 2 app. The window is a React 18 UI (`src/`) that calls Rust commands (`s
 | `api.ts` | Typed wrappers over `invoke`. `safe()` swallows an error and returns a fallback |
 | `transfer.ts`, `transferUi.ts` | Copy and move planning (conflicts, "(copy)" names, keep both / replace / skip) and running, shared by paste, drag and drop, Move to… and Duplicate |
 | `undoActions.ts` | Undo and redo entries for moves, copies (fingerprinted), creations, replaced file content, and the trash (Move to Trash and Restore) |
+| `tags.ts`, `tagMap.ts` | The tag store (one copy of the `{ path: labels }` map, written on each change) and the wrappers that make tags follow the app's renames, moves, deletes and trash; pruning of gone paths after a listing and when the sidebar's TAGS group is shown. `tagMap.ts` is the pure map work. See `docs/decisions/2026-11-13-tags-follow-design.md` |
 | `findReplace.ts` | Find & Replace in Files: the preview confirm, the report and the undo entry. The search and the writes are the backend's `replace.rs` |
 | `names.ts`, `paths.ts`, `typedPath.ts`, `tabs.ts`, `fuzzy.ts`, `shellCd.ts`, `octal.ts` | Pure helpers: name conflicts and bulk-rename ordering; path rules per platform; what a typed path or link means (`~`, relative, `..`, `file://`); tab-list operations; fuzzy matching; terminal `cd`; chmod parsing |
 | `ops.ts`, `opStore.ts`, `OpsTray.tsx` | Long operations (hash, copy, find) with progress and Cancel |
@@ -40,7 +41,7 @@ A Tauri 2 app. The window is a React 18 UI (`src/`) that calls Rust commands (`s
 **State.** There's no store or reducer.
 - `App()` holds about 40 `useState` hooks. The settings (`TweakState`: theme, font, density, zoom, the file-list toggles…) persist in `localStorage["glasshouse.tweaks"]`; Preferences… and the View menu change them.
 - Each tab is a headless `<TabShell>` running `useTabState` and passing `{state, actions}` up into `tabHandles`.
-- Module-level state: `cmdState`, the undo stacks, the `dialogs` API and the git cwd.
+- Module-level state: `cmdState`, the undo stacks, the tag store (`tags.ts`, read with `useTags()`), the `dialogs` API and the git cwd.
 - Components also signal each other with window events (`glasshouse:*`) and attributes on `<html>`.
 
 **Commands are identified by their display label.**
@@ -85,7 +86,7 @@ A Tauri 2 app. The window is a React 18 UI (`src/`) that calls Rust commands (`s
 - Git uses libgit2 for status and numstat, and the `git` CLI for history and for running menu commands (`git_run`, limited to `GIT_RUN_ALLOWED`).
   - Stage, Unstage and Discard use libgit2. Discard never deletes: it restores tracked files from HEAD, moves untracked items to the trash, and leaves staged-only and ignored ones alone. Branch switches end with `--`. See `docs/decisions/2026-11-11-git-safety-design.md`.
 - Platform splits: `cfg(windows)` covers Win32 drives, hidden attributes, WSL, shortcuts, signatures, job objects and `CREATE_NO_WINDOW`. `cfg(not(windows))` covers sysinfo drives, `xdg-open` and FileManager1 reveal, terminal discovery, XDG trash and the `/proc` parsers.
-- Pins, tags and recents are JSON in the app config dir, written atomically (a synced temp file, then a rename).
+- Pins, tags and recents are JSON in the app config dir, written atomically (a synced temp file, then a rename). Tags are keyed by path; the frontend moves and drops keys as the app changes files (`tags.ts`).
 
 ## Build, CI and release
 - **CI** (`.github/workflows/ci.yml`):

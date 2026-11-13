@@ -42,6 +42,7 @@ export interface AppCommands {
   setShowInspector: React.Dispatch<React.SetStateAction<boolean>>;
   setState: React.Dispatch<React.SetStateAction<TweakState>>;
   setTagPickerPath: React.Dispatch<React.SetStateAction<string | null>>;
+  /** The tag store's setTags (tags.ts): it also writes the file. */
   setTagStore: React.Dispatch<React.SetStateAction<Record<string, string[]>>>;
   setTermOpen: React.Dispatch<React.SetStateAction<boolean>>;
   setTermProfile: React.Dispatch<React.SetStateAction<ShellProfile | null>>;

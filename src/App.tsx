@@ -60,18 +60,14 @@ import { joinPath, basename } from "./paths";
 import {
   homeDir,
   ensureDir,
-  renameEntry,
-  moveEntry,
   openWithDefault,
   startDragOut,
   spawnVscode,
   winSetTheme,
-  moveToTrash,
   trashDir,
   writeText,
   readPins,
   writePins,
-  readTags,
   readText,
   findInFiles,
   cancelOp,
@@ -81,6 +77,7 @@ import {
   type ShellProfile,
 } from "./api";
 import { runTransfer, planTransfer, type TransferOp } from "./transfer";
+import { loadTags, movePath, renamePath, setTags, trashPath, useTags } from "./tags";
 import { transferDeps, reportTransfer, pushTransferUndo, asItems, listNames } from "./transferUi";
 import { errText } from "./errors";
 import { findStatusText } from "./findStatus";
@@ -404,7 +401,9 @@ export function App() {
   // clipboard contents.
   const [cutPaths, setCutPaths] = useState<string[]>([]);
   const [pins, setPins] = useState<string[]>([]);
-  const [tagStore, setTagStore] = useState<Record<string, string[]>>({});
+  // The tag store (tags.ts): renames, moves and the trash keep it current.
+  const tagStore = useTags();
+  const setTagStore = setTags;
   const [blame, setBlame] = useState<{ path: string; lines: BlameLine[] } | null>(null);
   const [gitOutput, setGitOutput] = useState<GitOutputState | null>(null);
   const [diffView, setDiffView] = useState<{ a: string; b: string; diff: string } | null>(null);
@@ -444,7 +443,7 @@ export function App() {
   useEffect(() => {
     void (async () => {
       setPins(await readPins());
-      setTagStore(await readTags());
+      await loadTags();
     })();
   }, []);
 
@@ -1328,7 +1327,7 @@ export function App() {
         <BulkRenameDialog
           items={bulkRenameItems}
           onClose={() => setBulkRenameItems(null)}
-          renameOne={(from, to) => renameEntry(from, to)}
+          renameOne={(from, to) => renamePath(from, to)}
           listNames={listNames}
           onDone={() => activeHandle?.actions.refresh()}
         />
@@ -1339,8 +1338,8 @@ export function App() {
           dstDir={pasteSpecial.dstDir}
           clipboardMode={pasteSpecial.clipboardMode}
           copyEntry={transferDeps.copy}
-          moveEntry={moveEntry}
-          trashEntry={async p => { await moveToTrash(p); }}
+          moveEntry={movePath}
+          trashEntry={async p => { await trashPath(p); }}
           planTransfer={(items, dstDir, op) => planTransfer(items, dstDir, op, transferDeps)}
           onClose={() => setPasteSpecial(null)}
           onDone={(clear) => {
@@ -1372,10 +1371,7 @@ export function App() {
         <TagPickerDialog
           path={tagPickerPath}
           onClose={() => setTagPickerPath(null)}
-          onSaved={(store) => {
-            setTagStore(store);
-            setTagPickerPath(null);
-          }}
+          onSaved={() => setTagPickerPath(null)}
         />
       )}
       {trashOpen && (

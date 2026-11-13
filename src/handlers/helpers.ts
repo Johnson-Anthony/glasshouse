@@ -1,4 +1,4 @@
-import { gitBlame, gitDiscard, gitStage, gitUnstage, homeDir, openUrl, pathKind, winToWsl, writeTags, type BlameLine, type FileEntry, type GitDiscardResult } from "../api";
+import { gitBlame, gitDiscard, gitStage, gitUnstage, homeDir, openUrl, pathKind, winToWsl, type BlameLine, type FileEntry, type GitDiscardResult } from "../api";
 import { dialogs } from "../dialogs/DialogHost";
 import { isModalOpen } from "../dialogs/modal";
 import { errText } from "../errors";
@@ -169,7 +169,6 @@ export async function removeTagPrompt(path: string, { tagStore, setTagStore }: T
     const next = { ...prev };
     if (filtered.length === 0) delete next[path];
     else next[path] = filtered;
-    void writeTags(next);
     return next;
   });
 }
@@ -188,7 +187,6 @@ export async function clearAllTags(paths: string[], { tagStore, setTagStore }: T
   setTagStore(prev => {
     const next = { ...prev };
     for (const p of tagged) delete next[p];
-    void writeTags(next);
     return next;
   });
   return "cleared";

@@ -34,14 +34,14 @@ On 2026-11-11, four read-only agents surveyed the app (at `45ea31b`): frontend b
 | 21 | open-with | both | S–M | queued |
 | 22 | os-drag-drop | both | M–L | merged (`cool-satoshi-4102fc`, 11-13; drag out and in confirmed by the user on niri) |
 | 23 | miller-parity | frontend | M | queued |
-| 24 | tags-follow | frontend | M | queued |
+| 24 | tags-follow | frontend | M | merged (`festive-leakey-a10edf`, 11-13) |
 | 25 | folder-size | both | S–M | queued |
 | **Wave 6: tests, CI and dependencies** |||||
 | 26 | test-gaps | both | S | queued |
 | 27 | ci-hygiene | CI | S | merged (7bb4385) |
 | 28 | deps-bump | both | M | queued |
 | **User requests** |||||
-| 29 | settings-dialog | frontend | M | queued (user-requested 11-13; first in line) |
+| 29 | settings-dialog | frontend | M | **running** (`distracted-yalow-967327`, started 11-13; user-requested) |
 
 **Scheduling notes:**
 - Run at most two Rust tasks at once (RAM).
@@ -314,6 +314,7 @@ These items do nothing, or something else. Make each work, or remove it. For the
 - *(from undo-coverage)* Task 7 can push `contentUndo(label, path, before, after)` per file; task 12 (Move to Trash) is the last file change with neither an undo entry nor `markIrreversible`. Change Owner could get an undo if `file_stat_extended` returned uid:gid. Paste Special's undo entry and the "can't undo" toast aren't unit-tested (no DOM; see dom-tests).
 
 ## Unconfirmed: check before fixing
+- **Accidental drag moves (2026-11-13).** At 16:37:24 `~/.local` was moved into `~/.claude/.local` in one rename (the lead moved it back at 16:46). No shell command or Claude transcript did it. The touchpad logged phantom "touch jump" input at 16:37:40, just after the laptop woke from sleep. If glasshouse was open on the home folder (hidden files shown), a phantom drag of one row onto a neighbouring folder row would do exactly this, because a plain drag moves. Ask the user; if it was the app, consider a guard: a longer hold or distance before a drag starts, or a confirm when a drag would move a folder out of the home folder or move a hidden one.
 - The terminal has no flow control: `yes` or `cat bigfile` sends one `pty-data` event per 4 KiB read and may freeze the webview (`pty.rs`).
 - The dialog host holds one dialog at a time, so a second one replaces the first, whose promise then never settles.
 - The terminal buffers up to 256 events from every session until a new tab's id arrives, so a busy tab could push out the new tab's first prompt.
