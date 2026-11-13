@@ -26,10 +26,13 @@ Scope: `## 22. os-drag-drop` in `docs/plans/active/survey-2.md`, plus the lead's
 - The demo can't do OS drags; its internal drag checks must still pass.
 
 ## Status
-- [ ] Spike: drag out on Linux, release build, test steps to the lead
-- [ ] Drag in
-- [ ] Modifiers, ghost label, help text
-- [ ] Tabs and breadcrumbs as drop targets
-- [ ] Windows drag out (`drag` crate; first compiled by CI)
-- [ ] Checks: build, test, check:wiring, notices, clippy, cargo test, site:build, site:capture check
+- [x] Spike: drag out on Linux, release build (d79d022), test steps to the lead. **Waiting on the user's test on niri.**
+- [x] Drag in
+- [x] Modifiers, ghost label, cheatsheet
+- [x] Tabs and breadcrumbs as drop targets
+- [x] Windows drag out (`drag` crate): its calls type-check against `x86_64-pc-windows-msvc` in a scratch crate; the full build is CI's
+- [x] Checks at d79d022: `pnpm build`, `pnpm test` (547 passed), `pnpm check:wiring`, `pnpm notices --check` (regenerated: 423 crates), clippy `-D warnings`, `cargo test` (206 passed, 5 ignored), `pnpm site:build`, `pnpm site:capture check` (23 of 23, capped)
+- [ ] The user's results, and any fixes they need
 - [ ] Handoff
+
+Decisions: `docs/decisions/2026-11-13-os-drag-drop-design.md`.

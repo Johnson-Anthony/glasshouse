@@ -29,6 +29,7 @@ A Tauri 2 app. The window is a React 18 UI (`src/`) that calls Rust commands (`s
 | `findReplace.ts` | Find & Replace in Files: the preview confirm, the report and the undo entry. The search and the writes are the backend's `replace.rs` |
 | `names.ts`, `paths.ts`, `tabs.ts`, `fuzzy.ts`, `shellCd.ts`, `octal.ts` | Pure helpers: name conflicts and bulk-rename ordering; path rules per platform; tab-list operations; fuzzy matching; terminal `cd`; chmod parsing |
 | `ops.ts`, `opStore.ts`, `OpsTray.tsx` | Long operations (hash, copy, find) with progress and Cancel |
+| `dragDrop.ts`, `OsDrop.tsx` | Drag and drop. The pane's own drag uses pointer events (FilePane); at the window's edge it hands off to the OS (`start_drag_out`). Drops from other apps come through Tauri's drag-drop event and copy. Every drop target carries `data-drop-path`: folder rows, the pane, tabs, breadcrumb segments, sidebar rows |
 | `NoticesScreen.tsx`, `notices.ts`, `noticesData.ts` | Help → Third-party Notices, from `assets/fonts` and the generated `assets/third-party.json` (lazy chunk) |
 | `commandState.ts`, `remotes.ts`, `platform.ts` | `cmdState` (app clipboard, context-menu target); ssh profiles for saved remotes; `IS_WINDOWS` |
 | `styles/themes.css`, `styles/app.css` | 8 themes as CSS variables on `[data-theme]`; layout and component CSS |
@@ -57,7 +58,7 @@ A Tauri 2 app. The window is a React 18 UI (`src/`) that calls Rust commands (`s
 | Path | What |
 |---|---|
 | `lib.rs` | Plugins, managed state, and every command in `generate_handler!` |
-| `commands/` | The commands, one module per area: `listing`, `fs_ops`, `file_info`, `search`, `replace`, `archive`, `hash`, `git`, `config`, `system`, `wsl`, `launch`, `trash` (Move to Trash, and the Trash dialog's list, restore and purge; `recycle_bin.rs` checks a Windows drive has a Recycle Bin). Tests are inline or in `<module>_tests.rs`; shared helpers are in `testing.rs` |
+| `commands/` | The commands, one module per area: `listing`, `fs_ops`, `file_info`, `search`, `replace`, `archive`, `hash`, `git`, `config`, `system`, `wsl`, `launch`, `drag_out` (a native drag of files into other apps: GTK on Linux, OLE through the `drag` crate on Windows), `trash` (Move to Trash, and the Trash dialog's list, restore and purge; `recycle_bin.rs` checks a Windows drive has a Recycle Bin). Tests are inline or in `<module>_tests.rs`; shared helpers are in `testing.rs` |
 | `ops.rs` | `OpRegistry` and `Op`: `op-progress` events (at most every 100 ms) and cancellation for calls given an `op_id`, plus `cancel_op` |
 | `pty.rs`, `pty/profiles.rs` | Terminal sessions (portable-pty; per session a reader, a wait and a writer thread, with `pty_write` queuing onto the writer); shell, WSL and ssh profile detection and `check_profile` |
 | `watcher.rs` | Folder watching (notify, 300 ms debounce) emitting `fs-changed` |
