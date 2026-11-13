@@ -47,9 +47,12 @@ A Tauri 2 app. The window is a React 18 UI (`src/`) that calls Rust commands (`s
 - See `docs/decisions/2026-11-10-split-big-files-app-routing.md`.
 
 **Listing and refresh.**
-- `useTabState` calls `list_dir`, which returns each entry with its git label scanned for that folder only.
+- `useTabState` calls `list_dir`, which returns each entry with its git label scanned for that folder only, then `git_status` for the toolbar's git line.
 - It then calls `watch_dir`. The backend sends `fs-changed` for the folder (300 ms debounce) and the tab re-lists. A 30 s poll is the backup.
 - Each `watch_dir` needs one `unwatch_dir`. The backend counts them per folder, so tabs on the same folder share one watch until the last one leaves.
+- `refreshGate.ts` runs one listing at a time per tab. A quiet one (a watcher report, the poll, a refresh) starts no sooner than 500 ms after the last ended, and reports in between become one trailing listing. A navigation starts at once.
+- Only the tab shown re-lists on reports and the poll. A tab in the background notes that it missed one and re-lists when shown.
+- The git dirty count needs a scan of the whole repo. `git.rs` keeps each repo's last count with the HEAD commit and index stamp it was counted at. `git_status(path, max_age_ms)` reuses it when those match and the scan is recent enough: a navigation accepts one up to a poll old, and a refresh one since it began, which a listing at the repo's root just made.
 
 **Paths.** Paths are plain strings. `paths.ts` applies the platform's rules (`IS_WINDOWS` comes from the user agent): `\` is a separator, and comparisons are case-insensitive, only on Windows.
 
@@ -57,7 +60,7 @@ A Tauri 2 app. The window is a React 18 UI (`src/`) that calls Rust commands (`s
 | Path | What |
 |---|---|
 | `lib.rs` | Plugins, managed state, and every command in `generate_handler!` |
-| `commands/` | The commands, one module per area: `listing`, `fs_ops`, `file_info`, `search`, `replace`, `archive`, `hash`, `git`, `config`, `system`, `wsl`, `launch`, `trash` (Move to Trash, and the Trash dialog's list, restore and purge; `recycle_bin.rs` checks a Windows drive has a Recycle Bin). Tests are inline or in `<module>_tests.rs`; shared helpers are in `testing.rs` |
+| `commands/` | The commands, one module per area: `listing`, `fs_ops`, `file_info`, `search`, `replace`, `archive`, `hash`, `git`, `config`, `system` (Windows drive letters in `drive_letters.rs`), `wsl` (one timed, cached `wsl.exe --list` for the sidebar and the terminal profiles), `launch`, `trash` (Move to Trash, and the Trash dialog's list, restore and purge; `recycle_bin.rs` checks a Windows drive has a Recycle Bin). Tests are inline or in `<module>_tests.rs`; shared helpers are in `testing.rs` |
 | `ops.rs` | `OpRegistry` and `Op`: `op-progress` events (at most every 100 ms) and cancellation for calls given an `op_id`, plus `cancel_op` |
 | `pty.rs`, `pty/profiles.rs` | Terminal sessions (portable-pty; per session a reader, a wait and a writer thread, with `pty_write` queuing onto the writer); shell, WSL and ssh profile detection and `check_profile` |
 | `watcher.rs` | Folder watching (notify, 300 ms debounce) emitting `fs-changed` |
