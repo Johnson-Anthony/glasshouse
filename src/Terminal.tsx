@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Terminal, type ITheme } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
@@ -312,6 +312,14 @@ export function TerminalDrawer({ open, cwd, profile, follow, height, onHeightCha
   const tabsRef = useRef(tabs);
   tabsRef.current = tabs;
   const handledProfileRef = useRef<ShellProfile | null>(null);
+  // App mounts the drawer the first time it opens. It starts closed for that
+  // first style pass, so it slides in like every later open.
+  const drawerRef = useRef<HTMLDivElement>(null);
+  const [placed, setPlaced] = useState(false);
+  useLayoutEffect(() => {
+    void drawerRef.current?.offsetHeight;
+    setPlaced(true);
+  }, []);
 
   useEffect(() => {
     void (async () => setProfiles(await listShellProfiles()))();
@@ -419,7 +427,7 @@ export function TerminalDrawer({ open, cwd, profile, follow, height, onHeightCha
   };
 
   return (
-    <div className={"term-drawer" + (open ? " open" : "")} style={{ height }}>
+    <div ref={drawerRef} className={"term-drawer" + (open && placed ? " open" : "")} style={{ height }}>
       <div className="term-resize" onMouseDown={onDragStart} title="drag to resize" />
       <div className="term-head">
         {tabs.map(t => {

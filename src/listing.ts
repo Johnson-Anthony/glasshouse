@@ -8,7 +8,7 @@
 // an update whose indexes came from an older listing than the current one.
 // See docs/decisions/2026-11-11-selection-integrity-listing.md.
 
-import type { FileEntry } from "./api";
+import type { FileEntry, GitInfo } from "./api";
 import { normalizePath } from "./paths";
 
 export interface Listing {
@@ -53,10 +53,27 @@ export function remapIndexes<T>(from: T[], to: T[], idx: number[], pathOf: PathO
   return mapAll(indexMapper(from, to, pathOf), idx);
 }
 
+function sameEntry(a: FileEntry, b: FileEntry): boolean {
+  return a.path === b.path && a.name === b.name && a.kind === b.kind && a.size === b.size
+    && a.modified_ms === b.modified_ms && a.hidden === b.hidden && a.ext === b.ext
+    && a.is_symlink === b.is_symlink && a.lossy === b.lossy && a.git === b.git;
+}
+
+/** Two listings with the same entries, field for field, in the same order. */
+export function sameEntries(a: FileEntry[], b: FileEntry[]): boolean {
+  if (a === b) return true;
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) if (!sameEntry(a[i], b[i])) return false;
+  return true;
+}
+
 /** The listing after the folder is re-read. Selected files that are gone drop
  *  out. A focused file that's gone leaves focus at the same position, clamped,
- *  which is the next row after a delete; a lost anchor follows the focus. */
+ *  which is the next row after a delete; a lost anchor follows the focus.
+ *  A re-read that changed nothing returns `prev` itself, so the poll and the
+ *  watcher don't re-render the pane. */
 export function relist(prev: Listing, entries: FileEntry[]): Listing {
+  if (sameEntries(prev.entries, entries)) return prev;
   const map = indexMapper(prev.entries, entries, entryPath);
   const selected = mapAll(map, prev.selected);
   const focusIndex = map(prev.focusIndex) ?? Math.max(0, Math.min(prev.focusIndex, entries.length - 1));
@@ -81,4 +98,16 @@ export function withFocus(l: Listing, basis: FileEntry[], i: number): Listing {
 export function withAnchor(l: Listing, basis: FileEntry[], i: number): Listing {
   const j = basis === l.entries ? i : indexMapper(basis, l.entries, entryPath)(i);
   return j === undefined || j === l.anchorIndex ? l : { ...l, anchorIndex: j };
+}
+
+/** `next`, or `prev` itself when the repo's status hasn't changed, so a
+ *  re-read doesn't re-render the toolbar and status bar for nothing. */
+export function keepGitInfo(prev: GitInfo | null, next: GitInfo | null): GitInfo | null {
+  if (!prev || !next) return next;
+  if (prev.repo_root !== next.repo_root || prev.branch !== next.branch || prev.ahead !== next.ahead
+    || prev.behind !== next.behind || prev.dirty !== next.dirty) return next;
+  const a = Object.keys(prev.status), b = Object.keys(next.status);
+  if (a.length !== b.length) return next;
+  for (const k of a) if (prev.status[k] !== next.status[k]) return next;
+  return prev;
 }
