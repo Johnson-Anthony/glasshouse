@@ -22,7 +22,10 @@ Date: 2026-11-13. Task: `os-drag-drop` (survey-2 task 22). Status: for review by
 - Targets: a folder row, the pane outside a folder row (its folder), a tab (its folder), a breadcrumb segment, a sidebar folder. They all carry `data-drop-path`, and one resolver (`dropTargetOf`) takes the nearest.
 - It goes through `performDrop`: `runTransfer`, the keep both / replace / skip question, and undo, as Paste does.
 - Items already in the target folder are skipped, as in Explorer; a drop that would change nothing shows no hint.
-- A drag out that comes back into the window is a drop from another app, so it copies.
+- **Except the pane's own drag coming back.** A drag aimed at a tab can overshoot the titlebar to the window's top edge and get handed to the OS; dropped back in, it would copy where the user meant a move. So the handoff records the paths and the Ctrl state (`recordHandOff` in `dragDrop.ts`), and an OS drop of exactly those paths moves, or copies if Ctrl was held as the drag left; the hint says which. Ctrl pressed or released after the handoff doesn't count, since the OS drop carries no keys.
+  - The record goes with the next drop, a press in the window, the window losing focus, or a second after the pointer is back in the window with no button down. That last one isn't immediate: the webview gets no pointer events while the OS has the drag, but on release the pointer's return can reach the page before the drop event does.
+  - Anything that clears it early leaves a copy, the old behavior. What it guards against is a later drop of the same files from another app counting as our move; starting that drag means pressing in the other app, which takes the focus from glasshouse.
+  - A second glasshouse window doesn't know about the first one's handoff, so a drag from one window to another copies.
 
 ## Modifiers inside the app
 **Chosen: a drag moves, Ctrl (Cmd) copies, Shift moves,** as in Explorer and Nautilus. It was Shift to copy. The ghost says "move" or "copy" and follows Ctrl as it's pressed and released before the pointer moves. The cheatsheet lists the gestures.

@@ -32,6 +32,7 @@ Scope: `## 22. os-drag-drop` in `docs/plans/active/survey-2.md`, plus the lead's
 - [x] Tabs and breadcrumbs as drop targets
 - [x] Windows drag out (`drag` crate): its calls type-check against `x86_64-pc-windows-msvc` in a scratch crate; the full build is CI's
 - [x] Checks at d79d022: `pnpm build`, `pnpm test` (547 passed), `pnpm check:wiring`, `pnpm notices --check` (regenerated: 423 crates), clippy `-D warnings`, `cargo test` (206 passed, 5 ignored), `pnpm site:build`, `pnpm site:capture check` (23 of 23, capped)
+- [x] The lead's review: a drag that overshoots to the titlebar's edge and comes back now moves, as the in-app drag would (`recordHandOff`). Checks after it: `pnpm build`, `pnpm test` (553 passed), `pnpm check:wiring`, `pnpm notices --check`; no Rust change. Release binary rebuilt for the user's test.
 - [ ] The user's results, and any fixes they need
 - [ ] Handoff
 

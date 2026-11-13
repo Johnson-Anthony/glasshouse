@@ -81,7 +81,7 @@ import { runTransfer, planTransfer, type TransferOp } from "./transfer";
 import { transferDeps, reportTransfer, pushTransferUndo, asItems, listNames } from "./transferUi";
 import { errText } from "./errors";
 import { findStatusText } from "./findStatus";
-import { dropTargetAt, notAlreadyIn } from "./dragDrop";
+import { clearHandOff, dropTargetAt, notAlreadyIn, recordHandOff } from "./dragDrop";
 import { OsDrop } from "./OsDrop";
 
 // xterm is most of the terminal's weight, so the drawer is its own chunk,
@@ -1128,11 +1128,15 @@ export function App() {
           const moving = target ? notAlreadyIn(sources, target.path) : [];
           if (target && moving.length > 0) performDrop(moving, target.path, copy, () => handle?.actions.refresh());
         }}
-        onDragOut={(sourceOrigIndices) => {
+        onDragOut={(sourceOrigIndices, copy) => {
           const paths = sourceOrigIndices
             .map(i => rows[i]?.entry.path)
             .filter((p): p is string => !!p);
-          startDragOut(paths).catch(e => dialogs.showToast({ message: `couldn't drag out: ${errText(e)}`, variant: "error" }));
+          recordHandOff(paths, copy);
+          startDragOut(paths).catch(e => {
+            clearHandOff();
+            dialogs.showToast({ message: `couldn't drag out: ${errText(e)}`, variant: "error" });
+          });
         }}
       />
     );
@@ -1164,7 +1168,7 @@ export function App() {
         onTabContext={onTabContext}
         tabPaths={tabs.map(t => tabHandles[t.id]?.state.path)}
       />
-      <OsDrop onDrop={(paths, dir) => performDrop(paths, dir, true, () => activeHandle?.actions.refresh())} />
+      <OsDrop onDrop={(paths, dir, copy) => performDrop(paths, dir, copy, () => activeHandle?.actions.refresh())} />
       <Menubar
         onOpenPalette={() => setPalOpen(true)}
         onCommand={handleMenuCommand}

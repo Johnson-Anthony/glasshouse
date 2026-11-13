@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 // The pane's own drag: Ctrl copies, a plain or Shift drag moves, the ghost
-// follows Ctrl mid-drag, and leaving the window hands the drag to the OS.
+// follows Ctrl mid-drag, and leaving the window hands the drag to the OS,
+// with the Ctrl state.
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -105,7 +106,7 @@ describe("dragging rows out of the window", () => {
     press(3);
     move(140, 140);
     move(-4, 140);
-    expect(onDragOut).toHaveBeenCalledWith([3]);
+    expect(onDragOut).toHaveBeenCalledWith([3], false);
     expect(ghost()).toBeUndefined();
     release();
     expect(onRowDrop).not.toHaveBeenCalled();
@@ -117,7 +118,15 @@ describe("dragging rows out of the window", () => {
     press(3);
     move(140, 140);
     act(() => { window.dispatchEvent(new MouseEvent("mouseout", { relatedTarget: null })); });
-    expect(onDragOut).toHaveBeenCalledWith([3]);
+    expect(onDragOut).toHaveBeenCalledWith([3], false);
+  });
+
+  it("says whether Ctrl was held as it left", () => {
+    over(rowEl(0));
+    press(3);
+    move(140, 140);
+    move(140, 0, { ctrlKey: true });
+    expect(onDragOut).toHaveBeenCalledWith([3], true);
   });
 
   it("doesn't hand over a press that never became a drag", () => {

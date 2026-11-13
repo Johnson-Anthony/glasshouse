@@ -251,8 +251,8 @@ export interface FilePaneProps {
    *  App handles the drop site via a global window "glasshouse-extern-drop" event. */
   onExternalDrag?: (sourceOrigIndices: number[], clientX: number, clientY: number, copy: boolean) => void;
   /** The drag left the window: hand these rows to the OS as a drag, for
-   *  dropping into another app. */
-  onDragOut?: (sourceOrigIndices: number[]) => void;
+   *  dropping into another app. `copy`: Ctrl was held as it left. */
+  onDragOut?: (sourceOrigIndices: number[], copy: boolean) => void;
   paneRootRef?: React.Ref<HTMLElement>;
   /** The pane's folder: a drop on the pane outside a folder row goes here. */
   dropPath?: string;
@@ -761,13 +761,13 @@ export function FilePane({
       };
       // Out of the window with the button still down: the OS takes the drag
       // from here, so it can be dropped into another app.
-      const handOff = () => {
+      const handOff = (ev: MouseEvent) => {
         stop();
         const dropped = sourcesNow();
-        if (dropped.length > 0) latest.current.onDragOut?.(dropped);
+        if (dropped.length > 0) latest.current.onDragOut?.(dropped, dragCopies(ev));
       };
       const onOut = (ev: MouseEvent) => {
-        if (dragging && ev.relatedTarget === null && latest.current.onDragOut) handOff();
+        if (dragging && ev.relatedTarget === null && latest.current.onDragOut) handOff(ev);
       };
       const onMove = (ev: PointerEvent) => {
         moved = true;
@@ -776,7 +776,7 @@ export function FilePane({
         if (!dragging && Math.hypot(dx, dy) < DRAG_THRESHOLD_PX) return;
         dragging = true;
         if (latest.current.onDragOut && leftWindow(ev.clientX, ev.clientY, window.innerWidth, window.innerHeight)) {
-          handOff();
+          handOff(ev);
           return;
         }
         setGhost({
