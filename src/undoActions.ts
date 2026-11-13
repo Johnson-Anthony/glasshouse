@@ -11,14 +11,15 @@
 // What each action does: docs/decisions/2026-11-12-undo-coverage-policy.md
 
 import {
-  copyEntry, createTextFile, deleteEntry, fileStatExtended, makeDir, moveEntry, moveToTrash, readDir, readText, renameEntry,
-  rewriteText, setPermissions, trashRestore, writeText, type FileEntry, type Trashed, type TrashKey, type TrashResult,
+  copyEntry, createTextFile, fileStatExtended, makeDir, readDir, readText,
+  rewriteText, setPermissions, writeText, type FileEntry, type Trashed, type TrashKey, type TrashResult,
 } from "./api";
 import { renameFailure, renameStepsProblem, reverseRenameSteps, runRenameSteps, type RenameStep } from "./names";
 import { basename, normalizePath, parentPath } from "./paths";
 import { IS_WINDOWS } from "./platform";
 import type { UndoEntry } from "./state";
 import { errText } from "./errors";
+import { deletePath, movePath, renamePath, restoreTrashed, trashPath } from "./tags";
 
 export interface UndoFs {
   rename(from: string, to: string): Promise<void>;
@@ -39,11 +40,13 @@ export interface UndoFs {
  *  matches what was written, so its undo refuses. */
 const CONTENT_LIMIT = 16 * 1024 * 1024;
 
+// Renames, moves and deletes carry the tags along (tags.ts), so undo and
+// redo move them back and forth too.
 const realFs: UndoFs = {
-  rename: renameEntry,
-  move: moveEntry,
+  rename: renamePath,
+  move: movePath,
   copy: copyEntry,
-  remove: deleteEntry,
+  remove: deletePath,
   mkdir: makeDir,
   write: createTextFile,
   list: dir => readDir(dir, true),
@@ -421,9 +424,10 @@ export interface TrashFs {
   list: UndoFs["list"];
 }
 
+// Trashing drops the items' tags and a restore puts them back (tags.ts).
 const realTrash: TrashFs = {
-  trash: moveToTrash,
-  restore: keys => trashRestore(keys, true),
+  trash: trashPath,
+  restore: keys => restoreTrashed(keys, true),
   list: realFs.list,
 };
 
@@ -464,7 +468,8 @@ function trashSwitch(paths: string[], inTrash: Trashed[] | null, fs: TrashFs) {
 
 /** Move to Trash: undo restores exactly the items it trashed (by original
  *  path and deletion time), refusing if any is gone from the trash or its
- *  name is taken again; redo trashes them again. */
+ *  name is taken again; redo trashes them again. With the real trash, the
+ *  items' tags go and come back with them (tags.ts). */
 export function trashUndo(label: string, trashed: Trashed[], fs: TrashFs = realTrash): UndoEntry {
   const s = trashSwitch(trashed.map(t => t.original), trashed, fs);
   return { label, inverse: s.restore, redo: s.trash };

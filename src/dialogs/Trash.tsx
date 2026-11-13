@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useState } from "react";
-import { trashList, trashPurge, trashRestore, type TrashEntry } from "../api";
+import { trashList, trashPurge, type TrashEntry } from "../api";
 import { formatDate } from "../components";
 import { errText } from "../errors";
 import { IS_WINDOWS } from "../platform";
 import { markIrreversible, pushUndo } from "../state";
 import { problemLines, sortTrash, trashKey, trashSizeText } from "../trashView";
+import { restoreTrashed } from "../tags";
 import { restoreUndo } from "../undoActions";
 import { dialogs } from "./DialogHost";
 import { useModal } from "./modal";
@@ -83,7 +84,8 @@ export function TrashDialog({ onClose, onChanged, onBrowseFolder }: TrashDialogP
   };
 
   const restore = () => run(async () => {
-    const res = await trashRestore(chosen.map(trashKey), false);
+    // Items this run trashed get their tags back.
+    const res = await restoreTrashed(chosen.map(trashKey), false);
     if (res.done.length > 0) {
       pushUndo(restoreUndo(`restore ${res.done.length} item(s) from the ${BIN}`, res.done));
       dialogs.showToast({ message: `restored ${res.done.length} item(s)`, variant: "success" });

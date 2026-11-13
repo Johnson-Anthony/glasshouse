@@ -1,13 +1,14 @@
 // The app's side of transfer.ts and names.ts: the real fs calls, the conflict
 // question, the toasts and undo entries every copy/move-into-a-folder shares,
 // and the name checks before creating or renaming.
-import { copyEntry, isAlreadyExists, moveEntry, moveToTrash, readDir } from "./api";
+import { copyEntry, isAlreadyExists, readDir } from "./api";
 import { dialogs } from "./dialogs/DialogHost";
 import { NameSet, nameProblem, takenProblem } from "./names";
 import { runOp } from "./ops";
 import { basename } from "./paths";
 import { IS_WINDOWS } from "./platform";
 import { pushUndo } from "./state";
+import { movePath, trashPath } from "./tags";
 import {
   conflictMessage,
   failureDetails,
@@ -39,8 +40,10 @@ export const transferDeps: TransferDeps = {
   // Each copy is an op in the tray, with a Cancel; runTransfer stops there.
   copy: (src, dst) =>
     runOp(`copying ${basename(src)}`, track => copyEntry(src, dst, track())),
-  move: moveEntry,
-  trash: async p => { await moveToTrash(p); },
+  // A move takes the item's tags along; a copy starts untagged, and an item
+  // replaced (trashed) loses its tags (tags.ts).
+  move: movePath,
+  trash: async p => { await trashPath(p); },
   windows: IS_WINDOWS,
 };
 

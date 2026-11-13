@@ -1,11 +1,17 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { FileEntry, Trashed, TrashKey, TrashResult } from "./api";
 import { pushUndo, redoLast, redoStack, undoLast, undoStack, type UndoEntry } from "./state";
 import { orderRenames, runRenameSteps, type RenameStep } from "./names";
 import {
+  droppingTags, followingTags, getTags, resetTagStoreForTests, restoringTags, setTags, trashingTags,
+} from "./tags";
+import {
   contentUndo, contentsUndo, copyUndo, createUndo, emptyFolderUndo, groupUndo, madeUndo, moveUndo, permissionsUndo, renameStepsUndo,
   restoreUndo, trashUndo, type PermFs, type TrashFs, type UndoFs,
 } from "./undoActions";
+
+// The tag store writes through the backend; nothing here reaches it.
+vi.mock("./api");
 
 // In-memory POSIX file system. Unlike the real backend, which refuses a taken
 // destination, rename/move and write here replace whatever is there, so the
@@ -733,5 +739,91 @@ describe("restoreUndo (Restore in the Trash view)", () => {
     const entry = restoreUndo(`restore ${res.done.length} item(s) from the trash`, res.done, trash);
     await roundTrip(fs, entry, before);
     expect(trash.bin).toHaveLength(2);
+  });
+});
+
+// The app's real file system moves and drops tags with each rename, move,
+// delete and trash (tags.ts); these wrap the in-memory ones the same way.
+function tagged(fs: MemFs): UndoFs {
+  return {
+    rename: followingTags((a, b) => fs.rename(a, b)),
+    move: followingTags((a, b) => fs.move(a, b)),
+    remove: droppingTags((p: string, recursive: boolean) => fs.remove(p, recursive)),
+    copy: (a, b) => fs.copy(a, b),
+    mkdir: p => fs.mkdir(p),
+    write: (p, c) => fs.write(p, c),
+    list: d => fs.list(d),
+    read: p => fs.read(p),
+    overwrite: (p, c) => fs.overwrite(p, c),
+  };
+}
+
+function taggedTrash(trash: MemTrash): TrashFs {
+  return {
+    trash: trashingTags(p => trash.trash(p)),
+    restore: restoringTags((keys: TrashKey[]) => trash.restore(keys)),
+    list: d => trash.list(d),
+  };
+}
+
+describe("tags through undo and redo", () => {
+  it("a move's undo takes the tags back, and redo moves them again", async () => {
+    const fs = new MemFs({ "/src/one.txt": "1", "/src/dir/inner.txt": "in", "/dst": null });
+    const tfs = tagged(fs);
+    const start = { "/src/one.txt": ["red"], "/src/dir": ["blue"], "/src/dir/inner.txt": ["green"] };
+    resetTagStoreForTests(start);
+    const items = [{ src: "/src/one.txt", dst: "/dst/one.txt" }, { src: "/src/dir", dst: "/dst/dir" }];
+    for (const { src, dst } of items) await tfs.move(src, dst);
+    const moved = { "/dst/one.txt": ["red"], "/dst/dir": ["blue"], "/dst/dir/inner.txt": ["green"] };
+    expect(getTags()).toEqual(moved);
+    pushUndo(moveUndo("move", items, "move", tfs));
+    expect((await undoLast()).status).toBe("done");
+    expect(getTags()).toEqual(start);
+    expect((await redoLast()).status).toBe("done");
+    expect(getTags()).toEqual(moved);
+  });
+
+  it("a bulk rename swap swaps the tags, and its undo swaps them back", async () => {
+    const fs = new MemFs({ "/d/a": "A", "/d/b": "B" });
+    const tfs = tagged(fs);
+    resetTagStoreForTests({ "/d/a": ["red"], "/d/b": ["blue"] });
+    const steps = renameSteps(fs, "/d", [["a", "b"], ["b", "a"]]);
+    expect((await runRenameSteps(steps, (from, to) => tfs.rename(from, to))).ok).toBe(true);
+    expect(getTags()).toEqual({ "/d/a": ["blue"], "/d/b": ["red"] });
+    pushUndo(renameStepsUndo("swap", steps, tfs, false));
+    expect((await undoLast()).status).toBe("done");
+    expect(getTags()).toEqual({ "/d/a": ["red"], "/d/b": ["blue"] });
+    expect((await redoLast()).status).toBe("done");
+    expect(getTags()).toEqual({ "/d/a": ["blue"], "/d/b": ["red"] });
+  });
+
+  it("Move to Trash drops the tags, its undo puts them back, and redo drops them again", async () => {
+    const fs = new MemFs({ "/d/a.txt": "a", "/d/sub/x": "x", "/d/keep": "k" });
+    const trash = taggedTrash(new MemTrash(fs));
+    const start = { "/d/a.txt": ["red"], "/d/sub": ["blue"], "/d/sub/x": ["green"], "/d/keep": ["red"] };
+    resetTagStoreForTests(start);
+    const records = [await trash.trash("/d/a.txt"), await trash.trash("/d/sub")];
+    expect(getTags()).toEqual({ "/d/keep": ["red"] });
+    pushUndo(trashUndo("move 2 item(s) to the trash", records, trash));
+    expect((await undoLast()).status).toBe("done");
+    expect(getTags()).toEqual(start);
+    expect((await redoLast()).status).toBe("done");
+    expect(getTags()).toEqual({ "/d/keep": ["red"] });
+    expect((await undoLast()).status).toBe("done");
+    expect(getTags()).toEqual(start);
+  });
+
+  it("a copy starts untagged, and undoing it takes the copy's own tags with it", async () => {
+    const fs = new MemFs({ "/d/a.txt": "a", "/e": null });
+    const tfs = tagged(fs);
+    resetTagStoreForTests({ "/d/a.txt": ["red"] });
+    await tfs.copy("/d/a.txt", "/e/a.txt");
+    const entry = copyUndo("copy", [{ src: "/d/a.txt", dst: "/e/a.txt" }], tfs);
+    await settle();
+    expect(getTags()).toEqual({ "/d/a.txt": ["red"] });
+    setTags(prev => ({ ...prev, "/e/a.txt": ["blue"] }));
+    pushUndo(entry);
+    expect((await undoLast()).status).toBe("done");
+    expect(getTags()).toEqual({ "/d/a.txt": ["red"] });
   });
 });

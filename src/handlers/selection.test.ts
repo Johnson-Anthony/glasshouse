@@ -4,6 +4,7 @@ import * as api from "../api";
 import type { UseTabResult } from "../state";
 import type { HandlerCtx } from "./types";
 import { selectionHandler } from "./selection";
+import { resetTagStoreForTests } from "../tags";
 
 vi.mock("../api");
 const dialogs = vi.hoisted(() => ({
@@ -74,11 +75,22 @@ describe("selection commands use only the visible rows", () => {
   });
 
   it("Select by Tag → offers and picks only visible tagged rows", async () => {
-    vi.mocked(api.readTags).mockResolvedValue({ "/w/b.ts": ["red"], "/w/hidden.ts": ["red"], "/w/e.md": ["blue"] });
+    resetTagStoreForTests({ "/w/b.ts": ["red"], "/w/hidden.ts": ["red"], "/w/e.md": ["blue"] });
     const t = makeCtx([]);
     dialogs.showPrompt.mockResolvedValueOnce("blue");
     await selectionHandler("Select by Tag →", t.ctx);
     expect(dialogs.showPrompt.mock.lastCall?.[0]).toMatchObject({ message: "present: blue" });
+    expect(t.picked()).toEqual(["e.md"]);
+  });
+
+  it("Select by Tag → reads the tag store, not the file", async () => {
+    // The file still has the tag on a.ts; the store moved it to e.md.
+    vi.mocked(api.readTags).mockResolvedValue({ "/w/a.ts": ["blue"] });
+    resetTagStoreForTests({ "/w/e.md": ["blue"] });
+    const t = makeCtx([]);
+    dialogs.showPrompt.mockResolvedValueOnce("blue");
+    await selectionHandler("Select by Tag →", t.ctx);
+    expect(api.readTags).not.toHaveBeenCalled();
     expect(t.picked()).toEqual(["e.md"]);
   });
 

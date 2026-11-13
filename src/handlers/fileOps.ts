@@ -1,4 +1,4 @@
-import { type FileEntry, type Trashed, type TrashProblem, openWithDefault, renameEntry, deleteEntry, moveToTrash, trashUnsupported, makeDir, createTextFile, spawnTerminal, spawnVscodeStrict, revealInExplorer, archiveCreate, hashSha256, homeDir } from "../api";
+import { type FileEntry, type Trashed, type TrashProblem, openWithDefault, trashUnsupported, makeDir, createTextFile, spawnTerminal, spawnVscodeStrict, revealInExplorer, archiveCreate, hashSha256, homeDir } from "../api";
 import { MUTATING_LABELS } from "../data";
 import { dialogs } from "../dialogs/DialogHost";
 import { basename, parentPath, joinPath } from "../paths";
@@ -17,6 +17,7 @@ import { clearAllTags, copyWslPath, removeTagPrompt, runGitAction, selectedOrFir
 import { showLeftOut } from "./archive";
 import { cmdState } from "../commandState";
 import { errText } from "../errors";
+import { deletePath, renamePath, trashPath } from "../tags";
 
 /** The kinds of the selected entries, parallel to ctx.selectedPaths. */
 function selectedKinds(st: TabState): string[] {
@@ -90,10 +91,10 @@ export async function trashPaths(paths: string[], refresh: () => void): Promise<
   try {
     await removeEach(paths, async p => {
       if (permanent.has(p)) {
-        await deleteEntry(p, true);
+        await deletePath(p, true);
         deleted++;
       } else {
-        trashed.push(await moveToTrash(p));
+        trashed.push(await trashPath(p));
       }
     }, refresh, n => permanent.size > 0
       ? `couldn't remove ${n} of ${paths.length} item(s)`
@@ -216,7 +217,7 @@ export const fileOpsHandler: Handler = async (label, ctx) => {
         initialValue: firstEntry.name,
         placeholder: "new name",
         validate: (v) => nameProblem(v, taken, firstEntry.name),
-        submit: (v) => unlessTaken(v, async () => { if (v !== firstEntry.name) await renameEntry(src, joinPath(dir, v)); }),
+        submit: (v) => unlessTaken(v, async () => { if (v !== firstEntry.name) await renamePath(src, joinPath(dir, v)); }),
       });
       if (!next || next === firstEntry.name) return true;
       const dst = joinPath(dir, next);
@@ -243,7 +244,7 @@ export const fileOpsHandler: Handler = async (label, ctx) => {
       if (!ok) return true;
       const total = selectedPaths.length;
       try {
-        await removeEach(selectedPaths, p => deleteEntry(p, true), refresh,
+        await removeEach(selectedPaths, p => deletePath(p, true), refresh,
           n => `couldn't delete ${n} of ${total} item(s)`);
       } finally {
         markIrreversible(`delete ${total} item(s) permanently`);
