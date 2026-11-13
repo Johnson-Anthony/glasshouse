@@ -119,7 +119,7 @@ export const KEYMAP: KeyBinding[] = [
   { combo: "Shift+Delete", any: ["Ctrl", "Alt"], pane: true, send: "Delete Permanently", cheat: { label: "Delete permanently", group: "Edit", keys: "Shift+Del" } },
   { combo: "Delete", any: ["Ctrl", "Alt"], pane: true, send: "Move to Trash" },
   { combo: "Backspace", any: ["Shift"], send: "Up", cheat: { label: "Open parent", group: "Navigate" } },
-  // unlessHandled: Miller and the dialogs handle Enter themselves.
+  // unlessHandled: the file pane and the dialogs handle Enter themselves.
   { combo: "Enter", when: "selection", unlessHandled: true, pane: true, send: "Open", cheat: { label: "Open selected", group: "File" } },
 ];
 
@@ -138,6 +138,9 @@ const CODE_CHEATS: CheatEntry[] = [
   { label: "Run the highlighted menu item", keys: "Enter", group: "Menus" },
   { label: "Close a menu", keys: "Esc", group: "Menus" },
   { label: "Jump to a file by name", keys: "Type its first letters", group: "Navigate" },
+  { label: "Clear the selection", keys: "Esc", group: "Edit" },
+  // Miller columns (FilePane's `millerKeys`).
+  { label: "Miller columns: parent folder, open, down, up", keys: "h l j k or ← → ↓ ↑", group: "Navigate" },
 ];
 
 export interface CheatEntry { label: string; keys: string; group: string }

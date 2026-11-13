@@ -26,6 +26,18 @@ export function fullName(row: Pick<FileRow, "name" | "ext" | "kind">): string {
   return row.ext && row.kind !== "folder" ? `${row.name}.${row.ext}` : row.name;
 }
 
+/** A listing entry's name as a row holds it: a file's without its
+ *  extension, a folder's whole. `list_dir` gives `foo.d` the extension "d",
+ *  but on a folder it isn't one, and the pane never draws a folder's
+ *  extension. */
+export function entryName(e: { name: string; ext: string; kind: string }): { name: string; ext: string } {
+  const ext = e.kind === "folder" ? "" : e.ext;
+  const name = ext && e.name.toLowerCase().endsWith("." + ext.toLowerCase())
+    ? e.name.slice(0, -(ext.length + 1))
+    : e.name;
+  return { name, ext };
+}
+
 // FileRow is a display-only type without a filesystem path, but the host
 // (App.tsx) always passes rows that carry their entry.
 type WithEntry = { entry?: { path?: string; size?: number; modified_ms?: number } };

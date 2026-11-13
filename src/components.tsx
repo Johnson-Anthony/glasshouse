@@ -266,6 +266,10 @@ export interface FilePaneProps {
   error?: string | null;
   /** A listing is in flight. Only shown while there are no rows yet. */
   loading?: boolean;
+  /** The pane is Miller's middle column, with ranger's keys: ← and h open
+   *  the parent folder, → and l open the focused row, j and k move like ↓
+   *  and ↑. */
+  millerKeys?: boolean;
 }
 
 const PAGE_STEP = 10;
@@ -395,6 +399,7 @@ export function FilePane({
   cutPaths,
   error,
   loading,
+  millerKeys,
 }: FilePaneProps) {
   const paneRef = useRef<HTMLElement>(null);
   // Wire external ref (App keeps a handle to focus programmatically for Tab nav).
@@ -540,6 +545,25 @@ export function FilePane({
       openMenuFromKeys();
       return;
     }
+    // Miller's keys; a letter continues a type-ahead already under way.
+    let key = e.key;
+    if (millerKeys && !e.ctrlKey && !e.altKey && !e.metaKey) {
+      const k = key.length === 1 ? key.toLowerCase() : key;
+      if (!(k.length === 1 && typeAhead.current?.active(Date.now()))) {
+        if (k === "ArrowLeft" || k === "h") {
+          e.preventDefault();
+          onUp?.();
+          return;
+        }
+        if (k === "ArrowRight" || k === "l") {
+          e.preventDefault();
+          if (onOpen && visiblePos.has(focusIndex)) onOpen(focusIndex);
+          return;
+        }
+        if (k === "j") key = "ArrowDown";
+        else if (k === "k") key = "ArrowUp";
+      }
+    }
     if (displayFiles.length === 0) return;
 
     const currentPos = visiblePos.get(focusIndex);
@@ -572,7 +596,7 @@ export function FilePane({
       if (k === "x" && onCut) { e.preventDefault(); onCut(); return; }
     }
 
-    switch (e.key) {
+    switch (key) {
       case "ArrowDown":
         e.preventDefault();
         move(safePos + 1, e.shiftKey);

@@ -19,8 +19,8 @@ export function slugify(label: string): string {
 function setDisplayMode(mode: string): void {
   localStorage.setItem(DISPLAY_MODE_KEY, mode);
   document.documentElement.setAttribute("data-display-mode", slugify(mode));
-  // Most modes are pure CSS off the attribute above, but Miller columns swaps
-  // the pane component — App listens for this to re-render.
+  // Most modes are pure CSS off the attribute above, but Miller columns wraps
+  // the pane in more columns — App listens for this to re-render.
   window.dispatchEvent(new CustomEvent("glasshouse:display-mode", { detail: mode }));
 }
 

@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 
 // Whether a modal dialog is open, for the key handlers behind it (App's
-// window listener, the file pane, Miller, the sidebar): while one is, they
+// window listener, the file pane, the sidebar): while one is, they
 // leave the keyboard to the dialog.
 //
 // A modal's release is deferred to a later task. The key that closes a

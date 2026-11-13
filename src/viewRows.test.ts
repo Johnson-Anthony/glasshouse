@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { FileKind, FileRow } from "./data";
-import { viewRows, type ViewOptions } from "./viewRows";
+import { entryName, viewRows, type ViewOptions } from "./viewRows";
 
 type Row = FileRow & { entry: { path: string; size: number; modified_ms: number } };
 
@@ -103,4 +103,16 @@ describe("viewRows keeps the old comparator's order", () => {
       });
     }
   }
+});
+
+describe("entryName", () => {
+  it("splits a file's extension off, case-insensitively", () => {
+    expect(entryName({ name: "notes.txt", ext: "txt", kind: "text" })).toEqual({ name: "notes", ext: "txt" });
+    expect(entryName({ name: "PHOTO.JPG", ext: "jpg", kind: "img" })).toEqual({ name: "PHOTO", ext: "jpg" });
+    expect(entryName({ name: "Makefile", ext: "", kind: "text" })).toEqual({ name: "Makefile", ext: "" });
+  });
+
+  it("keeps a folder's name whole, dots and all", () => {
+    expect(entryName({ name: "foo.d", ext: "d", kind: "folder" })).toEqual({ name: "foo.d", ext: "" });
+  });
 });
