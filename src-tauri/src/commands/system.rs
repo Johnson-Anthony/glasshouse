@@ -27,57 +27,14 @@ pub struct Drive {
 pub fn drives() -> Vec<Drive> {
     let mut out = Vec::new();
     #[cfg(windows)]
-    {
-        use windows::core::PCWSTR;
-        use windows::Win32::Storage::FileSystem::{
-            GetDiskFreeSpaceExW, GetLogicalDrives, GetVolumeInformationW,
-        };
-        unsafe {
-            let mask = GetLogicalDrives();
-            for i in 0..26u32 {
-                if (mask >> i) & 1 == 0 {
-                    continue;
-                }
-                let letter = (b'A' + i as u8) as char;
-                let root = format!("{}:\\", letter);
-                let root_w: Vec<u16> = root.encode_utf16().chain(std::iter::once(0)).collect();
-                let mut total_bytes = 0u64;
-                let mut free_bytes = 0u64;
-                let mut avail_bytes = 0u64;
-                let ok = GetDiskFreeSpaceExW(
-                    PCWSTR(root_w.as_ptr()),
-                    Some(&mut avail_bytes),
-                    Some(&mut total_bytes),
-                    Some(&mut free_bytes),
-                )
-                .is_ok();
-                let mut label_buf = [0u16; 256];
-                let mut fs_buf = [0u16; 64];
-                let _ = GetVolumeInformationW(
-                    PCWSTR(root_w.as_ptr()),
-                    Some(&mut label_buf),
-                    None,
-                    None,
-                    None,
-                    Some(&mut fs_buf),
-                );
-                let label = String::from_utf16_lossy(
-                    &label_buf[..label_buf.iter().position(|&c| c == 0).unwrap_or(0)],
-                );
-                let fs = String::from_utf16_lossy(
-                    &fs_buf[..fs_buf.iter().position(|&c| c == 0).unwrap_or(0)],
-                );
-                if ok {
-                    out.push(Drive {
-                        letter: root,
-                        label,
-                        total: total_bytes,
-                        free: free_bytes,
-                        fs,
-                    });
-                }
-            }
-        }
+    for l in super::drive_letters::letters() {
+        out.push(Drive {
+            letter: l.root,
+            label: l.label,
+            total: l.total,
+            free: l.free,
+            fs: l.fs,
+        });
     }
     #[cfg(not(windows))]
     {

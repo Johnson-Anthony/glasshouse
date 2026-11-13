@@ -313,9 +313,14 @@ export function TerminalDrawer({ open, cwd, profile, follow, height, onHeightCha
   tabsRef.current = tabs;
   const handledProfileRef = useRef<ShellProfile | null>(null);
 
+  // Profiles load the first time the drawer opens: listing them runs
+  // `wsl.exe` on Windows, which a closed drawer doesn't need.
+  const profilesAsked = useRef(false);
   useEffect(() => {
-    void (async () => setProfiles(await listShellProfiles()))();
-  }, []);
+    if (!open || profilesAsked.current) return;
+    profilesAsked.current = true;
+    void listShellProfiles().then(setProfiles);
+  }, [open]);
 
   const addTab = (p: ShellProfile) => {
     const key = nextKeyRef.current++;

@@ -232,12 +232,14 @@ export function Sidebar({ activePath, onGoTo, onOpenFile, onRowContext, pins, on
     return updates;
   };
 
+  // Home, drives and WSL load side by side, so a slow drive or WSL start
+  // doesn't hold up the tree. None of them rejects.
   useEffect(() => {
+    void apiDrives().then(setDriveList);
+    void listWslDistros().then(setWslDistros);
     void (async () => {
       const h = await apiHomeDir();
       setHome(h);
-      setDriveList(await apiDrives());
-      setWslDistros(await listWslDistros());
       if (h) {
         setRootPath(h);
         const kids = await listDir(h, treePrefs.showHidden);

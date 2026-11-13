@@ -1,8 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use crate::commands::listing::home_dir_path;
-#[cfg(windows)]
-use crate::commands::launch::CREATE_NO_WINDOW;
 
 // ---------- shell profile detection ----------
 
@@ -13,23 +11,6 @@ pub struct ShellProfile {
     pub kind: String,
     pub exec: String,
     pub args: Vec<String>,
-}
-
-/// Decode UTF-16LE byte buffer into String. Returns lossy UTF-8 on failure.
-#[cfg(windows)]
-fn decode_utf16le(bytes: &[u8]) -> String {
-    // Strip BOM if present.
-    let mut slice = bytes;
-    if slice.len() >= 2 && slice[0] == 0xFF && slice[1] == 0xFE {
-        slice = &slice[2..];
-    }
-    let mut u16s: Vec<u16> = Vec::with_capacity(slice.len() / 2);
-    let mut i = 0;
-    while i + 1 < slice.len() {
-        u16s.push(u16::from_le_bytes([slice[i], slice[i + 1]]));
-        i += 2;
-    }
-    String::from_utf16_lossy(&u16s)
 }
 
 /// Parse `~/.ssh/config` and return host entries, skipping wildcards.
@@ -78,48 +59,6 @@ fn parse_ssh_hosts(text: &str) -> Vec<String> {
         }
     }
     hosts
-}
-
-/// Detect installed WSL distributions by running `wsl.exe -l -q`.
-/// Output is UTF-16LE; decode manually without pulling `encoding_rs`.
-fn wsl_distros() -> Vec<String> {
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        use std::process::Command;
-        if which::which("wsl.exe").is_err() && which::which("wsl").is_err() {
-            return Vec::new();
-        }
-        let out = Command::new("wsl.exe")
-            .args(["-l", "-q"])
-            .creation_flags(CREATE_NO_WINDOW)
-            .output();
-        let output = match out {
-            Ok(o) => o,
-            Err(_) => return Vec::new(),
-        };
-        if !output.status.success() {
-            return Vec::new();
-        }
-        let text = decode_utf16le(&output.stdout);
-        let mut distros: Vec<String> = Vec::new();
-        for line in text.lines() {
-            // Strip nulls and whitespace; -q output often has stray \0.
-            let cleaned: String = line.chars().filter(|c| *c != '\0').collect();
-            let trimmed = cleaned.trim();
-            if trimmed.is_empty() {
-                continue;
-            }
-            if !distros.iter().any(|d| d == trimmed) {
-                distros.push(trimmed.to_string());
-            }
-        }
-        distros
-    }
-    #[cfg(not(windows))]
-    {
-        Vec::new()
-    }
 }
 
 /// The user's login shell from `$SHELL`, if it names a real program. The
@@ -182,7 +121,7 @@ pub fn list_shell_profiles() -> Vec<ShellProfile> {
     let mut out = detect_shells();
 
     // WSL distros.
-    for distro in wsl_distros() {
+    for distro in crate::commands::wsl::distro_names() {
         out.push(ShellProfile {
             id: format!("wsl:{}", distro),
             label: format!("WSL · {}", distro),
