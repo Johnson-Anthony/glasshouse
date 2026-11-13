@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { FileEntry } from "./api";
-import { EMPTY_LISTING, relist, remapIndexes, withAnchor, withFocus, withSelected, type Listing } from "./listing";
+import type { FileEntry, GitInfo } from "./api";
+import { EMPTY_LISTING, keepGitInfo, relist, remapIndexes, sameEntries, withAnchor, withFocus, withSelected, type Listing } from "./listing";
 
 function entry(name: string): FileEntry {
   return {
@@ -103,5 +103,33 @@ describe("remapIndexes", () => {
   it("keeps the indexes when the rows are the same array", () => {
     const rows = [row("a"), { name: "no path" }];
     expect(remapIndexes(rows, rows, [1, 0, 5], pathOf)).toEqual([1, 0]);
+  });
+});
+
+describe("unchanged re-reads", () => {
+  it("compare entries by content, not identity", () => {
+    expect(sameEntries(list("a", "b"), list("a", "b"))).toBe(true);
+    expect(sameEntries(list("a", "b"), list("a"))).toBe(false);
+    expect(sameEntries(list("a", "b"), list("b", "a"))).toBe(false);
+    for (const change of [{ size: 2 }, { modified_ms: 5 }, { git: "M" }, { hidden: true }, { kind: "folder" }]) {
+      expect(sameEntries(list("a"), [{ ...entry("a"), ...change }])).toBe(false);
+    }
+  });
+
+  it("keep the previous listing, so a poll that finds nothing new renders nothing", () => {
+    const prev = listing(list("a", "b", "c"), [1], 2, 1);
+    expect(relist(prev, list("a", "b", "c"))).toBe(prev);
+    expect(relist(prev, list("a", "b", "c", "d"))).not.toBe(prev);
+  });
+
+  it("keep the previous git info when nothing in it changed", () => {
+    const info = (status: Record<string, string>, branch = "main"): GitInfo =>
+      ({ repo_root: "/w", branch, ahead: 0, behind: 0, dirty: Object.keys(status).length, status });
+    const prev = info({ "a.ts": "M" });
+    expect(keepGitInfo(prev, info({ "a.ts": "M" }))).toBe(prev);
+    const changed = [info({ "a.ts": "A" }), info({ "b.ts": "M" }), info({ "a.ts": "M", "b.ts": "?" }), info({ "a.ts": "M" }, "dev")];
+    for (const next of changed) expect(keepGitInfo(prev, next)).toBe(next);
+    expect(keepGitInfo(prev, null)).toBeNull();
+    expect(keepGitInfo(null, prev)).toBe(prev);
   });
 });
