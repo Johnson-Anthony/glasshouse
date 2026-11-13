@@ -4,7 +4,12 @@ Branch: `claude/laughing-shirley-d547ce` (worktree `laughing-shirley-d547ce`), s
 Backlog entry: section 15 of `docs/plans/active/survey-2.md`. Frontend only.
 
 ## Status
-Started 2026-11-13; plan written, implementation next.
+**Done** 2026-11-13. Commits: `4843b1f` (the change), `4e6efc4` (demo rebuild), `4faa734` (palette tour clip re-recorded; optional, drop it to batch media changes).
+- The palette has 155 rows on Linux (16 of them merge two names), up from 19. All four placeholder promises but paths are gone; path entry works through navHandler's fallback.
+- Found while testing: Enter in the palette also reached a dialog the command opened. In the demo, New Folder from the palette created `new-folder` without asking; the old palette had the same code. Fixed (the palette stops its Enter) and tested.
+- A test found that Terminal › Open in New Window shares File › New Window's case, so they are one row. Task 16 (menu-honesty) may give it, or "Text Editor (.txt)", its own behavior: it should then drop that entry from `SAME_COMMAND` in `palette.ts`. No test catches a stale fold (the test checks that shared cases are folded, not the reverse).
+- Checks: `pnpm build`; `pnpm test` 597 passed, 3 skipped (46 files); `pnpm check:wiring` clean (315 sent labels, 212 cases); `pnpm site:build` (rebuild reproducible); `pnpm site:capture check` 23/23 under a 3 GB cap. Checked in the demo in the browser pane: browse view, search, shortcut keys, Enter → New Folder prompt waits, `~/projects` opens the folder, and the site's palette scene runs.
+- Not done (possible follow-ups): the palette doesn't list the dynamic lists (recent folders, pins, branches, terminal profiles, ssh hosts) as rows; the "→" stand-ins still prompt with a numbered list. Right-click-only commands that could act on the selection (Reveal in File Manager, Open in New Tab, Duplicate Tab on the active tab) aren't on the palette. Toggles show no ✓. No path completion.
 
 ## Problems
 1. **The palette lists 19 commands** (`PALETTE` in `data.ts`) out of about 220 menu items, while the site says Ctrl+P "finds any command from a few letters". Typing "new folder", "git push" or "zoom in" finds nothing.
