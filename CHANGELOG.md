@@ -2,6 +2,17 @@
 
 What changed in each release, for people using glasshouse. Downloads are on the [Releases page](https://github.com/Johnson-Anthony/glasshouse/releases).
 
+## [Unreleased]
+
+### New
+
+- **Move to Trash can be undone:** Ctrl+Z restores the items, and Ctrl+Y trashes them again. Undo refuses, saying why, if a name is taken again or an item has left the trash.
+- **Go → Trash** shows what's in the Trash (the Recycle Bin on Windows): each item's name, original folder, deletion time and size, with Restore, Delete Permanently and Empty Trash. Restore can be undone. A taken name is refused, never replaced.
+
+### Fixed
+
+- On Windows, Move to Trash on a network or removable drive, which has no Recycle Bin, now asks before deleting permanently instead of deleting with no warning.
+
 ## [0.2.0] - 2026-11-12
 
 This release is mostly about safety: several ways to lose files are fixed, and the app is harder to misuse. Linux packages now also come for arm64 and run on older distributions.

@@ -20,7 +20,7 @@ On 2026-11-11, four read-only agents surveyed the app (at `45ea31b`): frontend b
 | 10 | release-prep | config + CI | S | **merged** (c6dab0c; the tag itself is the user's call) |
 | **Wave 3: undo and trash** |||||
 | 11 | undo-coverage | frontend | M | merged (e225489; Extract undo done here; Find & Replace and Trash left to tasks 7 and 12) |
-| 12 | trash-restore | both | M | **running** (`cool-gauss-d234ca`, started 11-13) |
+| 12 | trash-restore | both | M | merged (`cool-gauss-d234ca`, 11-13) |
 | **Wave 4: performance** |||||
 | 13 | pane-perf | frontend | L | **running** (`cool-satoshi-4102fc`, resumed 11-13; 100k baselines in vitest only, ≤ 10k in capped Chromium) |
 | 14 | refresh-cost | both | M | queued |
@@ -292,6 +292,7 @@ These items do nothing, or something else. Make each work, or remove it. For the
 - *(from release-prep)* **actionlint** in CI: folded into ci-hygiene.
 - *(from fs-robustness)* 7-Zip 25 fails a whole extraction on one climbing link ("Dangerous link path was ignored", exit 2), where zip and tar now skip the link and report it. Could map that one 7z error to a skip.
 - *(from fs-robustness)* On Windows a failed top-level single-file CopyFileW is left to CopyFileW's own cleanup (some of its errors mean the target was already there and isn't ours). Check on a real Windows machine.
+- *(from trash-restore)* Not covered: a full or turned-off Recycle Bin on a fixed drive; in the repeated DST hour on Linux a deletion time can read back an hour early, so undo says the item isn't in the trash (the Trash view still finds it); macOS has no list or restore in the trash crate. Restore keeps no "keep both", because the crate restores only to the original path.
 - *(from find-replace-safety)* On Windows, std can't read a file's hard-link count, so Find & Replace splits hard links there silently (unix skips such files). A file owned by someone else but writable through its group fails rather than changing owner. A match-case toggle could be added: the backend already takes `caseInsensitive`.
 - *(from security-deps)* zip 9 fails an extraction on Windows device and stream names (`CON`, `a:b`) with "points outside the folder", which misdescribes them. On Linux zip 9 reads `\` in an entry name as a separator (`a\b.txt` extracts as `a/b.txt`).
 - *(from watcher-fixes)* When the backend reports a rescan (dropped events, e.g. an inotify overflow), the event names no path, so no folder refreshes until the 30 s refetch. Reporting every watched folder on a rescan would be small.
