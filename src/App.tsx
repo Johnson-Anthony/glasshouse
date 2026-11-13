@@ -48,13 +48,13 @@ import { findBinding, type KeyAction } from "./keymap";
 import { isModalOpen, useModal } from "./dialogs/modal";
 import { makeTab, closeTab, closeOtherTabs, moveTab as moveTabIn, tabLabel, type TabRecord } from "./tabs";
 import { canExtractArchive } from "./handlers/archive";
-import { showBlame } from "./handlers/helpers";
+import { revealPath, showBlame } from "./handlers/helpers";
 import { DISPLAY_MODE_DEFAULT, DISPLAY_MODE_KEY, LAYOUT_KEY, slugify, storedZoom } from "./handlers/view";
 import { IS_WINDOWS } from "./platform";
 import { NoticesHost } from "./NoticesScreen";
 import { MillerView, sortView as millerOrder } from "./Miller";
 import { viewRows } from "./viewRows";
-import { joinPath, parentPath, basename } from "./paths";
+import { joinPath, basename } from "./paths";
 import {
   homeDir,
   ensureDir,
@@ -1313,9 +1313,8 @@ export function App() {
           root={activeHandle?.state.path ?? ""}
           onClose={() => setShowFindModal(false)}
           onPick={(m) => {
-            const dir = parentPath(m.path);
-            if (dir) activeHandle?.actions.goTo(dir);
             setShowFindModal(false);
+            void revealPath(activeHandle, m.path);
           }}
         />
       )}

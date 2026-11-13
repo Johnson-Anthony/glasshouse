@@ -376,6 +376,17 @@ async function checkPage(cdp, base) {
     at("pointerup", row("zz"));
     await until(() => !names().includes("website"));
     out.dropped = (await invoke("list_dir", { path: "/home/demo/projects/zz", showHidden: false })).map(e => e.name);
+    // Go to Path (Ctrl+L) with a file: its folder opens with the file
+    // selected and the keyboard on the pane.
+    document.querySelector(".pane").focus();
+    document.querySelector(".pane").dispatchEvent(new KeyboardEvent("keydown", { key: "l", code: "KeyL", ctrlKey: true, bubbles: true }));
+    const prompt = () => document.querySelector("input[placeholder='/… or ~/…']");
+    await until(() => !!prompt());
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(prompt(), "~/Documents/recipes/../todo.txt");
+    prompt().dispatchEvent(new Event("input", { bubbles: true }));
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    await until(() => selected().includes("todo.txt"));
+    out.revealed = [selected(), names().includes("recipes"), document.activeElement === document.querySelector(".pane")];
     return out;
   })()`);
   const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
@@ -384,6 +395,7 @@ async function checkPage(cdp, base) {
   ok("demo: a filter that hides every row says so", pane.notice === `no matches for "zzz"`, pane.notice);
   ok("demo: navigating drops the old rows and the filter at once", same(pane.leaving, [[], "loading…", ""]) && pane.arrived.includes("website"), JSON.stringify([pane.leaving, pane.arrived]));
   ok("demo: a drag drops the files it picked up, after a re-list", same(pane.dropped, ["website"]), JSON.stringify(pane.dropped));
+  ok("demo: Go to Path with a file opens its folder with the file selected", same(pane.revealed, [["todo.txt"], true, true]), JSON.stringify(pane.revealed));
   errors.push(...errors.splice(errorsBefore).filter(e => !e.includes("/favicon.ico")));
 
   ok("no console errors", errors.length === 0, errors.slice(0, 5).join(" | "));

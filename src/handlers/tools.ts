@@ -1,5 +1,5 @@
 import type { Handler } from "./types";
-import { selectedOrFirst } from "./helpers";
+import { openTyped, revealPath, selectedOrFirst } from "./helpers";
 import { dialogs } from "../dialogs/DialogHost";
 import { IS_WINDOWS } from "../platform";
 import { parseOctalMode } from "../octal";
@@ -55,6 +55,9 @@ export function winToUnc(path: string): string {
   }
   return path;
 }
+
+/** The most matches Find File by Name lists. */
+const FIND_NAME_LIMIT = 500;
 
 export const toolsHandler: Handler = async (label, ctx) => {
   switch (label) {
@@ -355,16 +358,20 @@ export const toolsHandler: Handler = async (label, ctx) => {
       if (pattern == null || pattern.trim() === "") return true;
       try {
         const matches = await runOp(`finding "${pattern}"`, track =>
-          findFileByName(ctx.cwd, pattern, 500, track()), "items");
+          findFileByName(ctx.cwd, pattern, FIND_NAME_LIMIT, track()), "items");
         if (matches.length === 0) {
           void dialogs.showAlert({ title: "no matches", message: `No matches for "${pattern}"`, variant: "info" });
         } else {
-          const top = matches.slice(0, 20).join("\n");
-          const extra = matches.length > 20 ? `\n… (${matches.length - 20} more)` : "";
-          void dialogs.showAlert({
+          // Shown under the folder searched; picking one opens it in place.
+          const root = ctx.cwd;
+          const rel = (p: string) => (root && p.startsWith(root) ? p.slice(root.length).replace(/^[\\/]+/, "") : "") || p;
+          const picked = await dialogs.showPick({
             title: `${matches.length} match${matches.length === 1 ? "" : "es"}`,
-            message: `${top}${extra}`,
+            message: `"${pattern}" in ${root}${matches.length >= FIND_NAME_LIMIT ? ` (the first ${FIND_NAME_LIMIT})` : ""}`,
+            items: matches.map(rel),
+            okLabel: "show",
           });
+          if (picked !== null) void revealPath(ctx.activeHandle, matches[picked]);
         }
       } catch (e) {
         if (isCancelled(e)) return true;
@@ -376,15 +383,14 @@ export const toolsHandler: Handler = async (label, ctx) => {
     }
 
     case "Go to Path…": {
-      const target = await dialogs.showPrompt({
+      await dialogs.showPrompt({
         title: "go to path",
         message: "path to navigate to:",
         initialValue: ctx.cwd,
         placeholder: IS_WINDOWS ? "C:\\… or /…" : "/… or ~/…",
         validate: (v) => v.trim() ? null : "path required",
+        submit: (v) => openTyped(v, ctx),
       });
-      if (target == null || target.trim() === "") return true;
-      ctx.activeHandle?.actions.goTo(target);
       return true;
     }
 

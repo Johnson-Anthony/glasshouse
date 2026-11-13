@@ -1,9 +1,12 @@
-import { gitBlame, gitDiscard, gitStage, gitUnstage, winToWsl, writeTags, type BlameLine, type FileEntry, type GitDiscardResult } from "../api";
+import { gitBlame, gitDiscard, gitStage, gitUnstage, homeDir, openUrl, pathKind, winToWsl, writeTags, type BlameLine, type FileEntry, type GitDiscardResult } from "../api";
 import { dialogs } from "../dialogs/DialogHost";
+import { isModalOpen } from "../dialogs/modal";
 import { errText } from "../errors";
 import { discardReport, gitTargets, type GitAction } from "../gitTargets";
-import { markIrreversible } from "../state";
+import { basename } from "../paths";
+import { markIrreversible, type UseTabResult } from "../state";
 import { winPathToWsl } from "../shellCd";
+import { parseTyped } from "../typedPath";
 import type { AppCommands, HandlerCtx } from "./types";
 
 type TagAccess = Pick<AppCommands, "tagStore" | "setTagStore">;
@@ -36,6 +39,43 @@ export async function pickNumbered<T>(
   });
   if (picked == null) return undefined;
   return items[parseInt(picked.trim(), 10) - 1];
+}
+
+/** Opens `path`'s folder in the tab with it selected (`reveal`), then puts
+ *  the keyboard on the file pane, which scrolls to it. Says so when the
+ *  listing doesn't have it: hidden files are off, or it's gone. */
+export async function revealPath(handle: UseTabResult | undefined, path: string): Promise<void> {
+  if (!handle) return;
+  const result = await handle.actions.reveal(path);
+  if (result === "selected") {
+    if (!isModalOpen()) document.querySelector<HTMLElement>("section.pane")?.focus();
+  } else if (result === "not-listed") {
+    const name = basename(path);
+    dialogs.showToast({
+      message: handle.state.showHidden
+        ? `${name} is no longer in this folder`
+        : `${name} isn't listed: hidden files are off (Ctrl+H)`,
+      variant: "info",
+    });
+  }
+}
+
+/** Opens what was typed into Go to Path…, Open… or the palette's "Go to"
+ *  row (see typedPath.ts): a link in the browser, a folder in the tab, or a
+ *  file's folder with the file selected. Returns what's wrong, or null. */
+export async function openTyped(text: string, ctx: HandlerCtx): Promise<string | null> {
+  const typed = parseTyped(text, ctx.cwd, await homeDir());
+  if (typed.kind === "error") return typed.message;
+  if (typed.kind === "url") {
+    await openUrl(typed.url);
+    return null;
+  }
+  // "unknown": the stat itself failed, so let the listing say why.
+  const kind = await pathKind(typed.path);
+  if (kind === null) return `no such file or folder: ${typed.path}`;
+  if (kind === "file") void revealPath(ctx.activeHandle, typed.path);
+  else ctx.activeHandle?.actions.goTo(typed.path);
+  return null;
 }
 
 /** Blame `path` into the Blame dialog, or alert why it couldn't be. */

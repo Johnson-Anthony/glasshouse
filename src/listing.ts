@@ -100,6 +100,18 @@ export function withAnchor(l: Listing, basis: FileEntry[], i: number): Listing {
   return j === undefined || j === l.anchorIndex ? l : { ...l, anchorIndex: j };
 }
 
+/** The index of the entry named `name`, by the platform's name rules (case
+ *  folded on Windows), or -1. */
+export function indexOfName(entries: FileEntry[], name: string): number {
+  const want = normalizePath(name);
+  return entries.findIndex(e => normalizePath(e.name) === want);
+}
+
+/** Entry `i` alone selected, focused and anchored. */
+export function selectOnly(l: Listing, i: number): Listing {
+  return { ...l, selected: [i], focusIndex: i, anchorIndex: i };
+}
+
 /** `next`, or `prev` itself when the repo's status hasn't changed, so a
  *  re-read doesn't re-render the toolbar and status bar for nothing. */
 export function keepGitInfo(prev: GitInfo | null, next: GitInfo | null): GitInfo | null {

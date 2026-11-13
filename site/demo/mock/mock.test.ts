@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { BaseDirectory } from "@tauri-apps/api/path";
 import { createBackend, extOf, kindFromExt } from "./backend";
 import { HOME, REPO } from "./content";
 import { FakeShell, tokenize } from "./shell";
@@ -197,6 +198,18 @@ describe("backend", () => {
     expect(hits.some(h => h.path.endsWith("README.md"))).toBe(true);
     const names = await b.invoke("find_file_by_name", { root: HOME, pattern: "*.jpg" }) as string[];
     expect(names.length).toBeGreaterThan(3);
+  });
+
+  it("resolves the user folders Tauri's path API asks for, and rejects the rest", async () => {
+    const { hooks } = quietHooks();
+    const b = createBackend(hooks);
+    const dir = (d: BaseDirectory) => b.invoke("plugin:path|resolve_directory", { directory: d });
+    expect(await dir(BaseDirectory.Document)).toBe(`${HOME}/Documents`);
+    expect(await dir(BaseDirectory.Download)).toBe(`${HOME}/Downloads`);
+    expect(await dir(BaseDirectory.Picture)).toBe(`${HOME}/Pictures`);
+    expect(await dir(BaseDirectory.Desktop)).toBe(`${HOME}/Desktop`);
+    expect(await dir(BaseDirectory.Home)).toBe(HOME);
+    await expect(dir(BaseDirectory.Video)).rejects.toBe("unknown path");
   });
 
   it("previews and applies a Find & Replace, with the text for undo", async () => {

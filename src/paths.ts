@@ -28,6 +28,10 @@ export interface PathOps {
   /** Clickable breadcrumb for `p`. On Windows the drive or UNC share is the
    *  first crumb (`C:` → `C:\`, `\\server\share` → `\\server\share\`). */
   splitBreadcrumb(p: string): Crumb[];
+  /** `p` with `.` and `..` worked out as text, as `cd` does (`..` after a
+   *  link is the link's folder), and repeated and trailing separators
+   *  dropped. `..` stops at the root. On Windows every separator becomes `\`. */
+  collapsePath(p: string): string;
 }
 
 /** Path helpers for one platform. The app uses the `IS_WINDOWS` set exported
@@ -109,6 +113,19 @@ export function pathOps(win: boolean): PathOps {
       }
       return out;
     },
+
+    collapsePath(p) {
+      const rl = rootLen(p);
+      const root = rootForm(win ? p.slice(0, rl).replace(/\//g, "\\") : p.slice(0, rl));
+      const out: string[] = [];
+      for (const seg of pathSegments(p.slice(rl))) {
+        if (seg === ".") continue;
+        if (seg !== "..") out.push(seg);
+        else if (out.length > 0 && out[out.length - 1] !== "..") out.pop();
+        else if (!root) out.push(seg);
+      }
+      return root + out.join(win ? "\\" : "/") || ".";
+    },
   };
 }
 
@@ -119,6 +136,7 @@ export const {
   joinPath,
   pathSegments,
   splitBreadcrumb,
+  collapsePath,
 } = pathOps(IS_WINDOWS);
 
 /** A typed string the router opens as a path rather than runs as a command:

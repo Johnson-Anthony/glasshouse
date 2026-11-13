@@ -1,15 +1,16 @@
 import type { Handler } from "./types";
-import { pickNumbered } from "./helpers";
+import { openTyped, pickNumbered } from "./helpers";
 import { dialogs } from "../dialogs/DialogHost";
 import { IS_WINDOWS } from "../platform";
-import { joinPath, looksLikePath } from "../paths";
+import { looksLikePath } from "../paths";
 import {
   spawnNewWindow,
   readPins,
   readRecent,
-  homeDir,
+  knownFolder,
   clearRecent,
   listWslDistros,
+  type KnownFolder,
 } from "../api";
 
 export const navHandler: Handler = async (label, ctx) => {
@@ -72,15 +73,13 @@ export const navHandler: Handler = async (label, ctx) => {
       return true;
 
     case "Open…": {
-      const path = await dialogs.showPrompt({
+      await dialogs.showPrompt({
         title: "open",
         message: "enter path or URL:",
         placeholder: IS_WINDOWS ? "C:\\… or /… or https://…" : "/… or ~/… or https://…",
         validate: (v) => v.trim() ? null : "path required",
+        submit: (v) => openTyped(v, ctx),
       });
-      if (path != null && path.trim() !== "") {
-        ctx.activeHandle?.actions.goTo(path.trim());
-      }
       return true;
     }
 
@@ -126,12 +125,12 @@ export const navHandler: Handler = async (label, ctx) => {
     case "Downloads":
     case "Pictures":
       void (async () => {
-        const home = await homeDir();
-        if (!home) {
-          await dialogs.showAlert({ title: "Navigation", message: "home directory unavailable" });
+        const dir = await knownFolder(label as KnownFolder);
+        if (!dir) {
+          await dialogs.showAlert({ title: "Navigation", message: `${label} folder unavailable` });
           return;
         }
-        ctx.activeHandle?.actions.goTo(joinPath(home, label));
+        ctx.activeHandle?.actions.goTo(dir);
       })();
       return true;
 
@@ -144,17 +143,14 @@ export const navHandler: Handler = async (label, ctx) => {
 
     default: {
       // Fallback: a label that looks like a path (absolute, drive-prefixed,
-      // or ~-prefixed) gets navigated to directly. Dynamic menu items attach
-      // a `payload` and short-circuit before this handler sees them, so this
-      // is the palette's "Go to <path>" row, which sends the typed path.
+      // or ~-prefixed) is opened as Go to Path… opens it. Dynamic menu items
+      // attach a `payload` and short-circuit before this handler sees them,
+      // so this is the palette's "Go to <path>" row, which sends the typed
+      // path.
       if (looksLikePath(label)) {
         void (async () => {
-          let target = label;
-          if (target.startsWith("~")) {
-            const home = await homeDir();
-            if (home) target = home + target.slice(1);
-          }
-          ctx.activeHandle?.actions.goTo(target);
+          const problem = await openTyped(label, ctx);
+          if (problem) await dialogs.showAlert({ title: "go to", variant: "error", message: problem });
         })();
         return true;
       }

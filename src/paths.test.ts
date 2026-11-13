@@ -155,3 +155,34 @@ describe("normalizePath", () => {
     expect(posix.normalizePath("/home/me/a\\b")).not.toBe(posix.normalizePath("/home/me/a/b"));
   });
 });
+
+describe("collapsePath", () => {
+  it("works out . and .. and drops repeated and trailing separators", () => {
+    expect(posix.collapsePath("/home/me/./src/../docs//notes/")).toBe("/home/me/docs/notes");
+    expect(posix.collapsePath("/home/me")).toBe("/home/me");
+    expect(posix.collapsePath("//home")).toBe("/home");
+  });
+
+  it("stops .. at the root", () => {
+    expect(posix.collapsePath("/../../etc")).toBe("/etc");
+    expect(posix.collapsePath("/home/..")).toBe("/");
+    expect(win.collapsePath("C:\\..\\Users")).toBe("C:\\Users");
+    expect(win.collapsePath("\\\\server\\share\\..\\x")).toBe("\\\\server\\share\\x");
+  });
+
+  it("keeps a leading .. on a relative path", () => {
+    expect(posix.collapsePath("../a/./b/..")).toBe("../a");
+    expect(posix.collapsePath("a/..")).toBe(".");
+  });
+
+  it("gives Windows paths backslashes, and a bare drive its root", () => {
+    expect(win.collapsePath("C:/Users/me/../you/")).toBe("C:\\Users\\you");
+    expect(win.collapsePath("//server/share/dir")).toBe("\\\\server\\share\\dir");
+    expect(win.collapsePath("C:")).toBe("C:\\");
+  });
+
+  it("leaves a \\ alone on Linux, where it's part of a name", () => {
+    expect(posix.collapsePath("/tmp/odd\\name/..")).toBe("/tmp");
+    expect(posix.collapsePath("/tmp/a\\..")).toBe("/tmp/a\\..");
+  });
+});

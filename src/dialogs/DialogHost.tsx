@@ -49,6 +49,16 @@ interface ChoiceOptions {
   cancelLabel?: string;
 }
 
+interface PickOptions {
+  title?: string;
+  message?: string;
+  /** One row each. ↑/↓ (and Page, Home, End) move, Enter or a click picks;
+   *  it resolves with the row's index, or null for cancel, Esc and ×. */
+  items: string[];
+  okLabel?: string;
+  cancelLabel?: string;
+}
+
 interface ToastOptions {
   message: string;
   variant?: DialogVariant;
@@ -60,6 +70,7 @@ interface DialogApi {
   showAlert: (opts: AlertOptions) => Promise<void>;
   showConfirm: (opts: ConfirmOptions) => Promise<boolean>;
   showChoice: (opts: ChoiceOptions) => Promise<string | null>;
+  showPick: (opts: PickOptions) => Promise<number | null>;
   showToast: (opts: ToastOptions) => void;
 }
 
@@ -84,6 +95,10 @@ export const dialogs: DialogApi = {
     if (!dialogApiRef) return Promise.resolve<string | null>(null);
     return dialogApiRef.showChoice(opts);
   },
+  showPick: (opts) => {
+    if (!dialogApiRef) return Promise.resolve<number | null>(null);
+    return dialogApiRef.showPick(opts);
+  },
   showToast: (opts) => {
     if (!dialogApiRef) return;
     dialogApiRef.showToast(opts);
@@ -95,12 +110,27 @@ type DialogState =
   | { kind: "alert"; opts: AlertOptions; resolve: () => void }
   | { kind: "confirm"; opts: ConfirmOptions; resolve: (v: boolean) => void }
   | { kind: "choice"; opts: ChoiceOptions; resolve: (v: string | null) => void }
+  | { kind: "pick"; opts: PickOptions; resolve: (v: number | null) => void }
   | null;
 
 interface ToastState {
   id: number;
   message: string;
   variant: DialogVariant;
+}
+
+/** The pick list's row after `key` from row `at` of `count`, or null for a
+ *  key that doesn't move it. */
+export function pickMove(key: string, at: number, count: number): number | null {
+  const page = 10;
+  const to = key === "ArrowDown" ? at + 1
+    : key === "ArrowUp" ? at - 1
+    : key === "PageDown" ? at + page
+    : key === "PageUp" ? at - page
+    : key === "Home" ? 0
+    : key === "End" ? count - 1
+    : null;
+  return to === null ? null : Math.max(0, Math.min(count - 1, to));
 }
 
 /** Enter on a button inside the dialog activates that button (Tab to
@@ -122,12 +152,14 @@ export function DialogHost() {
   const [state, setState] = useState<DialogState>(null);
   const [promptValue, setPromptValue] = useState("");
   const [promptError, setPromptError] = useState<string | null>(null);
+  const [pickAt, setPickAt] = useState(0);
   const promptBusy = useRef(false);
   const [toasts, setToasts] = useState<ToastState[]>([]);
   const toastIdRef = useRef(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const primaryRef = useRef<HTMLButtonElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
   const open = state !== null;
   useModal(open);
 
@@ -157,6 +189,11 @@ export function DialogHost() {
       showChoice: (opts) =>
         new Promise<string | null>((resolve) => {
           setState({ kind: "choice", opts, resolve });
+        }),
+      showPick: (opts) =>
+        new Promise<number | null>((resolve) => {
+          setPickAt(0);
+          setState({ kind: "pick", opts, resolve });
         }),
       showToast: (opts) => {
         const id = ++toastIdRef.current;
@@ -188,16 +225,21 @@ export function DialogHost() {
     }
     if (state) {
       // Off the file pane, so its keys don't act behind the dialog.
-      const id = window.setTimeout(() => primaryRef.current?.focus(), 0);
+      const id = window.setTimeout(() => (state.kind === "pick" ? listRef.current : primaryRef.current)?.focus(), 0);
       return () => window.clearTimeout(id);
     }
   }, [state]);
+
+  useEffect(() => {
+    if (state?.kind !== "pick") return;
+    listRef.current?.querySelector<HTMLElement>(`[data-pick="${pickAt}"]`)?.scrollIntoView?.({ block: "nearest" });
+  }, [state, pickAt]);
 
   const close = () => {
     if (!state || promptBusy.current) return;
     if (state.kind === "prompt") state.resolve(null);
     else if (state.kind === "alert") state.resolve();
-    else if (state.kind === "choice") state.resolve(null);
+    else if (state.kind === "choice" || state.kind === "pick") state.resolve(null);
     else state.resolve(false);
     setState(null);
   };
@@ -251,10 +293,20 @@ export function DialogHost() {
     setState(null);
   };
 
+  const pick = (i: number) => {
+    if (state?.kind !== "pick" || i < 0 || i >= state.opts.items.length) return;
+    state.resolve(i);
+    setState(null);
+  };
+
   useEffect(() => {
     if (!state) return;
     const h = (e: KeyboardEvent) => {
       if (e.key === "Escape") { e.preventDefault(); close(); return; }
+      if (state.kind === "pick") {
+        const to = pickMove(e.key, pickAt, state.opts.items.length);
+        if (to !== null) { e.preventDefault(); setPickAt(to); return; }
+      }
       if (e.key === "Enter") {
         if (e.shiftKey) return;
         if (enterActivatesFocused(document.activeElement, panelRef.current)) return;
@@ -262,13 +314,14 @@ export function DialogHost() {
         if (state.kind === "prompt") submitPrompt();
         else if (state.kind === "confirm") confirmOk();
         else if (state.kind === "choice") choose(state.opts.choices.find(c => c.primary)?.id);
+        else if (state.kind === "pick") pick(pickAt);
         else alertOk();
       }
     };
     window.addEventListener("keydown", h);
     return () => window.removeEventListener("keydown", h);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state, promptValue]);
+  }, [state, promptValue, pickAt]);
 
   const overlay: React.CSSProperties = {
     position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)",
@@ -411,6 +464,49 @@ export function DialogHost() {
               {state.opts.choices.map(c => (
                 <button key={c.id} ref={c.primary ? primaryRef : undefined} onClick={() => choose(c.id)} style={btn(!!c.primary)}>{c.label}</button>
               ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {state?.kind === "pick" && (
+        <div onClick={close} style={overlay}>
+          <div ref={panelRef} onClick={(e) => e.stopPropagation()} style={{ ...panel, width: "80ch" }}>
+            <div style={header}>
+              <span style={{ color: "var(--accent)" }}>{state.opts.title ?? "pick"}</span>
+              <button onClick={close} style={closeBtn}>×</button>
+            </div>
+            {state.opts.message && (
+              <div style={{ ...body, paddingBottom: 8, color: "var(--fg-2, var(--fg-1))", wordBreak: "break-word" }}>{state.opts.message}</div>
+            )}
+            <div
+              ref={listRef}
+              role="listbox"
+              tabIndex={0}
+              aria-activedescendant={`dialog-pick-${pickAt}`}
+              style={{ maxHeight: "50vh", overflow: "auto", padding: "0 0 8px", fontSize: 12, outline: "none" }}
+            >
+              {state.opts.items.map((item, i) => (
+                <div
+                  key={i}
+                  id={`dialog-pick-${i}`}
+                  data-pick={i}
+                  role="option"
+                  aria-selected={i === pickAt}
+                  onMouseEnter={() => setPickAt(i)}
+                  onClick={() => pick(i)}
+                  style={{
+                    padding: "2px 16px", cursor: "pointer", whiteSpace: "nowrap",
+                    overflow: "hidden", textOverflow: "ellipsis",
+                    background: i === pickAt ? "var(--bg-sel)" : "transparent",
+                    color: i === pickAt ? "var(--fg-0)" : "var(--fg-1)",
+                  }}
+                >{item}</div>
+              ))}
+            </div>
+            <div style={footer}>
+              <button onClick={close} style={btn(false)}>{state.opts.cancelLabel ?? "cancel"}</button>
+              <button ref={primaryRef} onClick={() => pick(pickAt)} style={btn(true)}>{state.opts.okLabel ?? "ok"}</button>
             </div>
           </div>
         </div>
