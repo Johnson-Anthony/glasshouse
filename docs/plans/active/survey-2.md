@@ -33,7 +33,7 @@ On 2026-11-11, four read-only agents surveyed the app (at `45ea31b`): frontend b
 | 20 | git-ux | frontend + `GIT_RUN_ALLOWED` | S–M | queued |
 | 21 | open-with | both | S–M | queued |
 | 22 | os-drag-drop | both | M–L | merged (`cool-satoshi-4102fc`, 11-13; drag out and in confirmed by the user on niri) |
-| 23 | miller-parity | frontend | M | queued |
+| 23 | miller-parity | frontend | M | merged (`modest-nobel-8ee21d`, 11-13) |
 | 24 | tags-follow | frontend | M | merged (`festive-leakey-a10edf`, 11-13) |
 | 25 | folder-size | both | S–M | queued |
 | **Wave 6: tests, CI and dependencies** |||||
