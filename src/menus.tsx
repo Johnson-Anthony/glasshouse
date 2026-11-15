@@ -3,7 +3,8 @@ import { MENUS, type MenuItemDef, type DynamicPayload, type DynamicSource } from
 import { gitBranchList, listShellProfiles, readPins, readRecent } from "./api";
 import { getVersion } from "@tauri-apps/api/app";
 import type { TweakState } from "./components";
-import { DISPLAY_MODE_DEFAULT, DISPLAY_MODE_KEY, LAYOUT_DEFAULT, LAYOUT_KEY } from "./handlers/view";
+import { DISPLAY_MODE_DEFAULT, DISPLAY_MODE_KEY, LAYOUT_DEFAULT, LAYOUT_KEY, SORT_KEY_OF } from "./handlers/view";
+import type { SortDir, SortKey } from "./state";
 import { isModalOpen } from "./dialogs/modal";
 import { firstIndex, fitPath, lastIndex, menuKey, mnemonics, titleForKey, type MenuPath } from "./menuNav";
 
@@ -128,24 +129,33 @@ function useExpandedItems(items: MenuItemDef[], trigger: unknown): MenuItemDef[]
 
 // ============= Menu items =============
 
-/** Toggle-state fed into the menubar so resolveChecked can reflect live UI
- *  state (tweaks + sidebar/status-bar visibility) rather than stale static
- *  `check: true` hints. `undefined` means "use the static hint on the item". */
+/** Toggle-state fed into the menubar and context menus so resolveChecked
+ *  can reflect live UI state (tweaks, panel visibility, the active tab's
+ *  sort) rather than stale static `check: true` hints. `undefined` means
+ *  "use the static hint on the item". */
 export interface MenuToggleState {
   tweaks?: TweakState;
   sidebarVisible?: boolean;
   statusBarVisible?: boolean;
   inspectorVisible?: boolean;
+  sortKey?: SortKey;
+  sortDir?: SortDir;
 }
 
-const MenuToggleContext = React.createContext<MenuToggleState>({});
+const NO_TOGGLES: MenuToggleState = {};
+const MenuToggleContext = React.createContext<MenuToggleState>(NO_TOGGLES);
 
 /** Resolve whether this menu item should render a ✓ mark. Checks live toggle
- *  state first (tweaks/sidebar/status-bar), then falls back to the submenu
+ *  state first (tweaks, panels, the sort), then falls back to the submenu
  *  selection stored in localStorage for Display Mode / Layout, then the
  *  static `check: true` flag on the data.ts entry. */
-function resolveChecked(item: MenuItemDef, toggles: MenuToggleState, parentLabel?: string): boolean {
+export function resolveChecked(item: MenuItemDef, toggles: MenuToggleState, parentLabel?: string): boolean {
   if (item.kind !== "item") return false;
+  if (parentLabel === "Sort By" && toggles.sortKey !== undefined) {
+    const key = SORT_KEY_OF[item.label];
+    if (key) return key === toggles.sortKey;
+    if (item.label === "Descending") return toggles.sortDir === "desc";
+  }
   if (parentLabel === "Display Mode") {
     const stored = localStorage.getItem(DISPLAY_MODE_KEY) ?? DISPLAY_MODE_DEFAULT;
     return item.label === stored;
@@ -568,9 +578,10 @@ export interface ContextMenuProps {
   onClose: () => void;
   onCommand?: (label: string) => void;
   onPayload?: (payload: DynamicPayload) => void;
+  toggles?: MenuToggleState;
 }
 
-export function ContextMenu({ items, x, y, keyboard, onClose, onCommand, onPayload }: ContextMenuProps) {
+export function ContextMenu({ items, x, y, keyboard, onClose, onCommand, onPayload, toggles }: ContextMenuProps) {
   const expanded = useExpandedItems(items, items);
   const [path, setPath] = useState<MenuPath>([]);
   // Another right-click while the menu is open starts the new menu over.
@@ -641,7 +652,7 @@ export function ContextMenu({ items, x, y, keyboard, onClose, onCommand, onPaylo
     else if (r.exit === "close") onClose();
   };
 
-  return (
+  const menu = (
     <div
       ref={ref}
       className="ctx-menu"
@@ -662,4 +673,5 @@ export function ContextMenu({ items, x, y, keyboard, onClose, onCommand, onPaylo
       <MenuList items={expanded} path={live} level={0} setPath={setPath} onRun={run} />
     </div>
   );
+  return <MenuToggleContext.Provider value={toggles ?? NO_TOGGLES}>{menu}</MenuToggleContext.Provider>;
 }

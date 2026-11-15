@@ -85,7 +85,7 @@ commands.allow = [
 
 [[permission]]
 identifier = "settings"
-description = "Read and write the app's own pins, tags and recent folders."
+description = "Read and write the app's own pins, tags and recent folders, and ask whether this window saves the session."
 commands.allow = [
   "read_pins",
   "write_pins",
@@ -94,6 +94,7 @@ commands.allow = [
   "read_recent",
   "append_recent",
   "clear_recent",
+  "session_owner",
 ]
 
 [[permission]]

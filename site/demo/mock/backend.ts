@@ -542,6 +542,9 @@ export function createBackend(hooks: BackendHooks) {
     spawn_terminal_profile: notInDemo("Opening an external terminal"),
     spawn_vscode: notInDemo("Opening VS Code"),
     spawn_new_window: notInDemo("Opening a second window"),
+    // Saves the tabs as the app does (src/session.ts), into the demo's
+    // in-memory storage (install.ts), so no visit reopens another's tabs.
+    session_owner: () => true,
     start_drag_out: notInDemo("Dragging files into other apps"),
     // The app zooms its whole webview. A page can't zoom itself that way (CSS
     // `zoom` would misplace menus and drags), so the demo leaves it to the

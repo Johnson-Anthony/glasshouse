@@ -22,6 +22,9 @@ const START: TweakState = {
   foldersFirst: true,
   termFollow: true,
   zoom: 1,
+  showSidebar: true,
+  showInspector: true,
+  showStatusBar: true,
 };
 
 let host: HTMLDivElement;

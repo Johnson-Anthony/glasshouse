@@ -1,5 +1,6 @@
 import { stepZoom, ZOOM_DEFAULT } from "../zoom";
 import type { HandlerCtx, Handler } from "./types";
+import type { SortKey } from "../state";
 
 /** Zoom In / Out / Reset: the zoom is a saved tweak, which App applies. */
 function setZoom(ctx: HandlerCtx, zoom: (z: number) => number): void {
@@ -28,6 +29,18 @@ function setLayout(layout: string): void {
   localStorage.setItem(LAYOUT_KEY, layout);
   document.documentElement.setAttribute("data-layout", slugify(layout));
 }
+
+/** The Sort By items and the key each sets (the cases below), for the
+ *  menus' ✓. */
+export const SORT_KEY_OF: Readonly<Record<string, SortKey>> = {
+  "Name": "name",
+  "Size": "size",
+  "Modified": "modified",
+  "Type": "type",
+  "Type / Extension": "type",
+  "Tag / Color": "tag",
+  "Git Column": "git",
+};
 
 export const viewHandler: Handler = (label, ctx) => {
   switch (label) {

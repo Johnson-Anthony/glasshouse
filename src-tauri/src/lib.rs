@@ -2,9 +2,13 @@ mod commands;
 mod ops;
 mod proc_tree;
 mod pty;
+mod session;
 mod watcher;
 
 use std::sync::{Mutex, MutexGuard, PoisonError};
+
+use tauri::Manager;
+use tauri_plugin_window_state::StateFlags;
 
 /// Lock `m` even if a thread panicked while holding it. The callers' data
 /// (the op and pty registries, a kill handle, captured output, search
@@ -18,7 +22,7 @@ pub(crate) fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
 pub fn run() {
     #[cfg(windows)]
     commands::drive_letters::no_critical_error_boxes();
-    tauri::Builder::default()
+    let app = tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
@@ -93,6 +97,7 @@ pub fn run() {
             commands::config::read_recent,
             commands::config::append_recent,
             commands::config::clear_recent,
+            session::session_owner,
             commands::file_info::file_stat_extended,
             commands::hash::hash_md5,
             commands::hash::hash_crc32,
@@ -107,6 +112,20 @@ pub fn run() {
             pty::pty_resize,
             pty::pty_kill,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application");
+    // Built but not run: the main window is made when the app runs, so the
+    // window-state plugin, which restores a window as it's made, can still
+    // be left out of a process that doesn't own the session (session.rs).
+    let session = session::claim(app.path().app_config_dir().ok().as_deref());
+    if session.is_owner() {
+        let window_state = tauri_plugin_window_state::Builder::new()
+            .with_state_flags(StateFlags::SIZE | StateFlags::POSITION | StateFlags::MAXIMIZED)
+            .build();
+        if let Err(e) = app.handle().plugin(window_state) {
+            eprintln!("window-state plugin: {e}");
+        }
+    }
+    app.manage(session);
+    app.run(|_, _| {});
 }

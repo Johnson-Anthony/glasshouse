@@ -5,11 +5,14 @@
 // handlers work with positions.
 
 import type { TabDef } from "./components";
+import type { TabSort } from "./session";
 
 export interface TabRecord extends TabDef {
   id: number;
   /** Where the tab's useTabState starts; it's only read on mount. */
   initialPath: string;
+  /** The sort it starts with, also only read on mount. Name when unset. */
+  initialSort?: TabSort;
   private: boolean;
 }
 
@@ -25,7 +28,7 @@ export function tabLabel(path: string, isPrivate: boolean): string {
   return isPrivate ? `(private) ${path}` : path;
 }
 
-export function makeTab(path: string, opts: { private?: boolean; color?: string } = {}): TabRecord {
+export function makeTab(path: string, opts: { private?: boolean; color?: string; sort?: TabSort } = {}): TabRecord {
   const isPrivate = !!opts.private;
   return {
     id: nextTabId++,
@@ -33,6 +36,7 @@ export function makeTab(path: string, opts: { private?: boolean; color?: string 
     color: opts.color ?? (isPrivate ? "var(--magenta, #bb9af7)" : "var(--cyan)"),
     label: tabLabel(path, isPrivate),
     initialPath: path,
+    initialSort: opts.sort,
     private: isPrivate,
   };
 }

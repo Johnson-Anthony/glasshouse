@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from "react";
 import {
   Titlebar,
   Toolbar,
@@ -31,7 +31,7 @@ import { useEscapeClose } from "./dialogs/useEscapeClose";
 import { Inspector, type InspectableFile } from "./preview/Inspector";
 import { QuickLook } from "./preview/FilePreview";
 import { Sidebar, type SavedRemote, type SidebarRowKind } from "./Sidebar";
-import { Menubar, ContextMenu, setDynamicGitCwd } from "./menus";
+import { Menubar, ContextMenu, setDynamicGitCwd, type MenuToggleState } from "./menus";
 import { CONTEXT_FILE, CONTEXT_EMPTY, CONTEXT_SIDEBAR, CONTEXT_SIDEBAR_FOLDER, CONTEXT_SIDEBAR_FILE, CONTEXT_SIDEBAR_DRIVE, CONTEXT_SIDEBAR_REMOTE, CONTEXT_TAB, CONTEXT_BREADCRUMB, GIT_CHORDS, type MenuItemDef, type DynamicPayload, type FileKind, type GitStatus } from "./data";
 import {
   useTabState,
@@ -48,6 +48,7 @@ import { findBinding, gitChord, GIT_CHORD_MS, type KeyAction } from "./keymap";
 import type { MenuAnchor } from "./menuNav";
 import { isModalOpen, useModal } from "./dialogs/modal";
 import { makeTab, closeTab, closeOtherTabs, moveTab as moveTabIn, tabLabel, type TabRecord } from "./tabs";
+import { DEFAULT_SORT, loadSession, restoreSession, saveSession, sessionOf, type Session, type TabSort } from "./session";
 import { canExtractArchive } from "./handlers/archive";
 import { revealPath, showBlame } from "./handlers/helpers";
 import { DISPLAY_MODE_DEFAULT, DISPLAY_MODE_KEY, LAYOUT_KEY, slugify } from "./handlers/view";
@@ -71,6 +72,7 @@ import {
   readText,
   findInFiles,
   cancelOp,
+  sessionOwner,
   type FileEntry,
   type BlameLine,
   type FindMatch,
@@ -99,7 +101,22 @@ const TWEAK_DEFAULTS: TweakState = {
   foldersFirst: true,
   termFollow: true,
   zoom: ZOOM_DEFAULT,
+  showSidebar: true,
+  showInspector: true,
+  showStatusBar: true,
 };
+
+type PanelKey = "showSidebar" | "showInspector" | "showStatusBar";
+
+/** A panel's show/hide setter, writing the saved setting. */
+function panelSetter(setState: Dispatch<SetStateAction<TweakState>>, key: PanelKey): Dispatch<SetStateAction<boolean>> {
+  return v => setState(prev => ({ ...prev, [key]: typeof v === "function" ? v(prev[key]) : v }));
+}
+
+/** The sort a new tab opened from `h` starts with. */
+function sortOf(h: UseTabResult | undefined): TabSort | undefined {
+  return h && { key: h.state.sortKey, dir: h.state.sortDir };
+}
 
 interface CtxState {
   x: number;
@@ -113,6 +130,7 @@ const FALLBACK_PATH = IS_WINDOWS ? "C:\\" : "/";
 interface TabShellProps {
   id: number;
   initialPath: string;
+  initialSort?: TabSort;
   isPrivate?: boolean;
   /** The tab shown; the others don't poll (see useTabState). */
   active: boolean;
@@ -295,8 +313,8 @@ function FindInFilesModal({ root, onClose, onPick }: FindInFilesModalProps) {
   );
 }
 
-function TabShell({ id, initialPath, isPrivate, active, onReady }: TabShellProps) {
-  const tab = useTabState(initialPath, !!isPrivate, active);
+function TabShell({ id, initialPath, initialSort, isPrivate, active, onReady }: TabShellProps) {
+  const tab = useTabState(initialPath, !!isPrivate, active, initialSort);
   const onReadyRef = useRef(onReady);
   useEffect(() => { onReadyRef.current = onReady; });
   useEffect(() => {
@@ -364,7 +382,13 @@ export function App() {
   const [state, setState] = useState<TweakState>(() => {
     try {
       const saved = JSON.parse(localStorage.getItem("glasshouse.tweaks") || "null");
-      return saved ? { ...TWEAK_DEFAULTS, ...saved, zoom: validZoom(saved.zoom) } : TWEAK_DEFAULTS;
+      return saved ? {
+        ...TWEAK_DEFAULTS, ...saved, zoom: validZoom(saved.zoom),
+        // Only a saved false hides a panel.
+        showSidebar: saved.showSidebar !== false,
+        showInspector: saved.showInspector !== false,
+        showStatusBar: saved.showStatusBar !== false,
+      } : TWEAK_DEFAULTS;
     } catch { return TWEAK_DEFAULTS; }
   });
 
@@ -374,9 +398,11 @@ export function App() {
   const [ctx, setCtx] = useState<CtxState | null>(null);
   const [prefsOpen, setPrefsOpen] = useState(false);
   const [quickLookOpen, setQuickLookOpen] = useState(false);
-  const [showInspector, setShowInspector] = useState(true);
-  const [showSidebar, setShowSidebar] = useState(true);
-  const [showStatusBar, setShowStatusBar] = useState(true);
+  // Saved with the settings; View → Sidebar, Inspector and Status Bar.
+  const { showInspector, showSidebar, showStatusBar } = state;
+  const setShowInspector = panelSetter(setState, "showInspector");
+  const setShowSidebar = panelSetter(setState, "showSidebar");
+  const setShowStatusBar = panelSetter(setState, "showStatusBar");
 
   // Keyed by TabRecord.id, never by position.
   const [tabHandles, setTabHandles] = useState<Record<number, UseTabResult>>({});
@@ -471,12 +497,30 @@ export function App() {
     localStorage.removeItem("glasshouse.zoom");
   }, []);
 
+  // Set once the tabs are restored (below); until then there's nothing to
+  // save. The owner then saves the tabs as they change.
+  const session = useRef<{ owner: boolean; last: string | null } | null>(null);
+  useEffect(() => {
+    const s = session.current;
+    if (!s?.owner || tabs.length === 0) return;
+    const live = tabs.map(t => {
+      const h = tabHandles[t.id];
+      return { path: h?.state.path ?? t.initialPath, sort: sortOf(h) ?? t.initialSort ?? DEFAULT_SORT, private: t.private };
+    });
+    s.last = saveSession(sessionOf(live, activeTab), s.last);
+  }, [tabs, activeTab, tabHandles]);
+
   useEffect(() => {
     void (async () => {
-      const home = await homeDir();
+      const [home, owner] = await Promise.all([homeDir(), sessionOwner()]);
       const p = home ?? FALLBACK_PATH;
       setHomePath(home);
-      setTabs([makeTab(p, { color: "var(--blue)" })]);
+      // The window that owns the session reopens its tabs (session.ts).
+      const saved = owner ? loadSession() : null;
+      const start: Session = saved ? await restoreSession(saved, p) : { tabs: [{ path: p, sort: DEFAULT_SORT }], active: 0 };
+      session.current = { owner, last: null };
+      setTabs(start.tabs.map((t, i) => makeTab(t.path, { color: i === 0 ? "var(--blue)" : undefined, sort: t.sort })));
+      setActiveTab(start.active);
       if (home) {
         const remotesPath = joinPath(joinPath(home, ".glasshouse"), "remotes.json");
         try {
@@ -688,7 +732,7 @@ export function App() {
 
   const openNewTab = () => {
     const seed = activeHandle?.state.path ?? FALLBACK_PATH;
-    setTabs(prev => [...prev, makeTab(seed)]);
+    setTabs(prev => [...prev, makeTab(seed, { sort: sortOf(activeHandle) })]);
   };
 
   // Each TabShell drops its own handle when it unmounts, so closing only
@@ -705,9 +749,10 @@ export function App() {
   const duplicateTabAt = (i: number) => {
     const t = tabs[i];
     if (!t) return;
-    // Prefer the live path of that tab's handle if available.
-    const live = tabHandles[t.id]?.state.path ?? t.initialPath;
-    setTabs(prev => [...prev, makeTab(live, { private: t.private })]);
+    // Prefer the live path and sort of that tab's handle if available.
+    const h = tabHandles[t.id];
+    const live = h?.state.path ?? t.initialPath;
+    setTabs(prev => [...prev, makeTab(live, { private: t.private, sort: sortOf(h) ?? t.initialSort })]);
   };
 
   const closeOtherTabsAt = (keep: number) => {
@@ -715,7 +760,7 @@ export function App() {
   };
 
   const openPathInNewTab = (p: string, isPrivate: boolean = false) => {
-    setTabs(prev => [...prev, makeTab(p, { private: isPrivate })]);
+    setTabs(prev => [...prev, makeTab(p, { private: isPrivate, sort: sortOf(activeHandle) })]);
   };
 
   useEffect(() => {
@@ -1149,6 +1194,16 @@ export function App() {
     );
   };
 
+  // What the menus' ✓ marks follow.
+  const menuToggles: MenuToggleState = {
+    tweaks: state,
+    sidebarVisible: showSidebar,
+    statusBarVisible: showStatusBar,
+    inspectorVisible: showInspector,
+    sortKey: activeHandle?.state.sortKey,
+    sortDir: activeHandle?.state.sortDir,
+  };
+
   return (
     <div className="app">
       {tabs.map(t => (
@@ -1156,6 +1211,7 @@ export function App() {
           key={t.id}
           id={t.id}
           initialPath={t.initialPath}
+          initialSort={t.initialSort}
           isPrivate={t.private}
           active={t.id === activeTabId}
           onReady={(id, r) => setTabHandles(prev => {
@@ -1181,7 +1237,7 @@ export function App() {
         onOpenPalette={() => setPalOpen(true)}
         onCommand={handleMenuCommand}
         onPayload={handleMenuPayload}
-        toggles={{ tweaks: state, sidebarVisible: showSidebar, statusBarVisible: showStatusBar, inspectorVisible: showInspector }}
+        toggles={menuToggles}
       />
       <Toolbar
         path={activeHandle?.state.path ?? ""}
@@ -1304,7 +1360,7 @@ export function App() {
       />
 
       {palOpen && <Palette onClose={() => setPalOpen(false)} onCommand={handleMenuCommand} />}
-      {ctx && <ContextMenu items={ctx.items} x={ctx.x} y={ctx.y} keyboard={ctx.keyboard} onClose={() => { setCtx(null); cmdState.contextTarget = null; }} onCommand={handleMenuCommand} onPayload={handleMenuPayload} />}
+      {ctx && <ContextMenu items={ctx.items} x={ctx.x} y={ctx.y} keyboard={ctx.keyboard} onClose={() => { setCtx(null); cmdState.contextTarget = null; }} onCommand={handleMenuCommand} onPayload={handleMenuPayload} toggles={menuToggles} />}
       {quickLookOpen && selectedFile && (
         <QuickLook file={selectedFile} onClose={() => setQuickLookOpen(false)} />
       )}

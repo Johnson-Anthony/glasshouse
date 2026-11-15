@@ -55,6 +55,7 @@ crc32fast = "1"
 base64 = "0.22"
 similar = "2"
 portable-pty = "0.9"
+tauri-plugin-window-state = "2.5"
 
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.58", features = [
