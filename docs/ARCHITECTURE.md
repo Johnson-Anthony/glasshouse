@@ -30,6 +30,7 @@ A Tauri 2 app. The window is a React 18 UI (`src/`) that calls Rust commands (`s
 | `transfer.ts`, `transferUi.ts` | Copy and move planning (conflicts, "(copy)" names, keep both / replace / skip) and running, shared by paste, drag and drop, Move to… and Duplicate |
 | `undoActions.ts` | Undo and redo entries for moves, copies (fingerprinted), creations, replaced file content, and the trash (Move to Trash and Restore) |
 | `tags.ts`, `tagMap.ts` | The tag store (one copy of the `{ path: labels }` map, written on each change) and the wrappers that make tags follow the app's renames, moves, deletes and trash; pruning of gone paths after a listing and when the sidebar's TAGS group is shown. `tagMap.ts` is the pure map work. See `docs/decisions/2026-11-13-tags-follow-design.md` |
+| `session.ts` | The tabs a window reopens with (each tab's folder and sort, and the active tab), in `localStorage["glasshouse.session.v1"]`: checked field by field on load, written as they change, private tabs left out; a gone folder opens its nearest existing parent, or home. Only the window that owns the session (`session_owner`) restores and saves it. See `docs/decisions/2026-11-15-session-persistence-windows.md` |
 | `findReplace.ts` | Find & Replace in Files: the preview confirm, the report and the undo entry. The search and the writes are the backend's `replace.rs` |
 | `names.ts`, `paths.ts`, `typedPath.ts`, `tabs.ts`, `fuzzy.ts`, `shellCd.ts`, `octal.ts` | Pure helpers: name conflicts and bulk-rename ordering; path rules per platform; what a typed path or link means (`~`, relative, `..`, `file://`); tab-list operations; fuzzy matching; terminal `cd`; chmod parsing |
 | `ops.ts`, `opStore.ts`, `OpsTray.tsx` | Long operations (hash, copy, find) with progress and Cancel |
@@ -39,7 +40,7 @@ A Tauri 2 app. The window is a React 18 UI (`src/`) that calls Rust commands (`s
 | `styles/themes.css`, `styles/app.css` | 8 themes as CSS variables on `[data-theme]`, each with its `color-scheme` (App passes it to the window, so GTK popups match); layout and component CSS |
 
 **State.** There's no store or reducer.
-- `App()` holds about 40 `useState` hooks. The settings (`TweakState`: theme, font, density, zoom, the file-list toggles…) persist in `localStorage["glasshouse.tweaks"]`; Preferences… and the View menu change them.
+- `App()` holds about 40 `useState` hooks. The settings (`TweakState`: theme, font, density, zoom, the file-list toggles, which panels are shown…) persist in `localStorage["glasshouse.tweaks"]`; Preferences… and the View menu change them. The tabs persist through `session.ts`.
 - Each tab is a headless `<TabShell>` running `useTabState` and passing `{state, actions}` up into `tabHandles`.
 - Module-level state: `cmdState`, the undo stacks, the tag store (`tags.ts`, read with `useTags()`), the `dialogs` API and the git cwd.
 - Components also signal each other with window events (`glasshouse:*`) and attributes on `<html>`.
@@ -65,7 +66,8 @@ A Tauri 2 app. The window is a React 18 UI (`src/`) that calls Rust commands (`s
 ## Backend (`src-tauri/src/`)
 | Path | What |
 |---|---|
-| `lib.rs` | Plugins, managed state, and every command in `generate_handler!` |
+| `lib.rs` | Plugins, managed state, and every command in `generate_handler!`. The app is built, then run: in between it claims the session (`session.rs`) and, if it owns it, registers the window-state plugin, which restores the main window's size and place as it's made and saves them on exit |
+| `session.rs` | Which glasshouse process owns the saved session: the first one running, which holds a lock on `session.lock` in the app config dir. File → New Window starts another process, which restores and saves neither the window nor the tabs. See `docs/decisions/2026-11-15-session-persistence-windows.md` |
 | `commands/` | The commands, one module per area: `listing`, `fs_ops`, `file_info`, `search`, `replace`, `archive`, `hash`, `git`, `config`, `system` (Windows drive letters in `drive_letters.rs`), `wsl` (one timed, cached `wsl.exe --list` for the sidebar and the terminal profiles), `launch`, `drag_out` (a native drag of files into other apps: GTK on Linux, OLE through the `drag` crate on Windows), `trash` (Move to Trash, and the Trash dialog's list, restore and purge; `recycle_bin.rs` checks a Windows drive has a Recycle Bin). Tests are inline or in `<module>_tests.rs`; shared helpers are in `testing.rs` |
 | `ops.rs` | `OpRegistry` and `Op`: `op-progress` events (at most every 100 ms) and cancellation for calls given an `op_id`, plus `cancel_op` |
 | `pty.rs`, `pty/profiles.rs` | Terminal sessions (portable-pty; per session a reader, a wait and a writer thread, with `pty_write` queuing onto the writer); shell, WSL and ssh profile detection and `check_profile` |

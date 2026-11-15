@@ -34,6 +34,7 @@ vi.mock("@tauri-apps/api/event", () => ({
 import { gitStatus, readDir } from "./api";
 import { REFRESH_GAP_MS } from "./refreshGate";
 import { useTabState, type UseTabResult } from "./state";
+import type { TabSort } from "./session";
 
 const entry = (dir: string, name: string): FileEntry => ({
   name, path: `${dir}/${name}`, kind: "text", size: 1, modified_ms: 0,
@@ -43,8 +44,9 @@ const entry = (dir: string, name: string): FileEntry => ({
 let tab: UseTabResult;
 let renders = 0;
 let shown = true;
+let startSort: TabSort | undefined;
 function Host() {
-  tab = useTabState("/w", true, shown);
+  tab = useTabState("/w", true, shown, startSort);
   renders++;
   return null;
 }
@@ -151,6 +153,20 @@ describe("useTabState re-reads", () => {
     const [path, maxAge] = vi.mocked(gitStatus).mock.calls.at(-1)!;
     expect(path).toBe("/w");
     expect(maxAge).toBeLessThan(REFRESH_GAP_MS);
+  });
+});
+
+describe("useTabState sort", () => {
+  afterEach(() => { startSort = undefined; });
+
+  it("starts with Name ascending, or the sort it's given", async () => {
+    expect([tab.state.sortKey, tab.state.sortDir]).toEqual(["name", "asc"]);
+    act(() => root.unmount());
+    startSort = { key: "modified", dir: "desc" };
+    root = createRoot(host);
+    act(() => root.render(<Host />));
+    await settle();
+    expect([tab.state.sortKey, tab.state.sortDir]).toEqual(["modified", "desc"]);
   });
 });
 

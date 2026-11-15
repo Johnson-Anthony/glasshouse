@@ -4,8 +4,8 @@
 import { act, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { ContextMenu, Menubar } from "./menus";
-import { MENUS, type MenuItemDef } from "./data";
+import { ContextMenu, Menubar, resolveChecked, type MenuToggleState } from "./menus";
+import { CONTEXT_EMPTY, MENUS, type MenuItemDef } from "./data";
 import { holdModal } from "./dialogs/modal";
 import type { TweakState } from "./components";
 
@@ -74,6 +74,10 @@ const click = (el: Element) => act(() => {
 });
 
 const labelOf = (el: Element | null | undefined) => el?.children[1]?.textContent;
+const mi = (label: string) => [...host.querySelectorAll(".mi")].find(m => labelOf(m) === label)!;
+/** The items shown with a ✓, in order: in the open submenu, given `sub`. */
+const ticked = (sub = false) => [...host.querySelectorAll(sub ? ".mi .dropdown .mi" : ".mi")]
+  .filter(m => m.querySelector(":scope > .ic")?.textContent === "✓").map(labelOf);
 /** The highlighted item of each open list, outermost first. */
 const highlighted = () => [...host.querySelectorAll(".mi.hover")].map(labelOf);
 
@@ -392,5 +396,40 @@ describe("menubar", () => {
     expect(ticked("Show Git Gutters")).toBe(true);
     // The floating Tweaks panel is gone, and its menu item with it.
     expect([...host.querySelectorAll(".mi")].map(labelOf)).not.toContain("Tweaks");
+  });
+
+  it("View → Sort By ticks the active tab's sort, and Descending when it's descending", async () => {
+    const tweaks = { foldersFirst: true } as TweakState;
+    const render = (toggles: MenuToggleState) =>
+      act(async () => root.render(<Menubar onOpenPalette={() => {}} onCommand={onCommand} toggles={toggles} />));
+    await render({ tweaks, sortKey: "modified", sortDir: "desc" });
+    await click(titleEl("View"));
+    await hover(mi("Sort By"));
+    expect(ticked(true)).toEqual(["Modified", "Descending", "Folders First"]);
+    await render({ tweaks, sortKey: "type", sortDir: "asc" });
+    expect(ticked(true)).toEqual(["Type / Extension", "Folders First"]);
+  });
+
+  it("the panel toggles tick what's shown", async () => {
+    await act(async () => root.render(<Menubar onOpenPalette={() => {}} onCommand={onCommand} toggles={{ sidebarVisible: false, inspectorVisible: true, statusBarVisible: false }} />));
+    await click(titleEl("View"));
+    expect(ticked().filter(l => ["Sidebar", "Inspector", "Status Bar"].includes(l!))).toEqual(["Inspector"]);
+  });
+});
+
+describe("the sort's ✓ in the context menu", () => {
+  it("the empty area's Sort By ticks the active tab's sort", async () => {
+    await act(async () => root.render(<ContextMenu items={CONTEXT_EMPTY} x={0} y={0} onClose={() => {}} toggles={{ sortKey: "git", sortDir: "asc" }} />));
+    await hover(mi("Sort By"));
+    expect(ticked(true)).toEqual(["Git Column"]);
+  });
+
+  it("without the toggles, nothing but the static hints", () => {
+    const name = { kind: "item", label: "Name", check: true } as const;
+    expect(resolveChecked(name, {}, "Sort By")).toBe(true);
+    expect(resolveChecked(name, { sortKey: "size" }, "Sort By")).toBe(false);
+    expect(resolveChecked({ kind: "item", label: "Size" }, { sortKey: "size" }, "Sort By")).toBe(true);
+    // Only under Sort By: another menu's "Size" is not the sort.
+    expect(resolveChecked({ kind: "item", label: "Size" }, { sortKey: "size" }, "Columns")).toBe(false);
   });
 });

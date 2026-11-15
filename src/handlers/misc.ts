@@ -27,6 +27,7 @@ import { errText } from "../errors";
 import { markIrreversible, pushUndo } from "../state";
 import { contentUndo, createUndo, madeUndo, moveUndo } from "../undoActions";
 import { droppingTags, renamePath } from "../tags";
+import { isSessionKey } from "../session";
 const REPO_URL = "https://github.com/Johnson-Anthony/glasshouse";
 
 async function promptAndCreate(ctx: HandlerCtx, defaultName: string, body = ""): Promise<void> {
@@ -257,7 +258,7 @@ export const miscHandler: Handler = async (label, ctx) => {
       for (let i = 0; i < localStorage.length; i++) {
         const k = localStorage.key(i);
         if (!k) continue;
-        if (k.startsWith("glasshouse.")) {
+        if (k.startsWith("glasshouse.") && !isSessionKey(k)) {
           const v = localStorage.getItem(k);
           if (v != null) settings[k] = v;
         }
@@ -293,7 +294,7 @@ export const miscHandler: Handler = async (label, ctx) => {
       const entries = settings && typeof settings === "object"
         ? Object.entries(settings as Record<string, unknown>).filter(
             ([k, v]) =>
-              k.startsWith("glasshouse.") && typeof v === "string",
+              k.startsWith("glasshouse.") && !isSessionKey(k) && typeof v === "string",
           )
         : [];
       if (entries.length === 0) {

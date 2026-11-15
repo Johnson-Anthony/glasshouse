@@ -17,6 +17,11 @@ describe("makeTab", () => {
     expect(tabLabel("/x", true)).toBe("(private) /x");
   });
 
+  it("carries the sort the tab starts with", () => {
+    expect(makeTab("/x").initialSort).toBeUndefined();
+    expect(makeTab("/x", { sort: { key: "size", dir: "desc" } }).initialSort).toEqual({ key: "size", dir: "desc" });
+  });
+
   it("labels private tabs", () => {
     const t = makeTab("/x", { private: true });
     expect(t.private).toBe(true);

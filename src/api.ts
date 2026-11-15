@@ -722,6 +722,12 @@ export function ptyKill(sessionId: string): Promise<void> {
   return safe(() => invoke<void>("pty_kill", { sessionId }), undefined);
 }
 
+/** Whether this window restores and saves the tabs: only the first
+ *  glasshouse process running does (src-tauri/src/session.rs). */
+export function sessionOwner(): Promise<boolean> {
+  return safe(() => invoke<boolean>("session_owner"), true);
+}
+
 export function readRecent(): Promise<string[]> {
   return safe(() => invoke<string[]>("read_recent"), []);
 }

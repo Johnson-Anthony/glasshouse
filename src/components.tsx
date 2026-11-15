@@ -1225,4 +1225,8 @@ export interface TweakState {
   termFollow: boolean;
   /** The window's zoom, as a factor (1 = 100%; see zoom.ts). */
   zoom: number;
+  /** View → Sidebar, Inspector, Status Bar. */
+  showSidebar: boolean;
+  showInspector: boolean;
+  showStatusBar: boolean;
 }

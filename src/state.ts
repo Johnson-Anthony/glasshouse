@@ -16,6 +16,7 @@ import { errText } from "./errors";
 import { EMPTY_LISTING, indexOfName, keepGitInfo, relist, selectOnly, withAnchor, withFocus, withSelected, type Listing } from "./listing";
 import { RefreshGate } from "./refreshGate";
 import { pruneListed } from "./tags";
+import type { TabSort } from "./session";
 
 /** The safety-net re-list of the shown tab, for changes the watcher missed. */
 const POLL_MS = 30000;
@@ -189,7 +190,7 @@ export function newTab(path?: string, opts?: { private?: boolean }): void {
 /** `active`: the tab is the one shown. A tab in the background doesn't
  *  re-list on the poll or on watcher reports; it notes that it missed one
  *  and re-lists once when it's shown again. */
-export function useTabState(initialPath: string, isPrivate: boolean = false, active: boolean = true): UseTabResult {
+export function useTabState(initialPath: string, isPrivate: boolean = false, active: boolean = true, initialSort?: TabSort): UseTabResult {
   // Path and history live in one value. navRef is the source of truth for the
   // actions and is updated synchronously, so two navigations in the same tick
   // build on each other; the state copy is what renders.
@@ -200,8 +201,8 @@ export function useTabState(initialPath: string, isPrivate: boolean = false, act
   const [listing, setListing] = useState<Listing>(EMPTY_LISTING);
   const { entries, selected, focusIndex, anchorIndex } = listing;
   const [gitInfo, setGitInfo] = useState<GitInfo | null>(null);
-  const [sortKey, setSortKey] = useState<SortKey>("name");
-  const [sortDir, setSortDir] = useState<SortDir>("asc");
+  const [sortKey, setSortKey] = useState<SortKey>(initialSort?.key ?? "name");
+  const [sortDir, setSortDir] = useState<SortDir>(initialSort?.dir ?? "asc");
   const [showHidden, setShowHidden] = useState<boolean>(false);
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
