@@ -5,7 +5,24 @@ sort, and the sidebar, Inspector and status-bar visibility. The Sort menu's
 ✓ is fixed on Name.
 
 ## Status
-- 2026-11-15: plan written; implementing.
+- 2026-11-15: done. Source `b2321c6`, demo rebuild `c1bf874`; plan moved to completed.
+  - Checks: `pnpm build`, `pnpm test` (829 passed, 3 skipped; 32 new), `pnpm check:wiring`
+    (0 issues), `pnpm notices --check`, clippy `-D warnings` and `cargo test`
+    (217 passed, 3 new), `pnpm site:build` and `pnpm site:capture check`
+    (25/25), release binary.
+  - Checked in the browser pane (Vite dev server, no backend): two tabs, a
+    size-descending sort and a hidden sidebar come back after a reload, with
+    the second tab active; a new tab takes the active tab's sort; a junk
+    record starts fresh; the View → Sort By ✓ follows the tab.
+  - Not checked by hand: the window's size and place, the gone-folder
+    fallback against the real backend, two windows, WebView2 / Windows (the
+    lock, the plugin and the command are plain std and Tauri code, built
+    only on Linux here).
+  - As planned, except the demo: the plan had it not own the session, but
+    its storage is in memory anyway, so it owns it and the capture checks
+    run the saving code.
+  - Found, not changed: New Tab (Ctrl+T, the + button) adds a tab without
+    switching to it (so on `main` too).
 
 ## Plan
 1. **Who saves when several windows are open.** File → New Window starts a
@@ -52,9 +69,9 @@ sort, and the sidebar, Inspector and status-bar visibility. The Sort menu's
    `desc`. The context menus get the toggles too, so the empty-area Sort By
    shows the ✓ (and its other toggles stop showing stale ones).
    `SORT_KEY_OF` (label → key) next to the Sort cases in `handlers/view.ts`.
-7. **Demo**: the mock answers `session_owner` with false, so the demo starts
-   the same way every time and the capture checks don't see tabs from an
-   earlier page.
+7. **Demo**: the mock answers `session_owner` with true, so the capture
+   checks run the saving code. Its storage lives in memory (`install.ts`),
+   so no visit reopens another's tabs.
 8. Tests: `session.test.ts` (parse, serialize, fallback walk, timeout,
    private tabs, active index), the ✓ in `menus.dom.test.tsx`, the tweak
    checks, `session.rs` lock tests.
