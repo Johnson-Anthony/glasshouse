@@ -14,7 +14,7 @@ The scan for the user's own paths and names found none in app code. The gaps are
 |---|---|---|---|---|
 | **Wave 7a: see it run, and make failures reportable** |||||
 | 32 | e2e-smoke | CI + test code | S–M | merged (`gifted-bun-817ccd`, 11-20) |
-| 33 | diagnostics-and-errors | both | M | running (11-20) |
+| 33 | diagnostics-and-errors | both | M | merged 11-20 (`claude/unruffled-pascal-d0c30d`; plan in `docs/plans/completed/diagnostics-and-errors.md`, with the errors left as plain text) |
 | 34 | windows-paths | Rust + a little frontend | M | queued |
 | 35 | release-identity | Rust + config + CI | M | merged 11-20 (`claude/stoic-hermann-165fd0`; Tauri rejects `_`, so the id is `io.github.johnson-anthony.glasshouse`, with `johnson_anthony` only in D-Bus interface names and paths; `docs/decisions/2026-11-20-release-identity-id-form.md`) |
 | **Wave 7b: works like other file managers** |||||
@@ -275,9 +275,11 @@ The owner asked for "split view for tabs and also to be able to drag drop tabs i
 - *(from first-run-defaults)* The site's hero images and tour clips in `docs/media` still show the old status bar (READY, the i/o graph); `pnpm site:capture` re-records them.
 - *(from first-run-defaults)* A window restored maximized whose saved normal size doesn't fit the screen still un-maximizes too big.
 - *(from first-run-defaults, for 45)* Not run: Windows (Quick Access, `GetDiskFreeSpaceExW`, the window fit), a second window's fit on Linux, and the fit under a real window manager or Wayland compositor (positions are ignored there). KDE's and GNOME's bookmark files were tested as files.
-- *(from docs-and-community, for 34)* On Windows, .7z support needs 7-Zip on PATH: `find_tool` looks only on PATH, and 7-Zip's installer doesn't add itself there. Also look in `%ProgramFiles%\7-Zip` (and the x86 one); the README now tells users to add it to PATH by hand.
+- *(from docs-and-community, for 34; done by 33: 7-Zip is now found in Program Files too)* On Windows, .7z support needed 7-Zip on PATH: `find_tool` looks only on PATH, and 7-Zip's installer doesn't add itself there. Also look in `%ProgramFiles%\7-Zip` (and the x86 one); the README now tells users to add it to PATH by hand.
 - *(from docs-and-community, for 34)* On Windows, the terminal's "bash" profile is the first `bash.exe` on PATH, usually `System32\bash.exe` (WSL's launcher), not Git Bash. Unverified on a real PC; `docs/testing/windows.md` W9.1 checks it.
 - *(from docs-and-community, for 48)* When the updater lands, update README "Privacy" (the "Update checks (planned)" paragraph), "Known limitations" ("No automatic updates yet") and the .deb and AppImage update sentences under "Linux".
-- *(from docs-and-community, for 33)* README "Getting help" says "Help → Open Log Folder (planned)", with no log path, and the bug form's intro and README say Report Bug… pre-fills `version`, `os`, `desktop` and `webview` (`?template=bug_report.yml&…`). Both are true only once 33 lands.
+- *(from docs-and-community, for 33; settled by 33)* README "Getting help" says "Help → Open Log Folder (planned)", with no log path, and the bug form's intro and README say Report Bug… pre-fills `version`, `os`, `desktop` and `webview` (`?template=bug_report.yml&…`). Both are true only once 33 lands.
 - *(from docs-and-community, for 49)* README "Linux" says an AppImage doesn't add itself to the app menu; so does `docs/testing/linux.md` L2.3.
 - *(from docs-and-community)* No code of conduct yet: it needs a contact for reports, and the owner hasn't picked one.
+- *(from diagnostics-and-errors)* Commands that still return plain-text errors (convert with `AppError::io`/`other` when next touched): git, find/replace and search, config, integration, file_info, read_image_b64, shred, change_owner, create_shortcut, run_script, spawn_terminal, reveal_in_explorer, spawn_new_window, the trash list/restore/purge, start_drag_out, pty_kill, the chooser commands, net_rate, path_fs_type.
+- *(from diagnostics-and-errors, for 45)* Not run on Windows: the MessageBoxW box, the WebView2 check before `build()`, the 7-Zip Program Files lookup, and the trash's HRESULT→Win32 mapping ("in use" for errors 32/33). No real release-build panic or failed `build()` has been triggered; the box was checked through `--fatal-dialog`.

@@ -6,6 +6,8 @@ What changed in each release, for people using glasshouse. Downloads are on the 
 
 ### New
 
+- **Help → Open Log Folder.** glasshouse keeps a log, glasshouse.log: errors, crashes, and each start's version and system. It stays on your computer.
+- **Report Bug… fills in the bug form** with the version, OS, desktop and display scale, and the WebKitGTK or WebView2 version, after showing you exactly those lines. No paths, user name or computer name.
 - **A first run pins your home and standard folders** plus your desktop's bookmarks (GTK, KDE Dolphin, Windows Quick Access).
 - **The status bar shows the selected files' size** when something is selected, and the free space on the folder's drive.
 - **Windows on Arm:** native arm64 installers (setup.exe and MSI).
@@ -54,6 +56,9 @@ What changed in each release, for people using glasshouse. Downloads are on the 
 
 ### Changed
 
+- **Error messages are sentences:** "Couldn't move “notes.txt” to the trash because it isn't there anymore." instead of text like `move_to_trash(…): …`. The raw error is under Show details. Alerts are titled with the command, not "error". This covers opening folders, new folder, rename, copy, move, delete, trash, permissions, links, archives, the terminal, VS Code and links.
+- **If glasshouse crashes or can't start, a box says so** and shows where the log is, instead of the window just vanishing. On Windows without the WebView2 Runtime, the box links to Microsoft's download.
+- **A window that fails to render shows a crash screen** with Reload, Open Log Folder and Report Bug…, instead of going blank.
 - **The README is a user guide:** which download to pick, system requirements, privacy, where your data lives and how to remove it, and checking a download. Building from source moved to CONTRIBUTING.md. Security reports go through GitHub's private reporting (SECURITY.md), and bugs through an issue form.
 - **New installs get a lean status bar** (items, selection, size, free space on the drive). CPU, memory, network, uptime, the clock and the rest can be switched on one by one in Preferences → Status bar. Existing settings keep what they showed.
 - The status bar no longer shows a made-up i/o graph or a READY badge, and it stops polling while the window is hidden or the bar is off, fetching only what it shows.
@@ -80,6 +85,7 @@ What changed in each release, for people using glasshouse. Downloads are on the 
 
 ### Fixed
 
+- On Windows, 7-Zip is found in its install folder even when it isn't on PATH.
 - **The window fits the screen:** the first window opens centered at a size that fits small and scaled screens (it was 1400×900 whatever the screen), and a saved window too big for the current screen shrinks to fit.
 - **Moving from the setup.exe to the MSI** no longer puts the MSI's per-machine install in your user folder: uninstalling the setup.exe version now forgets its install folder.
 - On Windows, the app's Content Security Policy blocked Tauri's IPC, so every call between the window and the backend fell back to a slower path and logged an error.
