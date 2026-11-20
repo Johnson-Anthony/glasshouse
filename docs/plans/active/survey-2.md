@@ -43,7 +43,7 @@ On 2026-11-11, four read-only agents surveyed the app (at `45ea31b`): frontend b
 | **User requests** |||||
 | 29 | settings-dialog | frontend | M | merged (`distracted-yalow-967327`, 11-13; user-requested) |
 | 30 | folder-handler | both (Linux D-Bus, Windows registry) | L | merged (`suspicious-heisenberg-08b25d`, 11-20; user request) |
-| 31 | file-chooser | both (Linux portal) | L | queued (user request 11-20; after 30) |
+| 31 | file-chooser | both (Linux portal) | L | merged 11-20 (`claude/admiring-dubinsky-5595ea`; plan in `docs/plans/completed/file-chooser.md`) |
 
 **Scheduling notes:**
 - Run at most two Rust tasks at once (RAM).
@@ -346,3 +346,5 @@ The user wants glasshouse to be the open/save dialog other apps show: a text edi
 - *(Win)* `pty_kill` drops the ConPTY on the main thread, where closing it can block.
 - *(Win)* An open watch handle may block renaming the watched folder's parent.
 - New Tab, Open in New Tab and Duplicate Tab don't switch to the new tab (New Private Session does). It may be intended.
+- *(from file-chooser)* Measure the dialog's first paint with the release build on a real session (400–590 ms under Xvfb and 1.6–2.5 s in a nested niri, debug build).
+- *(from file-chooser)* Try the dialogs switch on GNOME, KDE and Ubuntu 24.04 (portal 1.18, GTK 4.14, where `GDK_DEBUG=portals` goes session-wide); only niri was run. The self-heal script's `systemctl --user try-restart` and `environment.d` at a real login weren't run either.

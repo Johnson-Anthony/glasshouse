@@ -6,6 +6,9 @@ What changed in each release, for people using glasshouse. Downloads are on the 
 
 ### New
 
+- **glasshouse can be the open and save dialog other apps show** (Linux). One switch, off by default, makes glasshouse's window the Open, Save As, attach and upload dialog of every app it can reach, with no per-app setup: Edit → Preferences → Integration → "Use glasshouse for open and save dialogs", or `glasshouse --integration-on dialogs`. Flatpak and Snap apps, Chromium, Chrome and Electron apps, GTK 4.18 and recent Firefox-based browsers switch at once; GTK 3, Qt and other Firefox releases from the next login. Turning it off puts the desktop's dialog back. Windows' own dialogs can't be replaced. See [docs/INTEGRATION.md](docs/INTEGRATION.md).
+- **The dialog** is glasshouse's file pane, sidebar and search, with the app's file types and options. A typed path goes there, the extension follows the file type, saving over a file asks first, and it opens where you last picked for that app.
+- **`glasshouse --integration-off dialogs`** turns one setting off; with no names it still turns them all off.
 - **39 themes, up from 8:** 12 new light themes, 16 new dark ones, a high-contrast pair and Amber CRT, each checked for readable contrast (WCAG AA). The original eight look as they did.
 - **The theme can follow the system** (the default for new installs): pick a light and a dark theme, and glasshouse switches with the OS's light or dark setting, and to the high-contrast pair when the OS asks for more contrast. The window's own title bar and menus follow too.
 - **Make your own themes:** an editor under Preferences → Appearance with a live preview and a contrast report. Custom themes are saved with your settings and can be shared as small JSON files; an imported file can only set colors.
@@ -65,6 +68,7 @@ What changed in each release, for people using glasshouse. Downloads are on the 
 
 ### Fixed
 
+- On Windows, the app's Content Security Policy blocked Tauri's IPC, so every call between the window and the backend fell back to a slower path and logged an error.
 - With striped rows on, a selected odd row showed the stripe instead of the selection.
 - Opening a file that no app is set to open, or whose app won't start, did nothing; now it says so and offers Choose App…. The Inspector's VS Code button says why when it fails.
 - Commit Amend with an empty message did nothing; it now keeps the last message. git never waits on a password or passphrase prompt it can't show: it fails at once, with a hint (credential helper, ssh-agent, or the terminal drawer).
