@@ -16,6 +16,7 @@
     "core:webview:allow-set-webview-zoom",
     "core:app:allow-version",
     "dialog:default",
+    "log:default",
     "files-read",
     "files-write",
     "git",

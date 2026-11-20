@@ -9,6 +9,7 @@ import {
 import type { MenuItemDef } from "./data";
 import { dialogs } from "./dialogs/DialogHost";
 import { errText } from "./errors";
+import { showError } from "./errorDialog";
 import { basename } from "./paths";
 import { IS_WINDOWS } from "./platform";
 
@@ -71,7 +72,7 @@ export async function launchApp(app: { id: string; name: string }, paths: string
   try {
     await openWithApp(app.id, paths);
   } catch (e) {
-    void dialogs.showAlert({ title: `couldn't start ${app.name}`, message: errText(e), variant: "error" });
+    void showError({ title: `couldn't start ${app.name}`, err: e });
   }
 }
 
@@ -86,14 +87,14 @@ export async function openWithPickedProgram(path: string): Promise<void> {
         : { defaultPath: "/usr/bin" }),
     });
   } catch (e) {
-    void dialogs.showAlert({ title: "choose a program", message: errText(e), variant: "error" });
+    void showError({ title: "choose a program", err: e });
     return;
   }
   if (!program) return;
   try {
     await openWithProgram(program, [path]);
   } catch (e) {
-    void dialogs.showAlert({ title: `couldn't start ${basename(program) || program}`, message: errText(e), variant: "error" });
+    void showError({ title: `couldn't start ${basename(program) || program}`, err: e });
   }
 }
 

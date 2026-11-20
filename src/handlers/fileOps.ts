@@ -17,7 +17,9 @@ import type { Handler } from "./types";
 import { clearAllTags, copyWslPath, removeTagPrompt, revealInFileManager, runGitAction, selectedOrFirst, showBlame } from "./helpers";
 import { showLeftOut } from "./archive";
 import { cmdState } from "../commandState";
-import { errText } from "../errors";
+import { errDetail, errKind, errText } from "../errors";
+import { showError } from "../errorDialog";
+import { logWarn } from "../log";
 import { deletePath, renamePath, trashPath } from "../tags";
 
 /** The kinds of the selected entries, parallel to ctx.selectedPaths. */
@@ -52,18 +54,23 @@ export async function removeEach(
   failTitle: (failed: number) => string,
 ): Promise<void> {
   const failed: string[] = [];
+  const details: string[] = [];
   for (const p of paths) {
     try {
       await remove(p);
     } catch (e) {
-      failed.push(`${basename(p)}: ${errText(e)}`);
+      // A backend error's sentence names the item already.
+      failed.push(errKind(e) ? errText(e) : `${basename(p)}: ${errText(e)}`);
+      details.push(errDetail(e) || `${p}: ${errText(e)}`);
     }
   }
   refresh();
   if (failed.length === 0) return;
   const lines = failed.slice(0, 5);
   if (failed.length > 5) lines.push(`…and ${failed.length - 5} more`);
-  void dialogs.showAlert({ title: failTitle(failed.length), variant: "error", message: lines.join("\n") });
+  const title = failTitle(failed.length);
+  logWarn(`${title}:\n${details.join("\n")}`);
+  void dialogs.showAlert({ title, variant: "error", message: lines.join("\n"), detail: details.join("\n") });
 }
 
 /** Move to Trash, from the file menu or a target's menu: one undo entry
@@ -423,9 +430,8 @@ export const fileOpsHandler: Handler = async (label, ctx) => {
         dialogs.showToast({ message: `compressed to ${name}`, variant: "success" });
         showLeftOut(report.skipped, "left out of the archive");
       } catch (err) {
-        const msg = errText(err);
-        console.error("compress failed:", msg);
-        void dialogs.showAlert({ title: "compress failed", variant: "error", message: msg });
+        console.error("compress failed:", errText(err));
+        void showError({ title: "compress failed", err });
       }
       return true;
     }
@@ -438,9 +444,8 @@ export const fileOpsHandler: Handler = async (label, ctx) => {
         dialogs.showToast({ message: `sha256 copied: ${hex.slice(0, 16)}…`, variant: "success" });
       } catch (err) {
         if (isCancelled(err)) return true;
-        const msg = errText(err);
-        console.error("hash_sha256 failed:", msg);
-        void dialogs.showAlert({ title: "hash failed", variant: "error", message: msg });
+        console.error("hash_sha256 failed:", errText(err));
+        void showError({ title: "hash failed", err });
       }
       return true;
     }

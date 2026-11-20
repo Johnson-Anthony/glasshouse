@@ -98,8 +98,9 @@ fn move_to_trash_child() {
     assert_eq!(read(&data.join("Trash/files/dir/inner.txt")), "x");
 
     let err = move_to_trash(s(&root.join("missing"))).unwrap_err();
-    assert!(err.starts_with("move_to_trash("), "{}", err);
-    assert!(err.contains("missing"), "{}", err);
+    assert_eq!(err.kind, crate::error::Kind::NotFound);
+    assert_eq!(err.message, "Couldn't move “missing” to the trash because it isn't there anymore.");
+    assert!(err.detail.contains("missing"), "{}", err.detail);
 }
 
 // ---------- copy-move-no-clobber ----------
@@ -114,7 +115,7 @@ fn copy_entry_refuses_an_existing_file_target() {
     put(&d.join("a.txt"), "new");
     put(&d.join("b.txt"), "old");
     let err = copy_entry(s(&d.join("a.txt")), s(&d.join("b.txt"))).unwrap_err();
-    assert_eq!(err, taken("b.txt", d.path()));
+    assert_eq!(err.message, taken("b.txt", d.path()));
     assert_eq!(read(&d.join("b.txt")), "old");
     assert_eq!(read(&d.join("a.txt")), "new");
 }
@@ -126,7 +127,7 @@ fn copy_entry_refuses_an_existing_folder_target_without_merging() {
     put(&d.join("dst/y.txt"), "y");
     std::fs::create_dir(d.join("empty")).unwrap();
     let err = copy_entry(s(&d.join("src")), s(&d.join("dst"))).unwrap_err();
-    assert_eq!(err, taken("dst", d.path()));
+    assert_eq!(err.message, taken("dst", d.path()));
     assert_eq!(tree(&d.join("dst")), ["y.txt"]);
     assert!(copy_entry(s(&d.join("src")), s(&d.join("empty"))).is_err());
     assert!(tree(&d.join("empty")).is_empty());
@@ -144,7 +145,7 @@ fn copy_entry_refuses_to_replace_with_a_symlink() {
     put(&d.join("taken"), "keep");
     std::os::unix::fs::symlink("target.txt", d.join("link")).unwrap();
     let err = copy_entry(s(&d.join("link")), s(&d.join("taken"))).unwrap_err();
-    assert_eq!(err, taken("taken", d.path()));
+    assert_eq!(err.message, taken("taken", d.path()));
     assert_eq!(read(&d.join("taken")), "keep");
 }
 
@@ -173,10 +174,10 @@ fn move_entry_refuses_an_existing_file_or_folder_target() {
     std::fs::create_dir(d.join("empty")).unwrap();
 
     let err = move_entry(s(&d.join("a.txt")), s(&d.join("b.txt"))).unwrap_err();
-    assert_eq!(err, taken("b.txt", d.path()));
+    assert_eq!(err.message, taken("b.txt", d.path()));
     // fs::rename would have replaced the empty folder.
     let err = move_entry(s(&d.join("dir")), s(&d.join("empty"))).unwrap_err();
-    assert_eq!(err, taken("empty", d.path()));
+    assert_eq!(err.message, taken("empty", d.path()));
     assert!(move_entry(s(&d.join("dir")), s(&d.join("b.txt"))).is_err());
     assert!(move_entry(s(&d.join("a.txt")), s(&d.join("dir"))).is_err());
 
@@ -226,8 +227,8 @@ fn move_entry_across_devices_refuses_an_existing_target() {
     );
     let _ = std::fs::remove_dir_all(&other);
 
-    assert_eq!(file_err.unwrap_err(), taken("taken.txt", &other));
-    assert_eq!(dir_err.unwrap_err(), taken("taken-dir", &other));
+    assert_eq!(file_err.unwrap_err().message, taken("taken.txt", &other));
+    assert_eq!(dir_err.unwrap_err().message, taken("taken-dir", &other));
     assert_eq!(after, ("keep".to_string(), vec!["inner.txt".to_string()]));
     assert_eq!(read(&d.join("taken.txt")), "mine");
     assert_eq!(tree(&d.join("taken-dir")), ["mine.txt"]);
@@ -299,7 +300,9 @@ fn failed_folder_copy_leaves_nothing_behind() {
 
     let (from, to) = (s(&d.join("src")), s(&d.join("dst")));
     let err = crate::commands::testing::without_blocking(move || copy_entry(from, to)).unwrap_err();
-    assert_eq!(err, format!("can't copy {}: a named pipe, not a regular file", fifo.display()));
+    assert_eq!(err.detail, format!("can't copy {}: a named pipe, not a regular file", fifo.display()));
+    assert_eq!(err.message, "Couldn't copy “pipe”: a named pipe, not a regular file.");
+    assert_eq!(err.path, Some(s(&fifo)));
     assert!(std::fs::symlink_metadata(d.join("dst")).is_err(), "partial copy left behind");
 
     std::fs::remove_file(&fifo).unwrap();
@@ -372,7 +375,9 @@ fn move_across_devices_handles_a_failed_delete() {
     put(&d.join("ro/f.txt"), "f");
     chmod(&d.join("ro"), 0o555);
     let err = move_entry(s(&d.join("ro/f.txt")), s(&other.join("f.txt"))).unwrap_err();
-    assert!(err.contains("so it wasn't moved"), "{}", err);
+    assert!(err.detail.contains("so it wasn't moved"), "{}", err.detail);
+    assert_eq!(err.message, "Couldn't move “f.txt”: the original couldn't be removed after copying it, so it stays where it was.");
+    assert_eq!(err.kind, crate::error::Kind::Permission);
     assert!(std::fs::symlink_metadata(other.join("f.txt")).is_err(), "copy left behind");
     assert_eq!(read(&d.join("ro/f.txt")), "f");
 
@@ -381,7 +386,7 @@ fn move_across_devices_handles_a_failed_delete() {
     put(&d.join("tree/locked/x.txt"), "x");
     chmod(&d.join("tree/locked"), 0o555);
     let err = move_entry(s(&d.join("tree")), s(&other.join("tree"))).unwrap_err();
-    assert!(err.starts_with(&format!("copied to {}, but some of the original", s(&other.join("tree")))), "{}", err);
+    assert!(err.detail.starts_with(&format!("copied to {}, but some of the original", s(&other.join("tree")))), "{}", err.detail);
     assert_eq!(tree(&other.join("tree")), ["locked/", "locked/x.txt", "ok.txt"]);
     assert_eq!(read(&d.join("tree/locked/x.txt")), "x");
 
@@ -408,11 +413,11 @@ fn readers_refuse_special_files_without_blocking() {
     let p = s(&fifo);
     let errs = crate::commands::testing::without_blocking(move || {
         vec![
-            read_text(p.clone(), 0).unwrap_err(),
+            read_text(p.clone(), 0).unwrap_err().detail,
             read_image_b64(p.clone(), 0).unwrap_err(),
             read_hex_dump(p.clone(), 0, 0).unwrap_err(),
             read_capped(Path::new(&p)).unwrap_err(),
-            copy_entry(p.clone(), format!("{}-copy", p)).unwrap_err(),
+            copy_entry(p.clone(), format!("{}-copy", p)).unwrap_err().detail,
         ]
     });
     for e in errs {
@@ -420,8 +425,8 @@ fn readers_refuse_special_files_without_blocking() {
     }
     assert!(std::fs::symlink_metadata(d.join("pipe-copy")).is_err());
 
-    assert_eq!(read_text("/dev/null".into(), 0).unwrap_err(), "a device, not a regular file");
-    assert_eq!(read_text(s(d.path()), 0).unwrap_err(), "a folder, not a regular file");
+    assert_eq!(read_text("/dev/null".into(), 0).unwrap_err().message, "Couldn't open “null”: a device, not a regular file.");
+    assert_eq!(read_text(s(d.path()), 0).unwrap_err().detail, format!("{}: a folder, not a regular file", s(d.path())));
     // A link to a regular file is still read.
     put(&d.join("real.txt"), "real");
     std::os::unix::fs::symlink("real.txt", d.join("link")).unwrap();
@@ -464,7 +469,7 @@ fn cancelled_copy_of_a_file_leaves_no_file() {
     let (src, _) = tree_with_big_file(&d);
     let (_reg, op, _) = cancels_at_first_event("c2");
     let dst = d.join("big-copy.bin");
-    assert_eq!(copy_path(&s(&src.join("sub/big.bin")), &s(&dst), &op), Err(CANCELLED.to_string()));
+    assert_eq!(copy_path(&s(&src.join("sub/big.bin")), &s(&dst), &op), Err(crate::error::AppError::cancelled()));
     assert!(std::fs::symlink_metadata(&dst).is_err(), "half-written copy left behind");
 }
 
@@ -486,7 +491,7 @@ fn cancelled_copy_of_a_folder_leaves_no_folder() {
         }
     });
     let dst = d.join("dst");
-    assert_eq!(copy_path(&s(&src), &s(&dst), &op), Err(CANCELLED.to_string()));
+    assert_eq!(copy_path(&s(&src), &s(&dst), &op), Err(crate::error::AppError::cancelled()));
     assert!(std::fs::symlink_metadata(&dst).is_err(), "partial folder left behind");
     assert_eq!(tree(&src), before);
 
@@ -495,7 +500,7 @@ fn cancelled_copy_of_a_folder_leaves_no_folder() {
     let reg = OpRegistry::default();
     reg.cancel("c4");
     let op = reg.start_with(Some("c4".into()), Duration::ZERO, |_| {});
-    assert_eq!(copy_path(&s(&src), &s(&dst), &op), Err(CANCELLED.to_string()));
+    assert_eq!(copy_path(&s(&src), &s(&dst), &op), Err(crate::error::AppError::cancelled()));
     assert!(std::fs::symlink_metadata(&dst).is_err());
 }
 
@@ -509,6 +514,6 @@ fn set_permissions_applies_the_mode_and_refuses_anything_bigger() {
     set_permissions(s(&d.join("shared")), 0o2750).unwrap();
     assert_eq!(mode(), 0o2750);
     let err = set_permissions(s(&d.join("shared")), 0o10755).unwrap_err();
-    assert!(err.contains("isn't a permission mode"), "{}", err);
+    assert_eq!(err.message, "Couldn't change the permissions of “shared”: 10755 isn't a permission mode.");
     assert_eq!(mode(), 0o2750);
 }

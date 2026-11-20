@@ -14,7 +14,7 @@ import { clearAllTags, copyWslPath, removeTagPrompt, revealInFileManager } from 
 import { trashPaths } from "./fileOps";
 import { cmdState } from "../commandState";
 import { sshProfileFor } from "../remotes";
-import { errText } from "../errors";
+import { showError } from "../errorDialog";
 import { cdCommand } from "../shellCd";
 
 // Commands from a context menu opened on a tab, a saved remote, or a
@@ -121,8 +121,7 @@ export const targetHandler: Handler = (label, ctx) => {
           void (async () => {
             try { await spawnVscodeStrict(target); }
             catch (err) {
-              const msg = errText(err);
-              void dialogs.showAlert({ title: "open in VS Code failed", variant: "error", message: msg });
+              void showError({ title: "open in VS Code failed", err });
             }
           })();
           return true;
@@ -169,8 +168,7 @@ export const targetHandler: Handler = (label, ctx) => {
               pushUndo(moveUndo(`rename ${base} → ${next}`, [{ src: target, dst }], "rename"));
               activeHandle?.actions.refresh();
             } catch (err) {
-              const msg = errText(err);
-              void dialogs.showAlert({ message: `rename failed: ${msg}`, variant: "error" });
+              void showError({ title: "rename failed", err });
             }
           })();
           return true;

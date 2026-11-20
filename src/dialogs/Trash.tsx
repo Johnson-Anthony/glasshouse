@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { trashList, trashPurge, type TrashEntry } from "../api";
 import { formatDate } from "../components";
 import { errText } from "../errors";
+import { showError } from "../errorDialog";
 import { IS_WINDOWS } from "../platform";
 import { markIrreversible, pushUndo } from "../state";
 import { problemLines, sortTrash, trashKey, trashSizeText } from "../trashView";
@@ -75,7 +76,7 @@ export function TrashDialog({ onClose, onChanged, onBrowseFolder }: TrashDialogP
     try {
       await work();
     } catch (e) {
-      void dialogs.showAlert({ title: BIN.toLowerCase(), variant: "error", message: errText(e) });
+      void showError({ title: BIN.toLowerCase(), err: e });
     } finally {
       setBusy(false);
       onChanged();

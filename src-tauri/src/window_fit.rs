@@ -205,7 +205,7 @@ pub fn fit_main<R: Runtime>(app: &AppHandle<R>, start: Start) {
     let want = (cfg.width, cfg.height);
     let min = (cfg.min_width.unwrap_or(0.0), cfg.min_height.unwrap_or(0.0));
     if let Err(e) = fit(&window, want, min, start) {
-        eprintln!("fitting the window to the screen: {e}");
+        log::warn!("fitting the window to the screen: {e}");
     }
 }
 
