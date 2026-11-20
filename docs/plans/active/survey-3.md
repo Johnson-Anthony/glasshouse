@@ -16,13 +16,13 @@ The scan for the user's own paths and names found none in app code. The gaps are
 | 32 | e2e-smoke | CI + test code | S–M | merged (`gifted-bun-817ccd`, 11-20) |
 | 33 | diagnostics-and-errors | both | M | queued |
 | 34 | windows-paths | Rust + a little frontend | M | queued |
-| 35 | release-identity | Rust + config + CI | M | queued (after task 31, whose resident and integration code use the identifier) |
+| 35 | release-identity | Rust + config + CI | M | running (11-20; Tauri rejects `_`, so the id is `io.github.johnson-anthony.glasshouse`, with `johnson_anthony` only in D-Bus interface names and paths) |
 | **Wave 7b: works like other file managers** |||||
 | 36 | os-clipboard | both | M–L | queued |
 | 37 | linux-launch-env | Rust + CI | M | queued (coordinate with task 30's activation token) |
 | 38 | a11y | frontend | M–L | queued |
 | 39 | locale-and-names | frontend (+ a little Rust) | S–M | queued |
-| 40 | first-run-defaults | frontend | S–M | queued (47 is merged; 47 left the seeded tags and other first-run data alone) |
+| 40 | first-run-defaults | frontend | S–M | running (11-20; also the first window fitting the work area) |
 | 47 | themes-and-cosmetics | frontend | L | merged 11-20 (`claude/elegant-euler-fb95a5`; plan in `docs/plans/completed/themes-and-cosmetics.md`) |
 | 48 | updater | both + CI | M | queued (after 35; D2) |
 | **Wave 7c: devices, transfers, docs** |||||
@@ -253,3 +253,4 @@ The owner wants the themes and cosmetic options expanded massively. Today there 
 - *(from e2e-windows, for 40)* The first window doesn't fit a small screen: on the runner's 1024x768 (work area 1024x720) it asks for 1400x900 and gets 1044x788, so the status bar is under the taskbar and the preview column is cut off. The first window should fit the monitor's work area.
 - *(from e2e-windows, for 45)* Cold start on the Windows runner took 13–19 s from launch to the first listing (2.4 s warm), possibly Defender scanning the 37 MB debug exe and a new WebView2 profile. The release exe would show whether users see it.
 - *(from e2e-windows, for 45)* `driver-and-app.log` is empty on Windows: tauri-driver discards msedgedriver's output, and the debug app prints nothing.
+- *(for 45)* On 11-20 the Linux e2e leg's `apt-get update`/install step took 13 min (run 44731257806; the tests themselves took 11 s). Consider caching the apt packages or a step timeout.
