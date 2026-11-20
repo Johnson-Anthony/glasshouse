@@ -64,5 +64,13 @@
         }
       }
     }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDIwMTE5RDUyM0FFRDc5RTIKUldUaWVlMDZVcDBSSUpnSTdqeGN4T2lPY01ENUNWWWpmWmluR3hUMzRlL1oyYkFuMytuTitDbXUK",
+      "endpoints": ["https://github.com/Johnson-Anthony/glasshouse/releases/latest/download/latest.json"],
+      "requireSignedVersion": true,
+      "windows": { "installMode": "passive" }
+    }
   }
 }

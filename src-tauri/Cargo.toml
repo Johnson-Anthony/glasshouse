@@ -61,6 +61,7 @@ url = "2"
 # Already in the lock file through tauri, which finds its app folders with
 # it: migrate.rs finds the same ones.
 dirs = "7"
+tauri-plugin-updater = "2.14.1"
 
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.58", features = [

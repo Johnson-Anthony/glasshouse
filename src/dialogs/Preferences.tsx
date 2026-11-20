@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
-  TAURI_AVAILABLE, integrationSet, integrationStatus, pickFile, readText,
-  type IntegrationDialogs, type IntegrationFeature, type IntegrationKey, type IntegrationStatus,
+  TAURI_AVAILABLE, integrationSet, integrationStatus, pickFile, readText, updateInfo,
+  type IntegrationDialogs, type IntegrationFeature, type IntegrationKey, type IntegrationStatus, type UpdateInfo,
 } from "../api";
 import type { TweakState } from "../components";
 import { AA_LARGE, contrast, normalizeHex } from "../contrast";
@@ -15,6 +15,7 @@ import {
 import { IS_WINDOWS } from "../platform";
 import { STATUS_DEFAULTS, STATUS_ITEMS, ordered, withItem } from "../statusItems";
 import { THEME_LIST, builtinTheme, type ThemeGroup } from "../themes";
+import { CHECK_PRIVACY, agoText, installText } from "../updates";
 import {
   DRAFT_ID, MAX_FILE_BYTES, deleteUserTheme, newThemeId, parseThemeFile, readThemeColors, saveUserTheme,
   userThemeScheme, useUserThemes, type UserTheme,
@@ -37,7 +38,7 @@ import { useModal } from "./modal";
  *  while a modal is open). */
 const PREFS_KEYS = KEYMAP.filter(b => b.send === "Preferences…");
 
-type Category = "theme" | "text" | "window" | "statusbar" | "list" | "effects" | "files" | "terminal" | "integration";
+type Category = "theme" | "text" | "window" | "statusbar" | "list" | "effects" | "files" | "terminal" | "integration" | "updates";
 const CATEGORIES: ReadonlyArray<{ id: Category; label: string; group: string }> = [
   { id: "theme", label: "theme", group: "appearance" },
   { id: "text", label: "text", group: "appearance" },
@@ -48,6 +49,7 @@ const CATEGORIES: ReadonlyArray<{ id: Category; label: string; group: string }> 
   { id: "files", label: "files", group: "behavior" },
   { id: "terminal", label: "terminal", group: "behavior" },
   { id: "integration", label: "integration", group: "behavior" },
+  { id: "updates", label: "updates", group: "behavior" },
 ];
 
 type SetState = React.Dispatch<React.SetStateAction<TweakState>>;
@@ -57,9 +59,11 @@ export interface PreferencesDialogProps {
   state: TweakState;
   setState: SetState;
   onClose: () => void;
+  /** Updates' "check now": Help → Check for Updates. */
+  onCheckUpdates?: () => void;
 }
 
-export function PreferencesDialog({ open, state, setState, onClose }: PreferencesDialogProps) {
+export function PreferencesDialog({ open, state, setState, onClose, onCheckUpdates }: PreferencesDialogProps) {
   const [query, setQuery] = useState("");
   // Escape clears the filter first.
   useEscapeClose(onClose, open && !query);
@@ -70,6 +74,7 @@ export function PreferencesDialog({ open, state, setState, onClose }: Preference
   const [undo, setUndo] = useState<LookState | null>(null);
   const [noMatch, setNoMatch] = useState(false);
   const [integration, setIntegration] = useState<IntegrationStatus | null>(null);
+  const [update, setUpdate] = useState<UpdateInfo | null>(null);
 
   // On open only: App passes a new onClose each render, and a change of
   // setting re-renders it, which mustn't pull focus off the control used.
@@ -95,6 +100,7 @@ export function PreferencesDialog({ open, state, setState, onClose }: Preference
     if (!open) return;
     let live = true;
     void integrationStatus().then(s => { if (live) setIntegration(s); });
+    void updateInfo().then(u => { if (live) setUpdate(u); });
     return () => { live = false; };
   }, [open]);
 
@@ -180,6 +186,7 @@ export function PreferencesDialog({ open, state, setState, onClose }: Preference
               {shows("integration") && integration?.supported && (
                 <IntegrationSection status={integration} setStatus={setIntegration} />
               )}
+              {shows("updates") && <UpdatesSection {...props} info={update} onCheckNow={onCheckUpdates} />}
             </FilterCtx.Provider>
             {noMatch && <p className="prefs-empty">No settings match “{query}”.</p>}
           </div>
@@ -755,6 +762,34 @@ function FilesSection({ state, set }: SectionProps) {
       </Row>
       <Row label="git gutters" keys="git status">
         <Choice label="git gutters" value={state.showGitGutters} options={SHOW_HIDE} onPick={set("showGitGutters")} />
+      </Row>
+    </Section>
+  );
+}
+
+/** Preferences → Updates (src-tauri/src/update.rs): the automatic check,
+ *  off unless turned on, what a check contacts, and how this copy updates. */
+function UpdatesSection({ state, set, info, onCheckNow }: SectionProps & { info: UpdateInfo | null; onCheckNow?: () => void }) {
+  return (
+    <Section title="updates">
+      <Row label="check for updates automatically" hint="once a day at most" keys="update new version network privacy">
+        <Choice label="check for updates automatically" value={state.autoUpdate} options={OFF_ON} onPick={set("autoUpdate")} />
+        <p className="prefs-note">
+          {state.autoUpdate
+            ? "glasshouse checks once a day, and tells you when a new version is out."
+            : "Off: glasshouse checks only when you ask (Help → Check for Updates)."}
+        </p>
+        <p className="prefs-note">{CHECK_PRIVACY}</p>
+        {info?.endpoint && <code className="prefs-code">{info.endpoint}</code>}
+      </Row>
+      <Row label="check now" hint={info ? `last check: ${agoText(info.lastCheck)}` : undefined} keys="update new version">
+        <div className="prefs-updates-now">
+          <div className="prefs-actions">
+            <button type="button" onClick={onCheckNow} disabled={!onCheckNow}>check for updates</button>
+          </div>
+          {info && <span className="prefs-hint">you have {info.version}</span>}
+        </div>
+        {info && <p className="prefs-note">{installText(info)}</p>}
       </Row>
     </Section>
   );

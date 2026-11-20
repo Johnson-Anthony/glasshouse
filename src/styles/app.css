@@ -1569,6 +1569,28 @@ select option { background: var(--bg-2); color: var(--fg-0); }
 .prefs-stepper { display: flex; align-items: center; gap: 6px; }
 .prefs-stepper .value { min-width: 6ch; text-align: center; color: var(--fg-0); }
 
+/* The update dialog (dialogs/Update.tsx), in the Preferences panel's style. */
+.prefs.upd { width: 78ch; height: auto; max-height: 84vh; }
+.upd-head { color: var(--accent); margin-right: auto; }
+.upd-body { flex: 1; min-height: 0; overflow: auto; padding: 12px 16px; display: flex; flex-direction: column; gap: 8px; }
+.upd-title { margin: 0; color: var(--fg-0); font-size: calc(13.5px * var(--fs-k, 1)); }
+.upd-sub { color: var(--fg-2); font-size: calc(12px * var(--fs-k, 1)); }
+.upd-notes {
+  max-height: 42vh; overflow: auto; padding: 4px 12px 8px;
+  background: var(--bg-0); border: 1px solid var(--border); border-radius: calc(2px * var(--rk, 1));
+  line-height: 1.45; user-select: text; -webkit-user-select: text;
+}
+.upd-notes:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
+.upd-notes h4 { margin: 10px 0 4px; color: var(--accent); font-weight: normal; }
+.upd-notes p { margin: 3px 0; }
+.upd-item { text-indent: -2ch; }
+.upd-item::before { content: "• "; color: var(--fg-3); }
+.upd-progress { display: flex; flex-direction: column; gap: 4px; }
+.upd-bar { height: 6px; background: var(--bg-3); border-radius: 3px; overflow: hidden; }
+.upd-bar > div { height: 100%; background: var(--accent); transition: width 0.2s; }
+@media (prefers-reduced-motion: reduce) { .upd-bar > div { transition: none; } }
+.prefs-updates-now { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+
 /* The theme preview: a little app in the theme being looked at. */
 .theme-preview {
   display: flex; flex-direction: column;

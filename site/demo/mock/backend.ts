@@ -628,6 +628,13 @@ export function createBackend(hooks: BackendHooks) {
       return DEMO_INTEGRATION;
     },
     start_drag_out: notInDemo("Dragging files into other apps"),
+    // Preferences → Updates and Help → Check for Updates: the demo contacts
+    // nothing. With no info, Preferences shows the switch and what a check
+    // would send; a check says it's the app's.
+    update_info: () => null,
+    update_check: () => { throw "Checking for updates is the app's job; the browser demo doesn't."; },
+    update_install: () => { throw "The browser demo has nothing to install."; },
+    update_cancel: () => null,
     // The app zooms its whole webview. A page can't zoom itself that way (CSS
     // `zoom` would misplace menus and drags), so the demo leaves it to the
     // browser.

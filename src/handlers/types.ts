@@ -63,6 +63,8 @@ export interface HandlerCtx {
   visibleRows: () => number[];
   dispatch: (label: string) => void;
   openAbout?: () => void;
+  /** Help → Check for Updates: the update dialog, which checks once. */
+  openUpdates?: () => void;
   toggleSidebar: () => void;
   toggleStatusBar?: () => void;
   pinPath: (p: string) => void;

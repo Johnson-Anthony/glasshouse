@@ -16,6 +16,7 @@ import { STATUS_DEFAULTS, STATUS_ITEMS, STATUS_LEGACY } from "../statusItems";
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 const START: TweakState = {
+  autoUpdate: false,
   ...LOOK_CLASSIC,
   hidden: false,
   showExtensions: true,
@@ -34,12 +35,13 @@ let host: HTMLDivElement;
 let root: Root;
 let latest: TweakState;
 const onClose = vi.fn();
+const onCheckUpdates = vi.fn();
 
 function Harness({ start }: { start: TweakState }) {
   const [state, setState] = useState(start);
   latest = state;
   // A new onClose each render, as App passes it.
-  return <PreferencesDialog open state={state} setState={setState} onClose={() => onClose()} />;
+  return <PreferencesDialog open state={state} setState={setState} onClose={() => onClose()} onCheckUpdates={onCheckUpdates} />;
 }
 
 const group = (name: string) => host.querySelector<HTMLElement>(`[role="group"][aria-label="${name}"]`)!;
@@ -73,6 +75,7 @@ async function mount(start: TweakState = START) {
 
 beforeEach(() => {
   onClose.mockReset();
+  onCheckUpdates.mockReset();
   localStorage.clear();
   resetUserThemesForTest();
   host = document.createElement("div");
@@ -90,13 +93,34 @@ describe("PreferencesDialog", () => {
     await mount();
     const nav = [...host.querySelectorAll(".prefs-nav button")].map(b => b.textContent);
     // Integration only shows where the platform has it (not in a browser).
-    expect(nav).toEqual(["theme", "text", "window", "status bar", "file list", "effects", "files", "terminal"]);
+    expect(nav).toEqual(["theme", "text", "window", "status bar", "file list", "effects", "files", "terminal", "updates"]);
     expect(labels()).toEqual(["presets", "mode", "themes", "accent", "your themes"]);
     await category("text");
     expect(labels()).toEqual(["interface font", "file list font", "code font", "text size", "line spacing", "zoom"]);
     await category("files");
     expect(labels()).toEqual(["hidden files", "file extensions", "folders first", "git gutters"]);
     expect(host.querySelector(".prefs-nav [aria-current=page]")?.textContent).toBe("files");
+  });
+
+  it("updates: the automatic check is off until turned on, and says what it contacts", async () => {
+    await mount();
+    await category("updates");
+    expect(labels()).toEqual(["check for updates automatically", "check now"]);
+    expect(pressed("check for updates automatically")).toEqual(["off"]);
+    expect(host.textContent).toContain("only when you ask");
+    expect(host.textContent).toContain("latest.json");
+    expect(host.textContent).toContain("no ID, no usage data");
+    await click(button("check for updates automatically", "on"));
+    expect(latest.autoUpdate).toBe(true);
+    expect(host.textContent).toContain("checks once a day");
+    await click(byText("check for updates"));
+    expect(onCheckUpdates).toHaveBeenCalledTimes(1);
+  });
+
+  it("finds the update settings by filter", async () => {
+    await mount();
+    await type(host.querySelector<HTMLInputElement>(".prefs-filter")!, "privacy");
+    expect(labels()).toEqual(["check for updates automatically"]);
   });
 
   it("holds the modal flag and takes the focus", async () => {

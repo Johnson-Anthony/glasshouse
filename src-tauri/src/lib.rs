@@ -10,6 +10,7 @@ mod pty;
 mod resident;
 mod session;
 mod startup;
+mod update;
 mod watcher;
 mod window_fit;
 
@@ -64,9 +65,12 @@ fn context() -> tauri::Context<tauri::Wry> {
 fn builder() -> tauri::Builder<tauri::Wry> {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        // Used from update.rs only; the webview gets none of its commands.
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(watcher::WatcherState::default())
         .manage(pty::PtyRegistry::default())
         .manage(ops::OpRegistry::default())
+        .manage(update::UpdateState::default())
         .invoke_handler(tauri::generate_handler![
             commands::listing::home_dir,
             commands::listing::list_dir,
@@ -152,6 +156,10 @@ fn builder() -> tauri::Builder<tauri::Wry> {
             commands::hash::hash_md5,
             commands::hash::hash_crc32,
             ops::cancel_op,
+            update::update_info,
+            update::update_check,
+            update::update_install,
+            update::update_cancel,
             commands::git::git_file_info,
             commands::system::path_fs_type,
             commands::system::path_space,

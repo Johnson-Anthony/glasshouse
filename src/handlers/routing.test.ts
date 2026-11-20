@@ -76,6 +76,7 @@ function makeCtx(names: string[], selected: number[]): HandlerCtx {
     visibleRows: () => entries.map((_, i) => i),
     dispatch: vi.fn(),
     openAbout: vi.fn(),
+    openUpdates: vi.fn(),
     toggleSidebar: vi.fn(),
     toggleStatusBar: vi.fn(),
     pinPath: vi.fn(),
@@ -172,6 +173,16 @@ describe("handler chain", () => {
 
 describe("routed commands", () => {
   const files = ["notes.md", "app.ts", "lib.ts", "README"];
+
+  it("Check for Updates opens the update dialog, which checks; nothing is fetched here", async () => {
+    const ctx = makeCtx(files, []);
+    expect(await miscHandler("Check for Updates", ctx)).toBe(true);
+    expect(ctx.openUpdates).toHaveBeenCalledTimes(1);
+    expect(api.openUrl).not.toHaveBeenCalled();
+    // Without the dialog (a context that has none): the releases page.
+    expect(await miscHandler("Check for Updates", { ...ctx, openUpdates: undefined })).toBe(true);
+    expect(api.openUrl).toHaveBeenCalledWith("https://github.com/Johnson-Anthony/glasshouse/releases");
+  });
 
   it("Select All and Invert Selection set the tab's selection", async () => {
     const ctx = makeCtx(files, [1]);
