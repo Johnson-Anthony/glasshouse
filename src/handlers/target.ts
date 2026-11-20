@@ -1,5 +1,6 @@
 import { dialogs } from "../dialogs/DialogHost";
-import { spawnTerminal, spawnVscodeStrict, revealInExplorer, homeDir, listDir, openWithDefault } from "../api";
+import { spawnTerminal, spawnVscodeStrict, revealInExplorer, homeDir, listDir } from "../api";
+import { openFile } from "../openWith";
 import { renamePath } from "../tags";
 import { basename, parentPath, joinPath, normalizePath } from "../paths";
 import { namesIn, unlessTaken, transferDeps, pushTransferUndo, reportTransfer } from "../transferUi";
@@ -103,7 +104,7 @@ export const targetHandler: Handler = (label, ctx) => {
       switch (label) {
         case "Open":
           cmdState.contextTarget = null;
-          if (isFile) void openWithDefault(target);
+          if (isFile) void openFile(target);
           else activeHandle?.actions.goTo(target);
           return true;
         case "Open in New Tab":

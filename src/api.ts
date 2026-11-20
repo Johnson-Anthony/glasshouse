@@ -432,10 +432,6 @@ export function rewriteText(path: string, content: string): Promise<void> {
   return mustInvoke<void>("rewrite_text", { path, content });
 }
 
-export function openWithDefault(path: string): Promise<void> {
-  return safe(() => invoke<void>("open_with_default", { path }), undefined);
-}
-
 export function revealInExplorer(path: string): Promise<void> {
   return safe(() => invoke<void>("reveal_in_explorer", { path }), undefined);
 }
@@ -451,18 +447,48 @@ export function spawnTerminal(path: string): Promise<void> {
   return safe(() => invoke<void>("spawn_terminal", { path }), undefined);
 }
 
-export function spawnVscode(path: string): Promise<void> {
-  return safe(() => invoke<void>("spawn_vscode", { path }), undefined);
-}
-
 /** Throws on failure so callers can surface the error (e.g. alert on missing VS Code). */
 export function spawnVscodeStrict(path: string): Promise<void> {
   return mustInvoke<void>("spawn_vscode", { path });
 }
 
-/** Throws on failure so callers can surface the error. */
-export function openWithDefaultStrict(path: string): Promise<void> {
-  return mustInvoke<void>("open_with_default", { path });
+/** What opening a file with its default app did. */
+export interface OpenOutcome {
+  /** False when no app is set to open its type. */
+  opened: boolean;
+  /** The MIME type (Linux) or extension (Windows) looked up; may be "". */
+  file_type: string;
+}
+
+/** Opens `path` with its default app, or with `asText` the app for plain
+ *  text. Throws when the app can't be started; see `openFile` (openWith.ts),
+ *  which says so. Resolves null in the browser demo. */
+export function openWithDefaultStrict(path: string, asText = false): Promise<OpenOutcome | null> {
+  return mustInvoke<OpenOutcome | null>("open_with_default", { path, asText });
+}
+
+/** An installed app that can open a file. */
+export interface AppChoice {
+  /** Linux: the desktop file ID. Windows: the shell's name for the handler. */
+  id: string;
+  name: string;
+  is_default: boolean;
+}
+
+/** The apps that can open `path`, its default first. */
+export function openWithApps(path: string): Promise<AppChoice[] | null> {
+  return mustInvoke<AppChoice[] | null>("open_with_apps", { path });
+}
+
+/** Opens `paths` (absolute) with the app `id` from `openWithApps`. */
+export function openWithApp(id: string, paths: string[]): Promise<void> {
+  return mustInvoke<void>("open_with_app", { id, paths });
+}
+
+/** Opens `paths` with `program`, an executable (or, on Linux, a `.desktop`
+ *  file) the user picked, started directly with the paths as arguments. */
+export function openWithProgram(program: string, paths: string[]): Promise<void> {
+  return mustInvoke<void>("open_with_program", { program, paths });
 }
 
 /** What Move to Trash did with one path: enough to find the item in the
@@ -689,8 +715,10 @@ export function changeOwner(path: string, owner: string): Promise<void> {
   return mustInvoke<void>("change_owner", { path, owner });
 }
 
-export function runScript(script: string, targets: string[]): Promise<string> {
-  return mustInvoke<string>("run_script", { script, targets });
+/** Runs `script` with `targets` as its arguments, in `cwd` if given, and
+ *  resolves with its output. A bare program name is looked up on PATH. */
+export function runScript(script: string, targets: string[], cwd?: string): Promise<string> {
+  return mustInvoke<string>("run_script", { script, targets, cwd });
 }
 
 export function openUrl(url: string): Promise<void> {
@@ -788,6 +816,19 @@ export async function pickDirectory(defaultPath?: string): Promise<string | null
   } catch {
     return null;
   }
+}
+
+/** A native file picker for one file (Open With → Choose a program…).
+ *  Null if cancelled. */
+export async function pickFile(opts: {
+  title?: string;
+  defaultPath?: string;
+  filters?: Array<{ name: string; extensions: string[] }>;
+}): Promise<string | null> {
+  if (!TAURI_AVAILABLE) return null;
+  const res = await openDialog({ directory: false, multiple: false, ...opts });
+  if (Array.isArray(res)) return res[0] ?? null;
+  return res ?? null;
 }
 
 export function fileStatExtended(path: string): Promise<FileStatExt | null> {

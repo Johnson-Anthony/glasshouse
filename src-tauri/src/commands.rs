@@ -12,12 +12,16 @@ pub mod git;
 pub mod hash;
 pub mod launch;
 pub mod listing;
+pub mod open_with;
 mod recycle_bin;
 pub mod replace;
 pub mod search;
 pub mod system;
 pub mod trash;
+#[cfg(windows)]
+mod win_open_with;
 pub mod wsl;
+mod xdg_apps;
 
 #[cfg(test)]
 pub(crate) mod testing;

@@ -1,4 +1,4 @@
-import { type FileEntry, type Trashed, type TrashProblem, openWithDefault, trashUnsupported, makeDir, createTextFile, spawnTerminal, spawnVscodeStrict, revealInExplorer, archiveCreate, hashSha256, homeDir } from "../api";
+import { type FileEntry, type Trashed, type TrashProblem, trashUnsupported, makeDir, createTextFile, spawnTerminal, spawnVscodeStrict, revealInExplorer, archiveCreate, hashSha256, homeDir } from "../api";
 import { MUTATING_LABELS } from "../data";
 import { dialogs } from "../dialogs/DialogHost";
 import { basename, parentPath, joinPath } from "../paths";
@@ -8,6 +8,7 @@ import { nameProblem, freeNewName } from "../names";
 import { markIrreversible, pushUndo, type TabState } from "../state";
 import { moveUndo, createUndo, madeUndo, trashUndo, type Created } from "../undoActions";
 import { noBinText } from "../trashView";
+import { openFile } from "../openWith";
 import { IS_WINDOWS } from "../platform";
 import { isCancelled, runOp } from "../ops";
 import { type TransferOp, runTransfer, type TransferItem, type TransferResult } from "../transfer";
@@ -171,7 +172,7 @@ export const fileOpsHandler: Handler = async (label, ctx) => {
     case "Open": {
       if (!firstEntry) return true;
       if (firstEntry.kind === "folder") activeHandle.actions.goTo(firstEntry.path);
-      else await openWithDefault(firstEntry.path);
+      else await openFile(firstEntry.path);
       return true;
     }
     case "Add Bookmark": {

@@ -59,7 +59,6 @@ export const SAME_COMMAND: Readonly<Record<string, string>> = {
   "ZIP (bundled)": "Zip (.zip)",
   "TAR.GZ": "Tar + gzip (.tar.gz)",
   "7-Zip": "7-zip (.7z)",
-  "Text Editor (.txt)": "Default App",
   "Open in New Window": "New Window",
   "Git: Checkout Branch →": "Checkout…",
   // Separate cases: Open With's two dispatch the File menu's command, and

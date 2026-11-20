@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useLayoutEffect, useRef } from "react";
 import { MENUS, type MenuItemDef, type DynamicPayload, type DynamicSource } from "./data";
-import { gitBranchList, listShellProfiles, readPins, readRecent } from "./api";
+import { gitBranchList, listShellProfiles, openWithApps, readPins, readRecent } from "./api";
+import { openWithMenuItems } from "./openWith";
 import { getVersion } from "@tauri-apps/api/app";
 import type { TweakState } from "./components";
 import { DISPLAY_MODE_DEFAULT, DISPLAY_MODE_KEY, LAYOUT_DEFAULT, LAYOUT_KEY, SORT_KEY_OF } from "./handlers/view";
@@ -23,8 +24,12 @@ export function setDynamicGitCwd(cwd: string): void {
   currentCwdForBranches = cwd;
 }
 
-async function loadDynamic(source: DynamicSource): Promise<MenuItemDef[]> {
+async function loadDynamic(source: DynamicSource, path?: string): Promise<MenuItemDef[]> {
   switch (source) {
+    case "open-with-apps": {
+      if (!path) return [];
+      return openWithMenuItems((await openWithApps(path)) ?? [], path);
+    }
     case "recent": {
       const paths = await readRecent();
       return paths.map<MenuItemDef>((p) => ({
@@ -82,25 +87,26 @@ function useExpandedItems(items: MenuItemDef[], trigger: unknown): MenuItemDef[]
 
   useEffect(() => {
     let cancelled = false;
-    const sources: DynamicSource[] = [];
+    // One load per source and path (only Open With's list has a path).
+    const keyOf = (it: { source: DynamicSource; path?: string }) => `${it.source}\0${it.path ?? ""}`;
+    const sources = new Map<string, { source: DynamicSource; path?: string }>();
     const collect = (list: MenuItemDef[]) => {
       for (const it of list) {
-        if (it.kind === "dynamic") sources.push(it.source);
+        if (it.kind === "dynamic") sources.set(keyOf(it), it);
         else if (it.kind === "sub") collect(it.children);
       }
     };
     collect(items);
-    if (sources.length === 0) {
+    if (sources.size === 0) {
       setExpanded(items);
       return;
     }
     void (async () => {
-      const unique = Array.from(new Set(sources));
-      const resolved = new Map<DynamicSource, MenuItemDef[]>();
+      const resolved = new Map<string, MenuItemDef[]>();
       await Promise.all(
-        unique.map(async (s) => {
-          try { resolved.set(s, await loadDynamic(s)); }
-          catch { resolved.set(s, []); }
+        [...sources].map(async ([key, s]) => {
+          try { resolved.set(key, await loadDynamic(s.source, s.path)); }
+          catch { resolved.set(key, []); }
         }),
       );
       if (cancelled) return;
@@ -108,7 +114,7 @@ function useExpandedItems(items: MenuItemDef[], trigger: unknown): MenuItemDef[]
         const out: MenuItemDef[] = [];
         for (const it of list) {
           if (it.kind === "dynamic") {
-            const got = resolved.get(it.source) ?? [];
+            const got = resolved.get(keyOf(it)) ?? [];
             out.push(...got);
           } else if (it.kind === "sub") {
             out.push({ ...it, children: expand(it.children) });

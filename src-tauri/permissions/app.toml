@@ -9,7 +9,7 @@
 
 [[permission]]
 identifier = "files-read"
-description = "Read files, folders and system info; hash, diff and search files; watch folders; cancel a running hash, copy or search."
+description = "Read files, folders and system info (including which apps open a file type); hash, diff and search files; watch folders; cancel a running hash, copy or search."
 commands.allow = [
   "home_dir",
   "list_dir",
@@ -37,6 +37,7 @@ commands.allow = [
   "win_to_wsl",
   "archive_can_handle",
   "list_shell_profiles",
+  "open_with_apps",
   "verify_signature",
   "watch_dir",
   "unwatch_dir",
@@ -100,9 +101,10 @@ commands.allow = [
 
 [[permission]]
 identifier = "launch"
-description = "Hand a file, folder or URL to another program: the default app, the system file manager, a terminal window, VS Code, the browser, a new glasshouse window, or a drag into another app."
+description = "Hand a file, folder or URL to another program: the default app or another installed app for its type, the system file manager, a terminal window, VS Code, the browser, a new glasshouse window, or a drag into another app."
 commands.allow = [
   "open_with_default",
+  "open_with_app",
   "reveal_in_explorer",
   "spawn_terminal",
   "spawn_vscode",
@@ -114,9 +116,10 @@ commands.allow = [
 
 [[permission]]
 identifier = "exec"
-description = "Run programs: user scripts and the built-in terminal. Equivalent to full access to the user's account."
+description = "Run programs: user scripts and commands, a program picked to open a file with, and the built-in terminal. Equivalent to full access to the user's account."
 commands.allow = [
   "run_script",
+  "open_with_program",
   "pty_spawn",
   "pty_write",
   "pty_resize",

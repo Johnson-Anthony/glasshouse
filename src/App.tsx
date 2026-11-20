@@ -59,12 +59,12 @@ import { NoticesHost } from "./NoticesScreen";
 import { MillerView } from "./Miller";
 import { entryName, viewRows } from "./viewRows";
 import { joinPath, basename } from "./paths";
+import { launchApp, openFile, withOpenWithPath } from "./openWith";
 import {
   homeDir,
   ensureDir,
-  openWithDefault,
   startDragOut,
-  spawnVscode,
+  spawnVscodeStrict,
   winSetTheme,
   trashDir,
   writeText,
@@ -922,6 +922,10 @@ export function App() {
       setTermOpen(true);
       return;
     }
+    if (payload.type === "open-with-app") {
+      void launchApp(payload.app, [payload.path]);
+      return;
+    }
   };
 
   const openCtxMenu = (e: MenuAnchor, items: MenuItemDef[]) => {
@@ -991,7 +995,7 @@ export function App() {
           return it;
         });
       }
-      openCtxMenu(e, items);
+      openCtxMenu(e, withOpenWithPath(items, firstPath));
       return;
     }
     openCtxMenu(e, CONTEXT_EMPTY);
@@ -1137,7 +1141,7 @@ export function App() {
           if (row.entry.kind === "folder") {
             handle?.actions.goTo(row.entry.path);
           } else {
-            void openWithDefault(row.entry.path);
+            void openFile(row.entry.path);
           }
         }}
         onUp={() => handle?.actions.up()}
@@ -1267,7 +1271,7 @@ export function App() {
           onActivate={() => setFocusedPane("sidebar")}
           activePath={activeHandle?.state.path ?? ""}
           onGoTo={(p) => activeHandle?.actions.goTo(p)}
-          onOpenFile={(p) => { void openWithDefault(p); }}
+          onOpenFile={(p) => { void openFile(p); }}
           onRowContext={onSidebarContext}
           pins={pins}
           onAddPin={() => {
@@ -1322,10 +1326,12 @@ export function App() {
                   try { void navigator.clipboard.writeText(path); } catch { /* clipboard unavailable */ }
                   return;
                 case "run":
-                  void openWithDefault(path);
+                  void openFile(path);
                   return;
                 case "open-in-code":
-                  void spawnVscode(path);
+                  spawnVscodeStrict(path).catch((err: unknown) => {
+                    void dialogs.showAlert({ title: "open in VS Code failed", variant: "error", message: errText(err) });
+                  });
                   return;
                 case "git-blame":
                   void showBlame(path, setBlame);

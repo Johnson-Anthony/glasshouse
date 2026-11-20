@@ -319,12 +319,12 @@ describe("context-menu targets", () => {
     Object.assign(ctx.activeHandle!, { actions: { goTo, refresh: vi.fn() } });
     cmdState.contextTarget = { kind: "sidebar", rowKind: "tree-file", path: "/w/t.txt" };
     await owner("Open", ctx);
-    expect(api.openWithDefault).toHaveBeenCalledWith("/w/t.txt");
+    expect(api.openWithDefaultStrict).toHaveBeenCalledWith("/w/t.txt", false);
     expect(goTo).not.toHaveBeenCalled();
 
     cmdState.contextTarget = { kind: "sidebar", rowKind: "pinned-file", path: "/w/t.txt" };
     await owner("Open", ctx);
-    expect(api.openWithDefault).toHaveBeenCalledTimes(2);
+    expect(api.openWithDefaultStrict).toHaveBeenCalledTimes(2);
     expect(goTo).not.toHaveBeenCalled();
 
     cmdState.contextTarget = { kind: "sidebar", rowKind: "pinned", path: "/w/sub" };

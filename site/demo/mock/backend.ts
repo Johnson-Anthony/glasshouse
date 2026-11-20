@@ -554,6 +554,19 @@ export function createBackend(hooks: BackendHooks) {
 
     open_url: a => { hooks.openExternal(str(a.url)); return null; },
     open_with_default: notInDemo("Opening files in other apps"),
+    // Open With's list, so its submenu and chooser have something to show.
+    open_with_apps: a => {
+      const p = str(a.path);
+      const text = /\.(md|txt|ts|tsx|json|rs|toml|ya?ml|css|html)$/i.test(p) || !p.split("/").pop()?.includes(".");
+      return text
+        ? [
+            { id: "org.example.Scratchpad.desktop", name: "Scratchpad", is_default: true },
+            { id: "codium.desktop", name: "VSCodium", is_default: false },
+          ]
+        : [{ id: "org.example.Viewer.desktop", name: "Viewer", is_default: true }];
+    },
+    open_with_app: notInDemo("Opening files in other apps"),
+    open_with_program: notInDemo("Opening files in other apps"),
     reveal_in_explorer: notInDemo("Revealing files in another file manager"),
     spawn_terminal: notInDemo("Opening an external terminal"),
     spawn_terminal_profile: notInDemo("Opening an external terminal"),
