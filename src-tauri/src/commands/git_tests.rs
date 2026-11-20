@@ -63,13 +63,19 @@ fn work_and_remote(name: &str) -> (PathBuf, PathBuf, PathBuf) {
 /// A local HTTP server. Each connection gets `reply` (if any) after the
 /// request arrives; the returned channel gets one message per connection
 /// once the client has closed it, or "timeout" if it didn't within 20 s.
-fn http_server(reply: Option<&'static str>) -> (String, std::sync::mpsc::Receiver<&'static str>) {
+/// A local HTTP server for git to fetch from. The receivers report each
+/// connection as it's accepted, then how it ended.
+fn http_server(
+    reply: Option<&'static str>,
+) -> (String, std::sync::mpsc::Receiver<&'static str>, std::sync::mpsc::Receiver<()>) {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let url = format!("http://127.0.0.1:{}/repo.git", listener.local_addr().unwrap().port());
     let (tx, rx) = std::sync::mpsc::channel();
+    let (opened_tx, opened) = std::sync::mpsc::channel();
     std::thread::spawn(move || {
         for conn in listener.incoming() {
             let Ok(mut conn): Result<TcpStream, _> = conn else { return };
+            let _ = opened_tx.send(());
             let tx = tx.clone();
             std::thread::spawn(move || {
                 conn.set_read_timeout(Some(Duration::from_secs(20))).unwrap();
@@ -93,7 +99,7 @@ fn http_server(reply: Option<&'static str>) -> (String, std::sync::mpsc::Receive
             });
         }
     });
-    (url, rx)
+    (url, rx, opened)
 }
 
 const UNAUTHORIZED: &str = "HTTP/1.1 401 Unauthorized\r\n\
@@ -196,7 +202,7 @@ fn a_remote_that_wants_a_password_fails_at_once() {
     }
     let dir = temp_dir("gitrunauth");
     git_ok(&dir, &["init", "-q"]);
-    let (url, closed) = http_server(Some(UNAUTHORIZED));
+    let (url, closed, _) = http_server(Some(UNAUTHORIZED));
     let started = Instant::now();
     let r = run_git(git_cmd(&dir, &["fetch", &url]), &Op::untracked(), Some(Duration::from_secs(60))).unwrap();
     assert!(!r.ok);
@@ -213,13 +219,16 @@ fn a_silent_remote_is_stopped_at_the_idle_timeout() {
     }
     let dir = temp_dir("gitrunidle");
     git_ok(&dir, &["init", "-q"]);
-    let (url, closed) = http_server(None);
+    let (url, closed, opened) = http_server(None);
     let started = Instant::now();
     let err = run_git(git_cmd(&dir, &["fetch", &url]), &Op::untracked(), Some(Duration::from_millis(800))).unwrap_err();
     assert!(err.contains("glasshouse stopped it"), "{}", err);
     assert!(started.elapsed() < Duration::from_secs(10), "took {:?}", started.elapsed());
-    // The kill reached git's HTTP helper, which held the connection.
-    assert_eq!(closed.recv_timeout(Duration::from_secs(10)), Ok("closed"));
+    // The kill reached git's HTTP helper, which held the connection. On a
+    // slow machine git can be stopped before it connects; then there's none.
+    if opened.try_recv().is_ok() {
+        assert_eq!(closed.recv_timeout(Duration::from_secs(10)), Ok("closed"));
+    }
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -230,10 +239,12 @@ fn a_cancel_stops_a_running_fetch() {
     }
     let dir = temp_dir("gitruncancel");
     git_ok(&dir, &["init", "-q"]);
-    let (url, closed) = http_server(None);
+    let (url, closed, opened) = http_server(None);
     let (reg, op, _) = recorded("hang");
+    // Cancel once git's HTTP helper holds a connection, so the cancel has
+    // to stop it (git can take over a second to connect on Windows CI).
     let canceller = std::thread::spawn(move || {
-        std::thread::sleep(Duration::from_millis(600));
+        opened.recv_timeout(Duration::from_secs(20)).expect("git never connected");
         reg.cancel("hang");
     });
     let started = Instant::now();
