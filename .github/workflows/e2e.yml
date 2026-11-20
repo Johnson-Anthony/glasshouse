@@ -58,6 +58,20 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: ./e2e/edgedriver.ps1
+      - name: Diagnose (Windows)
+        if: runner.os == 'Windows'
+        continue-on-error: true
+        timeout-minutes: 8
+        shell: pwsh
+        run: ./e2e/windows-diagnose.ps1 -App "$PWD\src-tauri\target\debug\glasshouse.exe" -Driver $env:E2E_NATIVE_DRIVER -OutDir "$PWD\e2e\diag"
+      - name: Keep the diagnostics
+        if: always() && runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-diag-${{ matrix.os }}
+          path: e2e/diag/
+          if-no-files-found: warn
+          retention-days: 14
       # The step's own limit leaves time to upload the artifacts.
       - name: Smoke test (Xvfb)
         if: runner.os == 'Linux'

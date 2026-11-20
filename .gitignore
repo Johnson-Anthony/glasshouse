@@ -23,6 +23,7 @@ Thumbs.db
 
 # Build artefacts
 /e2e/artifacts/
+/e2e/diag/
 *.exe
 *.msi
 *.pdb
