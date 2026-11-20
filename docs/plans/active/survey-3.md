@@ -22,8 +22,8 @@ The scan for the user's own paths and names found none in app code. The gaps are
 | 37 | linux-launch-env | Rust + CI | M | queued (coordinate with task 30's activation token) |
 | 38 | a11y | frontend | M–L | queued |
 | 39 | locale-and-names | frontend (+ a little Rust) | S–M | queued |
-| 40 | first-run-defaults | frontend | S–M | queued (after 47; the look moved there) |
-| 47 | themes-and-cosmetics | frontend | L | queued (user request 11-20: "expand the themes and cosmetics options massively") |
+| 40 | first-run-defaults | frontend | S–M | queued (47 is merged; 47 left the seeded tags and other first-run data alone) |
+| 47 | themes-and-cosmetics | frontend | L | merged 11-20 (`claude/elegant-euler-fb95a5`; plan in `docs/plans/completed/themes-and-cosmetics.md`) |
 | 48 | updater | both + CI | M | queued (after 35; D2) |
 | **Wave 7c: devices, transfers, docs** |||||
 | 41 | devices | both | M–L | queued |
@@ -245,3 +245,7 @@ The owner wants the themes and cosmetic options expanded massively. Today there 
 - *(from e2e-smoke, for 46)* `E2E_APP` in `e2e/harness.mjs` can point the suite at an installed binary.
 - *(from e2e-smoke, for 40)* The seeded tags are project/school/secret/review/archive (`SEED_TAGS`, `src/Sidebar.tsx:31`); "school" reads as one user's. Use a generic set.
 - *(from e2e-smoke, for 33)* WebKitWebDriver reports wry's version (0.57.2) as `browserVersion`, not WebKitGTK's. If bug reports want the WebKitGTK version, About or the log has to supply it.
+- *(from themes-and-cosmetics)* The landing page offers only the original eight themes; light chips and hero shots in the new default look would show the range.
+- *(from themes-and-cosmetics)* A "transparent window" setting (Mica on Windows 11) and Snap Layouts on the maximize button both need Rust (`docs/decisions/2026-11-20-themes-transparency.md`).
+- *(from themes-and-cosmetics, for 38)* The new window buttons are real `<button>`s kept out of the Tab order; Preferences' category nav and filter want the a11y review too.
+- *(from themes-and-cosmetics)* Not checked on Windows: forced-colors, the Windows-style window buttons, and the window following the OS theme (`setTheme(null)`). On Linux the System switch was checked in WebKitGTK alone, not inside glasshouse.

@@ -6,6 +6,16 @@ What changed in each release, for people using glasshouse. Downloads are on the 
 
 ### New
 
+- **39 themes, up from 8:** 12 new light themes, 16 new dark ones, a high-contrast pair and Amber CRT, each checked for readable contrast (WCAG AA). The original eight look as they did.
+- **The theme can follow the system** (the default for new installs): pick a light and a dark theme, and glasshouse switches with the OS's light or dark setting, and to the high-contrast pair when the OS asks for more contrast. The window's own title bar and menus follow too.
+- **Make your own themes:** an editor under Preferences → Appearance with a live preview and a contrast report. Custom themes are saved with your settings and can be shared as small JSON files; an imported file can only set colors.
+- **Much more of the look is yours to set** in Preferences → Appearance:
+  - an accent color, and separate fonts for the interface, the file list and code (any installed family), with text size and line spacing;
+  - the window: window buttons (Windows, GNOME, macOS-style dots or none), edge, corners, borders, shadows, tab style, sidebar width and icons, toolbar buttons, path bar and panels;
+  - the file list: colored, minimal or Nerd Font icons by file type, five row heights, stripes, grid lines, selection and git badge styles, and name colors;
+  - effects, all off by default: scanlines, glow, vignette and frosted menus. Animations stop when the OS asks for reduced motion, and Windows High Contrast is followed.
+- **Preferences → Appearance has categories, a filter and presets,** a Reset that can be undone, and a preview of a theme while the pointer is over it.
+
 - **glasshouse can be the file manager other apps hand off to.** Two settings, both off by default, are under Edit → Preferences → Integration:
   - **Open folders with glasshouse** makes it the folder default: on Linux in `mimeapps.list` (desktop-specific lists included), on Windows as the open verb for folders and drives.
   - **Show files for other apps** (Linux) makes a browser's "Show in folder" open glasshouse with the file selected (`org.freedesktop.FileManager1`).
@@ -36,6 +46,7 @@ What changed in each release, for people using glasshouse. Downloads are on the 
 
 ### Changed
 
+- New installs start with the System theme and the system's interface font. Settings saved before keep the look they had.
 - Every change to `main` now also runs the app itself on Linux and Windows in CI: it opens the window, lists a folder typed into Go to Path, checks the sidebar's drives and known folders, and fails on any uncaught error (`pnpm e2e` runs the same locally).
 - The Linux menu entry accepts paths and is listed as a file manager. It doesn't claim folders until "Open folders with glasshouse" is on.
 - The Windows uninstallers turn "Open folders with glasshouse" off, so folders go back to Explorer.
@@ -54,6 +65,7 @@ What changed in each release, for people using glasshouse. Downloads are on the 
 
 ### Fixed
 
+- With striped rows on, a selected odd row showed the stripe instead of the selection.
 - Opening a file that no app is set to open, or whose app won't start, did nothing; now it says so and offers Choose App…. The Inspector's VS Code button says why when it fails.
 - Commit Amend with an empty message did nothing; it now keeps the last message. git never waits on a password or passphrase prompt it can't show: it fails at once, with a hint (credential helper, ssh-agent, or the terminal drawer).
 - Tags of files deleted or renamed outside glasshouse are dropped when their folder is listed or the sidebar's Tags section is shown, so its counts no longer include files that are gone (files on a drive that isn't plugged in keep theirs). A new file at a tagged file's old path no longer inherits its tags. The Tag Picker and Select by Tag use the app's current tags, and the Tag Picker saves only the file it was opened for.
