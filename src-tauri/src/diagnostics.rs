@@ -97,6 +97,8 @@ pub(crate) fn log_error(line: &str) {
 
 /// `line` in the log at `level`, or on stderr in a mode with no log (the
 /// CLI's `--integration-on`, which shares its code with Preferences).
+/// Only Linux's integration code calls it.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 pub(crate) fn note(level: log::Level, line: &str) {
     if logging() {
         log::log!(level, "{line}");
