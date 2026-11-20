@@ -241,6 +241,8 @@ describe("CHEATSHEET", () => {
       "Ctrl+` Toggle terminal",
       "Drag Move to a folder, tab or breadcrumb",
       "Drag out of the window Copy into another app",
+      "Drag the tab Reorder a tab, or move it to the other pane",
+      "Drag the tab to the file area's edge Split with a tab",
       "Enter Open selected",
       "Enter Run the highlighted menu item",
       "Esc Clear the selection",

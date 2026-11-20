@@ -70,6 +70,9 @@ export const KEYMAP: KeyBinding[] = [
   { combo: "Ctrl+5", inText: true, send: "Grid (thumbs)" },
   { combo: "Ctrl+6", inText: true, send: "Tree Flat" },
   { combo: "Ctrl+7", inText: true, send: "Miller Columns (ranger)" },
+  // Split view: VS Code's Split Editor key, and Windows apps' "next pane".
+  { combo: "Ctrl+\\", inText: true, send: "Split Side by Side" },
+  { combo: "Ctrl+F6", any: ["Shift"], inText: true, send: "Focus Other Pane" },
   { combo: "/", any: ["Shift"], run: "focusSearch", cheat: { label: "Focus search", group: "Navigate" } },
 
   // Everything below is file and selection work, so none of it fires while
@@ -130,6 +133,9 @@ const CODE_CHEATS: CheatEntry[] = [
   { label: "Move to a folder, tab or breadcrumb", keys: "Drag", group: "Edit" },
   { label: "Copy to a folder, tab or breadcrumb", keys: "Ctrl+Drag", group: "Edit" },
   { label: "Copy into another app", keys: "Drag out of the window", group: "Edit" },
+  // Tabs (tabDrag.ts, tabMoves.ts).
+  { label: "Reorder a tab, or move it to the other pane", keys: "Drag the tab", group: "Navigate" },
+  { label: "Split with a tab", keys: "Drag the tab to the file area's edge", group: "View" },
   // Menus (menus.tsx) and the file list's own keys (FilePane).
   { label: "Open the menu bar", keys: "Alt or F10", group: "Menus" },
   { label: "Open a menu by its underlined letter", keys: "Alt+letter", group: "Menus" },

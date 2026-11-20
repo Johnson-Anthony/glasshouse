@@ -16,6 +16,7 @@ export const Keys = {
   CONTROL: "",
   ALT: "",
   ESCAPE: "",
+  F6: "",
 };
 
 /** An error answer from the driver: `error` is the spec's code
@@ -113,6 +114,16 @@ export class Session {
       ...[...keys].reverse().map(value => ({ type: "keyUp", value })),
     ];
     await this.cmd("POST", "/actions", { actions: [{ type: "key", id: "keyboard", actions }] });
+    await this.cmd("DELETE", "/actions");
+  }
+
+  /** A mouse drag through Perform Actions: the left button goes down at
+   *  `from`, the pointer moves through each of `to`, and the button comes
+   *  up at the last. Points are [x, y] in the viewport's CSS pixels. */
+  async drag(from, ...to) {
+    const at = ([x, y], duration = 0) => ({ type: "pointerMove", origin: "viewport", x: Math.round(x), y: Math.round(y), duration });
+    const actions = [at(from), { type: "pointerDown", button: 0 }, ...to.map(p => at(p, 150)), { type: "pointerUp", button: 0 }];
+    await this.cmd("POST", "/actions", { actions: [{ type: "pointer", id: "mouse", parameters: { pointerType: "mouse" }, actions }] });
     await this.cmd("DELETE", "/actions");
   }
 

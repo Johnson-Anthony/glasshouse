@@ -16,6 +16,8 @@ export interface ContextTarget {
   kind: "sidebar" | "tab" | "breadcrumb";
   path?: string;
   tabIndex?: number;
+  /** When kind === "tab", the pane the tab is in (split view; 0 unsplit). */
+  pane?: number;
   /** When kind === "sidebar", the specific row subtype right-clicked. */
   rowKind?: SidebarRowKind;
 }

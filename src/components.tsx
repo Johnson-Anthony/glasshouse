@@ -26,7 +26,21 @@ export interface TabDef {
   label: string;
 }
 
-export interface TitlebarProps {
+export interface TitlebarProps extends TabStripProps {
+  /** Split: each pane has its own tab bar, and the title bar holds none. */
+  split?: boolean;
+}
+
+export function Titlebar({ split, ...strip }: TitlebarProps) {
+  return (
+    <div className="titlebar" data-tauri-drag-region>
+      <WindowControls />
+      {split ? <div className="tabs" data-tauri-drag-region /> : <TabStrip {...strip} dragRegion />}
+    </div>
+  );
+}
+
+export interface TabStripProps {
   tabs: TabDef[];
   activeTab: number;
   onSelectTab: (i: number) => void;
@@ -35,34 +49,41 @@ export interface TitlebarProps {
   onTabContext?: (e: React.MouseEvent, tabIndex: number) => void;
   /** Each tab's folder, where a drop on the tab goes. */
   tabPaths?: (string | undefined)[];
+  /** The pane these tabs belong to (tabLayout.ts); 0 unsplit. */
+  pane?: number;
+  /** A press on a tab, which may become a drag (tabMoves.ts). */
+  onTabPointerDown?: (e: React.PointerEvent, tabIndex: number) => void;
+  /** Its empty part moves the window (the title bar's). */
+  dragRegion?: boolean;
 }
 
-export function Titlebar({ tabs, activeTab, onSelectTab, onCloseTab, onNewTab, onTabContext, tabPaths }: TitlebarProps) {
+/** A row of tabs: the title bar's, or a split pane's. `data-tab-bar` and
+ *  `data-tab-index` are where a dragged tab can go (tabDrag.ts). */
+export function TabStrip({ tabs, activeTab, onSelectTab, onCloseTab, onNewTab, onTabContext, tabPaths, pane = 0, onTabPointerDown, dragRegion }: TabStripProps) {
   return (
-    <div className="titlebar" data-tauri-drag-region>
-      <WindowControls />
-      <div className="tabs" data-tauri-drag-region>
-        {tabs.map((t, i) => (
-          <div
-            key={i}
-            className={"tab" + (i === activeTab ? " active" : "")}
-            data-drop-path={tabPaths?.[i]}
-            onClick={() => onSelectTab(i)}
-            onContextMenu={(e) => {
-              if (!onTabContext) return;
-              e.preventDefault();
-              e.stopPropagation();
-              onTabContext(e, i);
-            }}
-          >
-            <span className="ico" style={{color: t.color}}>{t.ic}</span>
-            <span className="label">{t.label}</span>
-            <span className="close" onClick={(e) => { e.stopPropagation(); onCloseTab(i); }}></span>
-          </div>
-        ))}
-        <div className="tab-actions">
-          <button className="tab-btn" title="New tab" onClick={onNewTab}>+</button>
+    <div className="tabs" data-tauri-drag-region={dragRegion || undefined} data-tab-bar={pane}>
+      {tabs.map((t, i) => (
+        <div
+          key={i}
+          className={"tab" + (i === activeTab ? " active" : "")}
+          data-drop-path={tabPaths?.[i]}
+          data-tab-index={i}
+          onPointerDown={onTabPointerDown && (e => onTabPointerDown(e, i))}
+          onClick={() => onSelectTab(i)}
+          onContextMenu={(e) => {
+            if (!onTabContext) return;
+            e.preventDefault();
+            e.stopPropagation();
+            onTabContext(e, i);
+          }}
+        >
+          <span className="ico" style={{color: t.color}}>{t.ic}</span>
+          <span className="label">{t.label}</span>
+          <span className="close" onClick={(e) => { e.stopPropagation(); onCloseTab(i); }}></span>
         </div>
+      ))}
+      <div className="tab-actions">
+        <button className="tab-btn" title="New tab" onClick={onNewTab}>+</button>
       </div>
     </div>
   );
