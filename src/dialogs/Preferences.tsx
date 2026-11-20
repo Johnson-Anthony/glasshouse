@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { integrationSet, integrationStatus, type IntegrationFeature, type IntegrationKey, type IntegrationStatus } from "../api";
+import { integrationSet, integrationStatus, type IntegrationDialogs, type IntegrationFeature, type IntegrationKey, type IntegrationStatus } from "../api";
 import type { TweakDensity, TweakState } from "../components";
 import { errText } from "../errors";
 import { THEMES } from "../data";
@@ -205,6 +205,8 @@ function IntegrationSection() {
     <Section title="integration">
       {row("folders", "open folders with glasshouse", "folders opened from other apps", status.folders)}
       {row("fileManager", "show files for other apps", "a browser's “show in folder”", status.fileManager)}
+      {row("dialogs", "use glasshouse for open and save dialogs", "other apps' open, save as, attach and upload", status.dialogs)}
+      {status.dialogs && <DialogsMore d={status.dialogs} disabled={busy !== null} busyKey={busy} flip={flip} />}
       {error && <p className="prefs-note error" role="alert">{error}</p>}
       {(status.limits.length > 0 || status.program) && (
         <div className="prefs-foot-note">
@@ -213,6 +215,60 @@ function IntegrationSection() {
         </div>
       )}
     </Section>
+  );
+}
+
+/** Under "use glasshouse for open and save dialogs": when it takes effect,
+ *  the root command an old portal needs, and Advanced, the toolkit opt-ins
+ *  (integration_portal.rs), each on unless turned off. */
+function DialogsMore({ d, disabled, busyKey, flip }: {
+  d: IntegrationDialogs;
+  disabled: boolean;
+  busyKey: IntegrationKey | null;
+  flip: (key: IntegrationKey, on: boolean) => void;
+}) {
+  return (
+    <div className="prefs-row prefs-sub-row">
+      <div className="prefs-label" />
+      <div className="prefs-control">
+        {d.rootCommand && (
+          <>
+            <p className="prefs-note">Run this once in a terminal, then turn the setting off and on:</p>
+            <code className="prefs-code">{d.rootCommand}</code>
+          </>
+        )}
+        <p className="prefs-note">
+          Apps that ask the portal on their own (Flatpak and Snap apps, Chromium, Chrome, Electron apps) switch with
+          their next dialog.{" "}
+          {d.on && d.pendingLogin ? "The toolkit settings below apply at your next login" : "The toolkit settings below apply at login"};
+          apps already running keep their old dialog until they're restarted. Turning this on or off restarts
+          xdg-desktop-portal, which ends a screen share in progress.
+        </p>
+        <details className="prefs-advanced">
+          <summary>advanced</summary>
+          <p className="prefs-note">
+            These tell the other apps to ask the portal, from your next login:
+          </p>
+          {d.toolkits.map(t => (
+            <div key={t.key} className="prefs-toolkit">
+              <label>
+                <input
+                  type="checkbox"
+                  checked={t.on}
+                  disabled={disabled}
+                  onChange={e => flip(`dialogs.${t.key}`, e.target.checked)}
+                />
+                {t.label}
+                {t.sets && <code>{t.sets}</code>}
+                {busyKey === `dialogs.${t.key}` && <span className="prefs-hint"> applying…</span>}
+              </label>
+              <p className="prefs-note">{t.note}</p>
+              {t.warning && <p className="prefs-note warn">{t.warning}</p>}
+            </div>
+          ))}
+        </details>
+      </div>
+    </div>
   );
 }
 

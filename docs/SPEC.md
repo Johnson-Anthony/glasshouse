@@ -14,6 +14,7 @@ glasshouse is a desktop file manager built with Tauri 2 (Rust backend) and React
 - An inspector with type-aware previews (text, image, PDF, audio, hex) and quick look.
 - 8 themes plus themed dialogs and context menus instead of native OS chrome.
 - It can be the file manager other apps hand off to (the open "Launch path" question, answered yes on 2026-11-20). `glasshouse PATH…` opens folders, or a file's folder with it selected. Preferences → Integration, off by default, makes it the folder handler (Linux `inode/directory` default; Windows Directory and Drive verbs) and, on Linux, the `org.freedesktop.FileManager1` service behind "Show in folder". See `docs/INTEGRATION.md`.
+- On Linux it can be the open and save dialog other apps show (task 31): an xdg-desktop-portal FileChooser backend. One switch in Preferences → Integration, off by default and fully undone, covers every app the standards reach, with no per-app setup: the portal config, plus the GTK, GTK 4 and Qt opt-ins in `~/.config/environment.d`. Windows can't be covered (it would take code injected into every app). See `docs/INTEGRATION.md`.
 
 ## Platforms and constraints
 - **Windows:** WebView2 and an msi/nsis bundle. **Linux:** WebKitGTK 4.1, AppImage/deb built in CI. Development also happens on Linux arm64 under Wayland (niri).

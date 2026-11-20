@@ -823,13 +823,34 @@ export interface IntegrationStatus {
   folders: IntegrationFeature | null;
   /** Answer other apps' "Show in folder" (Linux). */
   fileManager: IntegrationFeature | null;
+  /** Use glasshouse for other apps' open and save dialogs (Linux). */
+  dialogs: IntegrationDialogs | null;
   /** What can't be changed, for a footnote. */
   limits: string[];
 }
 
-export type IntegrationKey = "folders" | "fileManager";
+/** One toolkit opt-in of the dialogs setting (its Advanced part). */
+export interface IntegrationToolkit {
+  key: "gtk3" | "gtk4" | "qt";
+  label: string;
+  on: boolean;
+  /** What it sets, e.g. `GTK_USE_PORTAL=1`; null when nothing is needed. */
+  sets: string | null;
+  note: string;
+  warning: string | null;
+}
 
-const NO_INTEGRATION: IntegrationStatus = { supported: false, program: null, folders: null, fileManager: null, limits: [] };
+export interface IntegrationDialogs extends IntegrationFeature {
+  toolkits: IntegrationToolkit[];
+  /** Run once as root first (portals older than 1.20.1 without the .deb's file). */
+  rootCommand: string | null;
+  /** The toolkit settings are written but apply at the next login. */
+  pendingLogin: boolean;
+}
+
+export type IntegrationKey = "folders" | "fileManager" | "dialogs" | `dialogs.${IntegrationToolkit["key"]}`;
+
+const NO_INTEGRATION: IntegrationStatus = { supported: false, program: null, folders: null, fileManager: null, dialogs: null, limits: [] };
 
 export function integrationStatus(): Promise<IntegrationStatus> {
   return safe(() => invoke<IntegrationStatus>("integration_status"), NO_INTEGRATION);
@@ -913,4 +934,85 @@ export function pathFsType(path: string): Promise<string> {
 
 export function netRate(): Promise<NetRate | null> {
   return safe(() => invoke<NetRate>("net_rate"), null);
+}
+
+// ---------- the file chooser (another app's open or save dialog) ----------
+
+export type ChooserKind = "open" | "save" | "saveFiles";
+
+export interface ChooserFilter {
+  name: string;
+  rules: { mime: boolean; pattern: string }[];
+}
+
+export interface ChooserChoice {
+  id: string;
+  label: string;
+  /** [id, label] pairs; none: a checkbox, "true" or "false". */
+  options: [string, string][];
+  initial: string;
+}
+
+/** What xdg-desktop-portal asked for (src-tauri/src/chooser.rs). */
+export interface ChooserRequest {
+  kind: ChooserKind;
+  appId: string;
+  title: string;
+  acceptLabel: string | null;
+  multiple: boolean;
+  directory: boolean;
+  modal: boolean;
+  filters: ChooserFilter[];
+  currentFilter: number | null;
+  choices: ChooserChoice[];
+  currentName: string | null;
+  currentFolder: string | null;
+  currentFile: string | null;
+  files: string[];
+  parentWindow: string;
+  requestedMs: number;
+}
+
+export interface ChooserGlob {
+  pattern: string;
+  caseSensitive: boolean;
+}
+
+export interface ChooserView {
+  request: ChooserRequest;
+  /** Each filter's globs, MIME types turned into theirs. */
+  globs: ChooserGlob[][];
+}
+
+/** 0 picked, 1 cancelled, 2 ended otherwise. */
+export interface ChooserAnswer {
+  response: number;
+  paths: string[];
+  choices: [string, string][];
+  currentFilter: number | null;
+}
+
+/** The dialog this window is, or null for a normal window. */
+export function chooserRequest(): Promise<ChooserView | null> {
+  return safe(() => invoke<ChooserView | null>("chooser_request"), null);
+}
+
+/** The page has rendered: show the dialog (on the caller's window). */
+export function chooserReady(): Promise<void> {
+  return safe(() => invoke<void>("chooser_ready"), undefined);
+}
+
+/** Its first frame is on screen (logs the time it took). */
+export function chooserPainted(): Promise<void> {
+  return safe(() => invoke<void>("chooser_painted"), undefined);
+}
+
+/** Answers the app and closes the dialog. */
+export function chooserFinish(answer: ChooserAnswer): Promise<void> {
+  return mustInvoke<void>("chooser_finish", { answer });
+}
+
+/** Files and folders under `root` whose name has `pattern` in it. */
+export function chooserSearch(root: string, pattern: string, showHidden: boolean, opId: string, limit = 500): Promise<FileEntry[]> {
+  return mustInvoke<FileEntry[]>("chooser_search", { root, pattern, showHidden, limit, opId });
 }

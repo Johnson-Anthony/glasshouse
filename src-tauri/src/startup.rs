@@ -8,6 +8,8 @@
 //!   folder, folders too; `--properties` (ShowItemProperties) also opens
 //!   Properties. `file://` URIs are accepted for a desktop entry's `%U`.
 //! - `glasshouse --dbus SERVICE…` is the resident (`resident.rs`, Linux).
+//! - `glasshouse --chooser` is one open or save dialog for another app,
+//!   started by the resident with its request on stdin (`chooser.rs`).
 //! - `glasshouse --integration-on FEATURE…` (`folders`, `file-manager`)
 //!   turns those Preferences → Integration settings on, and
 //!   `glasshouse --integration-off` turns them all off; both then exit.
@@ -52,8 +54,10 @@ pub enum Startup {
     Resident(Vec<String>),
     /// `--integration-on FEATURE…`.
     IntegrationOn(Vec<String>),
-    /// `--integration-off`.
-    IntegrationOff,
+    /// `--integration-off [FEATURE…]` (none: every one).
+    IntegrationOff(Vec<String>),
+    /// `--chooser`: a file chooser dialog (the request comes on stdin).
+    Chooser,
 }
 
 /// The command line this process was started with.
@@ -66,11 +70,15 @@ pub fn from_env() -> Startup {
 /// `args` without the program name; relative paths are taken from `cwd`.
 pub fn parse(args: &[OsString], cwd: &Path) -> Startup {
     match args.first().and_then(|a| a.to_str()) {
-        Some(flag @ ("--dbus" | "--integration-on")) => {
+        Some(flag @ ("--dbus" | "--integration-on" | "--integration-off")) => {
             let names = args[1..].iter().filter_map(|a| a.to_str()).map(String::from).collect();
-            return if flag == "--dbus" { Startup::Resident(names) } else { Startup::IntegrationOn(names) };
+            return match flag {
+                "--dbus" => Startup::Resident(names),
+                "--integration-on" => Startup::IntegrationOn(names),
+                _ => Startup::IntegrationOff(names),
+            };
         }
-        Some("--integration-off") => return Startup::IntegrationOff,
+        Some("--chooser") => return Startup::Chooser,
         _ => {}
     }
     let mut mode = LaunchMode::Open;
@@ -293,7 +301,9 @@ mod tests {
         let cwd = Path::new("/");
         assert_eq!(parse(&args(&["--dbus", "file-manager"]), cwd), Startup::Resident(vec!["file-manager".into()]));
         assert_eq!(parse(&args(&["--dbus"]), cwd), Startup::Resident(vec![]));
-        assert_eq!(parse(&args(&["--integration-off"]), cwd), Startup::IntegrationOff);
+        assert_eq!(parse(&args(&["--integration-off"]), cwd), Startup::IntegrationOff(vec![]));
+        assert_eq!(parse(&args(&["--integration-off", "dialogs"]), cwd), Startup::IntegrationOff(vec!["dialogs".into()]));
+        assert_eq!(parse(&args(&["--chooser"]), cwd), Startup::Chooser);
         assert_eq!(
             parse(&args(&["--integration-on", "folders", "file-manager"]), cwd),
             Startup::IntegrationOn(vec!["folders".into(), "file-manager".into()])

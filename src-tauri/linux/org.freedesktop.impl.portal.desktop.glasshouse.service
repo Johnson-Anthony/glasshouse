@@ -1,0 +1,7 @@
+# Installed with glasshouse (tauri.conf.json: bundle.linux.deb.files), beside
+# glasshouse.portal. xdg-desktop-portal starts this only when glasshouse is its
+# open and save dialog backend; Preferences → Integration writes a user copy that
+# takes its place. See docs/INTEGRATION.md.
+[D-BUS Service]
+Name=org.freedesktop.impl.portal.desktop.glasshouse
+Exec=/usr/bin/glasshouse --dbus file-chooser

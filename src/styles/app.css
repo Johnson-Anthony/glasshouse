@@ -1422,6 +1422,19 @@ select option { background: var(--bg-2); color: var(--fg-0); }
 .prefs-note.warn { color: var(--yellow); }
 .prefs-note.error { color: var(--red); margin: 4px 0; }
 .prefs-foot-note { color: var(--fg-3); font-size: 10.5px; line-height: 1.4; padding-top: 4px; }
+.prefs-sub-row { padding-top: 0; }
+.prefs-code {
+  display: block; margin: 4px 0; padding: 4px 6px;
+  background: var(--bg-2); border: 1px solid var(--border); border-radius: 2px;
+  color: var(--fg-1); font-size: 11px; white-space: pre-wrap; word-break: break-all;
+  user-select: text; -webkit-user-select: text;
+}
+.prefs-advanced { margin-top: 6px; }
+.prefs-advanced summary { cursor: pointer; color: var(--fg-2); }
+.prefs-advanced summary:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
+.prefs-toolkit { margin: 6px 0 0 4px; }
+.prefs-toolkit label { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.prefs-toolkit code { color: var(--fg-2); font-size: 11px; }
 .prefs-foot-note p { margin: 2px 0; }
 .prefs-zoom { display: flex; align-items: center; gap: 6px; }
 .prefs-zoom .value { min-width: 6ch; text-align: center; color: var(--fg-0); }

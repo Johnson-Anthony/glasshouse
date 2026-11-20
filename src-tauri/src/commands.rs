@@ -12,6 +12,8 @@ pub mod git;
 pub mod hash;
 pub mod integration;
 #[cfg_attr(windows, allow(dead_code))]
+pub(crate) mod integration_portal;
+#[cfg_attr(windows, allow(dead_code))]
 pub(crate) mod integration_xdg;
 mod integration_win;
 pub mod launch;
@@ -25,7 +27,7 @@ pub mod trash;
 #[cfg(windows)]
 mod win_open_with;
 pub mod wsl;
-mod xdg_apps;
+pub(crate) mod xdg_apps;
 
 #[cfg(test)]
 pub(crate) mod testing;

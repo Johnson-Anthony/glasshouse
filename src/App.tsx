@@ -5,7 +5,6 @@ import {
   FilePane,
   StatusBar,
   Palette,
-  formatDate,
   type TweakState,
   type ContextKind,
 } from "./components";
@@ -33,7 +32,7 @@ import { Inspector, type InspectableFile } from "./preview/Inspector";
 import { QuickLook } from "./preview/FilePreview";
 import { Sidebar, type SavedRemote, type SidebarRowKind } from "./Sidebar";
 import { Menubar, ContextMenu, setDynamicGitCwd, type MenuToggleState } from "./menus";
-import { CONTEXT_FILE, CONTEXT_EMPTY, CONTEXT_SIDEBAR, CONTEXT_SIDEBAR_FOLDER, CONTEXT_SIDEBAR_FILE, CONTEXT_SIDEBAR_DRIVE, CONTEXT_SIDEBAR_REMOTE, CONTEXT_TAB, CONTEXT_BREADCRUMB, GIT_CHORDS, type MenuItemDef, type DynamicPayload, type FileKind, type GitStatus } from "./data";
+import { CONTEXT_FILE, CONTEXT_EMPTY, CONTEXT_SIDEBAR, CONTEXT_SIDEBAR_FOLDER, CONTEXT_SIDEBAR_FILE, CONTEXT_SIDEBAR_DRIVE, CONTEXT_SIDEBAR_REMOTE, CONTEXT_TAB, CONTEXT_BREADCRUMB, GIT_CHORDS, type MenuItemDef, type DynamicPayload } from "./data";
 import {
   useTabState,
   undoLast,
@@ -58,7 +57,8 @@ import { applyZoom, validZoom, ZOOM_DEFAULT } from "./zoom";
 import { IS_WINDOWS } from "./platform";
 import { NoticesHost } from "./NoticesScreen";
 import { MillerView } from "./Miller";
-import { entryName, viewRows } from "./viewRows";
+import { viewRows } from "./viewRows";
+import { entryToRow, formatBytes } from "./rows";
 import { joinPath, basename, normalizePath } from "./paths";
 import { launchApp, openFile, withOpenWithPath } from "./openWith";
 import {
@@ -325,60 +325,6 @@ function TabShell({ id, initialPath, initialSort, isPrivate, active, onReady }: 
   }, [id, tab]);
   useEffect(() => () => onReadyRef.current(id, null), [id]);
   return null;
-}
-
-function kindFromEntry(k: string): FileKind {
-  switch (k) {
-    case "folder": return "folder";
-    case "code": return "code";
-    case "img": return "img";
-    case "archive": return "archive";
-    case "exec": return "exec";
-    case "text": return "text";
-    default: return "text";
-  }
-}
-
-function formatBytes(bytes: number, isDir: boolean): string {
-  if (isDir) return "—";
-  if (bytes < 1024) return `${bytes} B`;
-  const units = ["K", "M", "G", "T"];
-  let v = bytes / 1024;
-  let ui = 0;
-  while (v >= 1024 && ui < units.length - 1) { v /= 1024; ui++; }
-  if (v >= 100) return `${v.toFixed(0)}${units[ui]}`;
-  if (v >= 10) return `${v.toFixed(1)}${units[ui]}`;
-  return `${v.toFixed(1)} ${units[ui]}`;
-}
-
-function normalizeGit(flag: string | null | undefined): GitStatus | null {
-  if (!flag) return null;
-  if (flag === "M" || flag === "A" || flag === "D" || flag === "U" || flag === "?") {
-    return flag;
-  }
-  return null;
-}
-
-function entryToRow(
-  e: FileEntry,
-  tagStore: Record<string, string[]>,
-): InspectableFile {
-  const kind = kindFromEntry(e.kind);
-  const { name: nameNoExt, ext } = entryName(e);
-  const rowTags = tagStore[e.path];
-  const firstTag = rowTags && rowTags.length > 0 ? rowTags[0] : null;
-  return {
-    name: nameNoExt,
-    kind,
-    size: formatBytes(e.size, kind === "folder"),
-    date: formatDate(e.modified_ms),
-    tag: firstTag,
-    git: normalizeGit(e.git),
-    hidden: e.hidden,
-    ext,
-    link: e.is_symlink,
-    entry: e,
-  };
 }
 
 export function App() {

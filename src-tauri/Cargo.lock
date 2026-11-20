@@ -1607,6 +1607,7 @@ dependencies = [
  "crc32fast",
  "drag",
  "dunce",
+ "futures-channel",
  "git2",
  "grep-regex",
  "grep-searcher",

@@ -30,5 +30,10 @@ export default defineConfig({
       process.env.TAURI_ENV_PLATFORM === "windows" ? "chrome105" : "safari13",
     minify: !process.env.TAURI_ENV_DEBUG ? "esbuild" : false,
     sourcemap: !!process.env.TAURI_ENV_DEBUG,
+    // The main window, and the open/save dialog other apps ask for through
+    // xdg-desktop-portal (src/chooser/).
+    rollupOptions: {
+      input: { main: "index.html", chooser: "chooser.html" },
+    },
   },
 });

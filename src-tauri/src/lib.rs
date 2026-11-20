@@ -1,5 +1,8 @@
+mod chooser;
 mod commands;
 mod ops;
+#[cfg(target_os = "linux")]
+mod portal;
 mod proc_tree;
 mod pty;
 #[cfg(target_os = "linux")]
@@ -26,7 +29,7 @@ pub fn run() {
     match startup::from_env() {
         startup::Startup::Window(launch) => run_window(launch),
         startup::Startup::IntegrationOn(features) => std::process::exit(commands::integration::on_from_cli(&features)),
-        startup::Startup::IntegrationOff => std::process::exit(commands::integration::off_from_cli()),
+        startup::Startup::IntegrationOff(features) => std::process::exit(commands::integration::off_from_cli(&features)),
         #[cfg(target_os = "linux")]
         startup::Startup::Resident(services) => std::process::exit(resident::run(&services)),
         #[cfg(not(target_os = "linux"))]
@@ -34,18 +37,25 @@ pub fn run() {
             eprintln!("glasshouse --dbus: D-Bus services are Linux only");
             std::process::exit(2)
         }
+        #[cfg(target_os = "linux")]
+        startup::Startup::Chooser => std::process::exit(chooser::run()),
+        #[cfg(not(target_os = "linux"))]
+        startup::Startup::Chooser => {
+            eprintln!("glasshouse --chooser: the file chooser is Linux only");
+            std::process::exit(2)
+        }
     }
 }
 
-fn run_window(launch: Option<startup::LaunchRequest>) {
-    // Before anything starts a thread: this sets environment variables.
-    // GTK sends DESKTOP_STARTUP_ID when it maps the window: the
-    // xdg-activation token on Wayland, the startup-notification ID on X11.
-    #[cfg(target_os = "linux")]
-    startup::take_activation_token();
-    #[cfg(windows)]
-    commands::drive_letters::no_critical_error_boxes();
-    let app = tauri::Builder::default()
+/// The app's config and assets, made once: `generate_context!` embeds the
+/// frontend, so a second call would put it in the binary twice.
+fn context() -> tauri::Context<tauri::Wry> {
+    tauri::generate_context!()
+}
+
+/// Plugins, managed state and every command, for both kinds of window.
+fn builder() -> tauri::Builder<tauri::Wry> {
+    tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
@@ -126,6 +136,11 @@ fn run_window(launch: Option<startup::LaunchRequest>) {
             commands::config::clear_recent,
             session::session_owner,
             startup::launch_request,
+            chooser::chooser_request,
+            chooser::chooser_ready,
+            chooser::chooser_painted,
+            chooser::chooser_finish,
+            chooser::chooser_search,
             commands::integration::integration_status,
             commands::integration::integration_set,
             commands::file_info::file_stat_extended,
@@ -142,7 +157,18 @@ fn run_window(launch: Option<startup::LaunchRequest>) {
             pty::pty_resize,
             pty::pty_kill,
         ])
-        .build(tauri::generate_context!())
+}
+
+fn run_window(launch: Option<startup::LaunchRequest>) {
+    // Before anything starts a thread: this sets environment variables.
+    // GTK sends DESKTOP_STARTUP_ID when it maps the window: the
+    // xdg-activation token on Wayland, the startup-notification ID on X11.
+    #[cfg(target_os = "linux")]
+    startup::take_activation_token();
+    #[cfg(windows)]
+    commands::drive_letters::no_critical_error_boxes();
+    let app = builder()
+        .build(context())
         .expect("error while building tauri application");
     // Built but not run: the main window is made when the app runs, so the
     // window-state plugin, which restores a window as it's made, can still
@@ -164,5 +190,35 @@ fn run_window(launch: Option<startup::LaunchRequest>) {
     }
     app.manage(session);
     app.manage(startup::Launch(launch));
+    app.manage(chooser::Chooser::none());
     app.run(|_, _| {});
+}
+
+/// A file chooser for another app (`chooser.rs`): `chooser.html` in a
+/// dialog-sized window, made hidden and shown once the page has rendered.
+/// It never takes the session.
+#[cfg(target_os = "linux")]
+fn run_chooser(state: chooser::Chooser) {
+    let mut ctx = context();
+    if let Some(w) = ctx.config_mut().app.windows.first_mut() {
+        w.url = tauri::WebviewUrl::App("chooser.html".into());
+        w.title = state.title().to_string();
+        w.width = 980.0;
+        w.height = 640.0;
+        w.min_width = Some(560.0);
+        w.min_height = Some(360.0);
+        w.center = true;
+        w.visible = false;
+        w.decorations = true;
+        w.drag_drop_enabled = false;
+    }
+    let app = builder().build(ctx).expect("error while building tauri application");
+    app.manage(session::SessionOwner::guest());
+    app.manage(startup::Launch(None));
+    app.manage(state);
+    app.run(|handle, event| {
+        if let tauri::RunEvent::Exit = event {
+            chooser::at_exit(&handle.state::<chooser::Chooser>());
+        }
+    });
 }

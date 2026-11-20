@@ -88,6 +88,9 @@ version = "2.1"
 # reveal call and the resident D-Bus mode (resident.rs).
 [target.'cfg(target_os = "linux")'.dependencies]
 zbus = "5"
+# Already in the lock file through several dependencies; the file chooser
+# backend's wait for its window process (portal.rs).
+futures-channel = "0.3"
 # Already in the lock file through tauri (same version); the drag source for
 # dragging files out (commands/drag_out.rs).
 gtk = "0.18"

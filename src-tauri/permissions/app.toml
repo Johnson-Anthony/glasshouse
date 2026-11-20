@@ -24,6 +24,7 @@ commands.allow = [
   "find_in_files",
   "replace_preview",
   "find_file_by_name",
+  "chooser_search",
   "hash_sha256",
   "hash_md5",
   "hash_crc32",
@@ -87,7 +88,7 @@ commands.allow = [
 
 [[permission]]
 identifier = "settings"
-description = "Read and write the app's own pins, tags and recent folders; ask whether this window saves the session and which paths it was started with; read and change Preferences → Integration (glasshouse as the desktop's folder handler and FileManager1 service: mimeapps.list, a desktop entry and a D-Bus service file on Linux, the HKCU folder verb on Windows)."
+description = "Read and write the app's own pins, tags and recent folders; ask whether this window saves the session and which paths it was started with; as a file chooser for another app, read its request, show the dialog and answer it; read and change Preferences → Integration (glasshouse as the desktop's folder handler, FileManager1 service and file chooser: mimeapps.list, a desktop entry, D-Bus service files, the portal's backend file and config and environment.d lines on Linux, the HKCU folder verb on Windows)."
 commands.allow = [
   "read_pins",
   "write_pins",
@@ -98,6 +99,10 @@ commands.allow = [
   "clear_recent",
   "session_owner",
   "launch_request",
+  "chooser_request",
+  "chooser_ready",
+  "chooser_painted",
+  "chooser_finish",
   "integration_status",
   "integration_set",
 ]

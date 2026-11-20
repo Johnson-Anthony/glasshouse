@@ -64,52 +64,64 @@ pub(super) fn canonicalize_soft(p: impl AsRef<Path>) -> PathBuf {
     dunce::canonicalize(p).unwrap_or_else(|_| p.to_path_buf())
 }
 
+/// The entry for `path`, whose own (not followed) metadata is `link_meta`.
+/// Hidden-ness belongs to a link itself, but kind/size/mtime describe what
+/// it points at, so a linked folder opens like a folder. A dangling link
+/// keeps its own.
+fn entry_from(raw_path: PathBuf, name: String, link_meta: std::fs::Metadata) -> FileEntry {
+    let hidden = is_hidden(&name, &link_meta);
+    let is_symlink = link_meta.file_type().is_symlink();
+    let meta = if is_symlink {
+        std::fs::metadata(&raw_path).unwrap_or(link_meta)
+    } else {
+        link_meta
+    };
+    let is_dir = meta.is_dir();
+    let ext = raw_path
+        .extension()
+        .map(|s| s.to_string_lossy().to_string())
+        .unwrap_or_default();
+    let size = if is_dir { 0 } else { meta.len() };
+    let modified_ms = meta.modified().ok().and_then(system_time_to_ms).unwrap_or(0);
+    let lossy = raw_path.to_str().is_none();
+    FileEntry {
+        name,
+        path: raw_path.to_string_lossy().to_string(),
+        kind: kind_from_ext(&ext, is_dir).to_string(),
+        size,
+        modified_ms,
+        hidden,
+        ext,
+        is_symlink,
+        lossy,
+        git: None,
+    }
+}
+
+/// One path's entry, as `list_dir` would list it (no git label); None when
+/// nothing is there.
+pub(crate) fn entry_at(path: &Path) -> Option<FileEntry> {
+    let link_meta = std::fs::symlink_metadata(path).ok()?;
+    let name = path.file_name()?.to_string_lossy().to_string();
+    Some(entry_from(path.to_path_buf(), name, link_meta))
+}
+
 #[tauri::command(async)]
 pub fn list_dir(path: String, show_hidden: bool) -> Result<Vec<FileEntry>, String> {
     let p = canonicalize_soft(&path);
     let mut out = Vec::new();
     let rd = std::fs::read_dir(&p).map_err(|e| format!("read_dir({}): {}", p.display(), e))?;
     for entry in rd.flatten() {
-        // DirEntry::metadata doesn't follow links. Hidden-ness belongs to the
-        // link itself, but kind/size/mtime describe what it points at, so a
-        // linked folder opens like a folder. A dangling link keeps its own.
+        // DirEntry::metadata doesn't follow links.
         let link_meta = match entry.metadata() {
             Ok(m) => m,
             Err(_) => continue,
         };
         let name = entry.file_name().to_string_lossy().to_string();
-        let hidden = is_hidden(&name, &link_meta);
-        if hidden && !show_hidden {
+        if !show_hidden && is_hidden(&name, &link_meta) {
             continue;
         }
-        let is_symlink = link_meta.file_type().is_symlink();
-        let meta = if is_symlink {
-            std::fs::metadata(entry.path()).unwrap_or(link_meta)
-        } else {
-            link_meta
-        };
-        let is_dir = meta.is_dir();
-        let ext = entry
-            .path()
-            .extension()
-            .map(|s| s.to_string_lossy().to_string())
-            .unwrap_or_default();
-        let size = if is_dir { 0 } else { meta.len() };
-        let modified_ms = meta.modified().ok().and_then(system_time_to_ms).unwrap_or(0);
-        let raw_path = entry.path();
-        let lossy = raw_path.to_str().is_none();
-        out.push(FileEntry {
-            name,
-            path: raw_path.to_string_lossy().to_string(),
-            kind: kind_from_ext(&ext, is_dir).to_string(),
-            size,
-            modified_ms,
-            hidden,
-            ext,
-            is_symlink,
-            lossy,
-            git: None,
-        });
+        out.push(entry_from(entry.path(), name, link_meta));
     }
     // Compute per-row git status by opening the repo containing this dir, if
     // any, and building an absolute-path -> status-char map. Cheap on
