@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { desktopDir, documentDir, downloadDir, pictureDir } from "@tauri-apps/api/path";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { open as openDialog } from "@tauri-apps/plugin-dialog";
+import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
 import { errText } from "./errors";
 import { joinPath } from "./paths";
 
@@ -22,10 +22,30 @@ export async function winToggleMaximize(): Promise<void> {
 
 /** Tells the window whether the app's theme is dark or light, so what the
  *  system draws for it (on Linux, GTK popups such as a <select>'s list)
- *  matches. */
-export async function winSetTheme(scheme: "dark" | "light"): Promise<void> {
+ *  matches. Null: follow the OS again (on Linux that also clears GTK's
+ *  dark preference until the next portal change; see useLook.ts). */
+export async function winSetTheme(scheme: "dark" | "light" | null): Promise<void> {
   if (!TAURI_AVAILABLE) return;
   try { await getCurrentWindow().setTheme(scheme); } catch {}
+}
+
+/** The window's theme: the one set, else the OS's. */
+export async function winTheme(): Promise<"dark" | "light" | null> {
+  if (!TAURI_AVAILABLE) return null;
+  try { return await getCurrentWindow().theme(); } catch { return null; }
+}
+
+/** Calls `cb` with whether the window is maximized now and after each
+ *  resize. Returns the cleanup. */
+export function onWinMaximized(cb: (maximized: boolean) => void): () => void {
+  if (!TAURI_AVAILABLE) return () => {};
+  const w = getCurrentWindow();
+  const check = () => { w.isMaximized().then(cb, () => {}); };
+  check();
+  let off: (() => void) | null = null;
+  let gone = false;
+  w.onResized(check).then(u => { if (gone) u(); else off = u; }, () => {});
+  return () => { gone = true; off?.(); };
 }
 
 export interface FileEntry {
@@ -883,6 +903,17 @@ export async function pickFile(opts: {
   const res = await openDialog({ directory: false, multiple: false, ...opts });
   if (Array.isArray(res)) return res[0] ?? null;
   return res ?? null;
+}
+
+/** A native Save dialog (Preferences → export a theme). Null if cancelled
+ *  or outside the app. */
+export async function pickSavePath(opts: {
+  title?: string;
+  defaultPath?: string;
+  filters?: Array<{ name: string; extensions: string[] }>;
+}): Promise<string | null> {
+  if (!TAURI_AVAILABLE) return null;
+  return (await saveDialog(opts)) ?? null;
 }
 
 export function fileStatExtended(path: string): Promise<FileStatExt | null> {

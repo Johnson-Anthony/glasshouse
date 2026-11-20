@@ -5,11 +5,8 @@ import { IS_WINDOWS } from "./platform";
 export const TAURI_VERSION = "2";
 
 /** Theme ids, in "Switch Theme" order. Each is a `[data-theme]` block in
- *  styles/themes.css. */
-export const THEMES = [
-  "tokyo-night", "catppuccin-mocha", "gruvbox-dark", "rose-pine",
-  "everforest", "solarized-dark", "green-crt", "synthwave",
-];
+ *  styles/themes.css; themes.ts has their names and schemes. */
+export { THEME_IDS as THEMES } from "./themes";
 
 export type FileKind = "folder" | "text" | "code" | "img" | "archive" | "exec";
 export type GitStatus = "M" | "A" | "D" | "U" | "?";

@@ -4,6 +4,7 @@ import { createPortal } from "react-dom";
 import type { FileRow, FileKind } from "./data";
 import { netRate, pathFsType, systemInfo as apiSystemInfo, winClose, winMinimize, winToggleMaximize, type GitInfo, type NetRate, type SystemInfo } from "./api";
 import { viewRows } from "./viewRows";
+import { fileType } from "./fileTypes";
 import { remapIndexes } from "./listing";
 import { rowWindow, rowsInSpan, scrollToRow } from "./paneWindow";
 import { DropHighlight, dragCopies, dropPaths, dropTargetOf, leftWindow, type DropTarget } from "./dragDrop";
@@ -15,6 +16,7 @@ import { TAG_COLOR_MAP } from "./Sidebar";
 import { isModalOpen } from "./dialogs/modal";
 import { BOUND_CHARS, chordPending } from "./keymap";
 import { isContextMenuKey, TypeAhead, typeAheadMatch, type MenuAnchor } from "./menuNav";
+import { LOOK_APPLIED, type Density, type LookState } from "./look";
 
 // ============= Titlebar =============
 export interface TabDef {
@@ -37,11 +39,7 @@ export interface TitlebarProps {
 export function Titlebar({ tabs, activeTab, onSelectTab, onCloseTab, onNewTab, onTabContext, tabPaths }: TitlebarProps) {
   return (
     <div className="titlebar" data-tauri-drag-region>
-      <div className="traffic">
-        <span className="dot close" title="close" onClick={() => { void winClose(); }}></span>
-        <span className="dot minimize" title="minimize" onClick={() => { void winMinimize(); }}></span>
-        <span className="dot maximize" title="maximize" onClick={() => { void winToggleMaximize(); }}></span>
-      </div>
+      <WindowControls />
       <div className="tabs" data-tauri-drag-region>
         {tabs.map((t, i) => (
           <div
@@ -65,6 +63,29 @@ export function Titlebar({ tabs, activeTab, onSelectTab, onCloseTab, onNewTab, o
           <button className="tab-btn" title="New tab" onClick={onNewTab}>+</button>
         </div>
       </div>
+    </div>
+  );
+}
+
+/** Minimize, maximize and close. One set of buttons that app.css draws in
+ *  the style Preferences picks (html[data-controls]: Windows, GNOME, macOS
+ *  dots, or hidden) and on its side; out of the Tab order, like a native
+ *  title bar's. */
+function WindowControls() {
+  return (
+    <div className="winctl">
+      <button type="button" tabIndex={-1} className="wc min" title="Minimize" aria-label="Minimize" onClick={() => { void winMinimize(); }}>
+        <svg viewBox="0 0 10 10" aria-hidden="true"><path d="M0 5.5h10" /></svg>
+      </button>
+      <button type="button" tabIndex={-1} className="wc max" title="Maximize" aria-label="Maximize" onClick={() => { void winToggleMaximize(); }}>
+        <svg viewBox="0 0 10 10" aria-hidden="true">
+          <rect className="i-max" x="0.5" y="0.5" width="9" height="9" />
+          <path className="i-restore" d="M2.5 2.5V0.5h7v7h-2M0.5 2.5h7v7h-7z" />
+        </svg>
+      </button>
+      <button type="button" tabIndex={-1} className="wc close" title="Close" aria-label="Close" onClick={() => { void winClose(); }}>
+        <svg viewBox="0 0 10 10" aria-hidden="true"><path d="M0.5 0.5l9 9M9.5 0.5l-9 9" /></svg>
+      </button>
     </div>
   );
 }
@@ -334,13 +355,16 @@ const PaneRow = React.memo(function PaneRow({
   const ki = kindIcon(f.kind);
   return (
     <div data-orig={i}
+         data-ft={fileType(f.kind, f.ext, rowName(f))}
          data-drop-path={f.kind === "folder" ? rowPath(f) : undefined}
+         data-git={showGitGutters && f.git ? f.git : undefined}
+         style={f.tag ? { "--tag-c": tagColor(f.tag) } as React.CSSProperties : undefined}
          className={"row" + (isSel ? " selected" : "") + (isFocus ? " focused" : "") + (isDragOver ? " drop-target" : "") + (isCut ? " clip-cut" : "")}
          onPointerDown={(e) => h.pointerDown(i, isSel, e)}
          onClick={(e) => h.click(i, e)}
          onDoubleClick={() => h.dblClick(i)}
          onContextMenu={(e) => h.ctxMenu(i, isSel, e)}>
-      <span className={"ic " + ki.cls}>{ki.ic}</span>
+      <span className={"ic " + ki.cls}><i>{ki.ic}</i></span>
       <span className="name">
         {showGitGutters && f.git && <span className={"git-dot " + gitDotClass(f.git)}></span>}
         <span style={{color: f.hidden ? "var(--fg-3)" : "inherit"}}>{f.name}</span>
@@ -456,6 +480,16 @@ export function FilePane({
     const ro = new ResizeObserver(() => setView(v => (v.viewH === el.clientHeight ? v : { ...v, viewH: el.clientHeight })));
     ro.observe(el);
     return () => ro.disconnect();
+  }, []);
+  // The look (text size, density) changes the row height after this pane
+  // has rendered: useLook applies it in an effect, then says so.
+  useEffect(() => {
+    const remeasure = () => {
+      const rowH = rowsRef.current?.querySelector<HTMLElement>(".row")?.offsetHeight;
+      if (rowH) setView(v => (v.rowH === rowH ? v : { ...v, rowH }));
+    };
+    window.addEventListener(LOOK_APPLIED, remeasure);
+    return () => window.removeEventListener(LOOK_APPLIED, remeasure);
   }, []);
   const win = view.windowed
     ? rowWindow(displayFiles.length, view.rowH, view.top, view.viewH)
@@ -1209,14 +1243,11 @@ export function Palette({ onClose, onCommand }: PaletteProps) {
 
 // ============= Settings =============
 // The display settings, saved in localStorage["glasshouse.tweaks"] and set
-// from Preferences… (dialogs/Preferences.tsx) and the View menu.
-export type TweakDensity = "compact" | "default" | "comfy";
+// from Preferences… (dialogs/Preferences.tsx) and the View menu. The look
+// (theme, fonts, chrome, file-list style) is look.ts's LookState.
+export type TweakDensity = Density;
 
-export interface TweakState {
-  theme: string;
-  font: string;
-  density: TweakDensity;
-  scanlines: boolean;
+export interface TweakState extends LookState {
   hidden: boolean;
   showExtensions: boolean;
   showGitGutters: boolean;
