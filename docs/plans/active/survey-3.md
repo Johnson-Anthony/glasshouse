@@ -14,7 +14,7 @@ The scan for the user's own paths and names found none in app code. The gaps are
 |---|---|---|---|---|
 | **Wave 7a: see it run, and make failures reportable** |||||
 | 32 | e2e-smoke | CI + test code | S–M | merged (`gifted-bun-817ccd`, 11-20) |
-| 33 | diagnostics-and-errors | both | M | queued |
+| 33 | diagnostics-and-errors | both | M | chip offered 11-20 |
 | 34 | windows-paths | Rust + a little frontend | M | queued |
 | 35 | release-identity | Rust + config + CI | M | merged 11-20 (`claude/stoic-hermann-165fd0`; Tauri rejects `_`, so the id is `io.github.johnson-anthony.glasshouse`, with `johnson_anthony` only in D-Bus interface names and paths; `docs/decisions/2026-11-20-release-identity-id-form.md`) |
 | **Wave 7b: works like other file managers** |||||
@@ -24,11 +24,11 @@ The scan for the user's own paths and names found none in app code. The gaps are
 | 39 | locale-and-names | frontend (+ a little Rust) | S–M | queued |
 | 40 | first-run-defaults | frontend | S–M | merged 11-20 (`claude/nice-ishizaka-1d4fec`; plan in `docs/plans/completed/first-run-defaults.md`) |
 | 47 | themes-and-cosmetics | frontend | L | merged 11-20 (`claude/elegant-euler-fb95a5`; plan in `docs/plans/completed/themes-and-cosmetics.md`) |
-| 48 | updater | both + CI | M | queued (after 35; D2) |
+| 48 | updater | both + CI | M | chip offered 11-20 (the signing key pair is generated; see PROGRESS) |
 | **Wave 7c: devices, transfers, docs** |||||
 | 41 | devices | both | M–L | queued |
 | 42 | transfers-and-cloud | both | M | queued (tell task 25 folder-size about the cloud flag) |
-| 43 | docs-and-community | docs + repo files | S–M | queued |
+| 43 | docs-and-community | docs + repo files | S–M | chip offered 11-20 |
 | **Wave 7d: more testing** |||||
 | 44 | e2e-core-flows | test code | M | after 32 |
 | 45 | e2e-nightly-matrix | CI | S–M | after 32 |
