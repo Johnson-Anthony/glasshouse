@@ -52,7 +52,20 @@ Backlog entry: section 21 of `docs/plans/active/survey-2.md`.
 - vitest: the command-line splitter and placeholder with the same hostile names; `openFile` / `chooseApp` flows; routing tests updated.
 
 ## Status
-- [ ] plan and decision record
-- [ ] backend: xdg_apps, commands, Windows module, run_script resolution
-- [ ] frontend: commandLine, openWith, menus, call sites, demo mock
-- [ ] tests and checks (build, test, check:wiring, clippy, cargo test, Windows type-check, site build and capture check)
+Done 2026-11-20: source in `526f118`, the demo rebuilt after it.
+- [x] plan and decision records (`docs/decisions/2026-11-20-open-with-{linux-apps,windows-handlers,custom-command}.md`)
+- [x] backend: `xdg_apps.rs` (+ `xdg_apps_tests.rs`), `open_with.rs`, `win_open_with.rs`, `run_script` resolution and cwd, three commands in `app.toml` (`open_with_apps` files-read, `open_with_app` launch, `open_with_program` exec)
+- [x] frontend: `commandLine.ts`, `openWith.ts`, the Open With submenu's dynamic app list and Choose App…, call sites, demo mock
+- [x] tests and checks:
+  - `pnpm build` ok; `pnpm test` 64 files, 891 passed, 3 skipped; `pnpm check:wiring` 0 issues.
+  - `RUSTFLAGS="-D warnings" cargo clippy --all-targets` clean; `cargo test` 253 passed, 5 ignored (4 GB scope, `-j 4`).
+  - Windows: `win_open_with.rs`, `xdg_apps.rs` with its tests, and `open_with.rs` (Tauri attribute stripped, the opener plugin stubbed) type-check and pass clippy for `x86_64-pc-windows-msvc` through a scratch crate. Nothing Windows was built or run; CI's windows job is the first compile.
+  - `pnpm site:build` ok; `pnpm site:capture check` (3 GB scope) all PASS.
+  - Tried in the site demo: the Open With submenu with the pretend apps, Choose App…'s list with Choose a program…, Custom Command…'s live refusal of `|` and a run of `grep -n "ship the" {}`.
+  - On this machine (niri), the real index: about 800 desktop entries in ~130 ms (debug); NoDisplay helpers left out of the list.
+
+## Follow-ups
+- Check on real Windows (the decision record lists what): the handler list against Explorer's, a Store app, Text Editor (.txt) on a `.log`, a `.bat` program with `&` in the file name, double-click on a type with no app.
+- "Set as default" for a type (Linux: `mimeapps.list` `Default Applications`; Windows has its own "Always"), instead of a silent remember box.
+- Open With for several selected files (the backend already takes a list).
+- MIME `magic` for files whose names match no glob.
