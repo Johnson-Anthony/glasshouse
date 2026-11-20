@@ -31,7 +31,7 @@ On 2026-11-11, four read-only agents surveyed the app (at `45ea31b`): frontend b
 | 18 | session-persistence | both | S–M | merged (`nervous-borg-61c97d`, 11-15) |
 | 19 | keyboard-menus | frontend | M | merged (`peaceful-shamir-c528aa`, 11-13) |
 | 20 | git-ux | frontend + `GIT_RUN_ALLOWED` | S–M | merged (`busy-mclean-ba5038`, 11-20) |
-| 21 | open-with | both | S–M | queued |
+| 21 | open-with | both | S–M | merged (`keen-banach-9930e8`, 11-20) |
 | 22 | os-drag-drop | both | M–L | merged (`cool-satoshi-4102fc`, 11-13; drag out and in confirmed by the user on niri) |
 | 23 | miller-parity | frontend | M | merged (`modest-nobel-8ee21d`, 11-13) |
 | 24 | tags-follow | frontend | M | merged (`festive-leakey-a10edf`, 11-13) |
@@ -199,7 +199,7 @@ These items do nothing, or something else. Make each work, or remove it. For the
   - Zoom Pane toggles a class nothing styles;
   - Full Screen / F11 only maximises;
   - Terminal → Open in New Window opens a new file-manager window at home, and the sidebar's "Open in New Window" opens a tab;
-  - "Text Editor (.txt)" is the same as Default App.
+  - ~~"Text Editor (.txt)" is the same as Default App.~~ Done by open-with: it opens the text/plain app.
 - **Stubs:** Clipboard Stack and File Queue are alerts; Expand Selection to Folder selects everything.
 - **Windows shows Unix-only items:**
   - Change Owner always errors;
@@ -314,6 +314,7 @@ These items do nothing, or something else. Make each work, or remove it. For the
 - *(from settings-dialog)* `docs/media` (hero images and tour clips) still shows the removed ◉ Tweaks button; re-record with `pnpm site:capture` (about 5.5 MB of binaries). PDF previews render at devicePixelRatio, so above 100% zoom on WebKit they're upscaled and slightly soft.
 - *(from session-persistence)* New Tab (Ctrl+T and the + button) adds a tab without switching to it. If the first window closes while a later one stays open, the later one doesn't take over the saved session.
 - *(from git-ux)* "Commit Amend" has no "…" though it now opens a dialog. `run_git` and launch.rs's `run_capped` share a spawn-read-timeout pattern a cleanup pass could merge.
+- *(from open-with)* An explicit "Set as default" for a type (rather than a remember box); Open With on a multi-selection (the backend already takes a list); MIME magic for names no glob matches (today `.tsx` is application/x-tiled-tsx, as shared-mime-info says). The Windows handler list and launch have never run: `docs/decisions/2026-11-20-open-with-windows-handlers.md` lists five things to check on real Windows.
 - *(from undo-coverage)* Task 7 can push `contentUndo(label, path, before, after)` per file; task 12 (Move to Trash) is the last file change with neither an undo entry nor `markIrreversible`. Change Owner could get an undo if `file_stat_extended` returned uid:gid. Paste Special's undo entry and the "can't undo" toast aren't unit-tested (no DOM; see dom-tests).
 
 ## Unconfirmed: check before fixing

@@ -14,6 +14,7 @@ What changed in each release, for people using glasshouse. Downloads are on the 
 - **The command palette (Ctrl+P) finds every menu command** (about 155, up from 19), each once, with where it lives in the menus and its shortcut. Typing a path such as `/etc` or `~/src` offers to go there.
 - **Typed paths work:** Go to Path…, Open… and the palette's "Go to" row expand `~`, resolve relative paths and `..`, open http(s) and mailto links in the browser, and open a file's folder with the file selected. A path that doesn't exist is reported in the prompt instead of opening an error pane.
 - **Search results open in place.** A Find in Files result opens its folder with the file selected. Find File by Name lists its matches to pick from, instead of in an alert.
+- **Open With lists the apps installed for the file's type** (on Linux from the desktop entries and mimeapps.list, on Windows the handlers Explorer recommends), with the default first. **Choose App…** offers the same list plus "Choose a program…" for any program file.
 - **Menus work from the keyboard:** arrow keys, Home/End, Enter and Esc, → and ← into and out of submenus, and a letter jumps to the next item starting with it. Alt alone or F10 opens the menubar, and ← → move between menus. Each menu has its own underlined letter for Alt+letter (Git is now G*i*t, Terminal Te*r*minal). The Menu key or Shift+F10 opens the context menu of the selection, or the New/Paste menu when nothing is selected. Focus goes back where it was when a menu closes.
 - **Type-ahead in the file list:** typing a name's first letters jumps to it, and repeating a letter cycles through the names starting with it.
 - **Tags follow their files:** rename, move, paste, drag, Bulk Rename and Paste Special take an item's tags along (a folder's include everything in it), and undo and redo take them back. A copy starts untagged. Move to Trash, Delete Permanently and Shred remove an item's tags; undo of Move to Trash, or Restore in the Trash view before the app restarts, puts them back.
@@ -32,6 +33,9 @@ What changed in each release, for people using glasshouse. Downloads are on the 
 - **Zoom (Ctrl+= / Ctrl+- / Ctrl+0) scales the whole window,** from 50% to 200%, and is remembered. It used to change only the Inspector's text. A zoom set in 0.2 starts at 100% again.
 - **The window follows the theme's dark or light scheme,** so parts the system draws (such as GTK popup menus) match the dark themes instead of opening white.
 - **Ctrl+drag copies, as in Explorer and Nautilus.** A plain drag still moves. Shift used to copy; now it moves. The label next to the pointer says which, and changes as you press Ctrl. Ctrl+drag into the folder the files are already in makes copies of them ("name (copy)"), as Copy then Paste does.
+- **Custom Command… never runs a shell.** It splits the command into a program and arguments (quotes group words; `{}` stands for the file, otherwise the file goes last), finds a bare program name on PATH and runs in the tab's folder. Shell operators such as `|`, `;` or `>`, and passing the file to `sh -c`, cmd or PowerShell as a script, are refused as you type.
+- **Text Editor (.txt) opens the file with your plain-text app,** whatever its type; it used to do the same as Default App.
+- On Linux, files open with the default app your desktop has set for their type, read straight from the MIME and desktop-entry files; xdg-open is only used when there's no MIME database.
 - The palette no longer advertises things it can't do (`:mode`, `:go`, `/find`, `?help`, `!shell`, Tab autocomplete, Ctrl+` to run in the terminal).
 - **Refreshing in a large git repo is faster.** At the repo's root a refresh scans the repo once instead of twice, and moving between folders reuses the last change count (up to 30 s old) unless HEAD or the index moved.
 - **Folders with tens of thousands of files list about 3× faster.**
@@ -40,6 +44,7 @@ What changed in each release, for people using glasshouse. Downloads are on the 
 
 ### Fixed
 
+- Opening a file that no app is set to open, or whose app won't start, did nothing; now it says so and offers Choose App…. The Inspector's VS Code button says why when it fails.
 - Commit Amend with an empty message did nothing; it now keeps the last message. git never waits on a password or passphrase prompt it can't show: it fails at once, with a hint (credential helper, ssh-agent, or the terminal drawer).
 - Tags of files deleted or renamed outside glasshouse are dropped when their folder is listed or the sidebar's Tags section is shown, so its counts no longer include files that are gone (files on a drive that isn't plugged in keep theirs). A new file at a tagged file's old path no longer inherits its tags. The Tag Picker and Select by Tag use the app's current tags, and the Tag Picker saves only the file it was opened for.
 - Ctrl+G then Delete (or an arrow key) acted on the file list instead of cancelling the git chord. A click on the menubar no longer leaves the file list without keyboard focus.
