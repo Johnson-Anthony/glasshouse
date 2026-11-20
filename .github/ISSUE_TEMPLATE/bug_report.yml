@@ -48,7 +48,7 @@ body:
   - type: input
     id: webview
     attributes:
-      label: Web view version
+      label: WebView2 / WebKitGTK version
       description: "WebView2 on Windows (Settings → Apps → Installed apps → Microsoft Edge WebView2 Runtime), WebKitGTK on Linux (for the .deb, `dpkg -s libwebkit2gtk-4.1-0 | grep Version`). Leave it empty if you can't find it."
       placeholder: "WebView2 131.0.2903.70, or WebKitGTK 2.48.3"
   - type: textarea
