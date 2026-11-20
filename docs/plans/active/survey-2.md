@@ -30,7 +30,7 @@ On 2026-11-11, four read-only agents surveyed the app (at `45ea31b`): frontend b
 | 17 | paths-and-search | frontend | S–M | merged (`blissful-pare-68a0fc`, 11-13) |
 | 18 | session-persistence | both | S–M | merged (`nervous-borg-61c97d`, 11-15) |
 | 19 | keyboard-menus | frontend | M | merged (`peaceful-shamir-c528aa`, 11-13) |
-| 20 | git-ux | frontend + `GIT_RUN_ALLOWED` | S–M | queued |
+| 20 | git-ux | frontend + `GIT_RUN_ALLOWED` | S–M | merged (`busy-mclean-ba5038`, 11-20) |
 | 21 | open-with | both | S–M | queued |
 | 22 | os-drag-drop | both | M–L | merged (`cool-satoshi-4102fc`, 11-13; drag out and in confirmed by the user on niri) |
 | 23 | miller-parity | frontend | M | merged (`modest-nobel-8ee21d`, 11-13) |
@@ -313,6 +313,7 @@ These items do nothing, or something else. Make each work, or remove it. For the
 - *(from keyboard-menus)* The Menu key / Shift+F10 in the sidebar (it has a row cursor); Miller has no context menu at all (task 23). Check in the desktop app (WebKitGTK) and on Windows that a bare Alt tap doesn't also open WebView2's window menu and that F10 reaches the page. A tour clip for keyboard menus.
 - *(from settings-dialog)* `docs/media` (hero images and tour clips) still shows the removed ◉ Tweaks button; re-record with `pnpm site:capture` (about 5.5 MB of binaries). PDF previews render at devicePixelRatio, so above 100% zoom on WebKit they're upscaled and slightly soft.
 - *(from session-persistence)* New Tab (Ctrl+T and the + button) adds a tab without switching to it. If the first window closes while a later one stays open, the later one doesn't take over the saved session.
+- *(from git-ux)* "Commit Amend" has no "…" though it now opens a dialog. `run_git` and launch.rs's `run_capped` share a spawn-read-timeout pattern a cleanup pass could merge.
 - *(from undo-coverage)* Task 7 can push `contentUndo(label, path, before, after)` per file; task 12 (Move to Trash) is the last file change with neither an undo entry nor `markIrreversible`. Change Owner could get an undo if `file_stat_extended` returned uid:gid. Paste Special's undo entry and the "can't undo" toast aren't unit-tested (no DOM; see dom-tests).
 
 ## Unconfirmed: check before fixing

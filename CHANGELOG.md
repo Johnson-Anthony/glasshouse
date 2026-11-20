@@ -18,6 +18,9 @@ What changed in each release, for people using glasshouse. Downloads are on the 
 - **Type-ahead in the file list:** typing a name's first letters jumps to it, and repeating a letter cycles through the names starting with it.
 - **Tags follow their files:** rename, move, paste, drag, Bulk Rename and Paste Special take an item's tags along (a folder's include everything in it), and undo and redo take them back. A copy starts untagged. Move to Trash, Delete Permanently and Shred remove an item's tags; undo of Move to Trash, or Restore in the Trash view before the app restarts, puts them back.
 - **Miller columns (Ctrl+7) catch up with the file list.** The middle column is the file pane, with its context menus (right-click, the Menu key, Shift+F10), Ctrl/Shift multi-select, the marquee, Ctrl+A, Esc to clear the selection, type-ahead, and drag and drop (Ctrl copies). It follows the sort column and direction, Folders First, and the filter box and tag filter. The parent and preview columns sort the same way, take drops onto their folder or a folder row, have a right-click menu, and update when their folder changes. The Keybindings sheet lists Esc and Miller's h/j/k/l keys.
+- **Git → Checkout…, Merge… and Rebase onto… pick from a list of branches,** filterable, remote ones included. A remote-only branch is checked out as a new local tracking branch; a name that matches nothing (a tag, a commit) is used as typed.
+- **Commit… and Commit Amend open a dialog** that lists the staged files and takes a multi-line message (Ctrl+Enter commits). Amend starts from the last commit's message and keeps it exactly when left empty or unchanged.
+- **Pull, Push and Fetch All show git's progress in the ops tray and can be cancelled,** as can every git menu command. A remote that sends nothing for two minutes is stopped.
 - **Big folders are fast.** In Details, Compact List and Tree the file list only draws the rows on screen, so a 10,000-file folder opens in about 0.1 s instead of 0.7 s. Arrow keys, End, box selection and filtering stay instant at any size, and sorting a large folder is about 4× faster.
 - **The app starts with less to load:** the terminal loads the first time you open it.
 - **Move to Trash can be undone:** Ctrl+Z restores the items, and Ctrl+Y trashes them again. Undo refuses, saying why, if a name is taken again or an item has left the trash.
@@ -37,6 +40,7 @@ What changed in each release, for people using glasshouse. Downloads are on the 
 
 ### Fixed
 
+- Commit Amend with an empty message did nothing; it now keeps the last message. git never waits on a password or passphrase prompt it can't show: it fails at once, with a hint (credential helper, ssh-agent, or the terminal drawer).
 - Tags of files deleted or renamed outside glasshouse are dropped when their folder is listed or the sidebar's Tags section is shown, so its counts no longer include files that are gone (files on a drive that isn't plugged in keep theirs). A new file at a tagged file's old path no longer inherits its tags. The Tag Picker and Select by Tag use the app's current tags, and the Tag Picker saves only the file it was opened for.
 - Ctrl+G then Delete (or an arrow key) acted on the file list instead of cancelling the git chord. A click on the menubar no longer leaves the file list without keyboard focus.
 - Go → Desktop, Documents, Downloads and Pictures open the folders the OS names: OneDrive-redirected folders on Windows, localised folders on Linux.
