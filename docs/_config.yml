@@ -6,3 +6,4 @@ exclude:
   - INTEGRATION.md
   - plans
   - decisions
+  - testing
