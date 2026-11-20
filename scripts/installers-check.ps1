@@ -10,6 +10,8 @@
 $ErrorActionPreference = 'Stop'
 
 $bundle = Join-Path $PSScriptRoot '..\src-tauri\target\debug\bundle'
+$log = $env:RUNNER_TEMP
+if (-not $log) { $log = $env:TEMP }
 $dirShell = 'HKCU:\Software\Classes\Directory\shell'
 $driveShell = 'HKCU:\Software\Classes\Drive\shell'
 
@@ -28,7 +30,17 @@ function Invoke-Checked($file, [string[]]$arguments) {
 function Test-Round($name, $install, $exe, $uninstall) {
   Write-Host "== $name"
   & $install
-  if (-not (Test-Path $exe)) { throw "${name}: $exe isn't there after installing" }
+  if (-not (Test-Path $exe)) {
+    # Say where it went instead: the install folders, the MSI's chosen INSTALLDIR.
+    foreach ($d in (Join-Path $env:ProgramFiles 'glasshouse'), (Join-Path $env:LOCALAPPDATA 'glasshouse')) {
+      if (Test-Path $d) { Write-Host "$d contains: $((Get-ChildItem $d).Name -join ', ')" }
+    }
+    $msiLog = Join-Path $log 'msi-install.log'
+    if (Test-Path $msiLog) {
+      Select-String -Path $msiLog -Pattern 'INSTALLDIR|Return value 3' | Select-Object -First 20 | ForEach-Object { Write-Host $_.Line }
+    }
+    throw "${name}: $exe isn't there after installing"
+  }
 
   New-Item -Path $dirShell -Force | Out-Null
   Set-ItemProperty -Path $dirShell -Name '(default)' -Value 'standin'
@@ -58,9 +70,17 @@ Test-Round 'NSIS' `
   (Join-Path $userDir 'glasshouse.exe') `
   { Invoke-Checked (Join-Path $userDir 'uninstall.exe') @('/S', "_?=$userDir") }
 
+# The NSIS uninstaller keeps HKCU\Software\<manufacturer>\<product>, its
+# install folder, unless "Delete application data" is ticked, and Tauri's MSI
+# reads that key for its own INSTALLDIR (main.wxs, PrevInstallDirNoName), so
+# after the NSIS round it would install into %LOCALAPPDATA%. A fresh machine
+# has no such key.
+$nsisKey = 'HKCU:\Software\glasshouse\glasshouse'
+if (Test-Path $nsisKey) {
+  Write-Host "NSIS left $nsisKey ($((Get-Item $nsisKey).GetValue(''))); removing it"
+  Remove-Item -Path $nsisKey -Recurse -Force
+}
 $msi = (Get-ChildItem "$bundle\msi\*.msi" | Select-Object -First 1).FullName
-$log = $env:RUNNER_TEMP
-if (-not $log) { $log = $env:TEMP }
 Test-Round 'MSI' `
   { Invoke-Checked 'msiexec.exe' @('/i', "`"$msi`"", '/qn', '/l*v', "`"$log\msi-install.log`"") } `
   (Join-Path $env:ProgramFiles 'glasshouse\glasshouse.exe') `

@@ -40,7 +40,8 @@ pub enum Revealed {
     Shown,
     /// glasshouse is the desktop's file manager (Preferences →
     /// Integration), so the window selects the item itself rather than
-    /// opening another glasshouse window.
+    /// opening another glasshouse window. Linux only.
+    #[cfg_attr(windows, allow(dead_code))]
     InApp,
 }
 

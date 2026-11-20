@@ -108,6 +108,7 @@ The first look at the real app on Windows. Use Tauri's `tauri-driver` 2.1.0 (pin
 - **Pin the MSI upgrade code** now (`tauri inspect wix-upgrade-code`).
 - **Fill in the bundle metadata** (`tauri.conf.json:31-44`): publisher, copyright, homepage, category, short description and the NSIS `installMode`.
 - **The two Windows installers:** the README should recommend the setup.exe (per user) to consumers and label the MSI (per machine) for IT.
+- **NSIS leaves its install-folder key behind:** a silent NSIS uninstall without "Delete application data" keeps `HKCU\Software\glasshouse\glasshouse`. Tauri's MSI then reads that key for its own INSTALLDIR (main.wxs `PrevInstallDirNoName`), so someone who switches from the setup.exe to the MSI gets a per-machine install in `%LOCALAPPDATA%` (seen in CI's installers job on 11-20, if the diagnosis holds). Decide whether the NSIS uninstaller should always clear that key (an uninstaller hook) and list what each uninstaller leaves.
 - **Linux packaging:**
   - With no `category`, the desktop entry gets an empty `Categories=` (unverified).
   - The .deb should Recommend `git`, `7zip` and `xdg-utils`.

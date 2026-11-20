@@ -1,5 +1,7 @@
 use super::*;
-use crate::commands::testing::{put, Scratch};
+#[cfg(unix)]
+use crate::commands::testing::put;
+use crate::commands::testing::Scratch;
 use crate::commands::xdg_apps::{exec_argvs, parse_entry};
 
 const OURS: &str = DESKTOP_ID;

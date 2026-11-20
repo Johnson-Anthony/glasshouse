@@ -13,7 +13,7 @@
 //! Both point at the running binary (`startup::self_exe`: the AppImage
 //! itself for an AppImage). The text work is pure and tested on every
 //! platform. See docs/decisions/2026-11-20-folder-handler-integration.md.
-#![cfg_attr(not(unix), allow(dead_code))]
+//! (Unused on Windows: `commands.rs` allows dead code on its `mod` line.)
 
 use std::path::{Path, PathBuf};
 

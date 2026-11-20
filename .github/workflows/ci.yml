@@ -93,6 +93,13 @@ jobs:
       - name: Uninstalling puts the folder default back
         shell: pwsh
         run: ./scripts/installers-check.ps1
+      - name: Keep the MSI logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: msi-logs
+          path: ${{ runner.temp }}/msi-*.log
+          if-no-files-found: ignore
 
   # Lints every workflow, with shellcheck (preinstalled on the runner) on each
   # run: script. Uses actionlint's own download script, pinned to a release.
