@@ -9,7 +9,8 @@ const api = vi.hoisted(() => ({
   updateCheck: vi.fn(),
   sessionOwner: vi.fn(),
 }));
-vi.mock("./api", () => api);
+// log.ts reads TAURI_AVAILABLE; false, so failures aren't logged here.
+vi.mock("./api", () => ({ ...api, TAURI_AVAILABLE: false }));
 
 import {
   CHECK_TICK_MS, FIRST_CHECK_MS, agoText, dayText, fileOf, installText, manualSteps, noteBlocks, plainInline,
