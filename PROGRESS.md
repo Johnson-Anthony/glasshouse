@@ -98,6 +98,7 @@
    - `scripts/*.ps1` and `scripts/win-*.sh` (WSL → Windows build helpers) aren't referenced or documented anywhere: document them in CLAUDE.md or drop them.
 
 ## Broken / known issues
+- **glasshouse doesn't come up in the Windows e2e run** (first run on 11-20, run 44721411336): all five tests failed with msedgedriver's "DevToolsActivePort file doesn't exist". The driver matched the WebView2 runtime (156.0.4314.58), and no glasshouse or msedgewebview2 process was left. Either the app exits at startup on Windows (no window of it has ever been seen there) or the driver can't attach. A fresh task session ("Get glasshouse starting in the Windows e2e run") may push its own branch to run e2e.yml there. The Linux leg passes.
 - On the GitHub runner, headless Chromium sometimes never opens its DevTools port. `site/capture/capture.mjs` starts it up to three times (20 s each; `9f63f1a`), and the site job has a 20-minute cap. The first attempt hung on 9f63f1a's own run, so it's common; if all three fail, re-run the job.
 - Renames can still race where `renameat2(RENAME_NOREPLACE)` isn't available (non-Linux unix, NFS, older FUSE), which falls back to check-then-rename.
 - On Windows, a file whose on-disk case differs from git's index loses its git label. Copy progress there is per file, not within a file.
