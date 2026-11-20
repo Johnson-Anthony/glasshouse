@@ -55,6 +55,8 @@ import { canExtractArchive } from "./handlers/archive";
 import { revealPath, showBlame } from "./handlers/helpers";
 import { DISPLAY_MODE_DEFAULT, DISPLAY_MODE_KEY, LAYOUT_KEY, slugify } from "./handlers/view";
 import { applyZoom, validZoom, ZOOM_DEFAULT } from "./zoom";
+import { LOOK_DEFAULTS, migrateLook } from "./look";
+import { useLook } from "./useLook";
 import { IS_WINDOWS } from "./platform";
 import { NoticesHost } from "./NoticesScreen";
 import { MillerView } from "./Miller";
@@ -66,7 +68,6 @@ import {
   ensureDir,
   startDragOut,
   spawnVscodeStrict,
-  winSetTheme,
   trashDir,
   writeText,
   readPins,
@@ -94,10 +95,7 @@ import { OsDrop } from "./OsDrop";
 const TerminalDrawer = lazy(() => import("./Terminal").then(m => ({ default: m.TerminalDrawer })));
 
 const TWEAK_DEFAULTS: TweakState = {
-  theme: "gruvbox-dark",
-  font: '"JetBrainsMono Nerd Font", "JetBrains Mono", ui-monospace, monospace',
-  density: "default",
-  scanlines: false,
+  ...LOOK_DEFAULTS,
   hidden: false,
   showExtensions: true,
   showGitGutters: true,
@@ -386,7 +384,7 @@ export function App() {
     try {
       const saved = JSON.parse(localStorage.getItem("glasshouse.tweaks") || "null");
       return saved ? {
-        ...TWEAK_DEFAULTS, ...saved, zoom: validZoom(saved.zoom),
+        ...TWEAK_DEFAULTS, ...saved, ...migrateLook(saved), zoom: validZoom(saved.zoom),
         // Only a saved false hides a panel.
         showSidebar: saved.showSidebar !== false,
         showInspector: saved.showInspector !== false,
@@ -592,21 +590,14 @@ export function App() {
     })();
   };
 
+  // The theme (System: the OS's light or dark pick), fonts, chrome and
+  // file-list style, as attributes on <html> (look.ts), and the window's
+  // theme to match.
+  useLook(state);
   useEffect(() => {
-    document.documentElement.setAttribute("data-theme", state.theme);
-    document.documentElement.setAttribute("data-density", state.density);
-    document.documentElement.setAttribute("data-scanlines", state.scanlines ? "on" : "off");
-    document.documentElement.style.setProperty("--font-mono", state.font);
     applyZoom(state.zoom);
     localStorage.setItem("glasshouse.tweaks", JSON.stringify(state));
   }, [state]);
-
-  // The theme's color-scheme (themes.css) for the window too, so what the
-  // system draws (GTK popups on Linux) is dark or light to match.
-  useEffect(() => {
-    const scheme = getComputedStyle(document.documentElement).colorScheme ?? "";
-    void winSetTheme(/\bdark\b/.test(scheme) || !/\blight\b/.test(scheme) ? "dark" : "light");
-  }, [state.theme]);
 
   // `glasshouse:set-theme` (detail: theme name) switches to a given theme;
   // the project site's demo uses it for its theme picker.

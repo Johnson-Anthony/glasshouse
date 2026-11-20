@@ -12,8 +12,17 @@ import { remapIndexes } from "./listing";
 import { OVERSCAN } from "./paneWindow";
 import { gitChord } from "./keymap";
 import type { MenuAnchor } from "./menuNav";
+import { LOOK_APPLIED } from "./look";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+
+// Each file row works out its icon type once per render: a count of rows
+// rendered.
+const typeCalls = vi.hoisted(() => ({ n: 0 }));
+vi.mock("./fileTypes", async importOriginal => {
+  const real = await importOriginal<typeof import("./fileTypes")>();
+  return { ...real, fileType: (...a: Parameters<typeof real.fileType>) => { typeCalls.n++; return real.fileType(...a); } };
+});
 
 type Row = FileRow & { entry: { path: string } };
 const row = (name: string, kind: FileRow["kind"] = "text"): Row => ({
@@ -137,6 +146,38 @@ describe("windowed file list", () => {
     act(() => set(p => ({ ...p, selected: [3], tick: p.tick + 1 })));
     expect(rowsEl().scrollTop).toBe(500 * ROW_H);
     expect(rendered()).toContain(500);
+  });
+});
+
+describe("the look", () => {
+  it("re-renders no row when the pane re-renders for something else, such as a theme switch", () => {
+    mount(make(100));
+    typeCalls.n = 0;
+    act(() => {
+      document.documentElement.setAttribute("data-theme", "nord");
+      window.dispatchEvent(new Event(LOOK_APPLIED));
+      set(p => ({ ...p, tick: p.tick + 1 }));
+    });
+    expect(typeCalls.n).toBe(0);
+    act(() => set(p => ({ ...p, selected: [3] })));
+    expect(typeCalls.n).toBe(1);
+  });
+
+  it("measures the row height again when the look changes it", () => {
+    mount(make(1000));
+    expect(rendered().length).toBe(10 + OVERSCAN);
+    rowH = 52;
+    act(() => { window.dispatchEvent(new Event(LOOK_APPLIED)); });
+    expect(rendered().length).toBe(5 + OVERSCAN);
+  });
+
+  it("gives each row its icon type and git status for the CSS", () => {
+    mount([{ ...row("main.rs", "code"), ext: "rs", git: "M" }, row("src", "folder")]);
+    const a = host.querySelector<HTMLElement>('.row[data-orig="0"]')!;
+    const b = host.querySelector<HTMLElement>('.row[data-orig="1"]')!;
+    expect([a.dataset.ft, b.dataset.ft]).toEqual(["rs", "folder"]);
+    expect(b.dataset.git).toBeUndefined();
+    expect(a.dataset.git).toBe("M");
   });
 });
 

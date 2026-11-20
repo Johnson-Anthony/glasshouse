@@ -32,6 +32,12 @@ interface PtyExitEvent { session_id: string; exit_code: number | null }
 const MIN_H = 120;
 const MAX_H_RATIO = 0.8;
 
+/** Preferences' code font (look.ts's --font-mono). */
+function codeFont(): string {
+  return getComputedStyle(document.documentElement).getPropertyValue("--font-mono").trim()
+    || '"JetBrainsMono Nerd Font", "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace';
+}
+
 function readThemeVars(): ITheme {
   const cs = getComputedStyle(document.documentElement);
   const v = (name: string, fallback: string) => {
@@ -147,7 +153,7 @@ function TermPane({ profile, cwd, visible, open, follow, height, onExit }: TermP
   useEffect(() => {
     if (!hostRef.current) return;
     const term = new Terminal({
-      fontFamily: '"JetBrainsMono Nerd Font", "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
+      fontFamily: codeFont(),
       fontSize: 12,
       lineHeight: 1.25,
       cursorBlink: true,
@@ -254,11 +260,19 @@ function TermPane({ profile, cwd, visible, open, follow, height, onExit }: TermP
     };
   }, []);
 
+  // The theme, the accent and the code font (Preferences) as they change.
   useEffect(() => {
     const obs = new MutationObserver(() => {
-      if (termRef.current) termRef.current.options.theme = readThemeVars();
+      const term = termRef.current;
+      if (!term) return;
+      term.options.theme = readThemeVars();
+      const font = codeFont();
+      if (term.options.fontFamily !== font) {
+        term.options.fontFamily = font;
+        fitRef.current?.fit();
+      }
     });
-    obs.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+    obs.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme", "style"] });
     return () => obs.disconnect();
   }, []);
 

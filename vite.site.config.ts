@@ -1,7 +1,7 @@
 // Builds the project site's browser demo (site/demo) into docs/demo, which
 // GitHub Pages serves. Run with `pnpm site:build`.
 import { execFileSync } from "node:child_process";
-import { copyFileSync, cpSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { defineConfig, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
@@ -48,7 +48,11 @@ const copyThemes: Plugin = {
   apply: "build",
   closeBundle() {
     mkdirSync(here("./docs/assets"), { recursive: true });
-    copyFileSync(here("./src/styles/themes.css"), here("./docs/assets/themes.css"));
+    // The landing page offers the original eight themes; the rest stay out
+    // of its first download.
+    const themes = readFileSync(here("./src/styles/themes.css"), "utf8");
+    const cut = themes.indexOf("/* ---- site cut ---- */");
+    writeFileSync(here("./docs/assets/themes.css"), cut > 0 ? themes.slice(0, cut) : themes);
     const fonts = here("./src/assets/fonts");
     const licenses = here("./docs/demo/licenses");
     mkdirSync(licenses, { recursive: true });

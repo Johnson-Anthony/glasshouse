@@ -2,14 +2,18 @@
 // inside Tauri (src/api.ts) and whether it's on Windows (src/platform.ts).
 import { mockIPC, mockWindows } from "@tauri-apps/api/mocks";
 import { createBackend } from "./backend";
+import { applyPreset, LOOK_DEFAULTS, PRESETS } from "../../../src/look";
+import { THEME_IDS } from "../../../src/themes";
 
-export const THEMES = [
-  "tokyo-night", "catppuccin-mocha", "gruvbox-dark", "rose-pine",
-  "everforest", "solarized-dark", "green-crt", "synthwave",
-] as const;
+/** Every built-in theme (the site's chips offer eight of them). */
+export const THEMES = THEME_IDS;
 
 const params = new URLSearchParams(location.search);
 export const initialTheme = THEMES.find(t => t === params.get("theme")) ?? "tokyo-night";
+/** ?look=<preset> starts in that preset's look (the site captures show the
+ *  new looks with it); without one, settings without a lookVersion give the
+ *  look the site's screenshots were made with. */
+const preset = PRESETS.find(p => p.id === params.get("look"));
 
 // Always the Linux flavor, whatever the visitor runs (see the site plan).
 for (const [key, value] of [["userAgent", "Mozilla/5.0 (X11; Linux x86_64) glasshouse-demo"], ["platform", "Linux x86_64"]]) {
@@ -28,7 +32,10 @@ class MemoryStorage implements Storage {
   setItem(k: string, v: string) { this.m.set(k, String(v)); }
 }
 const storage = new MemoryStorage();
-storage.setItem("glasshouse.tweaks", JSON.stringify({ theme: initialTheme }));
+const look = preset && applyPreset(preset.id, LOOK_DEFAULTS);
+storage.setItem("glasshouse.tweaks", JSON.stringify(
+  look ? { ...look, theme: params.has("theme") ? initialTheme : look.theme } : { theme: initialTheme },
+));
 Object.defineProperty(window, "localStorage", { value: storage, configurable: true });
 
 async function fetchDataUrl(url: string): Promise<string> {

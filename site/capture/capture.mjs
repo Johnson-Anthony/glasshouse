@@ -9,6 +9,9 @@
 //   pnpm site:capture page <dir> screenshots of the landing page itself, for
 //                                review (desktop and phone), saved to <dir>
 //   pnpm site:capture check      behavior checks of the landing page
+//   pnpm site:capture themes <dir> the demo in some of the themes and looks
+//                                (Preferences → presets), for review, saved
+//                                to <dir>
 import { spawn, execFileSync } from "node:child_process";
 import { createReadStream, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
@@ -38,6 +41,22 @@ const PAGE_JOBS = [
   { name: "page-desktop", width: 1440, height: 900, mobile: false, theme: "tokyo-night", full: true },
   { name: "page-desktop-synthwave-demo", width: 1440, height: 900, mobile: false, theme: "synthwave", startDemo: true },
   { name: "page-phone", width: 390, height: 844, mobile: true, theme: "tokyo-night", full: true },
+];
+
+/** Theme review shots: the demo's hero scene in a theme and a look preset
+ *  (site/demo/mock/install.ts reads ?look=), and Preferences open on one. */
+const THEME_SHOTS = [
+  { theme: "glasshouse-light", look: "standard" },
+  { theme: "glasshouse-dark", look: "standard" },
+  { theme: "catppuccin-latte", look: "standard" },
+  { theme: "github-light", look: "compact" },
+  { theme: "nord", look: "standard" },
+  { theme: "dracula", look: "compact" },
+  { theme: "high-contrast-dark", look: "contrast" },
+  { theme: "high-contrast-light", look: "contrast" },
+  { theme: "amber-crt", look: "retro" },
+  { theme: "glasshouse-light", look: "standard", prefs: true },
+  { theme: "tokyo-night", look: "terminal", prefs: true },
 ];
 
 // ---- static server for docs/ at /glasshouse/ ----
@@ -185,6 +204,29 @@ async function shootPages(cdp, base, outDir) {
     const shot = await cdp.send("Page.captureScreenshot", params);
     writeFileSync(join(outDir, `${job.name}.png`), Buffer.from(shot.data, "base64"));
     console.log(`${job.name}: ${join(outDir, `${job.name}.png`)}`);
+  }
+}
+
+async function shootThemes(cdp, base, outDir) {
+  mkdirSync(outDir, { recursive: true });
+  await cdp.send("Emulation.setDeviceMetricsOverride", { width: W, height: H, deviceScaleFactor: 1, mobile: false });
+  for (const job of THEME_SHOTS) {
+    const name = `${job.prefs ? "prefs" : "app"}-${job.theme}-${job.look}`;
+    await load(cdp, `${base}demo/?theme=${job.theme}&look=${job.look}`);
+    await evaluate(cdp, `document.fonts.ready.then(() => true)`);
+    if (job.prefs) {
+      await evaluate(cdp, `window.dispatchEvent(new KeyboardEvent("keydown", { key: ",", code: "Comma", ctrlKey: true, bubbles: true })), true`);
+      for (let i = 0; i < 50 && !(await evaluate(cdp, `!!document.querySelector(".prefs")`)); i++) await sleep(100);
+    } else {
+      const ok = await evaluate(cdp, `window.glasshouseDemo.runScene("hero", { speed: 0.5, cursor: false })`);
+      if (!ok) throw new Error("scene hero did not finish");
+    }
+    await sleep(700);
+    const theme = await evaluate(cdp, `document.documentElement.dataset.theme`);
+    if (theme !== job.theme) throw new Error(`${name}: the demo shows ${theme}`);
+    const shot = await cdp.send("Page.captureScreenshot", { format: "png" });
+    writeFileSync(join(outDir, `${name}.png`), Buffer.from(shot.data, "base64"));
+    console.log(`${name}: ${join(outDir, `${name}.png`)}`);
   }
 }
 
@@ -473,13 +515,14 @@ async function main() {
     }
     return;
   }
-  if (only === "page") {
+  if (only === "page" || only === "themes") {
     const server = await serve();
     const cdp = await launchChromium();
     try {
       await cdp.send("Page.enable");
       await cdp.send("Runtime.enable");
-      await shootPages(cdp, `http://127.0.0.1:${server.address().port}/glasshouse/`, resolve(process.argv[3] ?? "site-review"));
+      const shoot = only === "page" ? shootPages : shootThemes;
+      await shoot(cdp, `http://127.0.0.1:${server.address().port}/glasshouse/`, resolve(process.argv[3] ?? "site-review"));
     } finally {
       cdp.close();
       server.close();

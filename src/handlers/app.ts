@@ -1,5 +1,5 @@
 import { homeDir, winClose, winToggleMaximize } from "../api";
-import { THEMES } from "../data";
+import { nextTheme } from "../look";
 import type { Handler } from "./types";
 
 // App-level commands: panels, dialogs, tabs, window, navigation, theme.
@@ -22,7 +22,6 @@ export const appHandler: Handler = (label, ctx) => {
     setState,
     setTermOpen,
     setPrefsOpen,
-    state,
   } = ctx.app;
   switch (label) {
     case "Toggle Drawer": {
@@ -80,9 +79,8 @@ export const appHandler: Handler = (label, ctx) => {
     case "Inspector":
       setShowInspector(v => !v); return true;
     case "Switch Theme →": {
-      const i = THEMES.indexOf(state.theme);
-      const next = THEMES[(i < 0 ? 0 : i + 1) % THEMES.length];
-      setState(prev => ({ ...prev, theme: next }));
+      const shown = document.documentElement.getAttribute("data-theme") ?? "";
+      setState(prev => ({ ...prev, ...nextTheme(prev, shown) }));
       return true;
     }
     default:
