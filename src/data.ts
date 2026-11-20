@@ -120,6 +120,8 @@ export const MENUS: MenusData = {
         { kind: "item", label: "Paste as Copy (verify SHA256)" },
         { kind: "item", label: "Paste Text into Filename", mutates: true },
       ] },
+    { kind: "item", ic: "", label: "Copy to Other Pane",  mutates: true },
+    { kind: "item", ic: "", label: "Move to Other Pane",  mutates: true },
     { kind: "sep" },
     { kind: "item", ic: "", label: "Rename",              kb: "F2", mutates: true },
     { kind: "item", ic: "", label: "Bulk Rename…",        kb: "Ctrl+Shift+R", mutates: true },
@@ -151,6 +153,15 @@ export const MENUS: MenusData = {
       children: [
         { kind: "item", label: "Tree + Pane + Inspector", kb: "F3" },
         { kind: "item", label: "Single Pane"             ,kb: "F7" },
+      ] },
+    { kind: "sub",  ic: "", label: "Split",
+      children: [
+        { kind: "item", label: "Split Side by Side",      kb: "Ctrl+\\" },
+        { kind: "item", label: "Split Top and Bottom" },
+        { kind: "sep" },
+        { kind: "item", label: "Focus Other Pane",        kb: "Ctrl+F6" },
+        { kind: "item", label: "Swap Panes" },
+        { kind: "item", label: "Close Split" },
       ] },
     { kind: "sub",  ic: "", label: "Display Mode",
       children: [
@@ -343,6 +354,9 @@ export const CONTEXT_FILE: MenuItemDef[] = [
   { kind: "item", ic: "", label: "Rename",            kb: "F2", mutates: true },
   // no kb hint: F6 cycles panes (App.tsx)
   { kind: "item", ic: "", label: "Move to…",          mutates: true },
+  // Split view only (App leaves them out unsplit).
+  { kind: "item", ic: "", label: "Copy to Other Pane", mutates: true },
+  { kind: "item", ic: "", label: "Move to Other Pane", mutates: true },
   { kind: "item", ic: "", label: "Create Symlink…" },
   { kind: "sub",  ic: "", label: "Tag →",
     children: [
@@ -462,7 +476,13 @@ export const CONTEXT_TAB: MenuItemDef[] = [
   { kind: "item", ic: "", label: "Close Tab",         kb: "Ctrl+W" },
   { kind: "item", ic: "", label: "Close Other Tabs" },
   { kind: "item", ic: "", label: "Duplicate Tab" },
+  { kind: "sep" },
+  { kind: "item", ic: "", label: "Move to Other Pane",  action: "Move Tab to Other Pane" },
 ];
+
+/** The file commands that need a split, which menus built for an unsplit
+ *  window leave out. */
+export const OTHER_PANE_LABELS: ReadonlySet<string> = new Set(["Copy to Other Pane", "Move to Other Pane"]);
 
 export const CONTEXT_BREADCRUMB: MenuItemDef[] = [
   { kind: "item", ic: "", label: "Copy Path" },

@@ -1,6 +1,7 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from "react";
 import {
   Titlebar,
+  TabStrip,
   Toolbar,
   FilePane,
   Palette,
@@ -35,24 +36,26 @@ import { StatusBar } from "./StatusBar";
 import { STATUS_DEFAULTS, loadStatusItems } from "./statusItems";
 import { firstRunPins, mergePins } from "./places";
 import { Menubar, ContextMenu, setDynamicGitCwd, type MenuToggleState } from "./menus";
-import { CONTEXT_FILE, CONTEXT_EMPTY, CONTEXT_SIDEBAR, CONTEXT_SIDEBAR_FOLDER, CONTEXT_SIDEBAR_FILE, CONTEXT_SIDEBAR_DRIVE, CONTEXT_SIDEBAR_REMOTE, CONTEXT_TAB, CONTEXT_BREADCRUMB, GIT_CHORDS, type MenuItemDef, type DynamicPayload } from "./data";
+import { CONTEXT_FILE, CONTEXT_EMPTY, CONTEXT_SIDEBAR, CONTEXT_SIDEBAR_FOLDER, CONTEXT_SIDEBAR_FILE, CONTEXT_SIDEBAR_DRIVE, CONTEXT_SIDEBAR_REMOTE, CONTEXT_TAB, CONTEXT_BREADCRUMB, GIT_CHORDS, OTHER_PANE_LABELS, type MenuItemDef, type DynamicPayload } from "./data";
 import {
-  useTabState,
   undoLast,
   redoLast,
-  registerTabListMutator,
   newTab as stateNewTab,
   type UseTabResult,
 } from "./state";
 import { COMMAND_CHAIN, type HandlerCtx } from "./handlers";
+import type { PaneCommands } from "./handlers/types";
 import { cmdState } from "./commandState";
 import { sshProfileFor } from "./remotes";
 import { findBinding, gitChord, GIT_CHORD_MS, type KeyAction } from "./keymap";
 import type { MenuAnchor } from "./menuNav";
 import { isModalOpen, useModal } from "./dialogs/modal";
 import { useAutoUpdateCheck } from "./updates";
-import { makeTab, closeTab, closeOtherTabs, moveTab as moveTabIn, tabLabel, type TabRecord } from "./tabs";
-import { DEFAULT_SORT, loadSession, restoreSession, saveSession, sessionOf, type Session, type TabSort } from "./session";
+import { makeTab } from "./tabs";
+import { DEFAULT_SORT, loadSession, restoreSession, type Session } from "./session";
+import { closeSplit, isSplit, layoutFromSession, setDir, setRatio, splitWithNew, swapPanes, tabCount, type SplitDir } from "./tabLayout";
+import { useTabLayout } from "./useTabLayout";
+import { useTabMoves } from "./tabMoves";
 import { launchPlan } from "./launch";
 import { canExtractArchive } from "./handlers/archive";
 import { revealPath, showBlame } from "./handlers/helpers";
@@ -123,11 +126,6 @@ function panelSetter(setState: Dispatch<SetStateAction<TweakState>>, key: PanelK
   return v => setState(prev => ({ ...prev, [key]: typeof v === "function" ? v(prev[key]) : v }));
 }
 
-/** The sort a new tab opened from `h` starts with. */
-function sortOf(h: UseTabResult | undefined): TabSort | undefined {
-  return h && { key: h.state.sortKey, dir: h.state.sortDir };
-}
-
 interface CtxState {
   x: number;
   y: number;
@@ -136,17 +134,6 @@ interface CtxState {
 }
 
 const FALLBACK_PATH = IS_WINDOWS ? "C:\\" : "/";
-
-interface TabShellProps {
-  id: number;
-  initialPath: string;
-  initialSort?: TabSort;
-  isPrivate?: boolean;
-  /** The tab shown; the others don't poll (see useTabState). */
-  active: boolean;
-  /** Called with the tab's latest state, and with null when it unmounts. */
-  onReady: (id: number, r: UseTabResult | null) => void;
-}
 
 interface FindInFilesModalProps {
   root: string;
@@ -323,17 +310,6 @@ function FindInFilesModal({ root, onClose, onPick }: FindInFilesModalProps) {
   );
 }
 
-function TabShell({ id, initialPath, initialSort, isPrivate, active, onReady }: TabShellProps) {
-  const tab = useTabState(initialPath, !!isPrivate, active, initialSort);
-  const onReadyRef = useRef(onReady);
-  useEffect(() => { onReadyRef.current = onReady; });
-  useEffect(() => {
-    onReadyRef.current(id, tab);
-  }, [id, tab]);
-  useEffect(() => () => onReadyRef.current(id, null), [id]);
-  return null;
-}
-
 export function App() {
   // No saved settings: a new user. The look, the status bar, the tags and
   // the pins start differently for one (places.ts), and saved settings
@@ -356,8 +332,6 @@ export function App() {
     } catch { return TWEAK_DEFAULTS; }
   });
 
-  const [tabs, setTabs] = useState<TabRecord[]>([]);
-  const [activeTab, setActiveTab] = useState(0);
   const [palOpen, setPalOpen] = useState(false);
   const [ctx, setCtx] = useState<CtxState | null>(null);
   const [prefsOpen, setPrefsOpen] = useState(false);
@@ -368,9 +342,8 @@ export function App() {
   const setShowSidebar = panelSetter(setState, "showSidebar");
   const setShowStatusBar = panelSetter(setState, "showStatusBar");
 
-  // Keyed by TabRecord.id, never by position.
-  const [tabHandles, setTabHandles] = useState<Record<number, UseTabResult>>({});
-  const [paneFocused, setPaneFocused] = useState(false);
+  // Which file pane has the keyboard focus (split view has two).
+  const [paneFocused, setPaneFocused] = useState<number | null>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
 
   // Focused-pane for keyboard nav (Tab / F6). "files" is the default; cycles
@@ -379,6 +352,8 @@ export function App() {
   type FocusPaneId = "sidebar" | "files" | "inspector" | "terminal";
   const [focusedPane, setFocusedPane] = useState<FocusPaneId>("files");
   const pane0RootRef = useRef<HTMLElement | null>(null);
+  const pane1RootRef = useRef<HTMLElement | null>(null);
+  const paneRootRefs = [pane0RootRef, pane1RootRef];
   const sidebarRootRef = useRef<HTMLElement | null>(null);
 
   // Mirror of appClipboard's "cut" paths — React state so FilePane re-renders
@@ -411,6 +386,15 @@ export function App() {
   const [updates, setUpdates] = useState<{ found: UpdateAvailable | null } | null>(null);
   const [cheatsheetOpen, setCheatsheetOpen] = useState(false);
   const [homePath, setHomePath] = useState<string | null>(null);
+  // The tabs, in one pane or two (useTabLayout.ts); `tabs`, `activeTab` and
+  // `activeHandle` are the focused pane's.
+  const tabLayout = useTabLayout(() => homePath ?? FALLBACK_PATH, state.hidden);
+  const {
+    layout, handles: tabHandles, tabs, activeTab, activeHandle, setActiveTab,
+    openNewTab, closeTabAt, duplicateTabAt, closeOtherTabsAt, openPathInNewTab,
+  } = tabLayout;
+  const tabMoves = useTabMoves(tabLayout);
+  const split = isSplit(layout);
   const [folderPicker, setFolderPicker] = useState<{
     initialPath?: string;
     title?: string;
@@ -474,19 +458,6 @@ export function App() {
     localStorage.removeItem("glasshouse.zoom");
   }, []);
 
-  // Set once the tabs are restored (below); until then there's nothing to
-  // save. The owner then saves the tabs as they change.
-  const session = useRef<{ owner: boolean; last: string | null } | null>(null);
-  useEffect(() => {
-    const s = session.current;
-    if (!s?.owner || tabs.length === 0) return;
-    const live = tabs.map(t => {
-      const h = tabHandles[t.id];
-      return { path: h?.state.path ?? t.initialPath, sort: sortOf(h) ?? t.initialSort ?? DEFAULT_SORT, private: t.private };
-    });
-    s.last = saveSession(sessionOf(live, activeTab), s.last);
-  }, [tabs, activeTab, tabHandles]);
-
   // What a window another app asked for still has to select, by tab id,
   // and whose Properties to show once it's selected (launch.ts).
   const launchPending = useRef<{ reveals: Map<number, string[]>; properties: string | null }>({ reveals: new Map(), properties: null });
@@ -524,15 +495,13 @@ export function App() {
       const start: Session = plan?.tabs.length
         ? { tabs: plan.tabs.map(t => ({ path: t.path, sort: DEFAULT_SORT })), active: 0 }
         : saved ? await restoreSession(saved, p) : { tabs: [{ path: p, sort: DEFAULT_SORT }], active: 0 };
-      session.current = { owner, last: null };
       const records = start.tabs.map((t, i) => makeTab(t.path, { color: i === 0 ? "var(--blue)" : undefined, sort: t.sort }));
       if (plan) {
         plan.tabs.forEach((t, i) => { if (t.select.length > 0) launchPending.current.reveals.set(records[i].id, t.select); });
         launchPending.current.properties = plan.properties;
         if (plan.problems.length > 0) dialogs.showToast({ message: `couldn't open ${plan.problems.join("; ")}`, variant: "warning" });
       }
-      setTabs(records);
-      setActiveTab(start.active);
+      tabLayout.start(layoutFromSession(start, (_, i) => records[i]), owner);
       try {
         const valid = (await readRemotes()).filter((r): r is SavedRemote =>
           !!r && typeof r === "object" &&
@@ -580,16 +549,6 @@ export function App() {
     return () => window.removeEventListener("glasshouse:set-theme", onSetTheme);
   }, []);
 
-  const activeTabId = tabs[activeTab]?.id;
-  const activeHandle: UseTabResult | undefined = activeTabId === undefined ? undefined : tabHandles[activeTabId];
-
-  useEffect(() => {
-    if (!activeHandle) return;
-    if (activeHandle.state.showHidden !== state.hidden) {
-      activeHandle.actions.setShowHidden(state.hidden);
-    }
-  }, [state.hidden, activeHandle]);
-
   // Mirror focusedPane to the html element so CSS can highlight the active
   // pane border. Effect runs whenever focusedPane changes.
   useEffect(() => {
@@ -599,19 +558,6 @@ export function App() {
   useEffect(() => {
     document.documentElement.classList.toggle("no-status", !showStatusBar);
   }, [showStatusBar]);
-
-  useEffect(() => {
-    if (!activeHandle) return;
-    const label = tabLabel(activeHandle.state.path, activeHandle.state.private);
-    setTabs(prev => {
-      if (prev[activeTab] && prev[activeTab].label !== label) {
-        const next = [...prev];
-        next[activeTab] = { ...next[activeTab], label };
-        return next;
-      }
-      return prev;
-    });
-  }, [activeHandle?.state.path, activeHandle?.state.private, activeTab]);
 
   // Keep a ref to the latest handleMenuCommand so the keydown listener below
   // (which installs once) always dispatches through the current closure.
@@ -680,23 +626,25 @@ export function App() {
         const termActive = focusedPane === "terminal" && !!termDrawer?.contains(e.target as Node);
         if (!termActive) {
           e.preventDefault();
-          const PANES: FocusPaneId[] = (() => {
-            const ps: FocusPaneId[] = [];
-            if (showSidebar) ps.push("sidebar");
-            ps.push("files");
-            if (termOpen) ps.push("terminal");
+          // Split view's two file panes are two stops.
+          const PANES: { id: FocusPaneId; pane?: number }[] = (() => {
+            const ps: { id: FocusPaneId; pane?: number }[] = [];
+            if (showSidebar) ps.push({ id: "sidebar" });
+            layout.panes.forEach((_, pane) => ps.push({ id: "files", pane }));
+            if (termOpen) ps.push({ id: "terminal" });
             return ps;
           })();
           const delta = e.shiftKey ? -1 : 1;
-          const idx = PANES.indexOf(focusedPane);
+          const idx = PANES.findIndex(x => x.id === focusedPane && (x.id !== "files" || x.pane === layout.focus));
           const n = PANES.length;
           if (n > 0) {
             const next = PANES[((idx < 0 ? 0 : idx) + delta + n) % n];
-            setFocusedPane(next);
-            if (next === "sidebar") sidebarRootRef.current?.focus();
-            else if (next === "files") {
-              pane0RootRef.current?.focus();
-            } else if (next === "terminal") {
+            setFocusedPane(next.id);
+            if (next.id === "sidebar") sidebarRootRef.current?.focus();
+            else if (next.id === "files") {
+              tabLayout.focusPane(next.pane ?? 0);
+              paneRootRefs[next.pane ?? 0].current?.focus();
+            } else if (next.id === "terminal") {
               document.querySelector<HTMLElement>(".term-drawer .term-body")?.focus();
             }
           }
@@ -721,60 +669,13 @@ export function App() {
     };
     window.addEventListener("keydown", h);
     return () => window.removeEventListener("keydown", h);
-  }, [activeHandle, focusedPane, showSidebar, showInspector, termOpen]);
+  }, [activeHandle, focusedPane, showSidebar, showInspector, termOpen, layout]);
 
   useEffect(() => {
     const h = (e: MouseEvent) => { e.preventDefault(); };
     document.addEventListener("contextmenu", h);
     return () => document.removeEventListener("contextmenu", h);
   }, []);
-
-  const openNewTab = () => {
-    const seed = activeHandle?.state.path ?? FALLBACK_PATH;
-    setTabs(prev => [...prev, makeTab(seed, { sort: sortOf(activeHandle) })]);
-  };
-
-  // Each TabShell drops its own handle when it unmounts, so closing only
-  // edits the list.
-  const applyTabList = (next: { tabs: TabRecord[]; active: number }) => {
-    setTabs(next.tabs);
-    setActiveTab(next.active);
-  };
-
-  const closeTabAt = (i: number) => {
-    applyTabList(closeTab({ tabs, active: activeTab }, i, homePath ?? FALLBACK_PATH));
-  };
-
-  const duplicateTabAt = (i: number) => {
-    const t = tabs[i];
-    if (!t) return;
-    // Prefer the live path and sort of that tab's handle if available.
-    const h = tabHandles[t.id];
-    const live = h?.state.path ?? t.initialPath;
-    setTabs(prev => [...prev, makeTab(live, { private: t.private, sort: sortOf(h) ?? t.initialSort })]);
-  };
-
-  const closeOtherTabsAt = (keep: number) => {
-    applyTabList(closeOtherTabs({ tabs, active: activeTab }, keep));
-  };
-
-  const openPathInNewTab = (p: string, isPrivate: boolean = false) => {
-    setTabs(prev => [...prev, makeTab(p, { private: isPrivate, sort: sortOf(activeHandle) })]);
-  };
-
-  useEffect(() => {
-    registerTabListMutator({
-      moveTab: (from, to) => {
-        applyTabList(moveTabIn({ tabs, active: activeTab }, from, to));
-      },
-      newTab: (path, opts) => {
-        const p = path ?? activeHandle?.state.path ?? FALLBACK_PATH;
-        openPathInNewTab(p, !!opts?.private);
-        setActiveTab(tabs.length);
-      },
-    });
-    return () => registerTabListMutator(null);
-  }, [tabs, activeTab, activeHandle]);
 
   const runUndoStep = async (which: "undo" | "redo") => {
     const r = await (which === "undo" ? undoLast() : redoLast());
@@ -855,6 +756,7 @@ export function App() {
         duplicateTabAt,
         openNewTab,
         openPathInNewTab,
+        panes: paneCommands,
         persistRemotes,
         pins,
         savePins,
@@ -934,14 +836,16 @@ export function App() {
     setCtx({ x: e.clientX, y: e.clientY, items, keyboard: e.keyboard });
   };
 
-  const onContext = (e: MenuAnchor, kind: ContextKind, rowIndex?: number) => {
+  // `handle`: the pane's shown tab, which a right-click in the pane without
+  // the focus gives the focus to.
+  const onContext = (e: MenuAnchor, kind: ContextKind, rowIndex?: number, handle: UseTabResult | undefined = activeHandle) => {
     // File-pane surfaces act on the current selection; clear the module target
     // so stale sidebar/tab/breadcrumb right-clicks can't leak into file ops.
     cmdState.contextTarget = null;
     if (kind === "file") {
       // Hide "Remove Tag…" when the selected row has no tags — keeps the
       // menu honest instead of dangling a no-op command.
-      const st = activeHandle?.state;
+      const st = handle?.state;
       // Right-click-to-select fires setSelected asynchronously, so st.selected
       // is stale on the first right-click. rowIndex arrives synchronously from
       // the row handler with the effective selection, which is what every
@@ -987,6 +891,7 @@ export function App() {
       if (!extractEligible) {
         items = items.filter(it => !(it.kind === "sub" && it.label === "Extract →"));
       }
+      if (!split) items = items.filter(it => !(it.kind === "item" && OTHER_PANE_LABELS.has(it.label)));
       // Swap single-rename for bulk-rename when multiple rows are selected.
       if (selCount > 1) {
         items = items.map(it => {
@@ -1047,9 +952,11 @@ export function App() {
     openCtxMenu(e, menu);
   };
 
-  const onTabContext = (e: React.MouseEvent, tabIndex: number) => {
-    cmdState.contextTarget = { kind: "tab", tabIndex };
-    openCtxMenu(e, CONTEXT_TAB);
+  const onTabContext = (pane: number) => (e: React.MouseEvent, tabIndex: number) => {
+    cmdState.contextTarget = { kind: "tab", tabIndex, pane };
+    // Unsplit, a window's only tab can't split off.
+    const menu = CONTEXT_TAB.filter(it => !(it.kind === "item" && it.action === "Move Tab to Other Pane" && !split && tabCount(layout) < 2));
+    openCtxMenu(e, menu);
   };
 
   const onCrumbContext = (e: React.MouseEvent, path: string) => {
@@ -1057,10 +964,18 @@ export function App() {
     openCtxMenu(e, CONTEXT_BREADCRUMB);
   };
 
-  const liveRows: InspectableFile[] = useMemo(() => {
-    if (!activeHandle) return [];
-    return activeHandle.state.entries.map(e => entryToRow(e, tagStore));
-  }, [activeHandle?.state.entries, tagStore]);
+  // Each pane's rows; the focused pane's drive the Inspector and status bar.
+  const shown0 = tabLayout.shownHandle(0);
+  const shown1 = tabLayout.shownHandle(1);
+  const rows0: InspectableFile[] = useMemo(() => {
+    if (!shown0) return [];
+    return shown0.state.entries.map(e => entryToRow(e, tagStore));
+  }, [shown0?.state.entries, tagStore]);
+  const rows1: InspectableFile[] = useMemo(() => {
+    if (!shown1) return [];
+    return shown1.state.entries.map(e => entryToRow(e, tagStore));
+  }, [shown1?.state.entries, tagStore]);
+  const liveRows = layout.focus === 1 ? rows1 : rows0;
 
   const selectedForInspector = activeHandle?.state.selected ?? [];
   const selectedFile = liveRows[selectedForInspector[0]] ?? null;
@@ -1098,11 +1013,62 @@ export function App() {
     })();
   };
 
-  const renderActivePane = () => {
-    const handle = activeHandle;
+  // Both panes after a transfer: the drop may have gone into the other one.
+  const refreshShown = () => {
+    shown0?.actions.refresh();
+    shown1?.actions.refresh();
+  };
+
+  /** Split view: the panes' focus, layout and the transfers between them
+   *  (handlers/app.ts). */
+  const paneCommands: PaneCommands = {
+    split,
+    dir: layout.dir,
+    toggleSplit: (dir: SplitDir) => {
+      if (split && layout.dir === dir) {
+        tabLayout.update(closeSplit);
+        return;
+      }
+      if (split) {
+        tabLayout.update(l => setDir(l, dir));
+        return;
+      }
+      const t = tabs[activeTab];
+      if (!t) return;
+      tabLayout.update(l => splitWithNew(l, tabLayout.copyOf(activeHandle, t), dir));
+    },
+    closeSplit: () => tabLayout.update(closeSplit),
+    swap: () => tabLayout.update(swapPanes),
+    focusOther: () => {
+      if (!split) return;
+      const other = 1 - layout.focus;
+      tabLayout.focusPane(other);
+      setFocusedPane("files");
+      paneRootRefs[other].current?.focus();
+    },
+    transferToOther: (copy: boolean) => {
+      const dst = tabLayout.shownHandle(1 - layout.focus)?.state.path;
+      if (!split || !dst) {
+        dialogs.showToast({ message: "split the view first (View → Split)", variant: "info" });
+        return;
+      }
+      const st = activeHandle?.state;
+      const paths = st ? st.selected.map(i => st.entries[i]?.path).filter((x): x is string => !!x) : [];
+      if (paths.length === 0) {
+        dialogs.showToast({ message: "nothing selected", variant: "info" });
+        return;
+      }
+      const moving = dropPaths(paths, dst, copy);
+      if (moving.length > 0) performDrop(moving, dst, copy, refreshShown);
+    },
+    moveTabToOtherPane: (index, pane) => tabMoves.moveToOtherPane(pane ?? layout.focus, index),
+  };
+
+  const renderPane = (p: number) => {
+    const handle = tabLayout.shownHandle(p);
     // Memoised: a new array on every App render made FilePane re-filter and
     // re-sort, re-render every row, and scroll back to the focused row.
-    const rows = liveRows;
+    const rows = p === 1 ? rows1 : rows0;
     const sel = handle?.state.selected ?? [];
     const miller = displayMode === "Miller Columns (ranger)";
     const pane = (
@@ -1110,9 +1076,9 @@ export function App() {
         cutPaths={cutPaths}
         error={handle?.state.error ?? null}
         loading={handle?.state.loading ?? false}
-        paneRootRef={pane0RootRef}
+        paneRootRef={paneRootRefs[p]}
         dropPath={handle?.state.path}
-        onActivate={() => setFocusedPane("files")}
+        onActivate={() => { setFocusedPane("files"); tabLayout.focusPane(p); }}
         millerKeys={miller}
         files={rows}
         selected={sel}
@@ -1121,8 +1087,8 @@ export function App() {
         setFocusIndex={handle?.actions.setFocusIndex ?? (() => {})}
         anchorIndex={handle?.state.anchorIndex ?? 0}
         setAnchorIndex={handle?.actions.setAnchorIndex ?? (() => {})}
-        paneFocused={paneFocused}
-        setPaneFocused={setPaneFocused}
+        paneFocused={paneFocused === p}
+        setPaneFocused={v => setPaneFocused(cur => (v ? p : cur === p ? null : cur))}
         sortKey={handle?.state.sortKey ?? "name"}
         sortDir={handle?.state.sortDir ?? "asc"}
         foldersFirst={state.foldersFirst}
@@ -1137,7 +1103,7 @@ export function App() {
             handle.actions.setSortDir("asc");
           }
         }}
-        onContext={onContext}
+        onContext={(e, kind, row) => { tabLayout.focusPane(p); onContext(e, kind, row, handle); }}
         searchQuery={handle?.state.searchQuery ?? ""}
         tagFilter={handle?.state.tagFilter ?? null}
         tagStore={tagStore}
@@ -1160,7 +1126,7 @@ export function App() {
           const sources = sourceOrigIndices
             .map(i => rows[i]?.entry.path)
             .filter((p): p is string => !!p);
-          performDrop(sources, target.entry.path, copy, () => handle?.actions.refresh());
+          performDrop(sources, target.entry.path, copy, refreshShown);
         }}
         onExternalDrag={(sourceOrigIndices, x, y, copy) => {
           const sources = sourceOrigIndices
@@ -1171,7 +1137,7 @@ export function App() {
           // folder: a move there does nothing, a copy makes duplicates).
           const target = dropTargetAt(x, y);
           const moving = target ? dropPaths(sources, target.path, copy) : [];
-          if (target && moving.length > 0) performDrop(moving, target.path, copy, () => handle?.actions.refresh());
+          if (target && moving.length > 0) performDrop(moving, target.path, copy, refreshShown);
         }}
         onDragOut={(sourceOrigIndices, copy) => {
           const paths = sourceOrigIndices
@@ -1198,15 +1164,71 @@ export function App() {
         foldersFirst={state.foldersFirst}
         tagStore={tagStore}
         onNavigate={(p) => handle?.actions.goTo(p)}
-        onPathContext={(e, p, isFolder) => onSidebarContext(e, p, isFolder ? "tree-folder" : "tree-file")}
+        onPathContext={(e, path, isFolder) => onSidebarContext(e, path, isFolder ? "tree-folder" : "tree-file")}
       >
         {pane}
       </MillerView>
     );
   };
 
+  // Unsplit, the one pane (its tabs are in the title bar). Split, each pane
+  // with its own tab bar, and a divider that sets their shares.
+  const renderPanes = () => {
+    const area = (p: number, body: React.ReactNode) => (
+      <div key={p} className={"split-pane" + (split && layout.focus === p ? " focused" : "")} data-tab-pane={p}>{body}</div>
+    );
+    if (!split) return area(0, renderPane(0));
+    const strip = (p: number) => {
+      const pane = layout.panes[p];
+      return (
+        <TabStrip
+          pane={p}
+          tabs={pane.tabs}
+          activeTab={pane.active}
+          onSelectTab={(i) => tabLayout.setActiveTab(i, p)}
+          onCloseTab={(i) => closeTabAt(i, p)}
+          onNewTab={() => openNewTab(p)}
+          onTabContext={onTabContext(p)}
+          onTabPointerDown={tabMoves.onTabPointerDown(p)}
+          tabPaths={pane.tabs.map(t => tabHandles[t.id]?.state.path)}
+        />
+      );
+    };
+    const share = `${layout.ratio}fr 5px ${1 - layout.ratio}fr`;
+    return (
+      <div
+        className={"split split-" + layout.dir}
+        style={layout.dir === "row" ? { gridTemplateColumns: share } : { gridTemplateRows: share }}
+      >
+        {area(0, <>{strip(0)}{renderPane(0)}</>)}
+        <div
+          className="split-divider"
+          role="separator"
+          aria-orientation={layout.dir === "row" ? "vertical" : "horizontal"}
+          onPointerDown={(e) => {
+            if (e.button !== 0) return;
+            const box = (e.currentTarget.parentElement as HTMLElement).getBoundingClientRect();
+            const move = (ev: PointerEvent) => {
+              const r = layout.dir === "row" ? (ev.clientX - box.left) / box.width : (ev.clientY - box.top) / box.height;
+              tabLayout.update(l => setRatio(l, r));
+            };
+            const up = () => {
+              window.removeEventListener("pointermove", move);
+              window.removeEventListener("pointerup", up);
+            };
+            window.addEventListener("pointermove", move);
+            window.addEventListener("pointerup", up);
+          }}
+          onDoubleClick={() => tabLayout.update(l => setRatio(l, 0.5))}
+        />
+        {area(1, <>{strip(1)}{renderPane(1)}</>)}
+      </div>
+    );
+  };
+
   // What the menus' ✓ marks follow.
   const menuToggles: MenuToggleState = {
+    split: split ? layout.dir : null,
     tweaks: state,
     sidebarVisible: showSidebar,
     statusBarVisible: showStatusBar,
@@ -1216,34 +1238,20 @@ export function App() {
   };
 
   return (
-    <div className="app">
-      {tabs.map(t => (
-        <TabShell
-          key={t.id}
-          id={t.id}
-          initialPath={t.initialPath}
-          initialSort={t.initialSort}
-          isPrivate={t.private}
-          active={t.id === activeTabId}
-          onReady={(id, r) => setTabHandles(prev => {
-            if (r) return prev[id] === r ? prev : { ...prev, [id]: r };
-            if (!(id in prev)) return prev;
-            const next = { ...prev };
-            delete next[id];
-            return next;
-          })}
-        />
-      ))}
+    <div className={"app" + (split ? " is-split" : "")}>
+      {tabLayout.shells}
       <Titlebar
+        split={split}
         tabs={tabs}
         activeTab={activeTab}
         onSelectTab={setActiveTab}
         onCloseTab={closeTabAt}
         onNewTab={openNewTab}
-        onTabContext={onTabContext}
+        onTabContext={onTabContext(0)}
+        onTabPointerDown={tabMoves.onTabPointerDown(0)}
         tabPaths={tabs.map(t => tabHandles[t.id]?.state.path)}
       />
-      <OsDrop onDrop={(paths, dir, copy) => performDrop(paths, dir, copy, () => activeHandle?.actions.refresh())} />
+      <OsDrop onDrop={(paths, dir, copy) => performDrop(paths, dir, copy, refreshShown)} />
       <Menubar
         onOpenPalette={() => setPalOpen(true)}
         onCommand={handleMenuCommand}
@@ -1320,7 +1328,7 @@ export function App() {
             });
           }}
         />}
-        {renderActivePane()}
+        {renderPanes()}
         {showInspector && (
           <Inspector
             file={selectedFile}

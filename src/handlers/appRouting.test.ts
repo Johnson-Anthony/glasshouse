@@ -235,9 +235,9 @@ describe("fileOpsHandler", () => {
 describe("targetHandler", () => {
   it("acts on the right-clicked tab and consumes the target", async () => {
     const ctx = makeCtx([entry("a.txt")]);
-    cmdState.contextTarget = { kind: "tab", tabIndex: 2 };
+    cmdState.contextTarget = { kind: "tab", tabIndex: 2, pane: 1 };
     expect(await owner("Close Tab", ctx)).toBe(targetHandler);
-    expect(ctx.app!.closeTabAt).toHaveBeenCalledWith(2);
+    expect(ctx.app!.closeTabAt).toHaveBeenCalledWith(2, 1);
     expect(cmdState.contextTarget).toBeNull();
   });
 

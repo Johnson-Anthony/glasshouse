@@ -33,7 +33,7 @@ vi.mock("@tauri-apps/api/event", () => ({
 
 import { gitStatus, readDir } from "./api";
 import { REFRESH_GAP_MS } from "./refreshGate";
-import { useTabState, type UseTabResult } from "./state";
+import { useTabState, type TabSeed, type UseTabResult } from "./state";
 import type { TabSort } from "./session";
 
 const entry = (dir: string, name: string): FileEntry => ({
@@ -45,8 +45,9 @@ let tab: UseTabResult;
 let renders = 0;
 let shown = true;
 let startSort: TabSort | undefined;
+let seed: TabSeed | undefined;
 function Host() {
-  tab = useTabState("/w", true, shown, startSort);
+  tab = useTabState("/w", true, shown, startSort, seed);
   renders++;
   return null;
 }
@@ -167,6 +168,25 @@ describe("useTabState sort", () => {
     act(() => root.render(<Host />));
     await settle();
     expect([tab.state.sortKey, tab.state.sortDir]).toEqual(["modified", "desc"]);
+  });
+});
+
+describe("useTabState seed", () => {
+  afterEach(() => { seed = undefined; });
+
+  it("starts with a copied tab's history and filters, and Back goes there", async () => {
+    act(() => root.unmount());
+    seed = { back: ["/x"], forward: ["/w/a"], search: "b", tagFilter: "work" };
+    root = createRoot(host);
+    act(() => root.render(<Host />));
+    await settle();
+    expect([tab.state.path, tab.state.historyBack, tab.state.historyForward]).toEqual(["/w", ["/x"], ["/w/a"]]);
+    expect([tab.state.searchQuery, tab.state.tagFilter]).toEqual(["b", "work"]);
+    act(() => tab.actions.back());
+    await settle();
+    expect(tab.state.path).toBe("/x");
+    // The seed's lists aren't the tab's: navigating left them as they were.
+    expect(seed.back).toEqual(["/x"]);
   });
 });
 

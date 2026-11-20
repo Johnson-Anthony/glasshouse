@@ -22,6 +22,7 @@ export const appHandler: Handler = (label, ctx) => {
     setState,
     setTermOpen,
     setPrefsOpen,
+    panes,
   } = ctx.app;
   switch (label) {
     case "Toggle Drawer": {
@@ -54,6 +55,23 @@ export const appHandler: Handler = (label, ctx) => {
     case "Close Other Tabs":
       // File-menu path; the tab context-menu variant passes ctxT.tabIndex.
       closeOtherTabsAt(activeTab); return true;
+    // Split view. From the palette the tab commands act on the shown tab.
+    case "Split Side by Side":
+      panes.toggleSplit("row"); return true;
+    case "Split Top and Bottom":
+      panes.toggleSplit("column"); return true;
+    case "Close Split":
+      panes.closeSplit(); return true;
+    case "Swap Panes":
+      panes.swap(); return true;
+    case "Focus Other Pane":
+      panes.focusOther(); return true;
+    case "Copy to Other Pane":
+      panes.transferToOther(true); return true;
+    case "Move to Other Pane":
+      panes.transferToOther(false); return true;
+    case "Move Tab to Other Pane":
+      panes.moveTabToOtherPane(activeTab); return true;
     case "Home":
       void (async () => {
         const h = await homeDir();

@@ -73,26 +73,80 @@ describe("parseSession", () => {
 
 describe("sessionOf", () => {
   const live = (path: string, priv = false) => ({ path, sort: DEFAULT_SORT, private: priv });
+  const one = (tabs: ReturnType<typeof live>[], active: number) => sessionOf([{ tabs, active }]);
 
   it("leaves private tabs out and follows the active tab", () => {
-    const s = sessionOf([live("/a"), live("/secret", true), live("/b")], 2);
+    const s = one([live("/a"), live("/secret", true), live("/b")], 2);
     expect(s).toEqual({ tabs: [{ path: "/a", sort: DEFAULT_SORT }, { path: "/b", sort: DEFAULT_SORT }], active: 1 });
   });
 
   it("a private active tab saves its left neighbour as the active one", () => {
-    expect(sessionOf([live("/a"), live("/b"), live("/p", true)], 2).active).toBe(1);
-    expect(sessionOf([live("/p", true), live("/a")], 0).active).toBe(0);
+    expect(one([live("/a"), live("/b"), live("/p", true)], 2).active).toBe(1);
+    expect(one([live("/p", true), live("/a")], 0).active).toBe(0);
   });
 
   it("only private tabs: nothing to reopen, so the next start opens home", () => {
-    const s = sessionOf([live("/p", true)], 0);
+    const s = one([live("/p", true)], 0);
     expect(s.tabs).toEqual([]);
     expect(parseSession(JSON.stringify(s))).toBeNull();
   });
 
   it("round-trips through parseSession", () => {
-    const s = sessionOf([live("/a"), { path: "/b", sort: { key: "size", dir: "desc" }, private: false }], 1);
+    const s = one([live("/a"), { path: "/b", sort: { key: "size", dir: "desc" }, private: false }], 1);
     expect(parseSession(JSON.stringify(s))).toEqual(s);
+  });
+});
+
+describe("a split's session", () => {
+  const live = (path: string, priv = false) => ({ path, sort: DEFAULT_SORT, private: priv });
+  const t = (path: string, pane?: 1) => (pane ? { path, sort: DEFAULT_SORT, pane } : { path, sort: DEFAULT_SORT });
+
+  it("saves both panes' tabs in order, the second's marked, with the focused pane's shown tab as `active`", () => {
+    const s = sessionOf([{ tabs: [live("/a"), live("/b")], active: 1 }, { tabs: [live("/c"), live("/d")], active: 0 }], 1, "column", 0.3);
+    expect(s).toEqual({ tabs: [t("/a"), t("/b"), t("/c", 1), t("/d", 1)], active: 2, split: { other: 1, dir: "column", ratio: 0.3 } });
+    expect(parseSession(JSON.stringify(s))).toEqual(s);
+  });
+
+  it("is read by a build without split view as every tab, its `active` the one that had the focus", () => {
+    const s = sessionOf([{ tabs: [live("/a")], active: 0 }, { tabs: [live("/b"), live("/c")], active: 1 }], 1);
+    // What 0.2's parser looks at.
+    expect(s.tabs.map(x => x.path)).toEqual(["/a", "/b", "/c"]);
+    expect(s.active).toBe(2);
+  });
+
+  it("a pane with only private tabs saves as no split", () => {
+    const s = sessionOf([{ tabs: [live("/a")], active: 0 }, { tabs: [live("/p", true)], active: 0 }], 1);
+    expect(s).toEqual({ tabs: [t("/a")], active: 0 });
+  });
+
+  it("reads a record without split fields, or with bad ones, as unsplit", () => {
+    const tabs = [t("/a"), t("/b", 1)];
+    for (const split of [undefined, null, "x", {}, { dir: "diagonal" }, { other: 1 }]) {
+      expect(parseSession(raw({ tabs, active: 0, split }))).toEqual({ tabs: [t("/a"), t("/b")], active: 0 });
+    }
+  });
+
+  it("is no split when every tab, or none, is in the second pane", () => {
+    const split = { other: 0, dir: "row", ratio: 0.5 };
+    expect(parseSession(raw({ tabs: [t("/a", 1), t("/b", 1)], active: 1, split }))).toEqual({ tabs: [t("/a"), t("/b")], active: 1 });
+    expect(parseSession(raw({ tabs: [t("/a"), t("/b")], active: 0, split }))).toEqual({ tabs: [t("/a"), t("/b")], active: 0 });
+  });
+
+  it("puts the panes in order, keeps `other` in the other pane, and clamps the ratio", () => {
+    // Tabs interleaved, and `other` in the focused pane: the other pane's first tab.
+    const s = parseSession(raw({ tabs: [t("/b", 1), t("/a"), t("/c", 1)], active: 1, split: { other: 1, dir: "row", ratio: 7 } }));
+    expect(s).toEqual({ tabs: [t("/a"), t("/b", 1), t("/c", 1)], active: 0, split: { other: 1, dir: "row", ratio: 0.85 } });
+  });
+
+  it("maps `active` and `other` past dropped tabs", () => {
+    const s = parseSession(raw({ tabs: [t("/a"), { path: "rel" }, t("/b"), t("/c", 1), { path: 3, pane: 1 }, t("/d", 1)], active: 2, split: { other: 5, dir: "row", ratio: 0.5 } }));
+    expect(s).toEqual({ tabs: [t("/a"), t("/b"), t("/c", 1), t("/d", 1)], active: 1, split: { other: 3, dir: "row", ratio: 0.5 } });
+  });
+
+  it("restoreSession keeps the panes", async () => {
+    const s = { tabs: [t("/a"), t("/gone", 1)], active: 0, split: { other: 1, dir: "row" as const, ratio: 0.4 } };
+    const r = await restoreSession(s, "/home/me", async p => (p === "/a" || p === "/" ? "folder" : null));
+    expect(r).toEqual({ tabs: [t("/a"), t("/", 1)], active: 0, split: { other: 1, dir: "row", ratio: 0.4 } });
   });
 });
 

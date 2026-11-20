@@ -2537,3 +2537,45 @@ html[data-focused-pane="terminal"] .term-drawer {
   user-select: text;
   -webkit-user-select: text;
 }
+
+/* ------- Split view (tabLayout.ts, App.tsx renderPanes) -------
+   Unsplit, the one file area is a .split-pane in .body's middle column;
+   split, .split holds two, a divider between them, and each pane's own
+   tab bar above its files. */
+.split-pane { display: flex; flex-direction: column; min-width: 0; min-height: 0; position: relative; }
+.split-pane > .pane, .split-pane > .miller { flex: 1; min-height: 0; }
+.split { display: grid; min-width: 0; min-height: 0; }
+.split.split-row { grid-template-rows: minmax(0, 1fr); }
+.split.split-column { grid-template-columns: minmax(0, 1fr); }
+.split-divider { background: var(--line); cursor: col-resize; touch-action: none; }
+.split.split-column .split-divider { cursor: row-resize; }
+.split-divider:hover { background: var(--accent); }
+.split-pane > .tabs {
+  flex: none;
+  height: 36px;
+  padding: 0 8px;
+  background: var(--bg-1);
+  border-bottom: 1px solid var(--line);
+}
+/* The pane without the focus: its shown tab is marked, but not lit. */
+.split-pane:not(.focused) > .tabs .tab.active::after { background: var(--fg-3); box-shadow: none; }
+
+/* A tab being dragged (tabDrag.ts): where it goes in a tab bar, and the
+   part of the file area a drop there takes. */
+.tab-insert {
+  position: fixed;
+  z-index: 2000;
+  pointer-events: none;
+  background: var(--accent);
+  border-radius: 1px;
+  box-shadow: var(--glow);
+}
+.split-preview {
+  position: fixed;
+  z-index: 1999;
+  pointer-events: none;
+  background: color-mix(in oklch, var(--accent) 14%, transparent);
+  border: 1px solid color-mix(in oklch, var(--accent) 60%, transparent);
+  border-radius: calc(4px * var(--rk, 1));
+}
+html.tab-dragging, html.tab-dragging * { cursor: grabbing !important; }

@@ -12,16 +12,35 @@ import type React from "react";
 import type { SavedRemote } from "../Sidebar";
 import type { BulkRenameItem } from "../dialogs/BulkRename";
 import type { PasteSpecialItem } from "../dialogs/PasteSpecial";
+import type { SplitDir } from "../tabLayout";
+
+/** Split view (tabLayout.ts, tabMoves.ts), from App. */
+export interface PaneCommands {
+  split: boolean;
+  dir: SplitDir;
+  /** Splits this way; already split this way, closes the split; split the
+   *  other way, turns it. */
+  toggleSplit: (dir: SplitDir) => void;
+  closeSplit: () => void;
+  swap: () => void;
+  focusOther: () => void;
+  /** Copies or moves the selection into the other pane's folder. */
+  transferToOther: (copy: boolean) => void;
+  /** A tab in `pane` (the focused one when unset). */
+  moveTabToOtherPane: (index: number, pane?: number) => void;
+}
 
 /** App state and setters the command handlers moved out of App.tsx use
  *  (targetHandler, appHandler, fileOpsHandler). App passes them by name. */
 export interface AppCommands {
   activeTab: number;
-  closeOtherTabsAt: (keep: number) => void;
-  closeTabAt: (i: number) => void;
-  duplicateTabAt: (i: number) => void;
-  openNewTab: () => void;
+  /** A tab in `pane` (the focused one when unset). */
+  closeOtherTabsAt: (keep: number, pane?: number) => void;
+  closeTabAt: (i: number, pane?: number) => void;
+  duplicateTabAt: (i: number, pane?: number) => void;
+  openNewTab: (pane?: number) => void;
   openPathInNewTab: (p: string, isPrivate?: boolean) => void;
+  panes: PaneCommands;
   persistRemotes: (next: SavedRemote[]) => void;
   pins: string[];
   /** Sets the pins and writes them to disk. */

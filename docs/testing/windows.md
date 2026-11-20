@@ -87,6 +87,8 @@ These use Windows' own dialogs.
 - [ ] **W8.5** Drop onto a folder that has a file of the same name → asked whether to replace, keep both or skip. Ctrl+Z undoes the drop.
 - [ ] **W8.6** Drag a download from the browser's downloads list into glasshouse → copied.
 - [ ] **W8.7** Inside glasshouse: a plain drag moves, Ctrl+drag copies, and the label at the pointer changes as you press Ctrl.
+- [ ] **W8.8** **Tabs and split view:** View → Split → Split Side by Side, then drag a tab within its tab bar, onto the other pane's tab bar, and onto the other pane's files → it reorders or moves there, and a line or a shaded pane shows where it will go. Unsplit with two tabs, drag one to the left, right, top or bottom quarter of the file list → the view splits that way with the tab in the new pane. Escape during a drag cancels it.
+- [ ] **W8.9** With one tab open, drag the tab → the window moves, as dragging the title bar does. Let go of a tab outside the window → nothing happens; the tab stays.
 
 ## W9. Terminal
 

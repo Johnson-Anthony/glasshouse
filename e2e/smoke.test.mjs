@@ -1,7 +1,7 @@
 // Flow 1: the real app starts in a window that fits the screen, renders,
 // lists a folder typed into Go to Path, and shows drives and known folders
 // in the sidebar (on Linux, also the pins a first run starts with), with no
-// uncaught errors. Linux: `pnpm e2e` (Xvfb and a private bus). Windows: run
+// uncaught errors. Flow 2: split view. Linux: `pnpm e2e` (Xvfb and a private bus). Windows: run
 // this file directly with `node --test` in an interactive session, with a
 // msedgedriver that matches the WebView2 Runtime (e2e/edgedriver.ps1).
 // Artifacts go to e2e/artifacts/ whatever the outcome.
@@ -221,6 +221,98 @@ test("a first run pins the known folders and the desktop's bookmarks", { timeout
   // Music or Videos; the sftp:// bookmark can't be listed, so it's left out.
   const want = [home, ...["Desktop", "Documents", "Downloads", "Pictures"].map(n => join(home, n)), fixture.path];
   assert.deepEqual(pins, want);
+});
+
+// Split view (src/tabLayout.ts): two panes with their own tabs, the
+// focused one driving the breadcrumb, tabs moving between them by drag and
+// by the tab menu, a copy into the other pane's folder, and Close Split
+// putting every tab back in the title bar. Starts where Go to Path left the
+// window: one tab, on the fixture.
+test("split view", { timeout: 120_000 }, async () => {
+  /** Each pane's tab labels and the names it lists, and which has focus. */
+  const panes = () => session.execute(() => [...document.querySelectorAll(".split-pane")].map(p => ({
+    pane: Number(p.getAttribute("data-tab-pane")),
+    focused: p.classList.contains("focused"),
+    tabs: [...(p.querySelector("[data-tab-bar]") ?? document.querySelector(".titlebar [data-tab-bar]")).querySelectorAll("[data-tab-index]")]
+      .map(t => t.querySelector(".label").textContent),
+    names: [...p.querySelectorAll(".pane .row .name")].map(n => n.textContent.trim()),
+  })));
+  const crumb = () => session.execute(() => document.querySelector(".breadcrumb .crumb.last")?.textContent ?? null);
+  const lists = (p, names) => names.every(n => p.names.includes(n));
+  const fixtureName = basename(fixture.path);
+
+  // Ctrl+\ splits, the new pane on the same folder and focused.
+  await session.chord([Keys.CONTROL, "\\"]);
+  let now = await waitFor("two panes listing the fixture", async () => {
+    const ps = await panes();
+    return ps.length === 2 && ps.every(p => lists(p, fixture.names)) ? ps : null;
+  });
+  assert.deepEqual(now.map(p => p.focused), [false, true]);
+
+  // Ctrl+F6 moves the focus; the breadcrumb follows the focused pane.
+  await session.chord([Keys.CONTROL, Keys.F6]);
+  await waitFor("the first pane focused", async () => (await panes())[0]?.focused);
+  await session.chord([Keys.CONTROL, "l"]);
+  const input = await waitFor("the Go to Path prompt", () => session.execute(() => {
+    const message = [...document.querySelectorAll("div")].find(d => d.textContent === "path to navigate to:");
+    return message?.parentElement?.querySelector("input") ?? null;
+  }));
+  await session.sendKeys(input, `${Keys.CONTROL}a${Keys.CONTROL}${join(fixture.path, "alpha")}${Keys.ENTER}`);
+  await waitFor("the first pane in alpha", async () => (await crumb()) === "alpha");
+  now = await panes();
+  assert.ok(lists(now[1], fixture.names), `the second pane moved too: ${JSON.stringify(now[1])}`);
+  await session.chord([Keys.CONTROL, Keys.F6]);
+  await waitFor("the breadcrumb on the second pane's folder", async () => (await crumb()) === fixtureName);
+
+  // A second tab in the second pane, dragged onto the first pane's tab bar.
+  await session.click(await session.find('.split-pane[data-tab-pane="1"] .tab-btn'));
+  await waitFor("two tabs in the second pane", async () => (await panes())[1]?.tabs.length === 2);
+  const boxes = await session.execute(() => {
+    const r = el => { const b = el.getBoundingClientRect(); return [b.left + b.width / 2, b.top + b.height / 2, b.right]; };
+    const tab = document.querySelectorAll('.split-pane[data-tab-pane="1"] [data-tab-index]')[1];
+    const bar = document.querySelector('.split-pane[data-tab-pane="0"] [data-tab-bar]');
+    const last = [...bar.querySelectorAll("[data-tab-index]")].pop();
+    return { tab: r(tab), after: [r(last)[2] + 20, r(last)[1]] };
+  });
+  await session.drag(boxes.tab.slice(0, 2), [boxes.tab[0] - 40, boxes.tab[1]], boxes.after);
+  now = await waitFor("the dragged tab in the first pane", async () => {
+    const ps = await panes();
+    return ps[0]?.tabs.length === 2 && ps[1]?.tabs.length === 1 ? ps : null;
+  });
+  assert.equal(now[0].tabs[1], fixture.path);
+  assert.ok(now[0].focused, "the pane a tab is dropped in takes the focus");
+
+  // The tab menu's Move to Other Pane sends it back.
+  await session.execute(() => {
+    const tab = document.querySelectorAll('.split-pane[data-tab-pane="0"] [data-tab-index]')[1];
+    const b = tab.getBoundingClientRect();
+    tab.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: b.left + 5, clientY: b.top + 5 }));
+  });
+  const item = await waitFor("Move to Other Pane in the tab menu", () => session.execute(() =>
+    [...document.querySelectorAll(".mi")].find(m => m.textContent.includes("Move to Other Pane")) ?? null));
+  await session.click(item);
+  await waitFor("the tab back in the second pane", async () => {
+    const ps = await panes();
+    return ps[0]?.tabs.length === 1 && ps[1]?.tabs.length === 2;
+  });
+
+  // Copy to Other Pane: beta.txt from the second pane into alpha.
+  await session.click(await session.execute(() =>
+    [...document.querySelectorAll('.split-pane[data-tab-pane="1"] .row')].find(r => r.querySelector(".name")?.textContent.trim() === "beta.txt")));
+  await session.click(await session.execute(() => [...document.querySelectorAll(".menubar-item")].find(m => m.textContent.trim() === "Edit")));
+  await session.click(await waitFor("Copy to Other Pane in the Edit menu", () => session.execute(() =>
+    [...document.querySelectorAll(".mi")].find(m => m.textContent.includes("Copy to Other Pane")) ?? null)));
+  await waitFor("beta.txt copied into alpha", async () => lists((await panes())[0], ["beta.txt"]));
+
+  // Ctrl+\ again closes the split: every tab in the title bar, the focused
+  // pane's shown tab still shown.
+  await session.chord([Keys.CONTROL, "\\"]);
+  const merged = await waitFor("one pane again", async () => {
+    const ps = await panes();
+    return ps.length === 1 ? ps[0] : null;
+  });
+  assert.equal(merged.tabs.length, 3);
+  assert.equal(await crumb(), fixtureName);
 });
 
 test("no uncaught errors", { timeout: 30_000 }, async () => {

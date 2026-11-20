@@ -6,6 +6,7 @@ import { getVersion } from "@tauri-apps/api/app";
 import type { TweakState } from "./components";
 import { DISPLAY_MODE_DEFAULT, DISPLAY_MODE_KEY, LAYOUT_DEFAULT, LAYOUT_KEY, SORT_KEY_OF } from "./handlers/view";
 import type { SortDir, SortKey } from "./state";
+import type { SplitDir } from "./tabLayout";
 import { isModalOpen } from "./dialogs/modal";
 import { firstIndex, fitPath, lastIndex, menuKey, mnemonics, titleForKey, type MenuPath } from "./menuNav";
 
@@ -140,6 +141,8 @@ function useExpandedItems(items: MenuItemDef[], trigger: unknown): MenuItemDef[]
  *  sort) rather than stale static `check: true` hints. `undefined` means
  *  "use the static hint on the item". */
 export interface MenuToggleState {
+  /** How the window is split, or null when it isn't. */
+  split?: SplitDir | null;
   tweaks?: TweakState;
   sidebarVisible?: boolean;
   statusBarVisible?: boolean;
@@ -172,6 +175,10 @@ export function resolveChecked(item: MenuItemDef, toggles: MenuToggleState, pare
   }
   const tw = toggles.tweaks;
   switch (item.label) {
+    case "Split Side by Side":
+      return toggles.split === "row";
+    case "Split Top and Bottom":
+      return toggles.split === "column";
     case "Show Hidden Files":
     case "Show Hidden":
       return !!tw?.hidden;

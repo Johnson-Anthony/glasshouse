@@ -51,13 +51,16 @@ export const targetHandler: Handler = (label, ctx) => {
       switch (label) {
         case "Close Tab":
           cmdState.contextTarget = null;
-          closeTabAt(ctxT.tabIndex); return true;
+          closeTabAt(ctxT.tabIndex, ctxT.pane); return true;
         case "Close Other Tabs":
           cmdState.contextTarget = null;
-          closeOtherTabsAt(ctxT.tabIndex); return true;
+          closeOtherTabsAt(ctxT.tabIndex, ctxT.pane); return true;
         case "Duplicate Tab":
           cmdState.contextTarget = null;
-          duplicateTabAt(ctxT.tabIndex); return true;
+          duplicateTabAt(ctxT.tabIndex, ctxT.pane); return true;
+        case "Move Tab to Other Pane":
+          cmdState.contextTarget = null;
+          ctx.app.panes.moveTabToOtherPane(ctxT.tabIndex, ctxT.pane); return true;
       }
     } else if (ctxT.kind === "sidebar" && ctxT.rowKind === "remote" && ctxT.path) {
       const host = ctxT.path;

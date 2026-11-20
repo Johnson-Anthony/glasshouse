@@ -6,12 +6,16 @@
 // Only the glasshouse process that owns the session restores and saves it
 // (`session_owner`, src-tauri/src/session.rs). File → New Window starts
 // another process, which opens one tab at home and leaves the record alone.
-// Private tabs aren't saved. See
-// docs/decisions/2026-11-15-session-persistence-windows.md.
+// Private tabs aren't saved. A split (tabLayout.ts) is saved in the same
+// record, readable by builds without split view: `tabs` is every tab, the
+// first pane's then the second's, and those builds open them all unsplit.
+// See docs/decisions/2026-11-15-session-persistence-windows.md and
+// docs/decisions/2026-11-20-split-and-tear-off-session.md.
 
 import { pathKind } from "./api";
 import { parentPath } from "./paths";
 import type { SortDir, SortKey } from "./state";
+import { clampRatio, type SplitDir } from "./tabLayout";
 
 export const SESSION_KEY = "glasshouse.session.v1";
 
@@ -33,12 +37,25 @@ const SORT_KEYS: readonly SortKey[] = ["name", "size", "modified", "tag", "git",
 export interface SavedTab {
   path: string;
   sort: TabSort;
+  /** 1 for a tab in a split's second pane; unset in the first. */
+  pane?: 1;
+}
+
+export interface SessionSplit {
+  /** Index into `tabs`: the tab shown in the pane without the focus. */
+  other: number;
+  dir: SplitDir;
+  /** The first pane's share. */
+  ratio: number;
 }
 
 export interface Session {
   tabs: SavedTab[];
-  /** Index into `tabs`. */
+  /** Index into `tabs`: the tab shown in the pane with the focus (the only
+   *  one when unsplit). */
   active: number;
+  /** Set when the window is split, and both panes have a saved tab. */
+  split?: SessionSplit;
 }
 
 /** More than this is a broken record, not a session: each tab lists and
@@ -49,11 +66,11 @@ const MAX_TABS = 100;
  *  (an offline share can take far longer to fail). */
 export const RESTORE_CHECK_MS = 1500;
 
-function isAbsolute(p: string): boolean {
+export function isAbsolute(p: string): boolean {
   return p.startsWith("/") || p.startsWith("\\\\") || /^[A-Za-z]:[\\/]/.test(p);
 }
 
-function parseSort(v: unknown): TabSort {
+export function parseSort(v: unknown): TabSort {
   if (!v || typeof v !== "object") return DEFAULT_SORT;
   const { key, dir } = v as { key?: unknown; dir?: unknown };
   return SORT_KEYS.includes(key as SortKey) && (dir === "asc" || dir === "desc")
@@ -63,24 +80,45 @@ function parseSort(v: unknown): TabSort {
 
 function parseTab(v: unknown): SavedTab | null {
   if (!v || typeof v !== "object") return null;
-  const { path, sort } = v as { path?: unknown; sort?: unknown };
+  const { path, sort, pane } = v as { path?: unknown; sort?: unknown; pane?: unknown };
   if (typeof path !== "string" || !isAbsolute(path)) return null;
-  return { path, sort: parseSort(sort) };
+  return pane === 1 ? { path, sort: parseSort(sort), pane: 1 } : { path, sort: parseSort(sort) };
 }
 
-/** Keeps the items `keep` accepts, and says where the item at `active`
+function index(v: unknown): number {
+  return typeof v === "number" && Number.isInteger(v) ? v : 0;
+}
+
+/** Keeps the items `keep` accepts, and says where each item in `wanted`
  *  ended up: if it was dropped, its left neighbour (the right one when
  *  nothing is left of it), as closing a tab does. */
-function keepWithActive<T, U>(items: readonly T[], active: number, keep: (t: T) => U | null, max = Infinity): { kept: U[]; active: number } {
+function keepWith<T, U>(items: readonly T[], wanted: readonly number[], keep: (t: T) => U | null, max = Infinity): { kept: U[]; at: number[] } {
   const kept: U[] = [];
-  let at = 0;
+  const at = wanted.map(() => 0);
   for (let i = 0; i < items.length && kept.length < max; i++) {
     const k = keep(items[i]);
     if (k === null) continue;
-    if (i <= active) at = kept.length;
+    wanted.forEach((w, j) => { if (i <= w) at[j] = kept.length; });
     kept.push(k);
   }
-  return { kept, active: at };
+  return { kept, at };
+}
+
+/** `tabs` in pane order (the first pane's, then the second's), with the
+ *  split kept only when both panes have a tab and `active` and `other` are
+ *  in different panes. Without a split, no tab is marked as the second
+ *  pane's. */
+function ordered(tabs: SavedTab[], active: number, other: number, split: Omit<SessionSplit, "other"> | null): Session {
+  const second = (t: SavedTab) => t.pane === 1;
+  const flat = (): Session => ({ tabs: tabs.map(t => ({ path: t.path, sort: t.sort })), active });
+  if (!split || tabs.every(second) || !tabs.some(second)) return flat();
+  const byPane = [...tabs.map((t, i) => ({ t, i })).filter(x => !second(x.t)), ...tabs.map((t, i) => ({ t, i })).filter(x => second(x.t))];
+  const where = (i: number) => byPane.findIndex(x => x.i === i);
+  const a = where(active);
+  let o = where(other);
+  // The other pane's tab has to be in the other pane: else its first tab.
+  if (second(tabs[active]) === second(tabs[other])) o = byPane.findIndex(x => second(x.t) !== second(tabs[active]));
+  return { tabs: byPane.map(x => x.t), active: a, split: { other: o, ...split } };
 }
 
 /** The record as saved, or null when there's nothing usable in it. */
@@ -89,11 +127,13 @@ export function parseSession(raw: string | null): Session | null {
   let v: unknown;
   try { v = JSON.parse(raw); } catch { return null; }
   if (!v || typeof v !== "object") return null;
-  const { tabs, active } = v as { tabs?: unknown; active?: unknown };
+  const { tabs, active, split } = v as { tabs?: unknown; active?: unknown; split?: unknown };
   if (!Array.isArray(tabs)) return null;
-  const want = typeof active === "number" && Number.isInteger(active) ? active : 0;
-  const r = keepWithActive(tabs, want, parseTab, MAX_TABS);
-  return r.kept.length > 0 ? { tabs: r.kept, active: r.active } : null;
+  const s = split && typeof split === "object" ? split as { other?: unknown; dir?: unknown; ratio?: unknown } : null;
+  const r = keepWith(tabs, [index(active), index(s?.other)], parseTab, MAX_TABS);
+  if (r.kept.length === 0) return null;
+  const dir = s && (s.dir === "row" || s.dir === "column") ? s.dir : null;
+  return ordered(r.kept, r.at[0], r.at[1], s && dir ? { dir, ratio: clampRatio(s.ratio) } : null);
 }
 
 export interface LiveTab {
@@ -102,11 +142,24 @@ export interface LiveTab {
   private: boolean;
 }
 
-/** What to save for the window's tabs. With only private tabs open it has
- *  no tabs, and the next start opens home. */
-export function sessionOf(tabs: readonly LiveTab[], active: number): Session {
-  const r = keepWithActive(tabs, active, t => (t.private ? null : { path: t.path, sort: t.sort }));
-  return { tabs: r.kept, active: r.active };
+export interface LivePane {
+  tabs: readonly LiveTab[];
+  active: number;
+}
+
+/** What to save for the window's tabs: one pane, or a split's two in the
+ *  order they're shown; `focus` is the pane with the focus. With only
+ *  private tabs open it has no tabs, and the next start opens home. A pane
+ *  with only private tabs saves as no split. */
+export function sessionOf(panes: readonly LivePane[], focus = 0, dir: SplitDir = "row", ratio = 0.5): Session {
+  const flat = panes.flatMap((p, pane) => p.tabs.map(t => ({ ...t, pane })));
+  const start = (pane: number) => panes.slice(0, pane).reduce((n, p) => n + p.tabs.length, 0);
+  const shown = panes.map((p, pane) => start(pane) + p.active);
+  const f = Math.min(Math.max(focus, 0), panes.length - 1);
+  const other = panes.length > 1 ? shown[1 - f] : shown[f];
+  const r = keepWith(flat, [shown[f], other], t => (t.private ? null : (t.pane === 1 ? { path: t.path, sort: t.sort, pane: 1 as const } : { path: t.path, sort: t.sort })));
+  if (r.kept.length === 0) return { tabs: [], active: 0 };
+  return ordered(r.kept, r.at[0], r.at[1], panes.length > 1 ? { dir, ratio: clampRatio(ratio) } : null);
 }
 
 export function loadSession(): Session | null {
@@ -159,6 +212,9 @@ export async function restorePath(path: string, home: string, kindOf: KindOf = p
 
 /** The saved tabs with each folder checked (all at once). */
 export async function restoreSession(s: Session, home: string, kindOf: KindOf = pathKind, ms = RESTORE_CHECK_MS): Promise<Session> {
-  const tabs = await Promise.all(s.tabs.map(async t => ({ path: await restorePath(t.path, home, kindOf, ms), sort: t.sort })));
-  return { tabs, active: Math.min(Math.max(s.active, 0), tabs.length - 1) };
+  const tabs = await Promise.all(s.tabs.map(async t => ({ ...t, path: await restorePath(t.path, home, kindOf, ms) })));
+  const clamp = (i: number) => Math.min(Math.max(i, 0), tabs.length - 1);
+  return s.split
+    ? { tabs, active: clamp(s.active), split: { ...s.split, other: clamp(s.split.other) } }
+    : { tabs, active: clamp(s.active) };
 }
