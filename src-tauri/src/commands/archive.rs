@@ -2,6 +2,7 @@ use std::path::{Component, Path, PathBuf};
 use std::sync::Mutex;
 use super::fs_ops::{ensure_regular, no_clobber_err, open_regular, remove_created_tree};
 use super::launch::{find_tool, require_tool};
+use crate::error::{Action, AppError};
 #[cfg(windows)]
 use super::launch::CREATE_NO_WINDOW;
 use crate::lock;
@@ -355,9 +356,33 @@ pub(super) const SEVEN_ZIP_NAMES: &[&str] = &["7z", "7zz", "7za", "7z.exe"];
 
 const TAR_NAMES: &[&str] = &["tar", "tar.exe"];
 
-fn find_7z() -> Result<String, String> {
-    require_tool("7-Zip", SEVEN_ZIP_NAMES).map(|p| p.to_string_lossy().into_owned())
+fn find_7z() -> Result<String, AppError> {
+    find_tool(SEVEN_ZIP_NAMES)
+        .or_else(seven_zip_installed)
+        .map(|p| p.to_string_lossy().into_owned())
+        .ok_or_else(|| AppError::missing_tool(SEVEN_ZIP_MISSING, SEVEN_ZIP_NAMES))
 }
+
+/// 7-Zip's Windows installer doesn't put itself on PATH: its own folder.
+#[cfg(windows)]
+fn seven_zip_installed() -> Option<PathBuf> {
+    ["ProgramFiles", "ProgramW6432", "ProgramFiles(x86)"]
+        .iter()
+        .filter_map(std::env::var_os)
+        .map(|dir| PathBuf::from(dir).join("7-Zip").join("7z.exe"))
+        .find(|p| p.is_file())
+}
+
+#[cfg(not(windows))]
+fn seven_zip_installed() -> Option<PathBuf> {
+    None
+}
+
+#[cfg(windows)]
+const SEVEN_ZIP_MISSING: &str = "This needs 7-Zip, which wasn't found. Install it from 7-zip.org, then try again.";
+#[cfg(not(windows))]
+const SEVEN_ZIP_MISSING: &str =
+    "This needs 7-Zip, which isn't installed. Install your system's 7zip (or p7zip) package, then try again.";
 
 /// Return whether the local machine has the tooling required to handle the
 /// given archive format. Values: "zip" | "tar.gz" | "tar.zst" | "7z".
@@ -384,14 +409,14 @@ pub fn archive_create(
     paths: Vec<String>,
     dest: String,
     format: String,
-) -> Result<CreateReport, String> {
+) -> Result<CreateReport, AppError> {
     if paths.is_empty() {
-        return Err("archive_create: no input paths".to_string());
+        return Err(String::from("archive_create: no input paths").into());
     }
 
     if format == "zip" {
         // Reuse the in-process zip writer.
-        return zip_create(&paths, &dest);
+        return Ok(zip_create(&paths, &dest)?);
     }
 
     // For tar-based formats we invoke tar once per unique parent, passing
@@ -412,17 +437,14 @@ pub fn archive_create(
         by_parent.entry(parent).or_default().push(name);
     }
     if by_parent.len() != 1 {
-        return Err(
-            "archive_create: tar-based formats require all inputs to share a parent directory"
-                .to_string(),
-        );
+        return Err(String::from("archive_create: tar-based formats require all inputs to share a parent directory").into());
     }
     let (parent, members) = by_parent.into_iter().next().unwrap();
     let parent_str = parent.to_string_lossy().into_owned();
 
-    let res = match format.as_str() {
-        "tar.gz" => tar_gz_create(&dest, &parent_str, &members),
-        "tar.zst" => tar_zst_create(&dest, &parent_str, &members),
+    let res: Result<(), AppError> = match format.as_str() {
+        "tar.gz" => Ok(tar_gz_create(&dest, &parent_str, &members)?),
+        "tar.zst" => Ok(tar_zst_create(&dest, &parent_str, &members)?),
         "7z" => {
             refuse_existing(&dest)?;
             let program = find_7z()?;
@@ -447,9 +469,9 @@ pub fn archive_create(
                 // that appeared after refuse_existing's check.
                 let _ = std::fs::remove_file(&dest);
             }
-            res
+            Ok(res?)
         }
-        other => Err(format!("archive_create: unsupported format '{}'", other)),
+        other => Err(format!("archive_create: unsupported format '{}'", other).into()),
     };
     res.map(|()| CreateReport::default())
 }
@@ -474,15 +496,15 @@ static STAGED: Mutex<Vec<PathBuf>> = Mutex::new(Vec::new());
 /// entries in with the no-clobber moves. A failed extraction removes the
 /// staging folder, and `dest_dir` too if this call created it.
 #[tauri::command(async)]
-pub fn archive_extract(archive: String, dest_dir: String) -> Result<Staged, String> {
+pub fn archive_extract(archive: String, dest_dir: String) -> Result<Staged, AppError> {
     // tar and 7-Zip would wait forever on a FIFO named like an archive.
     std::fs::metadata(&archive)
         .and_then(|m| ensure_regular(&m.file_type()))
-        .map_err(|e| format!("open {}: {}", archive, e))?;
+        .map_err(|e| AppError::io(Action::Open, &archive, &e))?;
     let dest = Path::new(&dest_dir);
     let created = std::fs::symlink_metadata(dest).is_err();
-    std::fs::create_dir_all(dest).map_err(|e| format!("create_dir_all {}: {}", dest_dir, e))?;
-    let res = make_staging(dest).and_then(|staging| {
+    std::fs::create_dir_all(dest).map_err(|e| AppError::io(Action::Create, dest, &e))?;
+    let res = make_staging(dest).map_err(AppError::from).and_then(|staging| {
         let checked = extract_into(&archive, &staging).and_then(|mut skipped| {
             skipped.extend(tidy_staging(&staging)?);
             Ok(skipped)
@@ -633,12 +655,12 @@ fn copy_mark_of_the_web(archive: &Path, dir: &Path) {
 ///   .tar.zst/.tzst → in-process zstd piped into `tar -xf -`
 ///   .7z → `7z.exe x archive -o<dir> -y` (`-y` only answers for entries the
 ///   archive itself repeats, since `dir` starts empty)
-fn extract_into(archive: &str, dir: &Path) -> Result<Vec<Skipped>, String> {
+fn extract_into(archive: &str, dir: &Path) -> Result<Vec<Skipped>, AppError> {
     let dest_dir = dir.to_string_lossy().into_owned();
     let lower = archive.to_ascii_lowercase();
 
     if lower.ends_with(".zip") {
-        return zip_extract(archive, dir);
+        return Ok(zip_extract(archive, dir)?);
     }
 
     let is_7z = lower.ends_with(".7z");
@@ -656,25 +678,31 @@ fn extract_into(archive: &str, dir: &Path) -> Result<Vec<Skipped>, String> {
         let program = find_7z()?;
         let out_flag = format!("-o{}", dest_dir);
         let args = ["x", &out_flag, "-y", "--", archive];
-        return run_archive_tool(&program, &args).map(|()| Vec::new());
+        run_archive_tool(&program, &args)?;
+        return Ok(Vec::new());
     }
 
     if is_tar_family {
-        if find_tool(TAR_NAMES).is_none() {
-            return Err("tar.exe not found on PATH".to_string());
-        }
+        require_tool(TAR_NAMES, TAR_MISSING)?;
         if is_tar_zst {
-            return tar_zst_extract(archive, &dest_dir).map(|()| Vec::new());
+            tar_zst_extract(archive, &dest_dir)?;
+        } else {
+            run_archive_tool("tar", &["-xf", archive, "-C", dest_dir.as_str()])?;
         }
-        let args = ["-xf", archive, "-C", dest_dir.as_str()];
-        return run_archive_tool("tar", &args).map(|()| Vec::new());
+        return Ok(Vec::new());
     }
 
     Err(format!(
         "archive_extract: unsupported archive extension for '{}'",
         archive
-    ))
+    )
+    .into())
 }
+
+#[cfg(windows)]
+const TAR_MISSING: &str = "This needs tar, which comes with Windows 10 and later but wasn't found.";
+#[cfg(not(windows))]
+const TAR_MISSING: &str = "This needs tar, which isn't installed. Install your system's tar package, then try again.";
 
 /// Extract a zip into the empty folder `dir`. Our own loop rather than
 /// `ZipArchive::extract`, which creates archived symlinks pointing anywhere
@@ -847,7 +875,8 @@ pub(super) fn extract_to(archive: &Path, dest: &Path) -> Result<Vec<Skipped>, St
     let staged = archive_extract(
         archive.to_string_lossy().into_owned(),
         dest.to_string_lossy().into_owned(),
-    )?;
+    )
+    .map_err(|e| e.detail)?;
     for entry in std::fs::read_dir(&staged.staging).unwrap() {
         let entry = entry.unwrap();
         let to = dest.join(entry.file_name());
@@ -929,13 +958,13 @@ mod tests {
         let bad = dir.join("bad.tar.zst");
         std::fs::write(&bad, b"not zstd at all").unwrap();
         let err = archive_extract(s(&bad), s(&dir.join("out2"))).unwrap_err();
-        assert!(err.contains("bad.tar.zst"), "{}", err);
+        assert!(err.detail.contains("bad.tar.zst"), "{}", err);
 
         // A failed create reports tar's error and leaves no partial archive.
         let failed = dir.join("missing.tar.zst");
         let err = archive_create(vec![s(&dir.join("missing"))], s(&failed), "tar.zst".into())
             .unwrap_err();
-        assert!(err.starts_with("tar exited"), "{}", err);
+        assert!(err.detail.starts_with("tar exited"), "{}", err);
         assert!(!failed.exists());
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -983,8 +1012,8 @@ mod tests {
             let dest = dir.join(format!("taken.{}", format));
             std::fs::write(&dest, "keep me").unwrap();
             let err = archive_create(vec![s(&src)], s(&dest), format.into()).unwrap_err();
-            assert!(err.starts_with("\"taken."), "{}: {}", format, err);
-            assert!(err.contains("already exists in"), "{}: {}", format, err);
+            assert!(err.detail.starts_with("\"taken."), "{}: {}", format, err);
+            assert!(err.detail.contains("already exists in"), "{}: {}", format, err);
             assert_eq!(std::fs::read_to_string(&dest).unwrap(), "keep me", "{}", format);
         }
         let dest = dir.join("taken.zip");

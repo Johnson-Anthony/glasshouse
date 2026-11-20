@@ -6,7 +6,7 @@
 // msedgedriver that matches the WebView2 Runtime (e2e/edgedriver.ps1).
 // Artifacts go to e2e/artifacts/ whatever the outcome.
 import assert from "node:assert/strict";
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { basename as posixBasename, join, win32 } from "node:path";
 import { pathToFileURL } from "node:url";
 import { after, afterEach, before, test } from "node:test";
@@ -152,8 +152,29 @@ test("it starts with no notice, error or dialog", { timeout: 30_000 }, async () 
     notice: [...document.querySelectorAll("div")].map(d => d.textContent).find(t => t.startsWith("●couldn't open")) ?? null,
     paneError: document.querySelector(".pane-notice.error")?.textContent ?? null,
     dialog: [...document.querySelectorAll("button")].some(b => /^(ok|cancel)$/.test(b.textContent.trim()) && b.offsetParent !== null),
+    // The error boundary's screen (CrashScreen.tsx): a render that threw.
+    crash: document.querySelector(".crash-screen")?.textContent ?? null,
   }));
-  assert.deepEqual(shown, { notice: null, paneError: null, dialog: false });
+  assert.deepEqual(shown, { notice: null, paneError: null, dialog: false, crash: null });
+});
+
+test("it logs what it started on, and no error", { timeout: 30_000 }, async () => {
+  // diagnostics.rs: the app's log folder. On Windows it's the profile's own,
+  // so earlier runs' lines can be there: only this run's, from its start
+  // line on, count.
+  const appId = "io.github.johnson-anthony.glasshouse";
+  const dir = IS_WINDOWS
+    ? join(process.env.LOCALAPPDATA ?? join(home, "AppData", "Local"), appId, "logs")
+    : join(home, ".local", "share", appId, "logs");
+  const started = / INFO +\S+: glasshouse \S+ started: /;
+  const lines = await waitFor("the log's start line", () => {
+    const all = readFileSync(join(dir, "glasshouse.log"), "utf8").split("\n");
+    const at = all.findLastIndex(l => started.test(l));
+    return at >= 0 ? all.slice(at) : null;
+  });
+  writeFileSync(join(ARTIFACTS, "glasshouse.log"), lines.join("\n"));
+  notes.push(`log: ${lines[0]}`);
+  assert.deepEqual(lines.filter(l => / ERROR |panic/.test(l)), []);
 });
 
 test("Go to Path lists a fixture folder", { timeout: 60_000 }, async () => {

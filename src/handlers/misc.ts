@@ -15,6 +15,9 @@ import {
   writeText,
   readText,
   openUrl,
+  openUrlStrict,
+  openWithDefaultStrict,
+  logDir,
   createSymlink,
   createHardLink,
   createShortcut,
@@ -27,7 +30,7 @@ import { markIrreversible, pushUndo } from "../state";
 import { contentUndo, createUndo, madeUndo, moveUndo } from "../undoActions";
 import { droppingTags, renamePath } from "../tags";
 import { isSessionKey } from "../session";
-const REPO_URL = "https://github.com/Johnson-Anthony/glasshouse";
+import { collectFacts, issueUrl, PREVIEW_INTRO, PREVIEW_NOTE, REPO_URL, reportText } from "../bugReport";
 
 async function promptAndCreate(ctx: HandlerCtx, defaultName: string, body = ""): Promise<void> {
   const taken = await namesIn(ctx.cwd);
@@ -246,9 +249,29 @@ export const miscHandler: Handler = async (label, ctx) => {
       else await openUrl(`${REPO_URL}/releases`);
       return true;
 
-    case "Report Bug…":
-      await openUrl(`${REPO_URL}/issues/new`);
+    case "Report Bug…": {
+      // Shows what goes into the issue before the browser opens.
+      const facts = await collectFacts();
+      if (!facts) {
+        await openUrl(`${REPO_URL}/issues/new`);
+        return true;
+      }
+      const ok = await dialogs.showConfirm({
+        title: "report a bug",
+        message: `${PREVIEW_INTRO}\n\n${reportText(facts)}\n\n${PREVIEW_NOTE}`,
+        okLabel: "open GitHub",
+      });
+      if (ok) await openUrlStrict(issueUrl(facts));
       return true;
+    }
+
+    case "Open Log Folder": {
+      const dir = await logDir();
+      if (!dir) return true; // the browser demo has no log
+      if (ctx.newTab) ctx.newTab(dir);
+      else await openWithDefaultStrict(dir);
+      return true;
+    }
 
     case "Export Layout (.glasshouserc)": {
       // Snapshot every persisted UI preference (tweaks, display mode, layout,

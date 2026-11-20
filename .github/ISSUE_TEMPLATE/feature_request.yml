@@ -1,0 +1,28 @@
+name: Feature request
+description: An idea for something glasshouse could do, or do better.
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What you're trying to do
+      description: The task or situation, and what makes it hard today.
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: What would help
+      description: How you'd like it to work. If another file manager does it well, say which and how.
+    validations:
+      required: true
+  - type: input
+    id: platform
+    attributes:
+      label: Platform
+      description: Windows, Linux (which desktop), or both.
+  - type: textarea
+    id: more
+    attributes:
+      label: Anything else
+      description: Workarounds you use now, mockups, or links.

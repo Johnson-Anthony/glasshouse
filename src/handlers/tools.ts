@@ -24,6 +24,7 @@ import { runTransfer, type TransferItem } from "../transfer";
 import { namesIn, transferDeps } from "../transferUi";
 import { isCancelled, runOp } from "../ops";
 import { errText } from "../errors";
+import { showError } from "../errorDialog";
 import { markIrreversible, pushUndo, type UndoEntry } from "../state";
 import {
   currentPermissions, emptyFolderUndo, groupUndo, moveUndo, permissionsUndo, type PathPair, type PermChange,
@@ -111,9 +112,8 @@ export const toolsHandler: Handler = async (label, ctx) => {
         const output = await runScript(argv.program, argv.args, ctx.cwd || undefined);
         void dialogs.showAlert({ title: cmd.trim(), message: output || "(no output)" });
       } catch (e) {
-        const msg = errText(e);
         console.log(`[tools] Custom Command failed (cmd=${cmd}):`, e);
-        void dialogs.showAlert({ title: "command failed", variant: "error", message: msg });
+        void showError({ title: "command failed", err: e });
       } finally {
         // What a command changed isn't known, failed or not.
         markIrreversible(`command "${cmd.trim()}"`);
@@ -179,7 +179,7 @@ export const toolsHandler: Handler = async (label, ctx) => {
         ctx.setDiffView?.({ a, b, diff });
       } catch (e) {
         console.log(`[tools] diff failed:`, e);
-        void dialogs.showAlert({ title: "diff failed", message: String(e), variant: "error" });
+        void showError({ title: "diff failed", err: e });
       }
       return true;
     }
@@ -201,7 +201,7 @@ export const toolsHandler: Handler = async (label, ctx) => {
         ctx.setDiffView?.({ a, b, diff });
       } catch (e) {
         console.log("[tools] diff with clipboard failed:", e);
-        void dialogs.showAlert({ title: "diff failed", message: String(e), variant: "error" });
+        void showError({ title: "diff failed", err: e });
       }
       return true;
     }
@@ -217,7 +217,7 @@ export const toolsHandler: Handler = async (label, ctx) => {
         void dialogs.showAlert({ title: "signature", message: `${result}\n\n${p}` });
       } catch (e) {
         console.log(`[tools] verifySignature failed for ${p}:`, e);
-        void dialogs.showAlert({ title: "verify failed", message: String(e), variant: "error" });
+        void showError({ title: "verify failed", err: e });
       }
       return true;
     }
@@ -239,9 +239,8 @@ export const toolsHandler: Handler = async (label, ctx) => {
         const output = await runScript(script, targets);
         void dialogs.showAlert({ title: "script output", message: output || "(no output)" });
       } catch (e) {
-        const msg = errText(e);
         console.log(`[tools] runScript failed (script=${script}):`, e);
-        void dialogs.showAlert({ title: "script failed", variant: "error", message: msg });
+        void showError({ title: "script failed", err: e });
       } finally {
         markIrreversible(`script ${script.trim()}`);
       }
@@ -270,7 +269,7 @@ export const toolsHandler: Handler = async (label, ctx) => {
       } catch (e) {
         if (isCancelled(e)) return true;
         console.log("[tools] replacePreview failed:", e);
-        void dialogs.showAlert({ title: "find failed", variant: "error", message: errText(e) });
+        void showError({ title: "find failed", err: e });
         return true;
       }
       if (plan.files.length === 0) {
@@ -291,7 +290,7 @@ export const toolsHandler: Handler = async (label, ctx) => {
           replaceApply(request, plan.files.map(f => f.path), plan.undoable, track()), "items");
       } catch (e) {
         console.log("[tools] replaceApply failed:", e);
-        void dialogs.showAlert({ title: "replace failed", variant: "error", message: errText(e) });
+        void showError({ title: "replace failed", err: e });
         return true;
       }
       const changed = outcome.changed;
@@ -384,8 +383,7 @@ export const toolsHandler: Handler = async (label, ctx) => {
       } catch (e) {
         if (isCancelled(e)) return true;
         console.log(`[tools] findFileByName failed (pattern=${pattern}):`, e);
-        const msg = errText(e);
-        void dialogs.showAlert({ title: "find failed", variant: "error", message: msg });
+        void showError({ title: "find failed", err: e });
       }
       return true;
     }
@@ -510,7 +508,7 @@ export const toolsHandler: Handler = async (label, ctx) => {
         ctx.refresh();
       } catch (e) {
         console.log(`[tools] changeOwner failed for ${p}:`, e);
-        void dialogs.showAlert({ title: "chown failed", message: String(e), variant: "error" });
+        void showError({ title: "chown failed", err: e });
       }
       return true;
     }

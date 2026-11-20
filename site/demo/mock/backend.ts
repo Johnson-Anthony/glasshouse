@@ -595,6 +595,7 @@ export function createBackend(hooks: BackendHooks) {
 
     open_url: a => { hooks.openExternal(str(a.url)); return null; },
     open_with_default: notInDemo("Opening files in other apps"),
+    log_dir: notInDemo("The log folder"),
     // Open With's list, so its submenu and chooser have something to show.
     open_with_apps: a => {
       const p = str(a.path);

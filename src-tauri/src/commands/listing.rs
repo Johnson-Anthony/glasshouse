@@ -2,6 +2,7 @@ use serde::Serialize;
 use std::path::{Path, PathBuf};
 use super::file_info::system_time_to_ms;
 use super::git::scan_repo_statuses;
+use crate::error::{Action, AppError};
 
 #[derive(Debug, Serialize)]
 pub struct FileEntry {
@@ -107,10 +108,10 @@ pub(crate) fn entry_at(path: &Path) -> Option<FileEntry> {
 }
 
 #[tauri::command(async)]
-pub fn list_dir(path: String, show_hidden: bool) -> Result<Vec<FileEntry>, String> {
+pub fn list_dir(path: String, show_hidden: bool) -> Result<Vec<FileEntry>, AppError> {
     let p = canonicalize_soft(&path);
     let mut out = Vec::new();
-    let rd = std::fs::read_dir(&p).map_err(|e| format!("read_dir({}): {}", p.display(), e))?;
+    let rd = std::fs::read_dir(&p).map_err(|e| AppError::io(Action::Open, &p, &e))?;
     for entry in rd.flatten() {
         // DirEntry::metadata doesn't follow links.
         let link_meta = match entry.metadata() {

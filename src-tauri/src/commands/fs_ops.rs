@@ -4,7 +4,8 @@ use super::clamp_limit;
 use super::listing::home_dir_path;
 #[cfg(windows)]
 use super::launch::CREATE_NO_WINDOW;
-use crate::ops::{Op, OpRegistry, CANCELLED};
+use crate::error::{Action, AppError, Kind};
+use crate::ops::{Op, OpRegistry};
 use tauri::{AppHandle, State};
 
 // ---------- file operations ----------
@@ -14,29 +15,41 @@ use tauri::{AppHandle, State};
 /// `all` is `create_dir_all`, for folders the app keeps for itself, where an
 /// existing one is fine.
 #[tauri::command(async)]
-pub fn make_dir(path: String, all: Option<bool>) -> Result<(), String> {
-    if all.unwrap_or(false) {
-        return std::fs::create_dir_all(&path).map_err(|e| e.to_string());
-    }
-    std::fs::create_dir(&path).map_err(|e| no_clobber_err(&path, e))
+pub fn make_dir(path: String, all: Option<bool>) -> Result<(), AppError> {
+    let made = if all.unwrap_or(false) { std::fs::create_dir_all(&path) } else { std::fs::create_dir(&path) };
+    made.map_err(|e| AppError::io(Action::Create, &path, &e))
 }
 
 /// Rename, refusing a target that already exists instead of replacing it.
 #[tauri::command(async)]
-pub fn rename_entry(from: String, to: String) -> Result<(), String> {
-    rename_no_replace(Path::new(&from), Path::new(&to)).map_err(|e| no_clobber_err(&to, e))
+pub fn rename_entry(from: String, to: String) -> Result<(), AppError> {
+    rename_no_replace(Path::new(&from), Path::new(&to)).map_err(|e| transfer_err(Action::Rename, &from, &to, &e))
 }
 
 /// The error for a create or rename whose target is taken, in the wording
-/// undo's `ensureFree` uses; `isAlreadyExists` in api.ts matches it.
+/// undo's `ensureFree` uses (`error::taken`); any other error as it is. For
+/// the commands that still return text.
 pub(super) fn no_clobber_err(path: &str, e: std::io::Error) -> String {
     if e.kind() != std::io::ErrorKind::AlreadyExists {
         return e.to_string();
     }
-    let p = Path::new(path);
-    let name = p.file_name().unwrap_or(p.as_os_str()).to_string_lossy();
-    let parent = p.parent().map(|d| d.to_string_lossy()).unwrap_or_default();
-    format!("\"{}\" already exists in {}", name, parent)
+    crate::error::taken(Path::new(path))
+}
+
+/// `e` from a rename, copy or move of `from` to `to`: a taken name is about
+/// `to`, anything else about `from` (the item the user picked). A failure
+/// on something inside a folder being copied names that entry (`Within`).
+/// Only the top entry can be taken: a folder's contents go into a folder
+/// this copy just made.
+fn transfer_err(action: Action, from: &str, to: &str, e: &std::io::Error) -> AppError {
+    let detail = format!("{from} -> {to}: {e}");
+    if e.kind() == std::io::ErrorKind::AlreadyExists {
+        return AppError { detail, ..AppError::io(action, to, e) };
+    }
+    if let Some(at) = e.get_ref().and_then(|r| r.downcast_ref::<Within>()) {
+        return AppError { detail: e.to_string(), ..AppError::io(action, &at.path, &at.source) };
+    }
+    AppError { detail, ..AppError::io(action, from, e) }
 }
 
 /// `fs::rename` that never replaces an existing entry at `to`. The platform
@@ -180,21 +193,27 @@ pub fn copy_entry(
     from: String,
     to: String,
     op_id: Option<String>,
-) -> Result<(), String> {
+) -> Result<(), AppError> {
     copy_path(&from, &to, &ops.start(op_id, &app))
 }
 
 /// copy_entry's work. A copy that fails or is cancelled leaves nothing
 /// behind: the file being copied is removed, and so is a folder copy's whole
 /// new folder. Errors from inside a folder name the entry that failed.
-pub(crate) fn copy_path(from: &str, to: &str, op: &Op) -> Result<(), String> {
+pub(crate) fn copy_path(from: &str, to: &str, op: &Op) -> Result<(), AppError> {
+    copy_as(Action::Copy, from, to, op)
+}
+
+/// copy_path, worded for `action` (a move across disks copies too).
+fn copy_as(action: Action, from: &str, to: &str, op: &Op) -> Result<(), AppError> {
     let src = Path::new(from);
     let dst = Path::new(to);
-    let meta = std::fs::symlink_metadata(src).map_err(|e| format!("stat {}: {}", from, e))?;
-    check_not_into_self(src, dst, &meta, false)?;
+    let fail = |e: std::io::Error| if op.cancelled() { AppError::cancelled() } else { transfer_err(action, from, to, &e) };
+    let meta = std::fs::symlink_metadata(src).map_err(|e| AppError::io(action, from, &e))?;
+    check_not_into_self(action, src, dst, &meta, false)?;
     let ty = meta.file_type();
     op.set_total(if ty.is_dir() {
-        tree_size(src, op).map_err(|e| e.to_string())?
+        tree_size(src, op).map_err(fail)?
     } else if ty.is_file() {
         meta.len()
     } else {
@@ -209,7 +228,7 @@ pub(crate) fn copy_path(from: &str, to: &str, op: &Op) -> Result<(), String> {
     } else {
         copy_regular_file(src, dst, &ty, op)
     };
-    created.map_err(|e| if op.cancelled() { CANCELLED.to_string() } else { no_clobber_err(to, e) })?;
+    created.map_err(fail)?;
     if ty.is_dir() {
         let filled = copy_dir_contents(src, dst, op)
             .and_then(|()| keep_dir_attrs(&meta, dst).map_err(|e| copying(src, e)));
@@ -218,21 +237,44 @@ pub(crate) fn copy_path(from: &str, to: &str, op: &Op) -> Result<(), String> {
             // refused a name that was already taken. So the half-made folder
             // goes whatever the error, and a retry doesn't find it in the way.
             let removed = remove_created_tree(dst);
-            if op.cancelled() {
-                return Err(CANCELLED.to_string());
+            let mut err = fail(e);
+            if let (Err(re), false) = (removed, err.kind == Kind::Cancelled) {
+                err.message = format!("{} Part of the copy is still at {}.", err.message, to);
+                err.detail = format!("{} (the partial copy at {} couldn't be removed: {})", err.detail, to, re);
             }
-            return Err(match removed {
-                Ok(()) => e.to_string(),
-                Err(re) => format!("{} (the partial copy at {} couldn't be removed: {})", e, to, re),
-            });
+            return Err(err);
         }
     }
     Ok(())
 }
 
+/// An error on one entry inside a folder being copied, which names it. The
+/// command's error says which entry it was (`transfer_err`).
+#[derive(Debug)]
+struct Within {
+    verb: &'static str,
+    path: PathBuf,
+    source: std::io::Error,
+}
+
+impl std::fmt::Display for Within {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "can't {} {}: {}", self.verb, self.path.display(), self.source)
+    }
+}
+
+impl std::error::Error for Within {}
+
 /// `e`, naming the entry of a copy it's about.
 fn copying(src: &Path, e: std::io::Error) -> std::io::Error {
-    std::io::Error::new(e.kind(), format!("can't copy {}: {}", src.display(), e))
+    within("copy", src, e)
+}
+
+fn within(verb: &'static str, path: &Path, e: std::io::Error) -> std::io::Error {
+    if e.get_ref().is_some_and(|r| r.is::<Within>()) {
+        return e; // already names its entry
+    }
+    std::io::Error::new(e.kind(), Within { verb, path: path.to_path_buf(), source: e })
 }
 
 /// Remove a tree this process just made (a half-done copy, an extraction's
@@ -304,9 +346,7 @@ fn copy_dir_recursive(src: &Path, dst: &Path, op: &Op) -> std::io::Result<()> {
 
 /// Copy what's inside `src` into the new, empty folder `dst`.
 fn copy_dir_contents(src: &Path, dst: &Path, op: &Op) -> std::io::Result<()> {
-    let reading = |e: std::io::Error| {
-        std::io::Error::new(e.kind(), format!("can't read {}: {}", src.display(), e))
-    };
+    let reading = |e: std::io::Error| within("read", src, e);
     for entry in std::fs::read_dir(src).map_err(reading)? {
         let entry = entry.map_err(reading)?;
         let path = entry.path();
@@ -481,11 +521,12 @@ fn resolve_no_follow(p: &Path) -> PathBuf {
 /// lets a move through when the destination resolves to the source, as a
 /// case-only rename on Windows (`Foo` to `foo`) does.
 fn check_not_into_self(
+    action: Action,
     src: &Path,
     dst: &Path,
     src_meta: &std::fs::Metadata,
     allow_same: bool,
-) -> Result<(), String> {
+) -> Result<(), AppError> {
     let s = resolve_no_follow(src);
     // An existing destination is canonicalized in full: fs::copy and
     // create_dir_all write through a destination that is a link.
@@ -494,18 +535,12 @@ fn check_not_into_self(
         if allow_same {
             return Ok(());
         }
-        return Err(format!(
-            "{} is the same as its destination {}",
-            src.display(),
-            dst.display()
-        ));
+        let detail = format!("{} is the same as its destination {}", src.display(), dst.display());
+        return Err(AppError { detail, ..AppError::other(action, src, "that's where it is already") });
     }
     if src_meta.is_dir() && d.starts_with(&s) {
-        return Err(format!(
-            "can't put folder {} inside itself ({})",
-            src.display(),
-            dst.display()
-        ));
+        let detail = format!("can't put folder {} inside itself ({})", src.display(), dst.display());
+        return Err(AppError { detail, ..AppError::other(action, src, "a folder can't go inside itself") });
     }
     Ok(())
 }
@@ -522,11 +557,11 @@ fn is_cross_device(e: &std::io::Error) -> bool {
 }
 
 #[tauri::command(async)]
-pub fn move_entry(from: String, to: String) -> Result<(), String> {
+pub fn move_entry(from: String, to: String) -> Result<(), AppError> {
     let src = Path::new(&from);
     let dst = Path::new(&to);
-    let meta = std::fs::symlink_metadata(src).map_err(|e| format!("stat {}: {}", from, e))?;
-    check_not_into_self(src, dst, &meta, true)?;
+    let meta = std::fs::symlink_metadata(src).map_err(|e| AppError::io(Action::Move, &from, &e))?;
+    check_not_into_self(Action::Move, src, dst, &meta, true)?;
     if src == dst {
         return Ok(());
     }
@@ -540,10 +575,10 @@ pub fn move_entry(from: String, to: String) -> Result<(), String> {
         Ok(()) => Ok(()),
         Err(e) if is_cross_device(&e) => {
             // A failed copy removes what it made, so the source is all there is.
-            copy_path(&from, &to, &Op::untracked())?;
+            copy_as(Action::Move, &from, &to, &Op::untracked())?;
             delete_entry(from.clone(), true).map_err(|e| moved_but_not_deleted(&from, &to, &meta, e))
         }
-        Err(e) => Err(no_clobber_err(&to, e)),
+        Err(e) => Err(transfer_err(Action::Move, &from, &to, &e)),
     }
 }
 
@@ -552,34 +587,44 @@ pub fn move_entry(from: String, to: String) -> Result<(), String> {
 /// intact: the copy is removed and nothing has moved. A folder's delete can
 /// stop partway, leaving the copy the only complete one, so it's kept and
 /// the error says some of the source is still there.
-fn moved_but_not_deleted(from: &str, to: &str, src_meta: &std::fs::Metadata, e: String) -> String {
-    if src_meta.is_dir() {
-        return format!(
-            "copied to {}, but some of the original couldn't be removed from {}: {}",
-            to, from, e
-        );
-    }
-    match std::fs::remove_file(to) {
-        Ok(()) => format!("can't remove {} after copying it, so it wasn't moved: {}", from, e),
-        Err(re) => format!(
-            "can't remove {} after copying it to {}: {} (and the copy couldn't be removed: {})",
-            from, to, e, re
-        ),
-    }
+fn moved_but_not_deleted(from: &str, to: &str, src_meta: &std::fs::Metadata, e: AppError) -> AppError {
+    let name = Path::new(from).file_name().unwrap_or_default().to_string_lossy();
+    let (message, detail) = if src_meta.is_dir() {
+        (
+            format!("“{name}” was copied to {to}, but some of the original couldn't be removed, so part of it is in both places."),
+            format!("copied to {}, but some of the original couldn't be removed from {}: {}", to, from, e.detail),
+        )
+    } else {
+        match std::fs::remove_file(to) {
+            Ok(()) => (
+                format!("Couldn't move “{name}”: the original couldn't be removed after copying it, so it stays where it was."),
+                format!("can't remove {} after copying it, so it wasn't moved: {}", from, e.detail),
+            ),
+            Err(re) => (
+                format!("Couldn't move “{name}”: the original couldn't be removed after copying it, and neither could the copy at {to}."),
+                format!(
+                    "can't remove {} after copying it to {}: {} (and the copy couldn't be removed: {})",
+                    from, to, e.detail, re
+                ),
+            ),
+        }
+    };
+    AppError { message, detail, ..e }
 }
 
 #[tauri::command(async)]
-pub fn delete_entry(path: String, recursive: bool) -> Result<(), String> {
+pub fn delete_entry(path: String, recursive: bool) -> Result<(), AppError> {
     let p = Path::new(&path);
-    let meta = std::fs::symlink_metadata(p).map_err(|e| e.to_string())?;
+    let fail = |e: std::io::Error| AppError::io(Action::Delete, p, &e);
+    let meta = std::fs::symlink_metadata(p).map_err(fail)?;
     if meta.is_dir() {
         if recursive {
-            std::fs::remove_dir_all(p).map_err(|e| e.to_string())
+            std::fs::remove_dir_all(p).map_err(fail)
         } else {
-            std::fs::remove_dir(p).map_err(|e| e.to_string())
+            std::fs::remove_dir(p).map_err(fail)
         }
     } else {
-        std::fs::remove_file(p).map_err(|e| e.to_string())
+        std::fs::remove_file(p).map_err(fail)
     }
 }
 
@@ -587,8 +632,8 @@ pub fn delete_entry(path: String, recursive: bool) -> Result<(), String> {
 /// how to find it there again (`commands::trash`). A path on a Windows drive
 /// with no Recycle Bin is refused rather than deleted for good.
 #[tauri::command(async)]
-pub fn move_to_trash(path: String) -> Result<super::trash::Trashed, String> {
-    super::trash::trash_path(Path::new(&path)).map_err(|e| format!("move_to_trash({}): {}", path, e))
+pub fn move_to_trash(path: String) -> Result<super::trash::Trashed, AppError> {
+    super::trash::trash_path(Path::new(&path))
 }
 
 /// The folder holding trashed files: the XDG home trash on unix, `None` on
@@ -687,16 +732,17 @@ pub(super) fn open_regular(path: &Path) -> std::io::Result<std::fs::File> {
 }
 
 #[tauri::command(async)]
-pub fn read_text(path: String, max_bytes: usize) -> Result<String, String> {
+pub fn read_text(path: String, max_bytes: usize) -> Result<String, AppError> {
     use std::io::Read;
-    let f = open_regular(Path::new(&path)).map_err(|e| e.to_string())?;
+    let fail = |e: std::io::Error| AppError::io(Action::Open, &path, &e);
+    let f = open_regular(Path::new(&path)).map_err(fail)?;
     // Hard server-side ceiling regardless of what the frontend asks for —
     // an oversized cap would buffer the whole file in memory.
     let cap = clamp_limit(max_bytes, 1_000_000, 64 * 1024 * 1024);
     let mut buf = Vec::with_capacity(cap.min(1 << 20));
     f.take(cap as u64)
         .read_to_end(&mut buf)
-        .map_err(|e| e.to_string())?;
+        .map_err(fail)?;
     Ok(String::from_utf8_lossy(&buf).into_owned())
 }
 
@@ -704,17 +750,17 @@ pub fn read_text(path: String, max_bytes: usize) -> Result<String, String> {
 /// exist yet: an existing path is refused atomically instead of emptied.
 /// `overwrite` is for saving over a file on purpose.
 #[tauri::command(async)]
-pub fn write_text(path: String, content: String, overwrite: Option<bool>) -> Result<(), String> {
+pub fn write_text(path: String, content: String, overwrite: Option<bool>) -> Result<(), AppError> {
     use std::io::Write;
     if overwrite.unwrap_or(false) {
-        return std::fs::write(&path, content).map_err(|e| e.to_string());
+        return std::fs::write(&path, content).map_err(|e| AppError::io(Action::Save, &path, &e));
     }
-    let mut file = std::fs::File::create_new(&path).map_err(|e| no_clobber_err(&path, e))?;
+    let mut file = std::fs::File::create_new(&path).map_err(|e| AppError::io(Action::Create, &path, &e))?;
     if let Err(e) = file.write_all(content.as_bytes()) {
         // Don't leave a half-written new file behind.
         drop(file);
         let _ = std::fs::remove_file(&path);
-        return Err(e.to_string());
+        return Err(AppError::io(Action::Create, &path, &e));
     }
     Ok(())
 }
@@ -776,28 +822,23 @@ pub fn read_image_b64(path: String, max_bytes: usize) -> Result<String, String> 
 /// attribute based on the owner-write bit (`mode & 0o200`); richer ACL
 /// manipulation is out of scope for v1.
 #[tauri::command(async)]
-pub fn set_permissions(path: String, mode: u32) -> Result<(), String> {
+pub fn set_permissions(path: String, mode: u32) -> Result<(), AppError> {
     if mode > 0o7777 {
-        return Err(format!("set_permissions({}): {:o} isn't a permission mode", path, mode));
+        return Err(AppError::other(Action::ChangePermissions, &path, &format!("{:o} isn't a permission mode", mode)));
     }
+    let fail = |e: std::io::Error| AppError::io(Action::ChangePermissions, &path, &e);
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(mode))
-            .map_err(|e| format!("set_permissions({}): {}", path, e))?;
-        Ok(())
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(mode)).map_err(fail)
     }
     #[cfg(windows)]
     {
-        let meta = std::fs::metadata(&path)
-            .map_err(|e| format!("metadata({}): {}", path, e))?;
-        let mut perms = meta.permissions();
+        let mut perms = std::fs::metadata(&path).map_err(fail)?.permissions();
         // Owner-write bit set → writable (clear read-only); unset → read-only.
         let writable = (mode & 0o200) != 0;
         perms.set_readonly(!writable);
-        std::fs::set_permissions(&path, perms)
-            .map_err(|e| format!("set_permissions({}): {}", path, e))?;
-        Ok(())
+        std::fs::set_permissions(&path, perms).map_err(fail)
     }
 }
 
@@ -807,11 +848,14 @@ pub fn set_permissions(path: String, mode: u32) -> Result<(), String> {
 /// chooses symlink_dir when the target is an existing directory, else
 /// symlink_file. Requires developer mode or admin on pre-1703 Windows.
 #[tauri::command(async)]
-pub fn create_symlink(target: String, link_path: String) -> Result<(), String> {
+pub fn create_symlink(target: String, link_path: String) -> Result<(), AppError> {
+    let fail = |e: std::io::Error| AppError {
+        detail: format!("symlink {} -> {}: {}", link_path, target, e),
+        ..AppError::io(Action::Link, &link_path, &e)
+    };
     #[cfg(unix)]
     {
-        std::os::unix::fs::symlink(&target, &link_path)
-            .map_err(|e| format!("symlink {} -> {}: {}", link_path, target, e))
+        std::os::unix::fs::symlink(&target, &link_path).map_err(fail)
     }
     #[cfg(windows)]
     {
@@ -821,16 +865,18 @@ pub fn create_symlink(target: String, link_path: String) -> Result<(), String> {
         } else {
             std::os::windows::fs::symlink_file(&target, &link_path)
         };
-        res.map_err(|e| format!("symlink {} -> {}: {}", link_path, target, e))
+        res.map_err(fail)
     }
 }
 
 /// Create a hard link at `link_path` pointing at `target`. Requires both on
 /// the same volume; errors otherwise.
 #[tauri::command(async)]
-pub fn create_hard_link(target: String, link_path: String) -> Result<(), String> {
-    std::fs::hard_link(&target, &link_path)
-        .map_err(|e| format!("hard_link {} -> {}: {}", link_path, target, e))
+pub fn create_hard_link(target: String, link_path: String) -> Result<(), AppError> {
+    std::fs::hard_link(&target, &link_path).map_err(|e| AppError {
+        detail: format!("hard_link {} -> {}: {}", link_path, target, e),
+        ..AppError::io(Action::Link, &link_path, &e)
+    })
 }
 
 // ---------- create shortcut (.lnk) ----------
@@ -989,7 +1035,7 @@ mod tests {
     use crate::commands::testing::{read, temp_dir, s};
 
     /// The copy_entry command without its Tauri arguments: untracked.
-    pub(super) fn copy_entry(from: String, to: String) -> Result<(), String> {
+    pub(super) fn copy_entry(from: String, to: String) -> Result<(), AppError> {
         copy_path(&from, &to, &Op::untracked())
     }
 
@@ -1120,7 +1166,8 @@ mod tests {
         std::fs::create_dir_all(folder.join("sub")).unwrap();
         let dst = folder.join("sub").join("folder");
         let err = copy_entry(s(&folder), s(&dst)).unwrap_err();
-        assert!(err.contains("inside itself"), "{err}");
+        assert_eq!(err.message, "Couldn't copy “folder”: a folder can't go inside itself.");
+        assert!(err.detail.contains("inside itself"), "{}", err.detail);
         assert!(!dst.exists());
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -1147,7 +1194,7 @@ mod tests {
         std::fs::write(folder.join("x.txt"), "x").unwrap();
         let dst = folder.join("sub").join("folder");
         let err = move_entry(s(&folder), s(&dst)).unwrap_err();
-        assert!(err.contains("inside itself"), "{err}");
+        assert_eq!(err.message, "Couldn't move “folder”: a folder can't go inside itself.");
         assert_eq!(std::fs::read_to_string(folder.join("x.txt")).unwrap(), "x");
         assert!(!dst.exists());
         let _ = std::fs::remove_dir_all(&dir);
@@ -1269,8 +1316,8 @@ mod tests {
         assert_eq!(read(&p), "first");
         let err = write_text(s(&p), "second".into(), None).unwrap_err();
         assert_eq!(
-            err,
-            format!("\"a.txt\" already exists in {}", dir.display())
+            (err.kind, err.message),
+            (Kind::Exists, format!("\"a.txt\" already exists in {}", dir.display()))
         );
         assert!(write_text(s(&p), "second".into(), Some(false)).is_err());
         assert_eq!(read(&p), "first");
@@ -1287,7 +1334,7 @@ mod tests {
         make_dir(s(&d), None).unwrap();
         std::fs::write(d.join("keep.txt"), "k").unwrap();
         let err = make_dir(s(&d), None).unwrap_err();
-        assert_eq!(err, format!("\"sub\" already exists in {}", dir.display()));
+        assert_eq!(err.message, format!("\"sub\" already exists in {}", dir.display()));
         std::fs::write(dir.join("file"), "f").unwrap();
         assert!(make_dir(s(&dir.join("file")), None).is_err());
         assert_eq!(read(&dir.join("file")), "f");
@@ -1312,8 +1359,8 @@ mod tests {
 
         let err = rename_entry(s(&a), s(&b)).unwrap_err();
         assert_eq!(
-            err,
-            format!("\"b.txt\" already exists in {}", dir.display())
+            (err.kind, err.message),
+            (Kind::Exists, format!("\"b.txt\" already exists in {}", dir.display()))
         );
         assert!(rename_entry(s(&a), s(&folder)).is_err());
         assert!(rename_entry(s(&folder), s(&b)).is_err());

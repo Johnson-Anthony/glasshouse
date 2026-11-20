@@ -30,6 +30,8 @@ interface AlertOptions {
   message: string;
   variant?: DialogVariant;
   okLabel?: string;
+  /** The raw error behind the message, under a "Show details" toggle. */
+  detail?: string;
 }
 
 interface ConfirmOptions {
@@ -89,6 +91,7 @@ export const dialogs: DialogApi = {
     if (!dialogApiRef) return Promise.resolve();
     return dialogApiRef.showAlert(opts);
   },
+
   showConfirm: (opts) => {
     if (!dialogApiRef) return Promise.resolve(false);
     return dialogApiRef.showConfirm(opts);
@@ -120,6 +123,17 @@ interface ToastState {
   message: string;
   variant: DialogVariant;
   action?: ToastOptions["action"];
+}
+
+/** An error's raw text, folded away under "Show details": for a bug report,
+ *  not for reading. Selectable, so it can be copied. */
+export function ErrorDetails({ detail }: { detail: string }) {
+  return (
+    <details className="error-details">
+      <summary>Show details</summary>
+      <pre>{detail}</pre>
+    </details>
+  );
 }
 
 /** The pick list's row after `key` from row `at` of `count`, or null for a
@@ -423,6 +437,7 @@ export function DialogHost() {
             </div>
             <div style={{ ...body, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
               {state.opts.message}
+              {state.opts.detail && <ErrorDetails detail={state.opts.detail} />}
             </div>
             <div style={footer}>
               <button ref={primaryRef} onClick={alertOk} style={btn(true)}>{state.opts.okLabel ?? "ok"}</button>

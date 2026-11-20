@@ -106,13 +106,13 @@ mod platform {
         // Said on stderr, for anyone running the app from a terminal: a drag
         // the compositor refuses ends here without any other sign.
         let failed = win.connect_drag_failed(|_, _, result| {
-            eprintln!("drag out: failed ({result:?})");
+            log::warn!("drag out: failed ({result:?})");
             gtk::glib::Propagation::Proceed
         });
         // drag-end comes once per drag, whether it was dropped or not; only a
         // drag-failed line before it says the drop didn't take.
         let end = win.connect_drag_end(|w, _| {
-            eprintln!("drag out: ended");
+            log::debug!("drag out: ended");
             clear_handlers(w);
         });
         HANDLERS.with(|h| h.borrow_mut().extend([data, failed, end]));
@@ -122,7 +122,7 @@ mod platform {
         match win.drag_begin_with_coordinates(&targets, gtk::gdk::DragAction::COPY, 1, None, -1, -1) {
             Some(ctx) => {
                 ctx.drag_set_icon_default();
-                eprintln!("drag out: started with {} item(s)", paths.len());
+                log::debug!("drag out: started with {} item(s)", paths.len());
                 Ok(())
             }
             None => {
@@ -149,7 +149,7 @@ mod platform {
                 let options = drag::Options { mode: drag::DragMode::Copy, ..Default::default() };
                 let item = drag::DragItem::Files(paths);
                 if let Err(e) = drag::start_drag(&w, item, drag::Image::Raw(ICON.to_vec()), |_, _| {}, options) {
-                    eprintln!("drag out: {e}");
+                    log::warn!("drag out: {e}");
                 }
             })
             .map_err(|e| e.to_string())

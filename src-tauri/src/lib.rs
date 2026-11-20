@@ -1,5 +1,8 @@
 mod chooser;
 mod commands;
+mod diagnostics;
+mod error;
+mod fatal;
 mod migrate;
 mod ops;
 #[cfg(target_os = "linux")]
@@ -33,9 +36,14 @@ pub(crate) fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
 }
 
 pub fn run() {
-    migrate::run();
-    match startup::from_env() {
-        startup::Startup::Window(launch) => run_window(launch),
+    let startup = startup::from_env();
+    diagnostics::install_panic_hook(!matches!(startup, startup::Startup::FatalDialog(_)));
+    if let startup::Startup::FatalDialog(why) = startup {
+        std::process::exit(fatal::run(why));
+    }
+    let migrated = migrate::run();
+    match startup {
+        startup::Startup::Window(launch) => run_window(launch, &migrated),
         startup::Startup::IntegrationOn(features) => std::process::exit(commands::integration::on_from_cli(&features)),
         startup::Startup::IntegrationOff(features) => std::process::exit(commands::integration::off_from_cli(&features)),
         #[cfg(target_os = "linux")]
@@ -52,6 +60,7 @@ pub fn run() {
             eprintln!("glasshouse --chooser: the file chooser is Linux only");
             std::process::exit(2)
         }
+        startup::Startup::FatalDialog(_) => unreachable!("handled before the migration"),
     }
 }
 
@@ -64,6 +73,7 @@ fn context() -> tauri::Context<tauri::Wry> {
 /// Plugins, managed state and every command, for both kinds of window.
 fn builder() -> tauri::Builder<tauri::Wry> {
     tauri::Builder::default()
+        .plugin(diagnostics::plugin())
         .plugin(tauri_plugin_dialog::init())
         // Used from update.rs only; the webview gets none of its commands.
         .plugin(tauri_plugin_updater::Builder::new().build())
@@ -165,6 +175,8 @@ fn builder() -> tauri::Builder<tauri::Wry> {
             commands::system::path_space,
             commands::places::desktop_places,
             commands::system::net_rate,
+            diagnostics::bug_report_info,
+            diagnostics::log_dir,
             watcher::watch_dir,
             watcher::unwatch_dir,
             pty::pty_spawn,
@@ -174,7 +186,7 @@ fn builder() -> tauri::Builder<tauri::Wry> {
         ])
 }
 
-fn run_window(launch: Option<startup::LaunchRequest>) {
+fn run_window(launch: Option<startup::LaunchRequest>, migrated: &[(log::Level, String)]) {
     // Before anything starts a thread: this sets environment variables.
     // GTK sends DESKTOP_STARTUP_ID when it maps the window: the
     // xdg-activation token on Wayland, the startup-notification ID on X11.
@@ -182,9 +194,16 @@ fn run_window(launch: Option<startup::LaunchRequest>) {
     startup::take_activation_token();
     #[cfg(windows)]
     commands::drive_letters::no_critical_error_boxes();
-    let app = builder()
-        .build(context())
-        .expect("error while building tauri application");
+    // Without WebView2 the window can't be made, and the app would just
+    // close. The installers bring it; a copied exe or a broken install may not.
+    #[cfg(windows)]
+    if let Err(e) = tauri::webview_version() {
+        diagnostics::log_error(&format!("no WebView2 runtime: {e}"));
+        fatal::show(fatal::Fatal::NoWebView);
+        std::process::exit(1);
+    }
+    let app = builder().build(context()).unwrap_or_else(|e| diagnostics::start_failed(&e));
+    diagnostics::log_start(&app.package_info().version.to_string(), migrated);
     // Built but not run: the main window is made when the app runs, so the
     // window-state plugin, which restores a window as it's made, can still
     // be left out of a process that doesn't own the session (session.rs).
@@ -205,7 +224,7 @@ fn run_window(launch: Option<startup::LaunchRequest>) {
         let registered = match app.handle().plugin(window_state) {
             Ok(()) => true,
             Err(e) => {
-                eprintln!("window-state plugin: {e}");
+                log::warn!("window-state plugin: {e}");
                 false
             }
         };
@@ -218,6 +237,7 @@ fn run_window(launch: Option<startup::LaunchRequest>) {
         // Ready comes once, right after the window is made and restored,
         // before anything is painted.
         if let tauri::RunEvent::Ready = event {
+            diagnostics::started();
             window_fit::fit_main(handle, fit);
         }
     });
@@ -241,12 +261,16 @@ fn run_chooser(state: chooser::Chooser) {
         w.decorations = true;
         w.drag_drop_enabled = false;
     }
-    let app = builder().build(ctx).expect("error while building tauri application");
+    let app = builder().build(ctx).unwrap_or_else(|e| diagnostics::start_failed(&e));
+    diagnostics::log_start(&app.package_info().version.to_string(), &[]);
     app.manage(session::SessionOwner::guest());
     app.manage(startup::Launch(None));
     app.manage(state);
     app.run(|handle, event| match event {
-        tauri::RunEvent::Ready => window_fit::fit_main(handle, window_fit::Start::Fresh),
+        tauri::RunEvent::Ready => {
+            diagnostics::started();
+            window_fit::fit_main(handle, window_fit::Start::Fresh)
+        }
         tauri::RunEvent::Exit => chooser::at_exit(&handle.state::<chooser::Chooser>()),
         _ => {}
     });

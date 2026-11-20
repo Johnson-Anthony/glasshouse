@@ -62,5 +62,5 @@ The notes are the CHANGELOG section as markdown. The dialog shows them as text (
 - No "skip this version" or delta updates. The automatic check already reports each version once.
 - No .rpm is built. If one is added, it gets the release-page link, since latest.json has no rpm entry.
 
-## README (task 43)
-For the privacy section: "glasshouse makes no network requests unless you ask. Help → Check for Updates, or Preferences → Updates → Check for updates automatically (off by default; once a day at most), fetches the latest release's `latest.json` from github.com. Nothing about you or your computer is sent, and an update downloads and installs only when you choose Install. A `.deb` install isn't updated by the app: it tells you a new `.deb` is out."
+## README and the manual checklists
+Task 43's README (merged before this task) described the check as planned. Its Privacy section, Windows "Updating", the .deb and AppImage update sentences and Known limitations now say what ships: checks off until asked for, one request with nothing about the user, installs only on Install; in the app for the two Windows installers and a writable AppImage, a link for the .deb; 0.2.0 updated by hand. `docs/testing/` gains W14 and L12, the update checks a person runs with two real releases.

@@ -58,6 +58,9 @@ pub enum Startup {
     IntegrationOff(Vec<String>),
     /// `--chooser`: a file chooser dialog (the request comes on stdin).
     Chooser,
+    /// `--fatal-dialog WHY`: the box saying glasshouse had to stop
+    /// (`fatal.rs`); None when WHY isn't one it knows.
+    FatalDialog(Option<crate::fatal::Fatal>),
 }
 
 /// The command line this process was started with.
@@ -79,6 +82,10 @@ pub fn parse(args: &[OsString], cwd: &Path) -> Startup {
             };
         }
         Some("--chooser") => return Startup::Chooser,
+        Some("--fatal-dialog") => {
+            let why = args.get(1).and_then(|a| a.to_str()).and_then(crate::fatal::Fatal::from_arg);
+            return Startup::FatalDialog(why);
+        }
         _ => {}
     }
     let mut mode = LaunchMode::Open;
@@ -304,6 +311,8 @@ mod tests {
         assert_eq!(parse(&args(&["--integration-off"]), cwd), Startup::IntegrationOff(vec![]));
         assert_eq!(parse(&args(&["--integration-off", "dialogs"]), cwd), Startup::IntegrationOff(vec!["dialogs".into()]));
         assert_eq!(parse(&args(&["--chooser"]), cwd), Startup::Chooser);
+        assert_eq!(parse(&args(&["--fatal-dialog", "crash"]), cwd), Startup::FatalDialog(Some(crate::fatal::Fatal::Crash)));
+        assert_eq!(parse(&args(&["--fatal-dialog", "nope"]), cwd), Startup::FatalDialog(None));
         assert_eq!(
             parse(&args(&["--integration-on", "folders", "file-manager"]), cwd),
             Startup::IntegrationOn(vec!["folders".into(), "file-manager".into()])

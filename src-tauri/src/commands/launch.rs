@@ -1,6 +1,7 @@
 #[cfg(not(windows))]
 use std::path::Path;
 use std::path::PathBuf;
+use crate::error::{Action, AppError, Kind};
 use crate::pty::profiles::{check_profile, detect_shells, ShellProfile};
 
 // ---------- open / reveal ----------
@@ -69,7 +70,7 @@ pub fn reveal_in_explorer(path: String) -> Result<Revealed, String> {
         std::thread::spawn(move || {
             let p = Path::new(&path);
             if let Err(e) = show_items_dbus(p) {
-                eprintln!("reveal: FileManager1.ShowItems failed ({e}); opening the parent");
+                log::warn!("reveal: FileManager1.ShowItems failed ({e}); opening the parent");
                 let _ = open_parent(p);
             }
         });
@@ -246,7 +247,7 @@ pub fn spawn_terminal(path: String) -> Result<(), String> {
                 }
                 Err(e) => {
                     // fall through to pwsh/powershell
-                    eprintln!("wt.exe spawn failed: {}, falling back", e);
+                    log::info!("wt.exe spawn failed: {}, falling back", e);
                 }
             }
         }
@@ -270,7 +271,7 @@ pub fn spawn_terminal(path: String) -> Result<(), String> {
                     return Ok(());
                 }
                 Err(e) => {
-                    eprintln!("pwsh.exe spawn failed: {}, falling back", e);
+                    log::info!("pwsh.exe spawn failed: {}, falling back", e);
                 }
             }
         }
@@ -316,9 +317,10 @@ fn find_tool_in(names: &[&str], path: Option<std::ffi::OsString>) -> Option<Path
         .find_map(|n| which::which_in(n, path.as_ref(), &cwd).ok())
 }
 
-/// `find_tool`, with a miss reported as `what` not being on PATH.
-pub(super) fn require_tool(what: &str, names: &[&str]) -> Result<PathBuf, String> {
-    find_tool(names).ok_or_else(|| format!("{} not found on PATH (tried {})", what, names.join(", ")))
+/// `find_tool`, with a miss reported as `missing` (what needs it and how to
+/// get it).
+pub(super) fn require_tool(names: &[&str], missing: &str) -> Result<PathBuf, AppError> {
+    find_tool(names).ok_or_else(|| AppError::missing_tool(missing, names))
 }
 
 /// VS Code launchers in preference order: Microsoft's build, then VSCodium,
@@ -330,10 +332,14 @@ const VSCODE_NAMES: &[&str] = &["code", "codium", "code-oss"];
 
 /// Open VS Code at `path` (file or folder).
 #[tauri::command(async)]
-pub fn spawn_vscode(path: String) -> Result<(), String> {
+pub fn spawn_vscode(path: String) -> Result<(), AppError> {
     use std::process::{Command, Stdio};
 
-    let program = require_tool("VS Code", VSCODE_NAMES)?.into_os_string();
+    let program = require_tool(
+        VSCODE_NAMES,
+        "VS Code wasn't found. Install VS Code or VSCodium, and make sure its “code” command is on PATH.",
+    )?
+    .into_os_string();
 
     #[cfg(windows)]
     {
@@ -349,7 +355,7 @@ pub fn spawn_vscode(path: String) -> Result<(), String> {
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .spawn()
-            .map_err(|e| format!("spawn code: {}", e))?;
+            .map_err(|e| AppError::io(Action::Start, &program, &e))?;
         reap(child);
         Ok(())
     }
@@ -361,7 +367,7 @@ pub fn spawn_vscode(path: String) -> Result<(), String> {
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .spawn()
-            .map_err(|e| format!("spawn code: {}", e))?;
+            .map_err(|e| AppError::io(Action::Start, &program, &e))?;
         reap(child);
         Ok(())
     }
@@ -580,20 +586,23 @@ fn check_open_url(url: &str) -> Result<(), String> {
     let scheme = url.split_once(':').map(|(s, _)| s.to_ascii_lowercase());
     let ok_scheme = matches!(scheme.as_deref(), Some("http" | "https" | "mailto"));
     if !ok_scheme || url.chars().any(char::is_control) {
-        return Err(format!("open_url: only http, https and mailto links can be opened: {}", url));
+        return Err(format!("only http, https and mailto links can be opened: {}", url));
     }
     Ok(())
 }
 
 /// Open `url` in the system default browser.
 #[tauri::command(async)]
-pub fn open_url(url: String) -> Result<(), String> {
+pub fn open_url(url: String) -> Result<(), AppError> {
     check_open_url(&url)?;
+    let failed = |e: &dyn std::fmt::Display| {
+        AppError::new(Kind::Other, None, "Couldn't open the link in your web browser.", format!("open {url}: {e}"))
+    };
     #[cfg(windows)]
     {
         // ShellExecuteExW, not `cmd /C start`: cmd split the URL at every `&`
         // (so query strings broke) and ran what followed as a command.
-        tauri_plugin_opener::open_url(&url, None::<&str>).map_err(|e| format!("open_url: {}", e))
+        tauri_plugin_opener::open_url(&url, None::<&str>).map_err(|e| failed(&e))
     }
     #[cfg(target_os = "macos")]
     {
@@ -601,7 +610,7 @@ pub fn open_url(url: String) -> Result<(), String> {
             .arg(&url)
             .spawn()
             .map(reap)
-            .map_err(|e| format!("open_url: {}", e))
+            .map_err(|e| failed(&e))
     }
     #[cfg(all(unix, not(target_os = "macos")))]
     {
@@ -609,7 +618,7 @@ pub fn open_url(url: String) -> Result<(), String> {
             .arg(&url)
             .spawn()
             .map(reap)
-            .map_err(|e| format!("open_url: {}", e))
+            .map_err(|e| failed(&e))
     }
 }
 
@@ -709,7 +718,7 @@ pub fn spawn_terminal_profile(profile: ShellProfile, cwd: String) -> Result<(), 
                     return Ok(());
                 }
                 Err(e) => {
-                    eprintln!("wt.exe spawn failed: {}, falling back", e);
+                    log::info!("wt.exe spawn failed: {}, falling back", e);
                 }
             }
         }

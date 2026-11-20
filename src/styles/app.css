@@ -112,9 +112,34 @@ html, body {
   -webkit-user-select: none;
 }
 
-.insp-preview, input, textarea, [contenteditable] {
+.insp-preview, input, textarea, [contenteditable], .error-details pre {
   user-select: text;
   -webkit-user-select: text;
+}
+
+/* An error's raw text under its sentence (ErrorDetails): folded away, in
+   the dialogs, the folder pane's notice and the crash screen. */
+.error-details {
+  margin-top: 10px;
+  color: var(--fg-3);
+  font-size: 11px;
+}
+.error-details summary {
+  cursor: pointer;
+  width: max-content;
+}
+.error-details pre {
+  margin: 6px 0 0;
+  padding: 6px 8px;
+  max-height: 30vh;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-family: var(--font-mono);
+  color: var(--fg-2);
+  background: var(--bg-0, #0f0f14);
+  border: 1px solid var(--border, var(--fg-3));
+  border-radius: 3px;
 }
 
 /* The look's switches (look.ts sets them on <html>; Preferences →
@@ -2447,3 +2472,68 @@ html[data-focused-pane="terminal"] .term-drawer {
   .app { border: 1px solid CanvasText; }
 }
 
+
+/* CrashScreen: the whole window, when rendering failed. Plain on purpose:
+   it must work whatever broke. */
+.crash-screen {
+  position: fixed;
+  inset: 0;
+  overflow: auto;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 12vh 16px 24px;
+  background: var(--bg-0, #0f0f14);
+  color: var(--fg-1, #c0caf5);
+  font-family: var(--font-mono, monospace);
+  font-size: 13px;
+}
+.crash-panel {
+  width: 72ch;
+  max-width: 100%;
+}
+.crash-panel h1 {
+  margin: 0 0 10px;
+  font-size: 16px;
+  color: var(--red, #f7768e);
+}
+.crash-panel p {
+  margin: 0 0 12px;
+  line-height: 1.5;
+}
+.crash-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0 0 12px;
+}
+.crash-buttons button {
+  background: transparent;
+  border: 1px solid var(--fg-3, #565f89);
+  color: var(--fg-1, #c0caf5);
+  padding: 4px 14px;
+  border-radius: 3px;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.crash-buttons button.primary {
+  background: var(--accent, #7aa2f7);
+  border-color: var(--accent, #7aa2f7);
+  color: var(--bg-0, #0f0f14);
+}
+.crash-problem {
+  color: var(--red, #f7768e);
+}
+.crash-report {
+  padding: 10px 12px;
+  margin: 0 0 12px;
+  border: 1px solid var(--border, var(--fg-3, #565f89));
+  border-radius: 4px;
+}
+.crash-report pre {
+  margin: 0 0 12px;
+  white-space: pre-wrap;
+  user-select: text;
+  -webkit-user-select: text;
+}

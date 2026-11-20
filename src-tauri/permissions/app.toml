@@ -9,7 +9,7 @@
 
 [[permission]]
 identifier = "files-read"
-description = "Read files, folders and system info (including which apps open a file type); hash, diff and search files; watch folders; cancel a running hash, copy or search."
+description = "Read files, folders and system info (including which apps open a file type, and the OS, desktop and webview versions Report Bug… fills in); hash, diff and search files; watch folders; cancel a running hash, copy or search."
 commands.allow = [
   "home_dir",
   "list_dir",
@@ -37,6 +37,7 @@ commands.allow = [
   "trash_list",
   "trash_unsupported",
   "net_rate",
+  "bug_report_info",
   "win_to_wsl",
   "archive_can_handle",
   "list_shell_profiles",
@@ -90,7 +91,7 @@ commands.allow = [
 
 [[permission]]
 identifier = "settings"
-description = "Read and write the app's own pins, tags, saved remotes and recent folders; ask whether this window saves the session and which paths it was started with; as a file chooser for another app, read its request, show the dialog and answer it; read and change Preferences → Integration (glasshouse as the desktop's folder handler, FileManager1 service and file chooser: mimeapps.list, a desktop entry, D-Bus service files, the portal's backend file and config and environment.d lines on Linux, the HKCU folder verb on Windows)."
+description = "Read and write the app's own pins, tags, saved remotes and recent folders; find (and make) its log folder; ask whether this window saves the session and which paths it was started with; as a file chooser for another app, read its request, show the dialog and answer it; read and change Preferences → Integration (glasshouse as the desktop's folder handler, FileManager1 service and file chooser: mimeapps.list, a desktop entry, D-Bus service files, the portal's backend file and config and environment.d lines on Linux, the HKCU folder verb on Windows)."
 commands.allow = [
   "read_pins",
   "write_pins",
@@ -101,6 +102,7 @@ commands.allow = [
   "read_recent",
   "append_recent",
   "clear_recent",
+  "log_dir",
   "session_owner",
   "launch_request",
   "chooser_request",

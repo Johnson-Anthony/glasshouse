@@ -14,7 +14,7 @@ The scan for the user's own paths and names found none in app code. The gaps are
 |---|---|---|---|---|
 | **Wave 7a: see it run, and make failures reportable** |||||
 | 32 | e2e-smoke | CI + test code | S–M | merged (`gifted-bun-817ccd`, 11-20) |
-| 33 | diagnostics-and-errors | both | M | chip offered 11-20 |
+| 33 | diagnostics-and-errors | both | M | running (11-20) |
 | 34 | windows-paths | Rust + a little frontend | M | queued |
 | 35 | release-identity | Rust + config + CI | M | merged 11-20 (`claude/stoic-hermann-165fd0`; Tauri rejects `_`, so the id is `io.github.johnson-anthony.glasshouse`, with `johnson_anthony` only in D-Bus interface names and paths; `docs/decisions/2026-11-20-release-identity-id-form.md`) |
 | **Wave 7b: works like other file managers** |||||
@@ -24,16 +24,17 @@ The scan for the user's own paths and names found none in app code. The gaps are
 | 39 | locale-and-names | frontend (+ a little Rust) | S–M | queued |
 | 40 | first-run-defaults | frontend | S–M | merged 11-20 (`claude/nice-ishizaka-1d4fec`; plan in `docs/plans/completed/first-run-defaults.md`) |
 | 47 | themes-and-cosmetics | frontend | L | merged 11-20 (`claude/elegant-euler-fb95a5`; plan in `docs/plans/completed/themes-and-cosmetics.md`) |
-| 48 | updater | both + CI | M | chip offered 11-20 (the signing key pair is generated; see PROGRESS) |
+| 48 | updater | both + CI | M | running (11-20; the signing key pair is generated; see PROGRESS) |
 | **Wave 7c: devices, transfers, docs** |||||
 | 41 | devices | both | M–L | queued |
 | 42 | transfers-and-cloud | both | M | queued (tell task 25 folder-size about the cloud flag) |
-| 43 | docs-and-community | docs + repo files | S–M | chip offered 11-20 |
+| 43 | docs-and-community | docs + repo files | S–M | merged 11-20 (`claude/elegant-jemison-47aa69`; plan in `docs/plans/completed/docs-and-community.md`) |
 | **Wave 7d: more testing** |||||
 | 44 | e2e-core-flows | test code | M | after 32 |
 | 45 | e2e-nightly-matrix | CI | S–M | after 32 |
 | 46 | release-smoke | CI + docs | M | after 32 and task 30 |
 | 49 | appimage-menu-entry | both | M | queued (split from 35 on 11-20) |
+| 50 | split-and-tear-off | both | L | running (user request 11-20: "split view for tabs" and dragging tabs into their own window "like you can with browsers"; one process with many windows, in three phases) |
 
 Run at most two Rust tasks at once (RAM). Tasks 33, 34, 36 and 37 all touch `src-tauri/src/commands/`, so keep diffs narrow.
 
@@ -246,6 +247,13 @@ The owner wants the themes and cosmetic options expanded massively. Today there 
 - Handle the AppImage moving or being deleted (the entry should not point at nothing), and keep it consistent with the folder-default and file-manager entries, which today start the binary path.
 - *(found by 35)* tauri-bundler's AppImage carries glasshouse.desktop and the icons inside the image only. The integration files already record `$APPIMAGE` (the image's real path) rather than the `/tmp/.mount_*` copy, through `startup.rs`'s `self_exe()`; the menu entry should start the same path. Keep `StartupWMClass=glasshouse` so docks match the window. Moving or deleting the image leaves every one of those entries (the existing ones and the new one) pointing at nothing.
 
+## 50. split-and-tear-off (both, L; user request 2026-11-20)
+The owner asked for "split view for tabs and also to be able to drag drop tabs into their own window like you can with browsers".
+- **Split view:** two panes side by side (and top/bottom as an option), each with its own tab bar, like editor groups. Drag a tab onto the other pane's tab bar to move it there, or to the left/right edge of the file area to split. View → Split, a shortcut, a Close Split that merges the tabs back, and a keyboard way to switch panes. The pane with focus drives the menus, the status bar, the Inspector and the terminal's Follow Folder. Copy and move between the two panes by drag already works through the file drag; add "Copy to/Move to the other pane" commands. Split state is part of the saved session.
+- **Tear off:** drag a tab out of the window and drop it where no glasshouse tab bar takes it, and it opens in a new window there (a new process, as File → New Window is), keeping its folder, sort, view and history, and closes in the old window. Drop it on another glasshouse window's tab bar and it moves there. A tab bar context menu gets "Move to New Window". Windows are separate processes (`spawn_new_window` in `commands/launch.rs`, `session.rs`), so the move between windows needs a way across processes: the OS drag (`commands/drag_out.rs` already starts native drags) or a local channel. The plan should choose one and say why.
+- **Where it applies:** Linux (X11 and Wayland, where windows can't place themselves) and Windows. Private tabs stay private when they move.
+- **Changed 11-20, on the owner's question "why do we do it that way if browsers dont":** glasshouse moves to one process with many windows, as browsers do, so tabs move between windows in memory. Three phases, each merged on its own: (1) split view; (2) one process, many windows: New Window, the command line, a second launch and the FileManager1 resident open windows in the running app; backend events scoped per window; the session saves every window; (3) tear-off. The file-chooser dialog may stay a process per dialog. Trade-off: a Rust panic closes every window (web content still runs in separate WebKit/WebView2 processes).
+
 ## Found by tasks
 - *(from e2e-smoke, for 44)* Reuse `e2e/harness.mjs` and its `waitFor`, not sleeps. Fixtures are made per run in a scratch dir, but on Windows the run uses the runner's real profile, so use unique names. Put the Trash fixture under the scratch `XDG_DATA_HOME`. A task that needs a D-Bus service in the test drops its `.service` file into the scratch `$XDG_DATA_HOME/dbus-1/services`.
 - *(from e2e-smoke, for 45)* ubuntu-22.04 retires on 2027-04-17, with brownouts before that (runner-images#14254). release.yml builds Linux there too, so move both together. The windows-latest D: drive becomes ReFS from 2026-11-30 (#15315); the checkout and build are on D:, the fixture on C:. Add the release exe (the debug exe is a console program). Make e2e blocking after about two green weeks.
@@ -267,3 +275,9 @@ The owner wants the themes and cosmetic options expanded massively. Today there 
 - *(from first-run-defaults)* The site's hero images and tour clips in `docs/media` still show the old status bar (READY, the i/o graph); `pnpm site:capture` re-records them.
 - *(from first-run-defaults)* A window restored maximized whose saved normal size doesn't fit the screen still un-maximizes too big.
 - *(from first-run-defaults, for 45)* Not run: Windows (Quick Access, `GetDiskFreeSpaceExW`, the window fit), a second window's fit on Linux, and the fit under a real window manager or Wayland compositor (positions are ignored there). KDE's and GNOME's bookmark files were tested as files.
+- *(from docs-and-community, for 34)* On Windows, .7z support needs 7-Zip on PATH: `find_tool` looks only on PATH, and 7-Zip's installer doesn't add itself there. Also look in `%ProgramFiles%\7-Zip` (and the x86 one); the README now tells users to add it to PATH by hand.
+- *(from docs-and-community, for 34)* On Windows, the terminal's "bash" profile is the first `bash.exe` on PATH, usually `System32\bash.exe` (WSL's launcher), not Git Bash. Unverified on a real PC; `docs/testing/windows.md` W9.1 checks it.
+- *(from docs-and-community, for 48)* When the updater lands, update README "Privacy" (the "Update checks (planned)" paragraph), "Known limitations" ("No automatic updates yet") and the .deb and AppImage update sentences under "Linux".
+- *(from docs-and-community, for 33)* README "Getting help" says "Help → Open Log Folder (planned)", with no log path, and the bug form's intro and README say Report Bug… pre-fills `version`, `os`, `desktop` and `webview` (`?template=bug_report.yml&…`). Both are true only once 33 lands.
+- *(from docs-and-community, for 49)* README "Linux" says an AppImage doesn't add itself to the app menu; so does `docs/testing/linux.md` L2.3.
+- *(from docs-and-community)* No code of conduct yet: it needs a contact for reports, and the owner hasn't picked one.

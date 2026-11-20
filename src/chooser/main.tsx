@@ -7,8 +7,10 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import { Chooser, type ChooserSettings } from "./Chooser";
-import { chooserFinish, chooserRequest, homeDir, winSetTheme } from "../api";
+import { chooserFinish, chooserReady, chooserRequest, homeDir, winSetTheme } from "../api";
 import { applyZoom, validZoom } from "../zoom";
+import { ErrorBoundary } from "../CrashScreen";
+import { logUncaught } from "../log";
 import "../styles/themes.css";
 import "../styles/app.css";
 import "./chooser.css";
@@ -38,16 +40,20 @@ const settings: ChooserSettings = {
   showSidebar: tweaks.showSidebar !== false,
 };
 
+logUncaught();
+const cancel = () => void chooserFinish({ response: 2, paths: [], choices: [], currentFilter: null });
 const mount = ReactDOM.createRoot(document.getElementById("root")!);
 void Promise.all([chooserRequest(), homeDir()]).then(([view, home]) => {
   if (!view) {
     // Not started for a request: nothing to show, so answer "cancelled".
-    void chooserFinish({ response: 2, paths: [], choices: [], currentFilter: null });
+    cancel();
     return;
   }
   mount.render(
     <React.StrictMode>
-      <Chooser view={view} home={home} settings={settings} />
+      <ErrorBoundary onCancel={cancel} onCrash={() => void chooserReady()}>
+        <Chooser view={view} home={home} settings={settings} />
+      </ErrorBoundary>
     </React.StrictMode>,
   );
 });
