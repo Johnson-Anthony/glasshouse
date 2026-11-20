@@ -7,6 +7,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { loadSession, SESSION_KEY } from "./session";
 import { closeSplit, findTab, moveTabTo, single, splitWithTab } from "./tabLayout";
+import type { TabSeed } from "./state";
 import { makeTab } from "./tabs";
 import { useTabLayout, type TabLayoutApi } from "./useTabLayout";
 
@@ -15,14 +16,23 @@ let mounts = 0;
 
 vi.mock("./state", async (orig) => ({
   ...(await orig<typeof import("./state")>()),
-  useTabState: (initialPath: string, isPrivate = false, _active = true, initialSort?: { key: string; dir: string }) => {
+  useTabState: (initialPath: string, isPrivate = false, _active = true, initialSort?: { key: string; dir: string }, seed?: TabSeed) => {
     const [path, setPath] = useState(initialPath);
+    const [back, setBack] = useState<string[]>(seed?.back ?? []);
     const [showHidden, setShowHidden] = useState(false);
+    const [searchQuery, setSearchQuery] = useState(seed?.search ?? "");
     useState(() => ++mounts);
     return useMemo(() => ({
-      state: { path, private: isPrivate, showHidden, sortKey: initialSort?.key ?? "name", sortDir: initialSort?.dir ?? "asc", entries: [] },
-      actions: { goTo: setPath, setShowHidden },
-    }), [path, showHidden]);
+      state: {
+        path, private: isPrivate, showHidden, sortKey: initialSort?.key ?? "name", sortDir: initialSort?.dir ?? "asc", entries: [],
+        historyBack: back, historyForward: seed?.forward ?? [], searchQuery, tagFilter: seed?.tagFilter ?? null,
+      },
+      actions: {
+        goTo: (p: string) => { setBack(b => [...b, path]); setPath(p); },
+        setShowHidden,
+        setSearchQuery,
+      },
+    }), [path, back, showHidden, searchQuery]);
   },
 }));
 
@@ -132,6 +142,24 @@ describe("useTabLayout", () => {
     act(() => api.openNewTab(1));
     expect(api.layout.panes[1].tabs.map(t => t.initialPath)).toEqual(["/b", "/b"]);
     expect(api.layout.focus).toBe(0);
+  });
+
+  it("Duplicate Tab copies the tab's folder, sort, history and filter text, in its pane", async () => {
+    await render();
+    act(() => api.start(single([makeTab("/a", { sort: { key: "size", dir: "desc" } }), makeTab("/b")]), true));
+    const id = api.layout.panes[0].tabs[0].id;
+    act(() => api.handles[id].actions.goTo("/a/x"));
+    act(() => (api.handles[id].actions as unknown as { setSearchQuery: (q: string) => void }).setSearchQuery("notes"));
+    act(() => api.duplicateTabAt(0, 0));
+    const copy = api.layout.panes[0].tabs[2];
+    const h = api.handles[copy.id];
+    expect(h.state.path).toBe("/a/x");
+    expect(h.state.historyBack).toEqual(["/a"]);
+    expect(h.state.searchQuery).toBe("notes");
+    expect([h.state.sortKey, h.state.sortDir]).toEqual(["size", "desc"]);
+    // Its own history from here: the original's doesn't change with it.
+    act(() => h.actions.goTo("/a/x/y"));
+    expect(api.handles[id].state.historyBack).toEqual(["/a"]);
   });
 
   it("closing a split pane's last tab unsplits; every shown tab follows Show Hidden", async () => {

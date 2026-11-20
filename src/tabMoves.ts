@@ -1,8 +1,8 @@
 // Where a dragged tab goes in its window: a tab bar (reorder, or into the
 // other pane), the edge of the file area (split with it), or the other
 // pane's file area. The layout changes are tabLayout.ts's; tabDrag.ts
-// follows the pointer. Dragging a tab out to another window is a later
-// phase (docs/plans/completed/split-and-tear-off.md).
+// follows the pointer. Dragging a tab out to another window comes later
+// (docs/decisions/2026-11-20-split-and-tear-off-phases.md).
 import type React from "react";
 import { useRef } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";

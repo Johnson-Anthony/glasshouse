@@ -3,10 +3,10 @@
 // the operations the menus, keys and drags use. The owner of the session
 // (session.ts) saves the layout whenever it, or a tab's folder or sort,
 // changes. Moved out of App.tsx for split view; see
-// docs/plans/completed/split-and-tear-off.md.
+// docs/decisions/2026-11-20-split-and-tear-off-session.md.
 
 import { useEffect, useRef, useState } from "react";
-import { registerTabListMutator, useTabState, type UseTabResult } from "./state";
+import { registerTabListMutator, useTabState, type TabSeed, type UseTabResult } from "./state";
 import { makeTab, moveTab as moveTabIn, tabLabel, type TabRecord } from "./tabs";
 import {
   addTab,
@@ -21,6 +21,7 @@ import {
   type Layout,
 } from "./tabLayout";
 import { DEFAULT_SORT, saveSession, sessionOf, type TabSort } from "./session";
+import { recordFromTransfer, transferOf } from "./tabTransfer";
 
 /** The sort a new tab opened from `h` starts with. */
 export function sortOf(h: UseTabResult | undefined): TabSort | undefined {
@@ -31,6 +32,7 @@ interface TabShellProps {
   id: number;
   initialPath: string;
   initialSort?: TabSort;
+  seed?: TabSeed;
   isPrivate?: boolean;
   /** Shown in a pane; the others don't poll (see useTabState). */
   active: boolean;
@@ -38,8 +40,8 @@ interface TabShellProps {
   onReady: (id: number, r: UseTabResult | null) => void;
 }
 
-function TabShell({ id, initialPath, initialSort, isPrivate, active, onReady }: TabShellProps) {
-  const tab = useTabState(initialPath, !!isPrivate, active, initialSort);
+function TabShell({ id, initialPath, initialSort, seed, isPrivate, active, onReady }: TabShellProps) {
+  const tab = useTabState(initialPath, !!isPrivate, active, initialSort, seed);
   const onReadyRef = useRef(onReady);
   useEffect(() => { onReadyRef.current = onReady; });
   useEffect(() => {
@@ -176,8 +178,10 @@ export function useTabLayout(fallbackPath: () => string, hidden: boolean): TabLa
       const at = focusOr(p);
       const t = layout.panes[at]?.tabs[i];
       if (!t) return;
-      // The live folder and sort of that tab, if it has a handle.
-      const copy = copyOf(handles[t.id], t);
+      // That tab's live folder, sort, history and filters, if it has a
+      // handle; else what it opened with.
+      const h = handles[t.id];
+      const copy = h ? recordFromTransfer(transferOf(h.state)) : copyOf(undefined, t);
       setLayout(l => addTab(l, at, copy, undefined, false));
     },
     copyOf,
@@ -193,6 +197,7 @@ export function useTabLayout(fallbackPath: () => string, hidden: boolean): TabLa
             id={t.id}
             initialPath={t.initialPath}
             initialSort={t.initialSort}
+            seed={t.seed}
             isPrivate={t.private}
             active={shown.includes(t.id)}
             onReady={(id, r) => setHandles(prev => {

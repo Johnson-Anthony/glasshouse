@@ -6,6 +6,7 @@
 
 import type { TabDef } from "./components";
 import type { TabSort } from "./session";
+import type { TabSeed } from "./state";
 
 export interface TabRecord extends TabDef {
   id: number;
@@ -13,6 +14,8 @@ export interface TabRecord extends TabDef {
   initialPath: string;
   /** The sort it starts with, also only read on mount. Name when unset. */
   initialSort?: TabSort;
+  /** History and filters for a tab made from another one; mount only. */
+  seed?: TabSeed;
   private: boolean;
 }
 
@@ -28,7 +31,7 @@ export function tabLabel(path: string, isPrivate: boolean): string {
   return isPrivate ? `(private) ${path}` : path;
 }
 
-export function makeTab(path: string, opts: { private?: boolean; color?: string; sort?: TabSort } = {}): TabRecord {
+export function makeTab(path: string, opts: { private?: boolean; color?: string; sort?: TabSort; seed?: TabSeed } = {}): TabRecord {
   const isPrivate = !!opts.private;
   return {
     id: nextTabId++,
@@ -37,6 +40,7 @@ export function makeTab(path: string, opts: { private?: boolean; color?: string;
     label: tabLabel(path, isPrivate),
     initialPath: path,
     initialSort: opts.sort,
+    seed: opts.seed,
     private: isPrivate,
   };
 }

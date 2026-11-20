@@ -189,14 +189,23 @@ export function newTab(path?: string, opts?: { private?: boolean }): void {
   tabListMutator?.newTab(path, opts);
 }
 
+/** What a tab made from another one starts with, besides its folder and
+ *  sort: its history and filters (tabTransfer.ts). Only read on mount. */
+export interface TabSeed {
+  back: string[];
+  forward: string[];
+  search: string;
+  tagFilter: string | null;
+}
+
 /** `active`: the tab is the one shown. A tab in the background doesn't
  *  re-list on the poll or on watcher reports; it notes that it missed one
  *  and re-lists once when it's shown again. */
-export function useTabState(initialPath: string, isPrivate: boolean = false, active: boolean = true, initialSort?: TabSort): UseTabResult {
+export function useTabState(initialPath: string, isPrivate: boolean = false, active: boolean = true, initialSort?: TabSort, seed?: TabSeed): UseTabResult {
   // Path and history live in one value. navRef is the source of truth for the
   // actions and is updated synchronously, so two navigations in the same tick
   // build on each other; the state copy is what renders.
-  const navRef = useRef<NavState>(navInit(initialPath));
+  const navRef = useRef<NavState>(seed ? { path: initialPath, back: [...seed.back], forward: [...seed.forward] } : navInit(initialPath));
   const [nav, setNavState] = useState<NavState>(navRef.current);
   const { path, back: historyBack, forward: historyForward } = nav;
   // Entries, selection, focus and anchor change together; see listing.ts.
@@ -209,8 +218,8 @@ export function useTabState(initialPath: string, isPrivate: boolean = false, act
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [refreshTick, setRefreshTick] = useState<number>(0);
-  const [tagFilter, setTagFilter] = useState<string | null>(null);
-  const [searchQuery, setSearchQuery] = useState<string>("");
+  const [tagFilter, setTagFilter] = useState<string | null>(seed?.tagFilter ?? null);
+  const [searchQuery, setSearchQuery] = useState<string>(seed?.search ?? "");
 
   // The index setters are bound to the entries they were rendered with, so
   // indexes from this render still mean the same files if a re-list lands

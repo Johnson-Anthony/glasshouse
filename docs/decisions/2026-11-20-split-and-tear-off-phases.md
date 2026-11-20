@@ -1,33 +1,40 @@
-# split-and-tear-off: this branch is phase 1 (split view); tear-off waits for one process
+# split-and-tear-off: three phases; phase 1 is split view
 
-Date: 2026-11-20. Task: `split-and-tear-off` (survey-3 task 50).
+Date: 2026-11-20. Task: `split-and-tear-off` (survey-3 task 50). Open: phases 2 and 3 add their own decisions here or in successor notes.
 
-## What changed
-The task was planned with each window as its own process, so a tab moving between windows had to cross processes. The plan sent to the lead chose:
-- **Linux:** the OS drag, with a custom type (`application/x-glasshouse-tab`) and no folder URI.
-- **Windows:** `WindowFromPoint` and `WM_COPYDATA`.
-- **Tear-off:** a new process that gets the tab on stdin and acks with "ready".
+## The phases
+The owner asked why glasshouse moves tabs between windows the way it was planned, when browsers don't. Since then, glasshouse is moving to one process with many windows, as browsers do (survey-3, commit `93c7069`). Task 50 is three phases, each handed off and merged on its own:
+1. **Split view** (this branch, frontend only).
+2. **One process, many windows.** New Window, the command line, a second launch and the FileManager1 resident open windows in the running app. Backend events are scoped per window, and the session saves every window. The design goes to the lead before building.
+3. **Tear-off, in that one process.** A tab moves to a new window or another window's tab bar in memory, and there's Move to New Window.
 
-After that, the owner asked why glasshouse does it that way when browsers don't. The backlog (survey-3, commit `93c7069`) now splits task 50 into three phases, each merged on its own:
-1. split view;
-2. one process with many windows;
-3. tear-off, with tabs moving between windows in memory.
+## Phase 1, as built
+- Split view:
+  - two panes, side by side or top and bottom, each with its own tab bar;
+  - the focus drives the menus, toolbar, status bar, Inspector and Follow Folder;
+  - a draggable divider.
+- View → Split: Ctrl+\\, Split Top and Bottom, Focus Other Pane (Ctrl+F6), Swap Panes and Close Split.
+- Copy and Move to Other Pane.
+- The tab drag inside the window: reorder, into the other pane, or to the file area's edge to split. Move to Other Pane on the tab menu.
+- The split saved in the session (`2026-11-20-split-and-tear-off-session.md`).
+- Dragging a window's only tab moves the window (`startDragging()`), as in Chrome. A tab let go outside the window stays where it was until phase 3.
+- The tab transfer record (`src/tabTransfer.ts`: folder, sort, back and forward history, filter text, tag filter, private) is kept for phase 3. Duplicate Tab uses it now, so a duplicate keeps its history and filters as a browser's does.
+- No cross-window code is in phase 1.
 
-## Chosen
-- **This branch delivers phase 1 only:**
-  - split view: two panes, row or column, a tab bar on each, the focus driving the menus, toolbar, status bar and Inspector, and a draggable divider;
-  - View → Split (Ctrl+\\, Ctrl+F6), Swap Panes and Close Split;
-  - Copy and Move to Other Pane;
-  - the tab drag inside the window: reorder, to the other pane, or to the file area's edge to split;
-  - Move to Other Pane on the tab menu;
-  - the split saved in the session.
-- **The cross-process pieces are out,** because phase 3 does without them. Out are the `tab_*` commands, the tab transfer record (`src/tabTransfer.ts`), the history seed on a new tab, the Linux hand-off at the window's edge, "Move to New Window", and the demo's mocks for them.
-- **They aren't lost.** The local branch `claude/split-and-tear-off-xproc-wip` has the full frontend as it was before the cut. It was never pushed. Phase 3 can take from it:
-  - the transfer record: folder, sort, back and forward history, filter text, tag filter, private;
-  - the seed that starts a tab with that history;
-  - the drag controller's "hand off at the edge" and "release outside" modes.
-- **Dragging a window's only tab moves the window** (`startDragging()`), as in Chrome. With nowhere else for it to go in phase 1, this is the only thing that drag can do.
-- **A tab dragged out of the window and let go there stays where it was** until phase 3.
+## Considered and dropped: moving tabs between processes
+The first design kept a process per window, so a tab had to cross processes:
+- **Linux:** a GTK drag carrying the tab as JSON.
+- **Windows:** `WM_COPYDATA` to the window under the cursor.
+- **Tear-off:** a new `glasshouse --tab` process given the tab on stdin, which acked with "ready". Stdin rather than the command line, because `/proc/<pid>/cmdline` is world-readable and a private tab's folder shouldn't show in `ps`.
 
-## What phase 3 still needs from the transport analysis
-One process doesn't remove the need to find the window under the pointer. On Wayland, during a drag the pointer stays grabbed by the window where the press happened, and only the drag-and-drop protocol tells another window that something is over it, even another window of the same process. So on Linux the drag out of the window is still a GTK drag, but its data can be a tab id that the process looks up in memory. On Windows, `WindowFromPoint` finds the window, and no message needs to cross processes. The handlers on each WebKitWebView should act only on the app's own target and leave file drops to wry. That part of the plan still applies.
+It was dropped with the move to one process. The frontend as it stood then is on the local branch `claude/split-and-tear-off-xproc-wip`, never pushed. From it, phase 3 can take the drag controller's "hand off at the window's edge" and "release outside" modes.
+
+**What still holds in one process: the Wayland pointer grab.** On Wayland, during a drag the pointer stays grabbed by the window where the button went down. The app gets no motion events for its other windows, and it can't learn their positions. Only the drag-and-drop protocol tells another window that something is over it, even another window of the same process. So phase 3 still needs an OS drag on Linux:
+- a GTK drag with one custom target, `application/x-glasshouse-tab`, with no folder URI next to it, so no other app takes it;
+- every window's WebKitWebView handles `drag-motion`, `drag-drop` and `drag-data-received` for that target only, and leaves file drops to wry;
+- the tab-bar rectangles are registered with the backend, so `drag-motion` can answer at once;
+- `drag-failed` with `NO_TARGET` means a new window; `USER_CANCELLED` means nothing happens. Whether Wayland compositors report these two apart still has to be checked in nested niri.
+
+The drag's data becomes a window id and a tab id, and the tab itself moves in memory. GTK speaks XDND on X11 through the same calls.
+
+On Windows the source can find the target itself: `WindowFromPoint`, then its root window, checked against the app's own windows, then an in-process move. No message crosses processes.
