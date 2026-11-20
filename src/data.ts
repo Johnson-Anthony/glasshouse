@@ -31,7 +31,8 @@ export interface FileRow {
  *  can dispatch an intent instead of echoing a brittle label string. */
 export type DynamicPayload =
   | { type: "open-path"; path: string }
-  | { type: "run-profile"; profile: import("./api").ShellProfile };
+  | { type: "run-profile"; profile: import("./api").ShellProfile }
+  | { type: "open-with-app"; app: { id: string; name: string }; path: string };
 
 export type MenuItemDef =
   | {
@@ -62,9 +63,13 @@ export type MenuItemDef =
       kind: "dynamic";
       /** Which runtime loader to use for expanding this node. */
       source: DynamicSource;
+      /** The file an `open-with-apps` list is for; App sets it when it
+       *  opens the menu (`withOpenWithPath`). */
+      path?: string;
     };
 
-export type DynamicSource = "recent" | "bookmarks-pinned" | "terminal-profiles" | "ssh-hosts" | "git-branches";
+export type DynamicSource =
+  | "recent" | "bookmarks-pinned" | "terminal-profiles" | "ssh-hosts" | "git-branches" | "open-with-apps";
 
 export type MenusData = Record<string, MenuItemDef[]>;
 
@@ -321,6 +326,9 @@ export const CONTEXT_FILE: MenuItemDef[] = [
   { kind: "sub",  ic: "", label: "Open With →",
     children: [
       { kind: "item", label: "Default App" },
+      { kind: "dynamic", source: "open-with-apps" },
+      { kind: "item", label: "Choose App…" },
+      { kind: "sep" },
       { kind: "item", label: "VS Code" },
       { kind: "item", label: "Terminal" },
       { kind: "item", label: "Text Editor (.txt)" },

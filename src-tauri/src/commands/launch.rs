@@ -8,28 +8,28 @@ use crate::pty::profiles::{check_profile, detect_shells, ShellProfile};
 /// Reap a spawned helper in the background. `drop(Child)` never waits, so on
 /// Unix every exited helper (xdg-open, terminals, editors) would linger as a
 /// zombie for the app's lifetime; a parked wait thread reaps it on exit.
-fn reap(mut child: std::process::Child) {
+pub(super) fn reap(mut child: std::process::Child) {
     std::thread::spawn(move || {
         let _ = child.wait();
     });
 }
 
+/// Open `path` with its default app (`as_text`: the app for plain text).
+/// `opened: false` means no app is set for its type, so the UI can offer
+/// Open With; see `open_with::open_default`.
 #[tauri::command(async)]
-pub fn open_with_default(path: String) -> Result<(), String> {
-    #[cfg(windows)]
-    {
-        // ShellExecuteExW, not `cmd /C start`: cmd parses its command line, so
-        // `&`, `|` or `^` in a filename ran the rest as a command.
-        tauri_plugin_opener::open_path(&path, None::<&str>).map_err(|e| e.to_string())
-    }
-    #[cfg(not(windows))]
-    {
-        std::process::Command::new("xdg-open")
-            .arg(&path)
-            .spawn()
-            .map(reap)
-            .map_err(|e| e.to_string())
-    }
+pub fn open_with_default(path: String, as_text: Option<bool>) -> Result<super::open_with::OpenOutcome, String> {
+    super::open_with::open_default(path, as_text.unwrap_or(false))
+}
+
+/// Hand `path` to xdg-open without waiting for it.
+#[cfg(not(windows))]
+pub(super) fn xdg_open(path: &str) -> Result<(), String> {
+    std::process::Command::new("xdg-open")
+        .arg(path)
+        .spawn()
+        .map(reap)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command(async)]
@@ -102,7 +102,7 @@ pub(crate) const CREATE_NO_WINDOW: u32 = 0x08000000;
 /// `run` inside it. Probes $TERMINAL first, then common emulators; per-emulator
 /// flags for cwd and command execution since there is no cross-terminal standard.
 #[cfg(not(windows))]
-fn linux_terminal_command(
+pub(super) fn linux_terminal_command(
     cwd: &str,
     run: Option<(&str, &[String])>,
 ) -> Result<std::process::Command, String> {
@@ -461,10 +461,14 @@ fn run_capped(
 /// exits (at most RUN_SCRIPT_TIMEOUT), and return combined output as
 /// "stdout\n---STDERR---\nstderr" plus status notes. On windows, `.ps1` is run
 /// via `powershell -File`, anything else (`.bat`/`.cmd` included) directly.
+/// A bare program name is looked up on PATH first (`resolve_script`); `cwd`
+/// is the folder it runs in.
 #[tauri::command(async)]
-pub fn run_script(script: String, targets: Vec<String>) -> Result<String, String> {
+pub fn run_script(script: String, targets: Vec<String>, cwd: Option<String>) -> Result<String, String> {
     use std::process::Command;
 
+    let cwd = cwd.filter(|d| !d.is_empty());
+    let script = resolve_script(&script, cwd.as_deref())?;
     let lower = script.to_ascii_lowercase();
     let mut cmd;
     #[cfg(windows)]
@@ -489,10 +493,31 @@ pub fn run_script(script: String, targets: Vec<String>) -> Result<String, String
     for t in &targets {
         cmd.arg(t);
     }
+    if let Some(d) = &cwd {
+        cmd.current_dir(d);
+    }
 
     let run = run_capped(cmd, RUN_SCRIPT_TIMEOUT, RUN_SCRIPT_OUTPUT_CAP, RUN_SCRIPT_DRAIN_GRACE)
         .map_err(|e| format!("run_script {}: {}", script, e))?;
     Ok(format_script_output(&run, RUN_SCRIPT_TIMEOUT))
+}
+
+/// The program `run_script` starts. A bare name (no path separator) is
+/// looked up on PATH, with PATHEXT on Windows, so `code` finds `code.cmd`
+/// and a missing program fails with its name. A relative path is taken from
+/// `cwd`, not the app's own folder.
+fn resolve_script(script: &str, cwd: Option<&str>) -> Result<String, String> {
+    let has_sep = script.contains('/') || (cfg!(windows) && script.contains('\\'));
+    if !has_sep {
+        return which::which(script)
+            .map(|p| p.to_string_lossy().into_owned())
+            .map_err(|_| format!("{script}: no such program on PATH"));
+    }
+    let p = std::path::Path::new(script);
+    match cwd {
+        Some(d) if p.is_relative() => Ok(std::path::Path::new(d).join(p).to_string_lossy().into_owned()),
+        _ => Ok(script.to_string()),
+    }
 }
 
 fn format_script_output(run: &CappedRun, timeout: std::time::Duration) -> String {
@@ -795,6 +820,25 @@ mod tests {
         ] {
             assert!(check_open_url(bad).is_err(), "{}", bad);
         }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn run_script_finds_bare_names_on_path_and_runs_in_cwd() {
+        let sh = resolve_script("sh", None).unwrap();
+        assert!(sh.starts_with('/') && sh.ends_with("/sh"), "{sh}");
+        let err = resolve_script("no-such-program-glasshouse", None).unwrap_err();
+        assert!(err.contains("no such program on PATH"), "{err}");
+        assert_eq!(resolve_script("./tidy.sh", Some("/w")).unwrap(), "/w/./tidy.sh");
+        assert_eq!(resolve_script("/s/tidy.sh", Some("/w")).unwrap(), "/s/tidy.sh");
+
+        let dir = temp_dir("runscript-cwd");
+        let out = run_script("pwd".into(), vec![], Some(dir.to_string_lossy().into_owned())).unwrap();
+        assert!(out.starts_with(&format!("{}\n", dir.display())), "{out}");
+        // Arguments arrive as they are: no shell reads them.
+        let out = run_script("printf".into(), vec!["%s|".into(), "a b".into(), "$(id);x".into()], None).unwrap();
+        assert!(out.starts_with("a b|$(id);x|"), "{out}");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[cfg(unix)]

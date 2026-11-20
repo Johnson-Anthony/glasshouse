@@ -3,7 +3,9 @@ import { openTyped, revealPath, selectedOrFirst } from "./helpers";
 import { dialogs } from "../dialogs/DialogHost";
 import { IS_WINDOWS } from "../platform";
 import { parseOctalMode } from "../octal";
-import { joinPath } from "../paths";
+import { basename, joinPath } from "../paths";
+import { customCommandArgv } from "../commandLine";
+import { chooseApp, openFile } from "../openWith";
 import {
   hashSha256,
   replacePreview,
@@ -14,7 +16,6 @@ import {
   runScript,
   findFileByName,
   changeOwner,
-  openWithDefaultStrict,
   ensureDir,
   type ReplaceOutcome,
   type ReplacePlan,
@@ -62,19 +63,15 @@ const FIND_NAME_LIMIT = 500;
 export const toolsHandler: Handler = async (label, ctx) => {
   switch (label) {
     case "Default App":
-    case "Text Editor (.txt)": {
+    case "Text Editor (.txt)":
+    case "Choose App…": {
       const p = ctx.firstPath;
       if (!p) {
         dialogs.showToast({ message: `${label}: no selection`, variant: "info" });
         return true;
       }
-      try {
-        await openWithDefaultStrict(p);
-      } catch (e) {
-        const msg = errText(e);
-        console.log(`[tools] openWithDefault failed for ${p}:`, e);
-        void dialogs.showAlert({ title: `${label} failed`, message: msg, variant: "error" });
-      }
+      if (label === "Choose App…") await chooseApp(p);
+      else await openFile(p, { asText: label === "Text Editor (.txt)" });
       return true;
     }
 
@@ -92,16 +89,27 @@ export const toolsHandler: Handler = async (label, ctx) => {
         dialogs.showToast({ message: "Custom Command: no selection", variant: "info" });
         return true;
       }
+      // Split here, run directly: no shell sees the line or the file name
+      // (commandLine.ts has the rules).
+      const argvOf = (v: string) => customCommandArgv(v, p, IS_WINDOWS);
       const cmd = await dialogs.showPrompt({
         title: "custom command",
-        message: `run a command with "${p}" appended:`,
-        placeholder: "echo",
-        validate: (v) => v.trim() ? null : "command required",
+        message:
+          `Runs a program on "${basename(p) || p}" and shows its output (it's stopped after 60 s). ` +
+          `{} is the file; without one, the file goes last. Quote with ' or ". ` +
+          "No shell runs it, so $, *, ~ and $(…) are plain text.",
+        placeholder: IS_WINDOWS ? "findstr /n TODO {}" : "grep -n TODO {}",
+        validate: (v) => {
+          const r = argvOf(v);
+          return "error" in r ? r.error : null;
+        },
       });
-      if (cmd == null || cmd.trim() === "") return true;
+      if (cmd == null) return true;
+      const argv = argvOf(cmd);
+      if ("error" in argv) return true;
       try {
-        const output = await runScript(cmd.trim(), [p]);
-        void dialogs.showAlert({ title: cmd, message: output || "(no output)" });
+        const output = await runScript(argv.program, argv.args, ctx.cwd || undefined);
+        void dialogs.showAlert({ title: cmd.trim(), message: output || "(no output)" });
       } catch (e) {
         const msg = errText(e);
         console.log(`[tools] Custom Command failed (cmd=${cmd}):`, e);

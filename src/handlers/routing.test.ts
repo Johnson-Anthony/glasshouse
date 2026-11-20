@@ -328,6 +328,53 @@ describe("routed commands", () => {
     expect(api.gitStage).not.toHaveBeenCalled();
   });
 
+  describe("Open With", () => {
+    it("Default App and Text Editor (.txt) open the first item, Text Editor as plain text", async () => {
+      const ctx = makeCtx(["a.md", "b.md"], [1, 0]);
+      expect(await owner("Default App", ctx)).toBe(toolsHandler);
+      expect(api.openWithDefaultStrict).toHaveBeenLastCalledWith("/w/b.md", false);
+      expect(await owner("Text Editor (.txt)", ctx)).toBe(toolsHandler);
+      expect(api.openWithDefaultStrict).toHaveBeenLastCalledWith("/w/b.md", true);
+    });
+
+    it("Choose App… lists the apps for the first item", async () => {
+      vi.mocked(api.openWithApps).mockResolvedValueOnce([{ id: "x.desktop", name: "X", is_default: false }]);
+      dialogs.showPick.mockResolvedValueOnce(0);
+      expect(await owner("Choose App…", makeCtx(["a.md"], [0]))).toBe(toolsHandler);
+      expect(api.openWithApp).toHaveBeenCalledWith("x.desktop", ["/w/a.md"]);
+    });
+
+    it("say so when nothing is selected", async () => {
+      for (const label of ["Default App", "Text Editor (.txt)", "Choose App…", "Custom Command…"]) {
+        expect(await owner(label, makeCtx(["a.md"], []))).toBe(toolsHandler);
+      }
+      expect(dialogs.showToast).toHaveBeenCalledTimes(4);
+      expect(api.openWithDefaultStrict).not.toHaveBeenCalled();
+    });
+
+    it("Custom Command… runs the split words in the tab's folder, never through a shell", async () => {
+      vi.mocked(api.runScript).mockResolvedValue("1:TODO\n");
+      dialogs.showPrompt.mockResolvedValueOnce(`grep -n "to do" {} --color=never`);
+      expect(await owner("Custom Command…", makeCtx(["a;b $(x).md"], [0]))).toBe(toolsHandler);
+      expect(api.runScript).toHaveBeenCalledWith("grep", ["-n", "to do", "/w/a;b $(x).md", "--color=never"], "/w");
+
+      dialogs.showPrompt.mockResolvedValueOnce("wc -l");
+      await owner("Custom Command…", makeCtx(["a.md"], [0]));
+      expect(api.runScript).toHaveBeenLastCalledWith("wc", ["-l", "/w/a.md"], "/w");
+    });
+
+    it("Custom Command…'s prompt refuses what it can't run", async () => {
+      dialogs.showPrompt.mockResolvedValueOnce(null);
+      await owner("Custom Command…", makeCtx(["a.md"], [0]));
+      const [opts] = dialogs.showPrompt.mock.calls[0] as unknown as [{ validate: (v: string) => string | null }];
+      expect(opts.validate("grep x | wc")).toContain("needs a shell");
+      expect(opts.validate("sh -c {}")).toContain("would be the script");
+      expect(opts.validate(`grep "x`)).toBe(`unclosed " quote`);
+      expect(opts.validate("grep -n x {}")).toBeNull();
+      expect(api.runScript).not.toHaveBeenCalled();
+    });
+  });
+
   it("Follow Folder flips the terminal's follow setting", async () => {
     const setTweaks = vi.fn();
     const tweaks = { termFollow: true } as NonNullable<HandlerCtx["tweaks"]>;
