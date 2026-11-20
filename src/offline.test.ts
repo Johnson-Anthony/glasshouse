@@ -20,6 +20,20 @@ describe("no third-party requests", () => {
     for (const o of origins) expect(o).toMatch(/^https?:\/\/[a-z]+\.localhost$/);
   });
 
+  it("the CSP lets the frontend reach Tauri's IPC on every platform", () => {
+    // Linux and macOS serve it as ipc://localhost. Windows serves custom
+    // protocols as http://<name>.localhost unless the window sets
+    // useHttpsScheme; with https here instead, every call was blocked and
+    // Tauri fell back to postMessage (the first Windows e2e run).
+    const conf = JSON.parse(read("../src-tauri/tauri.conf.json"));
+    const scheme = conf.app.windows.some((w: { useHttpsScheme?: boolean }) => w.useHttpsScheme) ? "https" : "http";
+    const connect = (conf.app.security.csp as string).split(";").map((d) => d.trim().split(/\s+/)).find((d) => d[0] === "connect-src");
+    expect(connect).toContain("ipc:");
+    expect(connect).toContain(`${scheme}://ipc.localhost`);
+    const origins = (conf.app.security.csp as string).split(/[\s;]+/).filter((t) => /^https?:\/\/[a-z]+\.localhost$/.test(t));
+    for (const o of origins) expect(o.startsWith(`${scheme}://`), o).toBe(true);
+  });
+
   it("stylesheets only use bundled files, and every one exists", () => {
     const dir = new URL("./styles/", import.meta.url);
     for (const name of readdirSync(dir).filter((f) => f.endsWith(".css"))) {

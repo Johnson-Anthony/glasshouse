@@ -63,6 +63,9 @@ jobs:
         if: runner.os == 'Linux'
         timeout-minutes: 10
         run: pnpm e2e
+      # Steps here run elevated, and an elevated WebView2 app never lets
+      # msedgedriver in, so the harness starts tauri-driver without admin
+      # rights (e2e/unelevated.ps1).
       - name: Smoke test
         if: runner.os == 'Windows'
         timeout-minutes: 10
