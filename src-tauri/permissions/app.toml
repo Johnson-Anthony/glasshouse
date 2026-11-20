@@ -139,3 +139,13 @@ commands.allow = [
   "pty_resize",
   "pty_kill",
 ]
+
+[[permission]]
+identifier = "update"
+description = "Ask the update endpoint in tauri.conf.json (the latest GitHub release's latest.json) whether a newer glasshouse is out; on the user's Install, download it, check its signature and run its installer or replace the AppImage. Help → Check for Updates and Preferences → Updates call these; nothing else does."
+commands.allow = [
+  "update_info",
+  "update_check",
+  "update_install",
+  "update_cancel",
+]

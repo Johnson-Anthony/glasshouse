@@ -1164,4 +1164,7 @@ export interface TweakState extends LookState {
   statusItems: StatusItem[];
   /** The tags offered whether used or not (Sidebar.tsx). */
   tagSet: TagSet;
+  /** Preferences → Updates: check once a day (updates.ts). Off unless the
+   *  user turns it on. */
+  autoUpdate: boolean;
 }

@@ -3,7 +3,7 @@
 For a release package on a real login, not a nested or headless session. [README.md](README.md) says how to set up and report. Each item: what to do → what should happen.
 
 **Where to run it.** Cover at least:
-- **Packages (L1–L2):** Ubuntu 22.04 and Debian 12, the oldest releases the packages support, on x86-64 and, if you can, arm64.
+- **Packages (L1–L2, L12):** Ubuntu 22.04 and Debian 12, the oldest releases the packages support, on x86-64 and, if you can, arm64.
 - **Desktops (L3–L11):** GNOME on Wayland, KDE Plasma on Wayland, and one X11 session (Xfce, Cinnamon or MATE, or GNOME's or Plasma's X11 session where the release still has one).
 - **Open and save dialogs (L7):** a release with xdg-desktop-portal 1.17 or newer, such as Ubuntu 24.04, Debian 13 or a current Fedora, plus Debian 12 or Ubuntu 22.04 to check that the switch stays off there.
 
@@ -122,3 +122,13 @@ Run on GNOME Wayland (Nautilus), KDE Wayland (Dolphin) and the X11 desktop (its 
 - [ ] **L11.2** Open in Terminal on a folder → `$TERMINAL` if set, else the first of kitty, alacritty, foot, wezterm, konsole, gnome-terminal, xfce4-terminal, x-terminal-emulator and xterm that's installed, in that folder.
 - [ ] **L11.3** Git Pull and Push with an ssh remote whose key is in the agent → work. With a key that needs a passphrase and no agent → fails at once with a hint; nothing hangs.
 - [ ] **L11.4** Create and extract `.zip`, `.tar.gz`, `.tar.zst` and `.7z` → they work and the desktop's archive manager opens them. Without a 7-Zip installed, `.7z` → glasshouse says one is needed.
+
+## L12. Updates
+
+Needs two releases with the update check (any after 0.2.0): install the older one, while the newer one is the latest on GitHub.
+
+- [ ] **L12.1** Edit → Preferences → Updates → "check for updates automatically" is off on a first run, and Preferences says what a check sends. Help → Check for Updates on the newest release → "glasshouse X is the newest version." With the network off → "Couldn't reach the update server…".
+- [ ] **L12.2** **.deb** of the older release: Help → Check for Updates → "X is out" with the release notes, the .deb notice and its `sudo apt install ./…` line, and no Install button. Download opens the new .deb's link in the browser.
+- [ ] **L12.3** **AppImage** of the older release, in a folder you own, with a second window open: Install and restart → progress, then this window comes back at the new version (Help → About) with its tabs; the file keeps its name and its `sha256sum` matches the new AppImage's line in `SHA256SUMS`. The other window keeps the old version until closed.
+- [ ] **L12.4** An AppImage in a folder you can't write to (copy it to `/opt` as root) → the dialog offers the download, not Install.
+- [ ] **L12.5** The older release with the automatic check turned on: start it → within a minute, a "glasshouse X is out." toast. Start it again the same day → no toast.

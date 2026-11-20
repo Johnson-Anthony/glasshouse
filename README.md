@@ -10,7 +10,7 @@
 
 ## What it is
 
-glasshouse is a file manager for Windows 10 and 11 and for Linux. It was written to add what File Explorer lacks: a terminal that follows the folder you're in, tabs, archives, and git status for every file. It's free and open source (MIT), and it works offline: it has no account, no telemetry and no network connections of its own ([Privacy](#privacy)).
+glasshouse is a file manager for Windows 10 and 11 and for Linux. It was written to add what File Explorer lacks: a terminal that follows the folder you're in, tabs, archives, and git status for every file. It's free and open source (MIT), and it works offline: it has no account, no telemetry and no network connections you didn't ask for ([Privacy](#privacy)).
 
 This page describes the current code. [CHANGELOG.md](CHANGELOG.md) lists what each release has, and its "Unreleased" section what's coming in the next one.
 
@@ -45,7 +45,7 @@ Use the `arm64` files instead of the `x64` ones on a PC with an Arm processor (S
 - **SmartScreen will warn you.** The installers aren't code-signed yet, so the first time you run one, Windows shows "Windows protected your PC": choose **More info → Run anyway**. The MSI's admin prompt says "Unknown publisher" for the same reason. To be sure a file is the real one, [check it](#checking-a-download) first.
 - **WebView2:** glasshouse draws its window with Microsoft's WebView2 Runtime. Windows 11 has it, and so do most Windows 10 PCs. If it's missing, the installer downloads and installs it, which needs an internet connection that once.
 - **Silent install:** `glasshouse_<version>_x64-setup.exe /S`, or `msiexec /i glasshouse_<version>_x64_en-US.msi /qn`.
-- **Updating:** run the new version's installer of the same kind; it replaces the old version and keeps your settings. Over a 0.2.0 setup.exe install, the new setup's "Uninstall before installing" may stop with "Unable to uninstall!". If it does, run the setup again and choose "Do not uninstall", which installs over 0.2.0.
+- **Updating:** Help → Check for Updates says when a new version is out, shows what's new, and on Install downloads the new installer of the same kind and runs it: the setup.exe closes every glasshouse window and starts glasshouse again, and the MSI asks for admin approval. Your settings stay. 0.2.0 can't do this yet: to update from it, run the new version's installer of the same kind yourself. Over a 0.2.0 setup.exe install, the new setup's "Uninstall before installing" may stop with "Unable to uninstall!". If it does, run the setup again and choose "Do not uninstall", which installs over 0.2.0.
 - Use one kind of installer, not both. To switch, uninstall the one you have first (your settings stay).
 
 ### Linux
@@ -57,8 +57,8 @@ Use the `arm64` files instead of the `x64` ones on a PC with an Arm processor (S
 
 `uname -m` says which processor you have: `x86_64` takes the `amd64` files, `aarch64` the `arm64` and `aarch64` ones.
 
-- **The .deb:** `sudo apt install ./glasshouse_<version>_amd64.deb`. apt also installs what it needs (WebKitGTK 4.1), and by default git, 7-Zip and xdg-utils, which some features use. To update, install the new .deb the same way: glasshouse isn't in an apt repository, so apt doesn't update it by itself.
-- **The AppImage:** make it executable (`chmod +x glasshouse_*.AppImage`), then run it. It carries its own copy of WebKitGTK. AppImages need FUSE 2, which many distributions don't install by default: `sudo apt install libfuse2t64` on Ubuntu 24.04 and later and Debian 13 (`libfuse2` on older releases), `fuse-libs` on Fedora, `fuse2` on Arch. Without it, start the AppImage with `--appimage-extract-and-run`. An AppImage doesn't add itself to your app menu. To update, replace the file with the new one (if you've turned on [the integration settings](#use-it-as-your-file-manager) and the new file has another name or folder, turn them off and on again).
+- **The .deb:** `sudo apt install ./glasshouse_<version>_amd64.deb`. apt also installs what it needs (WebKitGTK 4.1), and by default git, 7-Zip and xdg-utils, which some features use. To update, install the new .deb the same way: glasshouse isn't in an apt repository, so apt doesn't update it by itself. Help → Check for Updates tells you when there's a new one and links to it.
+- **The AppImage:** make it executable (`chmod +x glasshouse_*.AppImage`), then run it. It carries its own copy of WebKitGTK. AppImages need FUSE 2, which many distributions don't install by default: `sudo apt install libfuse2t64` on Ubuntu 24.04 and later and Debian 13 (`libfuse2` on older releases), `fuse-libs` on Fedora, `fuse2` on Arch. Without it, start the AppImage with `--appimage-extract-and-run`. An AppImage doesn't add itself to your app menu. To update, choose Help → Check for Updates: if the AppImage's folder is one you can write to, Install replaces the file, keeping its name, and restarts glasshouse (from the release after 0.2.0). Or replace the file with the new one yourself (if you've turned on [the integration settings](#use-it-as-your-file-manager) and the new file has another name or folder, turn them off and on again).
 
 ### System requirements
 
@@ -88,15 +88,16 @@ On Windows, Explorer's own "Show in folder", Win+E and other apps' open and save
 
 ## Privacy
 
-glasshouse doesn't collect anything and makes no network connections of its own: no telemetry, no crash reports, no account. Its log (errors, and what each start found) stays on your computer unless you attach it to an issue yourself. Its window is only allowed to talk to the app itself (its Content Security Policy has `connect-src 'self' ipc: http://ipc.localhost`), so it doesn't load remote images, fonts or scripts either.
+glasshouse doesn't collect anything and makes no network connections you didn't ask for: no telemetry, no crash reports, no account. Its log (errors, and what each start found) stays on your computer unless you attach it to an issue yourself. Its window is only allowed to talk to the app itself (its Content Security Policy has `connect-src 'self' ipc: http://ipc.localhost`), so it doesn't load remote images, fonts or scripts either.
 
 What reaches the network is what you start:
 - git's Pull, Push and Fetch, and ssh in the terminal, connect where you point them, as they do outside glasshouse;
-- links you open, and Help → Documentation, Release Notes, Report Bug… and Check for Updates, open in your web browser.
+- links you open, and Help → Documentation, Release Notes and Report Bug…, open in your web browser;
+- update checks, if you ask for them (below).
 
 On Windows, the installer downloads the WebView2 Runtime from Microsoft if the PC doesn't have it. The web view that draws the window is part of the system and updated with it: WebView2 on Windows, WebKitGTK with the .deb. The AppImage carries its own WebKitGTK, which a newer AppImage updates.
 
-**Update checks (planned).** An update check is being added, off by default. When you turn on "Check for updates automatically" in Preferences (at most once a day), or choose Help → Check for Updates, glasshouse fetches the latest release's `latest.json` from GitHub and sends nothing else. An update installs only when you say so. Until then, Help → Check for Updates opens the Releases page in your browser.
+**Update checks** are off until you ask. Help → Check for Updates checks once, and Preferences → Updates → "check for updates automatically" (off by default) checks at most once a day. A check is one request to github.com for the latest release's `latest.json`: its version, release notes and download links. It carries nothing about you or your computer beyond what any web request does (your IP address): no ID, no usage data. The app makes the request itself, not its window, so the window's Content Security Policy stays as above. An update is downloaded and installed only when you choose Install, and only if it's signed with glasshouse's release key for the version announced.
 
 ## Your data, and uninstalling
 
@@ -125,7 +126,7 @@ With the [GitHub CLI](https://cli.github.com), `gh attestation verify glasshouse
 - **No code signing yet,** so SmartScreen warns about the Windows installers ([above](#windows)).
 - **No macOS version.** It isn't built or tested.
 - **English only.** The interface isn't translated.
-- **No automatic updates yet.** The update check is being added, off by default ([Privacy](#privacy)). The .deb won't update itself: install each new .deb.
+- **Updates install themselves only from the Windows installers and the AppImage,** and only after you choose Install (checks are off until you turn them on: [Privacy](#privacy)). A .deb install gets a notice with a link to the new .deb, to install as before. 0.2.0 has no update check: update from it by hand.
 - **Windows has had less use than Linux.** CI builds glasshouse, runs its tests and opens its window on Windows, but fewer people have used it on real PCs. [Reports](#getting-help) are welcome.
 - glasshouse as the open and save dialog is Linux only, and needs xdg-desktop-portal 1.17 or newer (not Debian 12 or Ubuntu 22.04).
 

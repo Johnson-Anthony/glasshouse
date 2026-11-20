@@ -1,4 +1,5 @@
 import { invoke as rawInvoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { audioDir, desktopDir, documentDir, downloadDir, pictureDir, videoDir } from "@tauri-apps/api/path";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
@@ -1113,4 +1114,79 @@ export function chooserFinish(answer: ChooserAnswer): Promise<void> {
 /** Files and folders under `root` whose name has `pattern` in it. */
 export function chooserSearch(root: string, pattern: string, showHidden: boolean, opId: string, limit = 500): Promise<FileEntry[]> {
   return mustInvoke<FileEntry[]>("chooser_search", { root, pattern, showHidden, limit, opId });
+}
+
+/** How this copy was installed (src-tauri/src/update.rs): the Windows setup
+ *  (nsis, per user) or MSI (per machine), an AppImage, a .deb or .rpm, or
+ *  built from source. */
+export type InstallKind = "nsis" | "msi" | "appimage" | "deb" | "rpm" | "source";
+
+export interface UpdateInfo {
+  version: string;
+  install: InstallKind;
+  /** glasshouse installs an update itself (else it links to one). */
+  canInstall: boolean;
+  /** The AppImage's path, when it runs as one. */
+  appImage: string | null;
+  /** The URL a check fetches. */
+  endpoint: string;
+  /** The last check that got an answer, in ms since 1970. */
+  lastCheck: number | null;
+}
+
+export type UpdateCheck =
+  | { status: "current"; version: string }
+  | {
+      status: "available";
+      version: string;
+      current: string;
+      /** RFC 3339, from latest.json. */
+      date: string | null;
+      notes: string;
+      /** The package to download, when the user installs it themselves. */
+      download: string | null;
+      canInstall: boolean;
+    }
+  /** An automatic check with nothing to show. */
+  | { status: "quiet" };
+
+export type UpdateAvailable = Extract<UpdateCheck, { status: "available" }>;
+
+export interface UpdateProgress {
+  got: number;
+  total: number | null;
+  /** Downloaded and verified; the installer is running. */
+  installing: boolean;
+}
+
+/** How this copy updates, or null without the backend. */
+export function updateInfo(): Promise<UpdateInfo | null> {
+  return safe(() => invoke<UpdateInfo>("update_info"), null);
+}
+
+/** One request for the latest release's latest.json. `auto`: the automatic
+ *  check, which asks at most once a day and reports a version once. Rejects
+ *  with the reason in words (offline, no update information…). */
+export function updateCheck(auto: boolean): Promise<UpdateCheck> {
+  return mustInvoke<UpdateCheck>("update_check", { auto });
+}
+
+/** Downloads, verifies and installs the update the last check found; the
+ *  app then restarts (or, on Windows, its installer takes over). */
+export function updateInstall(): Promise<void> {
+  return mustInvoke<void>("update_install");
+}
+
+/** Stops the download; refused once the installer has started. */
+export function updateCancel(): Promise<void> {
+  return mustInvoke<void>("update_cancel");
+}
+
+/** Calls `cb` with each `update-progress` event. Returns the cleanup. */
+export function onUpdateProgress(cb: (p: UpdateProgress) => void): () => void {
+  if (!TAURI_AVAILABLE) return () => {};
+  let off: (() => void) | null = null;
+  let gone = false;
+  listen<UpdateProgress>("update-progress", e => cb(e.payload)).then(u => { if (gone) u(); else off = u; }, () => {});
+  return () => { gone = true; off?.(); };
 }

@@ -3,7 +3,6 @@ import { pickNumbered } from "./helpers";
 import { dialogs } from "../dialogs/DialogHost";
 import { IS_WINDOWS } from "../platform";
 import { basename, joinPath, parentPath } from "../paths";
-import { getVersion } from "@tauri-apps/api/app";
 import { failureDetails, runTransfer, summarize } from "../transfer";
 import { asItems, assertFree, namesIn, pushTransferUndo, transferDeps, unlessTaken } from "../transferUi";
 import { NameSet, freeNewName, nameProblem, takenProblem } from "../names";
@@ -243,12 +242,12 @@ export const miscHandler: Handler = async (label, ctx) => {
       await openUrl(`${REPO_URL}/releases`);
       return true;
 
-    case "Check for Updates": {
-      const version = await getVersion().catch(() => "unknown");
-      await dialogs.showAlert({ title: "check for updates", message: `Current version: ${version}. Opening releases page…`, variant: "info" });
-      await openUrl(`${REPO_URL}/releases`);
+    case "Check for Updates":
+      // One check, when asked (src/dialogs/Update.tsx); without the dialog,
+      // the releases page.
+      if (ctx.openUpdates) ctx.openUpdates();
+      else await openUrl(`${REPO_URL}/releases`);
       return true;
-    }
 
     case "Report Bug…": {
       // Shows what goes into the issue before the browser opens.

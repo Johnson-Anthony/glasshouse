@@ -17,6 +17,7 @@ import { ManageRemotesDialog } from "./dialogs/ManageRemotes";
 import { TagPickerDialog } from "./dialogs/TagPicker";
 import { PropertiesDialog } from "./dialogs/Properties";
 import { AboutDialog } from "./dialogs/About";
+import { UpdateDialog } from "./dialogs/Update";
 import { KeybindingsDialog } from "./dialogs/Keybindings";
 import { PreferencesDialog } from "./dialogs/Preferences";
 import { DialogHost, dialogs } from "./dialogs/DialogHost";
@@ -49,6 +50,7 @@ import { sshProfileFor } from "./remotes";
 import { findBinding, gitChord, GIT_CHORD_MS, type KeyAction } from "./keymap";
 import type { MenuAnchor } from "./menuNav";
 import { isModalOpen, useModal } from "./dialogs/modal";
+import { useAutoUpdateCheck } from "./updates";
 import { makeTab, closeTab, closeOtherTabs, moveTab as moveTabIn, tabLabel, type TabRecord } from "./tabs";
 import { DEFAULT_SORT, loadSession, restoreSession, saveSession, sessionOf, type Session, type TabSort } from "./session";
 import { launchPlan } from "./launch";
@@ -82,6 +84,7 @@ import {
   type BlameLine,
   type FindMatch,
   type ShellProfile,
+  type UpdateAvailable,
 } from "./api";
 import { runTransfer, planTransfer, type TransferOp } from "./transfer";
 import { loadTags, movePath, renamePath, setTags, trashPath, useTags } from "./tags";
@@ -110,6 +113,7 @@ const TWEAK_DEFAULTS: TweakState = {
   showStatusBar: true,
   statusItems: [...STATUS_DEFAULTS],
   tagSet: "standard",
+  autoUpdate: false,
 };
 
 type PanelKey = "showSidebar" | "showInspector" | "showStatusBar";
@@ -403,6 +407,8 @@ export function App() {
   const [bookmarkManagerOpen, setBookmarkManagerOpen] = useState(false);
   const [propsEntry, setPropsEntry] = useState<FileEntry | null>(null);
   const [aboutOpen, setAboutOpen] = useState(false);
+  // Help → Check for Updates; `found` is what the automatic check found.
+  const [updates, setUpdates] = useState<{ found: UpdateAvailable | null } | null>(null);
   const [cheatsheetOpen, setCheatsheetOpen] = useState(false);
   const [homePath, setHomePath] = useState<string | null>(null);
   const [folderPicker, setFolderPicker] = useState<{
@@ -552,6 +558,16 @@ export function App() {
     applyZoom(state.zoom);
     localStorage.setItem("glasshouse.tweaks", JSON.stringify(state));
   }, [state]);
+
+  // Preferences → Updates: off unless the user turned it on.
+  useAutoUpdateCheck(state.autoUpdate, found => {
+    dialogs.showToast({
+      message: `glasshouse ${found.version} is out.`,
+      variant: "info",
+      timeout: 20_000,
+      action: { label: "what's new", run: () => setUpdates({ found }) },
+    });
+  });
 
   // `glasshouse:set-theme` (detail: theme name) switches to a given theme;
   // the project site's demo uses it for its theme picker.
@@ -812,6 +828,7 @@ export function App() {
       },
       dispatch: (l: string) => handleMenuCommandRef.current(l),
       openAbout: () => setAboutOpen(true),
+      openUpdates: () => setUpdates({ found: null }),
       toggleSidebar: () => setShowSidebar(v => !v),
       toggleStatusBar: () => setShowStatusBar(v => !v),
       pinPath: (p: string) => {
@@ -1456,7 +1473,14 @@ export function App() {
       <PropertiesDialog entry={propsEntry} onClose={() => setPropsEntry(null)} />
       <AboutDialog open={aboutOpen} onClose={() => setAboutOpen(false)} />
       <KeybindingsDialog open={cheatsheetOpen} onClose={() => setCheatsheetOpen(false)} />
-      <PreferencesDialog open={prefsOpen} state={state} setState={setState} onClose={() => setPrefsOpen(false)} />
+      <PreferencesDialog
+        open={prefsOpen}
+        state={state}
+        setState={setState}
+        onClose={() => setPrefsOpen(false)}
+        onCheckUpdates={() => { setPrefsOpen(false); setUpdates({ found: null }); }}
+      />
+      <UpdateDialog open={updates !== null} found={updates?.found} onClose={() => setUpdates(null)} />
 
       {folderPicker && (
         <FolderPickerDialog

@@ -130,3 +130,14 @@ These use Windows' own dialogs.
 - [ ] **W13.3** Go to Path with a UNC path (`\\server\share`) → it lists, or says why not.
 - [ ] **W13.4** Create and extract `.zip`, `.tar.gz` and `.tar.zst` (Windows' own tar) → they work, and Explorer opens the zip. `.7z` with 7-Zip's folder on PATH works. With 7-Zip installed but not on PATH (its installer's default) → note what glasshouse says.
 - [ ] **W13.5** Git: Pull and Push on a repository with an HTTPS remote (Git Credential Manager) and an ssh remote → they work, or fail with a hint; none hangs.
+
+## W14. Updates
+
+Needs two releases with the update check (any after 0.2.0): install the older one, while the newer one is the latest on GitHub. Nothing here runs in CI.
+
+- [ ] **W14.1** A new install, and one upgraded by W2.6 → Edit → Preferences → Updates → "check for updates automatically" is off, and Preferences says what a check sends.
+- [ ] **W14.2** Help → Check for Updates on the newest release → "glasshouse X is the newest version." With the network off → "Couldn't reach the update server…", and Try again works once it's back.
+- [ ] **W14.3** **setup.exe:** the older release installed, with a second glasshouse window open. Help → Check for Updates → "X is out" with the release notes; Install and restart → progress, then both windows close, no admin prompt, and glasshouse starts again at the new version (Help → About). Still in `%LOCALAPPDATA%\glasshouse`, one entry in Settings → Apps, settings and tabs kept.
+- [ ] **W14.4** **MSI:** the older release installed. Install and restart → an admin (UAC) prompt, Windows Installer's progress, and glasshouse starts again at the new version, still in `Program Files\glasshouse`, one entry in Settings → Apps. Note what happens to a second open window.
+- [ ] **W14.5** MSI as a standard user: Install, then cancel the admin prompt → note what the dialog says; the old version keeps running and stays installed.
+- [ ] **W14.6** The older release with the automatic check turned on: start it → within a minute, a "glasshouse X is out." toast whose "what's new" opens the dialog. Start it again the same day → no toast.

@@ -65,6 +65,8 @@ interface ToastOptions {
   message: string;
   variant?: DialogVariant;
   timeout?: number;
+  /** A button on the toast, which closes it. */
+  action?: { label: string; run: () => void };
 }
 
 interface DialogApi {
@@ -120,6 +122,7 @@ interface ToastState {
   id: number;
   message: string;
   variant: DialogVariant;
+  action?: ToastOptions["action"];
 }
 
 /** An error's raw text, folded away under "Show details": for a bug report,
@@ -215,6 +218,7 @@ export function DialogHost() {
           id,
           message: opts.message,
           variant: opts.variant ?? "info",
+          action: opts.action,
         };
         setToasts((prev) => [...prev, t]);
         const ms = opts.timeout ?? 2600;
@@ -546,9 +550,23 @@ export function DialogHost() {
               fontSize: 12,
               maxWidth: "60ch",
               boxShadow: "0 8px 24px rgba(0,0,0,0.4)",
+              pointerEvents: t.action ? "auto" : undefined,
             }}>
               <span style={{ color: variantColor(t.variant), marginRight: 6 }}>●</span>
               {t.message}
+              {t.action && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setToasts(prev => prev.filter(x => x.id !== t.id));
+                    t.action?.run();
+                  }}
+                  style={{
+                    marginLeft: 10, background: "transparent", border: `1px solid ${variantColor(t.variant)}`,
+                    color: "var(--fg-0)", padding: "1px 8px", borderRadius: 2, cursor: "pointer", font: "inherit",
+                  }}
+                >{t.action.label}</button>
+              )}
             </div>
           ))}
         </div>

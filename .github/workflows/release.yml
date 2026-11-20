@@ -12,6 +12,14 @@ name: release
 # every build has passed and all eight files are on it; the publish job
 # adds SHA256SUMS and a provenance attestation for them first. If a build
 # fails, the draft stays for a re-run, and nothing is published.
+#
+# Updates (src-tauri/src/update.rs): each build signs its packages for the
+# app's updater, with the repository secrets TAURI_SIGNING_PRIVATE_KEY and
+# TAURI_SIGNING_PRIVATE_KEY_PASSWORD (the minisign key whose public half is
+# plugins.updater.pubkey in tauri.conf.json). The prepare job stops the run
+# if either is missing or the key doesn't match that public key. The publish
+# job checks every package's signature and writes latest.json, which the
+# app's update check reads from the latest release.
 
 on:
   push:
@@ -38,15 +46,42 @@ jobs:
           exit 1
 
       - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v5
         with:
           node-version: 22
-          # v5 turns on pnpm caching by itself when package.json names a
-          # packageManager, and this job never installs pnpm.
-          package-manager-cache: false
+          cache: pnpm
 
       - name: Check the versions and the changelog
         run: node scripts/release-check.mjs "$GITHUB_REF_NAME" > "$RUNNER_TEMP/notes.md"
+
+      - run: pnpm install --frozen-lockfile
+
+      # Before the builds: a release whose packages aren't signed with the
+      # key the app trusts would break every user's update check.
+      - name: Check the update signing key
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          missing=0
+          for name in TAURI_SIGNING_PRIVATE_KEY TAURI_SIGNING_PRIVATE_KEY_PASSWORD; do
+            if [ -z "${!name}" ]; then
+              echo "::error::The $name secret isn't set (Settings → Secrets and variables → Actions). Releases sign their packages for the updater; see \"Updates\" in docs/ARCHITECTURE.md. A fork needs its own key pair, with its public key and its own endpoint in tauri.conf.json (plugins.updater)."
+              missing=1
+            fi
+          done
+          [ "$missing" = 0 ] || exit 1
+          v=${GITHUB_REF_NAME#v}
+          printf 'glasshouse %s signing probe\n' "$v" > "$RUNNER_TEMP/probe.txt"
+          if ! pnpm tauri signer sign --app-version "$v" "$RUNNER_TEMP/probe.txt" > /dev/null; then
+            echo "::error::Signing with TAURI_SIGNING_PRIVATE_KEY failed: check the key and TAURI_SIGNING_PRIVATE_KEY_PASSWORD."
+            exit 1
+          fi
+          if ! node scripts/updater-json.mjs verify "$RUNNER_TEMP/probe.txt" "$RUNNER_TEMP/probe.txt.sig" "$v"; then
+            echo "::error::TAURI_SIGNING_PRIVATE_KEY isn't the key whose public half is plugins.updater.pubkey in tauri.conf.json, so installed copies would refuse its updates."
+            exit 1
+          fi
 
       - uses: dtolnay/rust-toolchain@stable
       - name: Check that Cargo.lock is current
@@ -131,13 +166,20 @@ jobs:
 
       # Uploads to the draft. The file names come from the Tauri CLI and
       # include the architecture, so the jobs never replace each other's files.
+      # release.conf.json turns on createUpdaterArtifacts, so each package
+      # gets a .sig, uploaded beside it (CI's own builds stay unsigned).
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           releaseId: ${{ needs.prepare.outputs.release_id }}
+          # The publish job writes latest.json once every build is on the
+          # draft: the action's own rewrites it in each job, and four jobs
+          # finishing together can drop each other's entries.
           includeUpdaterJson: false
-          args: ${{ matrix.args }}
+          args: ${{ matrix.args }} --config src-tauri/release.conf.json
 
   publish:
     needs: [prepare, build]
@@ -153,6 +195,13 @@ jobs:
       TAG: ${{ github.ref_name }}
       ID: ${{ needs.prepare.outputs.release_id }}
     steps:
+      # The package list, the changelog section and the updater's public key.
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          package-manager-cache: false
+
       - name: Check the files and write SHA256SUMS
         run: |
           v=${TAG#v}
@@ -160,39 +209,53 @@ jobs:
             --jq '.[] | "\(.id) \(.name)"' > "$RUNNER_TEMP/assets.txt"
           echo "On the draft:"
           cat "$RUNNER_TEMP/assets.txt"
-          mkdir -p "$RUNNER_TEMP/files"
+          mkdir -p "$RUNNER_TEMP/files" "$RUNNER_TEMP/sigs"
           missing=0
-          for want in "glasshouse_${v}_x64_en-US.msi" "glasshouse_${v}_x64-setup.exe" \
-                      "glasshouse_${v}_arm64_en-US.msi" "glasshouse_${v}_arm64-setup.exe" \
-                      "glasshouse_${v}_amd64.AppImage" "glasshouse_${v}_amd64.deb" \
-                      "glasshouse_${v}_aarch64.AppImage" "glasshouse_${v}_arm64.deb"; do
-            asset=$(awk -v n="$want" '$2 == n { print $1 }' "$RUNNER_TEMP/assets.txt")
-            if [ -z "$asset" ]; then
-              echo "::error::$want isn't on the draft release; it stays a draft."
-              missing=1
-              continue
-            fi
-            gh api -H "Accept: application/octet-stream" \
-              "repos/$GITHUB_REPOSITORY/releases/assets/$asset" > "$RUNNER_TEMP/files/$want"
-          done
+          while read -r want; do
+            for name in "$want" "$want.sig"; do
+              asset=$(awk -v n="$name" '$2 == n { print $1 }' "$RUNNER_TEMP/assets.txt")
+              if [ -z "$asset" ]; then
+                echo "::error::$name isn't on the draft release; it stays a draft."
+                missing=1
+                continue
+              fi
+              dir=files
+              [ "$name" = "$want" ] || dir=sigs
+              gh api -H "Accept: application/octet-stream" \
+                "repos/$GITHUB_REPOSITORY/releases/assets/$asset" > "$RUNNER_TEMP/$dir/$name"
+            done
+          done < <(node scripts/updater-json.mjs files "$v")
           [ "$missing" = 0 ] || exit 1
           cd "$RUNNER_TEMP/files"
           sha256sum -- * > "$RUNNER_TEMP/SHA256SUMS"
           cat "$RUNNER_TEMP/SHA256SUMS"
 
+      # Every package's signature must check out against the app's public
+      # key, for this version, or the release stays a draft.
+      - name: Check the signatures and write latest.json
+        run: |
+          node scripts/release-check.mjs "$TAG" > "$RUNNER_TEMP/notes.md"
+          cp "$RUNNER_TEMP"/sigs/*.sig "$RUNNER_TEMP/files/"
+          node scripts/updater-json.mjs write "$TAG" "$RUNNER_TEMP/files" "$RUNNER_TEMP/notes.md" "$RUNNER_TEMP/latest.json"
+          rm "$RUNNER_TEMP"/files/*.sig
+
       - uses: actions/attest-build-provenance@v4
         with:
           subject-checksums: ${{ runner.temp }}/SHA256SUMS
 
-      - name: Add SHA256SUMS and publish the release
+      - name: Add SHA256SUMS and latest.json, and publish the release
         run: |
-          # A re-run replaces the one an earlier run added.
-          old=$(awk '$2 == "SHA256SUMS" { print $1 }' "$RUNNER_TEMP/assets.txt")
-          if [ -n "$old" ]; then
-            gh api -X DELETE "repos/$GITHUB_REPOSITORY/releases/assets/$old"
-          fi
-          curl -sSf -X POST -H "Authorization: Bearer $GH_TOKEN" -H "Content-Type: text/plain" \
-            --data-binary @"$RUNNER_TEMP/SHA256SUMS" \
-            "https://uploads.github.com/repos/$GITHUB_REPOSITORY/releases/$ID/assets?name=SHA256SUMS" > /dev/null
+          upload() {
+            # A re-run replaces the one an earlier run added.
+            old=$(awk -v n="$1" '$2 == n { print $1 }' "$RUNNER_TEMP/assets.txt")
+            if [ -n "$old" ]; then
+              gh api -X DELETE "repos/$GITHUB_REPOSITORY/releases/assets/$old"
+            fi
+            curl -sSf -X POST -H "Authorization: Bearer $GH_TOKEN" -H "Content-Type: $2" \
+              --data-binary @"$RUNNER_TEMP/$1" \
+              "https://uploads.github.com/repos/$GITHUB_REPOSITORY/releases/$ID/assets?name=$1" > /dev/null
+          }
+          upload SHA256SUMS text/plain
+          upload latest.json application/json
           gh api -X PATCH "repos/$GITHUB_REPOSITORY/releases/$ID" \
             -F draft=false -f make_latest=true --jq .html_url
