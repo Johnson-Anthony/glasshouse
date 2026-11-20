@@ -59,6 +59,7 @@ pub fn run() {
             commands::git::git_discard,
             commands::git::git_run,
             commands::git::git_branch_list,
+            commands::git::git_commit_info,
             commands::search::find_in_files,
             commands::replace::replace_preview,
             commands::replace::replace_apply,

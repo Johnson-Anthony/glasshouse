@@ -25,6 +25,19 @@ describe("OpStore", () => {
     expect(s.snapshot()[0].done).toBe(40);
   });
 
+  it("shows a step's detail, and a new step may count from zero", () => {
+    const { s } = store();
+    const key = s.begin("git fetch", "status");
+    const id = s.track(key);
+    expect(s.snapshot()[0]).toMatchObject({ detail: null, unit: "status" });
+    s.progress({ op_id: id, done: 90, total: 100, detail: "Receiving objects:  90% (90/100)" });
+    s.progress({ op_id: id, done: 3, total: 40, detail: "Resolving deltas:   7% (3/40)" });
+    expect(s.snapshot()[0]).toMatchObject({ done: 3, total: 40, detail: "Resolving deltas:   7% (3/40)" });
+    // A line without a count leaves the bar indeterminate.
+    s.progress({ op_id: id, done: 0, total: null, detail: "From github.com:me/repo" });
+    expect(s.snapshot()[0]).toMatchObject({ total: null, detail: "From github.com:me/repo" });
+  });
+
   it("cancels every id, including ones tracked after the cancel", () => {
     const { s, cancelled } = store();
     const key = s.begin("copying stuff");

@@ -1,4 +1,4 @@
-// Running hashes, copies and searches, bottom left, each with a Cancel. An op
+// Running hashes, copies, searches and git commands, bottom left, each with a Cancel. An op
 // shows up only once it has run for SHOW_AFTER_MS, so quick ones don't flash.
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { opStore } from "./ops";
@@ -14,8 +14,11 @@ function formatBytes(n: number): string {
   return `${i === 0 ? v : v.toFixed(1)} ${units[i]}`;
 }
 
-/** "41% · 1.2 GB of 2.9 GB", or a count when the size isn't known. */
-function progressText(op: Pick<RunningOp, "done" | "total" | "unit">): string {
+/** "41% · 1.2 GB of 2.9 GB", or a count when the size isn't known, or what
+ *  the op says it's doing (git's latest line). */
+export function progressText(op: Pick<RunningOp, "done" | "total" | "unit" | "detail">): string {
+  if (op.detail) return op.detail;
+  if (op.unit === "status") return "starting…";
   if (op.total === null) {
     return op.unit === "items" ? `${op.done.toLocaleString()} looked at` : formatBytes(op.done);
   }
@@ -55,7 +58,7 @@ export function OpsTray() {
             <div className="ops-bar" data-indeterminate={pct === null || undefined}>
               <div style={pct === null ? undefined : { width: `${pct}%` }} />
             </div>
-            <div className="ops-detail">{progressText(op)}</div>
+            <div className="ops-detail" title={op.detail ?? undefined}>{progressText(op)}</div>
           </div>
         );
       })}

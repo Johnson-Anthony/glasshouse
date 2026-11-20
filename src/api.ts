@@ -360,14 +360,44 @@ export interface GitBranch {
   behind: number;
   /** Upstream is set but its ref is gone; ahead/behind are 0 but not "in sync". */
   upstream_gone: boolean;
+  /** A remote-tracking branch (`origin/main`); listed only with `remotes`. */
+  remote?: boolean;
 }
 
-export function gitRun(cwd: string, args: string[]): Promise<GitRunResult> {
-  return mustInvoke<GitRunResult>("git_run", { cwd, args });
+/** Run a git menu command (git.rs `GIT_RUN_ALLOWED`). With `opId` it reports
+ *  progress and can be cancelled (ops.ts); it then rejects with "cancelled". */
+export function gitRun(cwd: string, args: string[], opId?: string): Promise<GitRunResult> {
+  return mustInvoke<GitRunResult>("git_run", { cwd, args, opId });
 }
 
-export function gitBranchList(cwd: string): Promise<GitBranch[]> {
-  return mustInvoke<GitBranch[]>("git_branch_list", { cwd });
+/** The local branches, then with `remotes` the remote-tracking ones. */
+export function gitBranchList(cwd: string, remotes?: boolean): Promise<GitBranch[]> {
+  return mustInvoke<GitBranch[]>("git_branch_list", { cwd, remotes });
+}
+
+/** One staged file (git.rs `StagedFile`). */
+export interface StagedFile {
+  /** "A" added, "M" modified, "D" deleted, "R" renamed, "T" type change. */
+  code: string;
+  /** Repo-relative, `/`-separated. */
+  path: string;
+  old_path: string | null;
+}
+
+/** What the commit dialog shows (git.rs `CommitInfo`). */
+export interface CommitInfo {
+  branch: string;
+  /** At most 500; `staged_total` has the count. */
+  staged: StagedFile[];
+  staged_total: number;
+  /** Changed or untracked items that aren't staged. */
+  unstaged: number;
+  /** HEAD's message; null on a branch with no commits. */
+  head_message: string | null;
+}
+
+export function gitCommitInfo(cwd: string): Promise<CommitInfo> {
+  return mustInvoke<CommitInfo>("git_commit_info", { cwd });
 }
 
 /** Without `opId`, any failure is no matches. With one the search rejects

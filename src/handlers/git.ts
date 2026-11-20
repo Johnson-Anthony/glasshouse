@@ -1,24 +1,22 @@
 import type { Handler } from "./types";
-import { pickNumbered, runGitAction } from "./helpers";
+import { runGitAction } from "./helpers";
 import { dialogs } from "../dialogs/DialogHost";
+import { gitDialogs } from "../dialogs/GitDialogs";
 import {
   gitBlame,
   gitRun,
-  gitBranchList,
   type GitRunResult,
 } from "../api";
 import { errText } from "../errors";
+import { remoteFailureHint, type BranchAction } from "../gitUx";
+import { isCancelled, runOp } from "../ops";
 import { markIrreversible } from "../state";
 
-function summarize(title: string, r: GitRunResult): string {
-  const body = r.stdout.trim() || r.stderr.trim() || "(no output)";
-  return `${title}\nexit ${r.exit}\n\n${body}`;
-}
-
-/** Run git and show its output. `refreshAfter` marks a command that changes
- *  something: the pane is refreshed, and since git's changes aren't in the
- *  undo history, the history before it is dropped (even when git failed: a
- *  merge with conflicts still changed files). */
+/** Run git and show its output. It runs as an op in the tray, labelled
+ *  `title`, with git's progress and a Cancel. `refreshAfter` marks a command
+ *  that changes something: the pane is refreshed, and since git's changes
+ *  aren't in the undo history, the history before it is dropped (even when
+ *  git failed or was cancelled: a merge with conflicts still changed files). */
 async function runAndShow(
   ctx: Parameters<Handler>[1],
   title: string,
@@ -27,24 +25,36 @@ async function runAndShow(
 ): Promise<void> {
   let r: GitRunResult;
   try {
-    r = await gitRun(ctx.cwd, args);
+    r = await runOp(title, track => gitRun(ctx.cwd, args, track()), "status");
   } catch (e) {
+    if (isCancelled(e)) {
+      if (refreshAfter) {
+        markIrreversible(title);
+        ctx.refresh();
+      }
+      dialogs.showToast({ message: `${title}: cancelled`, variant: "warning" });
+      return;
+    }
     const msg = errText(e);
     if (ctx.setGitOutput) ctx.setGitOutput({ title, output: msg, ok: false });
     else void dialogs.showAlert({ title, variant: "error", message: msg });
     return;
   }
   if (refreshAfter) markIrreversible(title);
+  // A credential or ssh prompt that couldn't be shown gets a plain hint.
+  const hint = r.ok ? null : remoteFailureHint(r.stderr);
+  const withHint = (text: string) => (hint && text ? `${text}\n\n${hint}` : text);
+  const output = r.stdout.trim() || withHint(r.stderr.trim()) || "(no output)";
   if (ctx.setGitOutput) {
     ctx.setGitOutput({
       title,
-      output: r.stdout.trim() || r.stderr.trim() || "(no output)",
+      output,
       ok: r.ok,
       exit: r.exit,
-      stderr: r.ok ? "" : r.stderr.trim(),
+      stderr: r.ok ? "" : withHint(r.stderr.trim()),
     });
   } else {
-    void dialogs.showAlert({ title, variant: r.ok ? "info" : "error", message: summarize(title, r) });
+    void dialogs.showAlert({ title, variant: r.ok ? "info" : "error", message: `${title}\nexit ${r.exit}\n\n${output}` });
   }
   if (refreshAfter && r.ok) ctx.refresh();
 }
@@ -54,6 +64,16 @@ async function runAndShow(
  *  name, throwing away its edits. */
 function checkoutBranch(ctx: Parameters<Handler>[1], branch: string): Promise<void> {
   return runAndShow(ctx, `git checkout ${branch}`, ["checkout", branch, "--"], true);
+}
+
+/** Pick a branch from the list (or type one) and check it out, merge it or
+ *  rebase onto it. */
+async function pickAndRun(ctx: Parameters<Handler>[1], action: BranchAction): Promise<void> {
+  const branch = await gitDialogs.pickBranch({ cwd: ctx.cwd, action });
+  if (!branch) return;
+  if (action === "checkout") await checkoutBranch(ctx, branch);
+  else if (action === "merge") await runAndShow(ctx, `git merge ${branch} --no-edit`, ["merge", branch, "--no-edit"], true);
+  else await runAndShow(ctx, `git rebase ${branch}`, ["rebase", branch], true);
 }
 
 export const gitHandler: Handler = async (label, ctx) => {
@@ -83,37 +103,25 @@ export const gitHandler: Handler = async (label, ctx) => {
       await runAndShow(ctx, "git status", ["status", "--short"], false);
       return true;
     }
-    case "Commit…": {
-      const msg = await dialogs.showPrompt({
-        title: "git commit",
-        message: "commit message:",
-        placeholder: "feat: …",
-        validate: (v) => v.trim() ? null : "message required",
-      });
-      if (msg == null || msg.trim() === "") return true;
-      await runAndShow(ctx, "git commit", ["commit", "-m", msg], true);
-      return true;
-    }
+    case "Commit…":
     case "Commit Amend": {
-      const msg = await dialogs.showPrompt({
-        title: "git commit --amend",
-        message: "amend message:",
-        placeholder: "(leave empty to reuse)",
-      });
-      if (msg == null || msg.trim() === "") return true;
-      await runAndShow(ctx, "git commit --amend", ["commit", "--amend", "-m", msg], true);
+      const amend = label === "Commit Amend";
+      const args = await gitDialogs.commit({ cwd: ctx.cwd, amend });
+      if (args) await runAndShow(ctx, amend ? "git commit --amend" : "git commit", args, true);
       return true;
     }
+    // `--progress`: git reports to a pipe only when asked, and the tray
+    // shows it.
     case "Pull": {
-      await runAndShow(ctx, "git pull --ff-only", ["pull", "--ff-only"], true);
+      await runAndShow(ctx, "git pull --ff-only", ["pull", "--ff-only", "--progress"], true);
       return true;
     }
     case "Push": {
-      await runAndShow(ctx, "git push", ["push"], true);
+      await runAndShow(ctx, "git push", ["push", "--progress"], true);
       return true;
     }
     case "Fetch All": {
-      await runAndShow(ctx, "git fetch --all --prune", ["fetch", "--all", "--prune"], true);
+      await runAndShow(ctx, "git fetch --all --prune", ["fetch", "--all", "--prune", "--progress"], true);
       return true;
     }
     case "Stash": {
@@ -140,15 +148,9 @@ export const gitHandler: Handler = async (label, ctx) => {
       await runAndShow(ctx, "git clean -fd", ["clean", "-fd"], true);
       return true;
     }
-    case "Checkout…": {
-      const branch = await dialogs.showPrompt({
-        title: "git checkout",
-        message: "branch to check out:",
-        placeholder: "main",
-        validate: (v) => v.trim() ? null : "branch required",
-      });
-      if (branch == null || branch.trim() === "") return true;
-      await checkoutBranch(ctx, branch.trim());
+    case "Checkout…":
+    case "Git: Checkout Branch →": {
+      await pickAndRun(ctx, "checkout");
       return true;
     }
     case "New Branch…": {
@@ -168,44 +170,11 @@ export const gitHandler: Handler = async (label, ctx) => {
       return true;
     }
     case "Merge…": {
-      const branch = await dialogs.showPrompt({
-        title: "git merge",
-        message: "branch to merge into current:",
-        placeholder: "branch",
-        validate: (v) => v.trim() ? null : "branch required",
-      });
-      if (branch == null || branch.trim() === "") return true;
-      await runAndShow(
-        ctx,
-        `git merge ${branch} --no-edit`,
-        ["merge", branch.trim(), "--no-edit"],
-        true,
-      );
+      await pickAndRun(ctx, "merge");
       return true;
     }
     case "Rebase onto…": {
-      const branch = await dialogs.showPrompt({
-        title: "git rebase",
-        message: "rebase onto:",
-        placeholder: "main",
-        validate: (v) => v.trim() ? null : "branch required",
-      });
-      if (branch == null || branch.trim() === "") return true;
-      await runAndShow(ctx, `git rebase ${branch}`, ["rebase", branch.trim()], true);
-      return true;
-    }
-    case "Git: Checkout Branch →": {
-      // Palette path: there's no submenu to hover, so list branches in a
-      // prompt and let the user pick by number.
-      let branches: Awaited<ReturnType<typeof gitBranchList>> = [];
-      try { branches = await gitBranchList(ctx.cwd); }
-      catch { branches = []; }
-      if (branches.length === 0) {
-        dialogs.showToast({ message: "no branches (or not a git repo)", variant: "info" });
-        return true;
-      }
-      const b = await pickNumbered("git checkout", branches, b => `${b.current ? "* " : "  "}${b.name}`, 20);
-      if (b) await checkoutBranch(ctx, b.name);
+      await pickAndRun(ctx, "rebase");
       return true;
     }
     default: {

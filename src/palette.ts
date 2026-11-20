@@ -61,6 +61,7 @@ export const SAME_COMMAND: Readonly<Record<string, string>> = {
   "7-Zip": "7-zip (.7z)",
   "Text Editor (.txt)": "Default App",
   "Open in New Window": "New Window",
+  "Git: Checkout Branch →": "Checkout…",
   // Separate cases: Open With's two dispatch the File menu's command, and
   // the file menu's git items call what the Git menu's do.
   "VS Code": "Open in VS Code",
