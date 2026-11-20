@@ -55,7 +55,7 @@ before(async () => {
     });
   } catch (e) {
     const hint = IS_WINDOWS
-      ? "a msedgedriver that doesn't match the WebView2 Runtime hangs here (e2e/edgedriver.ps1)"
+      ? "a msedgedriver that doesn't match the WebView2 Runtime hangs here (e2e/edgedriver.ps1), and an elevated app fails with \"DevToolsActivePort file doesn't exist\" (e2e/unelevated.ps1)"
       : "check that WebKitWebDriver (apt webkit2gtk-driver) is the same version as the WebKitGTK the app uses";
     throw new Error(`no session: ${e.message}. ${hint}; the drivers' and the app's output is in driver-and-app.log`);
   }
