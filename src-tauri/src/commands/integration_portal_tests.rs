@@ -24,7 +24,7 @@ fn places(root: &Scratch) -> Places {
             config_dirs: vec![root.join("etc-xdg")],
             desktops: vec!["niri".into()],
         },
-        state_dir: home.join(".config/sh.glasshouse.viles"),
+        state_dir: home.join(".config").join(crate::APP_ID),
     }
 }
 

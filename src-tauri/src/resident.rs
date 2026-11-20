@@ -16,11 +16,13 @@
 //! One process can serve both (`--dbus file-manager file-chooser`); the
 //! service files Preferences writes start one each.
 //!
-//! Every resident also serves `sh.glasshouse.viles.Resident1` at
-//! `/sh/glasshouse/viles/Resident`. It's how the app tells that a bus name
-//! is held by glasshouse (`holder`), so Reveal in File Manager doesn't
-//! open a window of its own, and how turning a toggle off hands the name
-//! back (`Release`). See docs/decisions/2026-11-20-folder-handler-processes.md.
+//! Every resident also serves `io.github.johnson_anthony.glasshouse.Resident1`
+//! at `/io/github/johnson_anthony/glasshouse/Resident` (the app identifier
+//! with `_` for `-`, which D-Bus names can't have). It's how the app tells
+//! that a bus name is held by glasshouse (`holder`), so Reveal in File
+//! Manager doesn't open a window of its own, and how turning a toggle off
+//! hands the name back (`Release`). See
+//! docs/decisions/2026-11-20-folder-handler-processes.md.
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -36,8 +38,14 @@ use crate::startup::LaunchMode;
 
 pub(crate) use crate::commands::integration_xdg::FILE_MANAGER_NAME;
 const FILE_MANAGER_PATH: &str = "/org/freedesktop/FileManager1";
-const CONTROL_PATH: &str = "/sh/glasshouse/viles/Resident";
-const CONTROL_IFACE: &str = "sh.glasshouse.viles.Resident1";
+const CONTROL_PATH: &str = "/io/github/johnson_anthony/glasshouse/Resident";
+const CONTROL_IFACE: &str = "io.github.johnson_anthony.glasshouse.Resident1";
+/// The control interface before the identifier changed (`migrate.rs`). No
+/// release had a resident, but a build from before the change can still
+/// hold a name until the session ends; it's recognized and released as
+/// ours are, so turning a switch off and on hands the name to this one.
+const OLD_CONTROL: (&str, &str) = ("/sh/glasshouse/viles/Resident", "sh.glasshouse.viles.Resident1");
+const CONTROLS: [(&str, &str); 2] = [(CONTROL_PATH, CONTROL_IFACE), OLD_CONTROL];
 
 /// What a resident can provide.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -157,13 +165,13 @@ fn serve(
     builder.build()
 }
 
-/// `sh.glasshouse.viles.Resident1`.
+/// `io.github.johnson_anthony.glasshouse.Resident1`.
 struct Control {
     owned: Arc<Mutex<Vec<String>>>,
     quit: mpsc::Sender<()>,
 }
 
-#[zbus::interface(name = "sh.glasshouse.viles.Resident1")]
+#[zbus::interface(name = "io.github.johnson_anthony.glasshouse.Resident1")]
 impl Control {
     #[zbus(property)]
     fn version(&self) -> String {
@@ -331,23 +339,20 @@ pub(crate) fn holder(conn: &Connection, name: &str) -> zbus::Result<Holder> {
         Err(zbus::fdo::Error::NameHasNoOwner(_)) => return Ok(Holder::Nobody),
         Err(e) => return Err(e.into()),
     };
-    if is_glasshouse(conn, owner.as_str()) {
+    if control_of(conn, owner.as_str()).is_some() {
         return Ok(Holder::Glasshouse);
     }
     let pid = dbus.get_connection_unix_process_id(BusName::from(owner.into_inner())).ok();
     Ok(Holder::Other { program: pid.and_then(program_name), pid })
 }
 
-/// Whether the connection `unique` answers on our control interface.
-fn is_glasshouse(conn: &Connection, unique: &str) -> bool {
-    conn.call_method(
-        Some(unique),
-        CONTROL_PATH,
-        Some("org.freedesktop.DBus.Properties"),
-        "Get",
-        &(CONTROL_IFACE, "Version"),
-    )
-    .is_ok()
+/// The control interface (path, name) the connection `unique` answers on,
+/// if it's a glasshouse resident.
+fn control_of(conn: &Connection, unique: &str) -> Option<(&'static str, &'static str)> {
+    CONTROLS.into_iter().find(|(path, iface)| {
+        conn.call_method(Some(unique), *path, Some("org.freedesktop.DBus.Properties"), "Get", &(*iface, "Version"))
+            .is_ok()
+    })
 }
 
 /// The program running as `pid`: its executable's name, else its `comm`.
@@ -367,8 +372,10 @@ pub(crate) fn activatable(conn: &Connection, name: &str) -> bool {
 
 /// Asks the glasshouse resident holding `name` to give it up.
 pub(crate) fn release(conn: &Connection, name: &str) -> zbus::Result<()> {
-    conn.call_method(Some(name), CONTROL_PATH, Some(CONTROL_IFACE), "Release", &(name,))
-        .map(|_| ())
+    let dbus = zbus::blocking::fdo::DBusProxy::new(conn)?;
+    let owner = dbus.get_name_owner(BusName::try_from(name)?)?;
+    let (path, iface) = control_of(conn, owner.as_str()).unwrap_or((CONTROL_PATH, CONTROL_IFACE));
+    conn.call_method(Some(name), path, Some(iface), "Release", &(name,)).map(|_| ())
 }
 
 /// Asks the bus to read its service files again, so one just written or
@@ -381,6 +388,18 @@ pub(crate) fn reload_config(conn: &Connection) -> zbus::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_control_interface_is_named_after_the_app_identifier() {
+        let id = crate::APP_ID.replace('-', "_");
+        assert_eq!(CONTROL_IFACE, format!("{id}.Resident1"));
+        assert_eq!(CONTROL_PATH, format!("/{}/Resident", id.replace('.', "/")));
+        assert_eq!(<Control as zbus::object_server::Interface>::name().as_str(), CONTROL_IFACE);
+        assert!(zbus::names::InterfaceName::try_from(CONTROL_IFACE).is_ok());
+        assert!(zbus::zvariant::ObjectPath::try_from(CONTROL_PATH).is_ok());
+        let old = crate::migrate::OLD_APP_ID;
+        assert_eq!(OLD_CONTROL, (format!("/{}/Resident", old.replace('.', "/")).as_str(), format!("{old}.Resident1").as_str()));
+    }
 
     #[test]
     fn services_by_name() {

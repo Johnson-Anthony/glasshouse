@@ -1,5 +1,6 @@
 mod chooser;
 mod commands;
+mod migrate;
 mod ops;
 #[cfg(target_os = "linux")]
 mod portal;
@@ -16,6 +17,10 @@ use std::sync::{Mutex, MutexGuard, PoisonError};
 use tauri::Manager;
 use tauri_plugin_window_state::StateFlags;
 
+/// The identifier in tauri.conf.json, which names the app's config and
+/// data folders (`migrate.rs` moves the ones named after the old one).
+pub(crate) const APP_ID: &str = "io.github.johnson-anthony.glasshouse";
+
 /// Lock `m` even if a thread panicked while holding it. The callers' data
 /// (the op and pty registries, a kill handle, captured output, search
 /// results) is never left half-updated by a panic, so it is still usable,
@@ -26,6 +31,7 @@ pub(crate) fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
 }
 
 pub fn run() {
+    migrate::run();
     match startup::from_env() {
         startup::Startup::Window(launch) => run_window(launch),
         startup::Startup::IntegrationOn(features) => std::process::exit(commands::integration::on_from_cli(&features)),
@@ -56,11 +62,7 @@ fn context() -> tauri::Context<tauri::Wry> {
 /// Plugins, managed state and every command, for both kinds of window.
 fn builder() -> tauri::Builder<tauri::Wry> {
     tauri::Builder::default()
-        .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_fs::init())
-        .plugin(tauri_plugin_os::init())
-        .plugin(tauri_plugin_shell::init())
         .manage(watcher::WatcherState::default())
         .manage(pty::PtyRegistry::default())
         .manage(ops::OpRegistry::default())
@@ -115,6 +117,8 @@ fn builder() -> tauri::Builder<tauri::Wry> {
             commands::config::write_pins,
             commands::config::read_tags,
             commands::config::write_tags,
+            commands::config::read_remotes,
+            commands::config::write_remotes,
             commands::fs_ops::set_permissions,
             commands::file_info::read_hex_dump,
             commands::file_info::diff_files,

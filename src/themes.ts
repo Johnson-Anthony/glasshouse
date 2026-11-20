@@ -17,7 +17,7 @@ const t = (id: string, label: string, scheme: ThemeScheme, group: ThemeGroup = s
 
 /** In the order Preferences shows them, group by group. */
 export const THEME_LIST: readonly ThemeInfo[] = [
-  t("glasshouse-light", "Glasshouse Light", "light"),
+  t("glasshouse-light", "glasshouse Light", "light"),
   t("catppuccin-latte", "Catppuccin Latte", "light"),
   t("github-light", "GitHub Light", "light"),
   t("one-light", "One Light", "light"),
@@ -30,7 +30,7 @@ export const THEME_LIST: readonly ThemeInfo[] = [
   t("nord-light", "Nord Light", "light"),
   t("kanagawa-lotus", "Kanagawa Lotus", "light"),
 
-  t("glasshouse-dark", "Glasshouse Dark", "dark"),
+  t("glasshouse-dark", "glasshouse Dark", "dark"),
   t("tokyo-night", "Tokyo Night", "dark"),
   t("tokyo-night-storm", "Tokyo Night Storm", "dark"),
   t("catppuccin-mocha", "Catppuccin Mocha", "dark"),

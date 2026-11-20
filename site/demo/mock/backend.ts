@@ -1,7 +1,7 @@
 // The demo's stand-in for the Rust backend: one handler per Tauri command the
 // frontend calls, over the virtual filesystem. Unknown commands resolve to
 // null, like a command that has nothing to report.
-import { BASE_TIME, HOME, PINS, RECENT, REPO, SEED, TAGS } from "./content";
+import { BASE_TIME, HOME, PINS, RECENT, REMOTES, REPO, SEED, TAGS } from "./content";
 import { GitRepo } from "./git";
 import { FakeShell } from "./shell";
 import { Vfs, basename, join, parent, type VNode } from "./vfs";
@@ -166,6 +166,7 @@ export function createBackend(hooks: BackendHooks) {
   let pins = [...PINS];
   let tags: Record<string, string[]> = structuredClone(TAGS);
   let recent = [...RECENT];
+  let remotes: unknown[] = structuredClone(REMOTES);
   const shells = new Map<string, FakeShell>();
   // Modes set from the Inspector; everything else is 0644, or 0755 for a folder.
   const modes = new Map<string, number>();
@@ -546,6 +547,8 @@ export function createBackend(hooks: BackendHooks) {
     write_pins: a => { pins = (a.pins as string[]) ?? []; return null; },
     read_tags: () => tags,
     write_tags: a => { tags = (a.tags as Record<string, string[]>) ?? {}; return null; },
+    read_remotes: () => remotes,
+    write_remotes: a => { remotes = (a.remotes as unknown[]) ?? []; return null; },
     read_recent: () => recent,
     append_recent: a => { const p = str(a.path); recent = [p, ...recent.filter(r => r !== p)].slice(0, 20); return null; },
     clear_recent: () => { recent = []; return null; },

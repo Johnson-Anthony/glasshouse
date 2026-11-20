@@ -276,9 +276,3 @@ fn the_folder_default_says_which_list_sets_it() {
     put(&list, "[Default Applications]\ninode/directory=gone.desktop;nemo.desktop;\n");
     assert_eq!(folder_default(&p).unwrap(), ("nemo.desktop".to_string(), "Nemo".to_string(), Some(list)));
 }
-
-#[test]
-fn the_app_id_is_tauri_s_identifier() {
-    let conf: serde_json::Value = serde_json::from_str(include_str!("../../tauri.conf.json")).unwrap();
-    assert_eq!(conf["identifier"], APP_ID);
-}

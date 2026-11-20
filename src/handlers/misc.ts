@@ -224,7 +224,7 @@ export const miscHandler: Handler = async (label, ctx) => {
       if (ctx.openAbout) {
         ctx.openAbout();
       } else {
-        await dialogs.showAlert({ title: "about", message: "Glasshouse — Tauri file manager" });
+        await dialogs.showAlert({ title: "about", message: "glasshouse — Tauri file manager" });
       }
       return true;
 

@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Manager};
 
-// ---------- pins / tags persistence ----------
+// ---------- pins / tags / remotes persistence ----------
 
 fn config_file(app: &AppHandle, name: &str) -> Result<PathBuf, String> {
     let dir = app
@@ -20,7 +20,7 @@ fn config_file(app: &AppHandle, name: &str) -> Result<PathBuf, String> {
 /// file is synced before the rename, or after a power cut the rename could
 /// be on disk before the data and leave an empty file. On unix the folder
 /// is synced after, so the rename itself is on disk too (best effort).
-fn write_config_atomic(path: &Path, body: &str) -> Result<(), String> {
+pub(crate) fn write_config_atomic(path: &Path, body: &str) -> Result<(), String> {
     use std::io::Write;
     let tmp = path.with_extension("json.tmp");
     let written = std::fs::File::create(&tmp).and_then(|mut f| {
@@ -74,6 +74,19 @@ pub fn read_tags(app: AppHandle) -> Result<HashMap<String, Vec<String>>, String>
 #[tauri::command]
 pub fn write_tags(app: AppHandle, tags: HashMap<String, Vec<String>>) -> Result<(), String> {
     write_json(&app, "tags.json", &tags)
+}
+
+/// The saved remotes (Sidebar → Remotes), as the frontend wrote them; it
+/// checks each entry's fields when it reads them back. Up to 0.2.0 they
+/// were in `~/.glasshouse/remotes.json` (moved by `migrate.rs`).
+#[tauri::command]
+pub fn read_remotes(app: AppHandle) -> Result<Vec<serde_json::Value>, String> {
+    read_json(&app, "remotes.json")
+}
+
+#[tauri::command]
+pub fn write_remotes(app: AppHandle, remotes: Vec<serde_json::Value>) -> Result<(), String> {
+    write_json(&app, "remotes.json", &remotes)
 }
 
 // ---------- recent-paths persistence ----------

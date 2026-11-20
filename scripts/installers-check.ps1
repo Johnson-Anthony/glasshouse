@@ -5,8 +5,10 @@
 #
 # Each round installs, sets a stand-in default verb as another app would,
 # turns the setting on with the installed glasshouse.exe, uninstalls, and
-# checks the registry. Run it on a throwaway machine: it installs and
-# uninstalls glasshouse and changes HKCU\Software\Classes.
+# checks the registry. The NSIS round also checks the install-folder keys
+# (hooks.nsh): 0.2.0's is removed when installing, and the current one when
+# uninstalling. Run it on a throwaway machine: it installs and uninstalls
+# glasshouse and changes HKCU\Software\Classes and HKCU\Software.
 $ErrorActionPreference = 'Stop'
 
 $bundle = Join-Path $PSScriptRoot '..\src-tauri\target\debug\bundle'
@@ -64,22 +66,29 @@ function Test-Round($name, $install, $exe, $uninstall) {
 
 $setup = (Get-ChildItem "$bundle\nsis\*-setup.exe" | Select-Object -First 1).FullName
 $userDir = Join-Path $env:LOCALAPPDATA 'glasshouse'
+# HKCU\Software\<publisher>\glasshouse: NSIS keeps its install folder there
+# (the default value), and Tauri's MSI reads it for its own INSTALLDIR
+# (main.wxs, PrevInstallDirNoName). 0.2.0 was built with "glasshouse" as the
+# publisher. tauri.conf.json's bundle.publisher names the current key.
+$nsisKey = 'HKCU:\Software\Anthony Johnson\glasshouse'
+$oldKey = 'HKCU:\Software\glasshouse\glasshouse'
+New-Item -Path $oldKey -Force | Out-Null
+Set-ItemProperty -Path $oldKey -Name '(default)' -Value 'C:\glasshouse-0.2.0'
 # _?= runs the uninstaller in place, so Start-Process waits for it.
 Test-Round 'NSIS' `
-  { Invoke-Checked $setup @('/S') } `
+  {
+    Invoke-Checked $setup @('/S')
+    if (Test-Path $oldKey) { throw "NSIS: $oldKey (0.2.0's install folder) is still there after installing" }
+    if ((Get-DefaultVerb $nsisKey) -ne $userDir) { throw "NSIS: $nsisKey doesn't name $userDir after installing" }
+  } `
   (Join-Path $userDir 'glasshouse.exe') `
-  { Invoke-Checked (Join-Path $userDir 'uninstall.exe') @('/S', "_?=$userDir") }
-
-# The NSIS uninstaller keeps HKCU\Software\<manufacturer>\<product>, its
-# install folder, unless "Delete application data" is ticked, and Tauri's MSI
-# reads that key for its own INSTALLDIR (main.wxs, PrevInstallDirNoName), so
-# after the NSIS round it would install into %LOCALAPPDATA%. A fresh machine
-# has no such key.
-$nsisKey = 'HKCU:\Software\glasshouse\glasshouse'
-if (Test-Path $nsisKey) {
-  Write-Host "NSIS left $nsisKey ($((Get-Item $nsisKey).GetValue(''))); removing it"
-  Remove-Item -Path $nsisKey -Recurse -Force
-}
+  {
+    Invoke-Checked (Join-Path $userDir 'uninstall.exe') @('/S', "_?=$userDir")
+    # Else the MSI round below would install into %LOCALAPPDATA%.
+    if (Test-Path $nsisKey) {
+      throw "NSIS: $nsisKey ($((Get-Item $nsisKey).GetValue(''))) is still there after uninstalling"
+    }
+  }
 $msi = (Get-ChildItem "$bundle\msi\*.msi" | Select-Object -First 1).FullName
 Test-Round 'MSI' `
   { Invoke-Checked 'msiexec.exe' @('/i', "`"$msi`"", '/qn', '/l*v', "`"$log\msi-install.log`"") } `

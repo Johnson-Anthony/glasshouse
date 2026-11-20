@@ -20,6 +20,7 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 use super::xdg_apps::{parse_entry, AppIndex, MimeDb, XdgDirs};
+use crate::APP_ID;
 
 pub(crate) const FOLDER_MIME: &str = "inode/directory";
 pub(crate) const FILE_MANAGER_NAME: &str = "org.freedesktop.FileManager1";
@@ -27,8 +28,6 @@ pub(crate) const FILE_MANAGER_NAME: &str = "org.freedesktop.FileManager1";
 pub(crate) const CHOOSER_NAME: &str = "org.freedesktop.impl.portal.desktop.glasshouse";
 pub(crate) const DESKTOP_ID: &str = "glasshouse-folders.desktop";
 const DEFAULTS_GROUP: &str = "[Default Applications]";
-/// The app identifier in tauri.conf.json, which names the app config dir.
-const APP_ID: &str = "sh.glasshouse.viles";
 /// Marks the files we write, so turning off never removes someone else's.
 const ENTRY_MARK: &str = "X-Glasshouse-Integration=folders";
 const SERVICE_MARK: &str = "# Written by glasshouse";
