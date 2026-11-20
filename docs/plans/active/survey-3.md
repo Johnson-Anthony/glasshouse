@@ -16,13 +16,15 @@ The scan for the user's own paths and names found none in app code. The gaps are
 | 32 | e2e-smoke | CI + test code | S–M | queued (first) |
 | 33 | diagnostics-and-errors | both | M | queued |
 | 34 | windows-paths | Rust + a little frontend | M | queued |
-| 35 | release-identity | config + CI | S–M | queued (pin the MSI upgrade code before anything renames) |
+| 35 | release-identity | Rust + config + CI | M | queued (after task 31, whose resident and integration code use the identifier) |
 | **Wave 7b: works like other file managers** |||||
 | 36 | os-clipboard | both | M–L | queued |
 | 37 | linux-launch-env | Rust + CI | M | queued (coordinate with task 30's activation token) |
 | 38 | a11y | frontend | M–L | queued |
 | 39 | locale-and-names | frontend (+ a little Rust) | S–M | queued |
-| 40 | consumer-defaults | frontend | M | queued (needs owner decisions D4) |
+| 40 | first-run-defaults | frontend | S–M | queued (after 47; the look moved there) |
+| 47 | themes-and-cosmetics | frontend | L | queued (user request 11-20: "expand the themes and cosmetics options massively") |
+| 48 | updater | both + CI | M | queued (after 35; D2) |
 | **Wave 7c: devices, transfers, docs** |||||
 | 41 | devices | both | M–L | queued |
 | 42 | transfers-and-cloud | both | M | queued (tell task 25 folder-size about the cloud flag) |
@@ -35,22 +37,22 @@ The scan for the user's own paths and names found none in app code. The gaps are
 Run at most two Rust tasks at once (RAM). Tasks 33, 34, 36 and 37 all touch `src-tauri/src/commands/`, so keep diffs narrow.
 
 ## Owner decisions
-- **D1. Windows code signing.** Unsigned installers trip SmartScreen, and the MSI's UAC prompt says "Unknown publisher". Options:
+- **D1. Windows code signing.** *Decided 11-20: skip for now.* The README explains the SmartScreen warning (task 43). Unsigned installers trip SmartScreen, and the MSI's UAC prompt says "Unknown publisher". Options:
   - SignPath Foundation: free for open source, needs an application.
   - Azure Artifact Signing: paid; sign-up for individuals is limited to some countries (unverified).
   - A standard OV certificate.
-- **D2. Updates.** There's no updater, and `release.yml:134` has `includeUpdaterJson: false`. Check for Updates only opens the Releases page (`handlers/misc.ts:243-247`). Adding `tauri-plugin-updater` (with a free minisign key) means the app's first network call. Choose between opt-in, ask on first run, or none.
-- **D3. App identity.**
+- **D2. Updates.** *Decided 11-20: add it* (task 48), off until the user turns it on; Check for Updates is a manual check. There's no updater, and `release.yml:134` has `includeUpdaterJson: false`. Check for Updates only opens the Releases page (`handlers/misc.ts:243-247`). Adding `tauri-plugin-updater` (with a free minisign key) means the app's first network call. Choose between opt-in, ask on first run, or none.
+- **D3. App identity.** *Decided 11-20: fix it now, while the owner is the only user* (task 35). New identifier `io.github.johnson_anthony.glasshouse`: the user's GitHub Pages domain reversed, with `_` for the hyphen, because D-Bus interface names can't contain `-`. The name is lowercase "glasshouse" everywhere, with a migration of the old data.
   - **Identifier:** `sh.glasshouse.viles` is left over from the scaffold (`8abaa0c`). Changing it later abandons everyone's settings, tags and pins unless the data is migrated.
   - **Name:** the product is called "glasshouse" in tauri.conf.json but "Glasshouse" in About. Pick one.
   - **Pin the MSI upgrade code now** whatever is chosen (task 35). Tauri derives it from the name, so a rename means duplicate installs.
-- **D4. Look and defaults.**
+- **D4. Look and defaults.** *Decided 11-20: one agent expands the themes and cosmetic options massively* (task 47). The remaining defaults are task 40.
   - Add a light theme and make "System" the default (today every theme is dark, and the default is gruvbox-dark in a monospace Nerd Font).
   - Windows-style window controls on the right, which also brings Snap Layouts, or keep the macOS-style dots.
   - How lean the status bar is by default.
-- **D5. Translation.** Labels route commands (ARCHITECTURE.md), so translating needs stable command IDs plus a string table: an L task. Is it a goal?
-- **D6. macOS** (already an open question in the SPEC). Cheap fixes exist, but are they wanted?
-- **D7. Repo settings.** Private vulnerability reporting, plus the Dependabot alerts that are still open.
+- **D5. Translation.** *Decided 11-20: skip.* Labels route commands (ARCHITECTURE.md), so translating needs stable command IDs plus a string table: an L task. Is it a goal?
+- **D6. macOS** *Decided 11-20: skip; not a goal for now.* (already an open question in the SPEC). Cheap fixes exist, but are they wanted?
+- **D7. Repo settings.** *Done 11-20: private vulnerability reporting is on.* Dependabot alerts are still open. Private vulnerability reporting, plus the Dependabot alerts that are still open.
 
 ## 32. e2e-smoke (CI + test code, S–M)
 The first look at the real app on Windows. Use Tauri's `tauri-driver` 2.1.0 (pin it; it needs Rust 1.90+) with a small W3C WebDriver client of our own in `e2e/` (`node:test`, no new dependencies, like `capture.mjs`'s CDP client). It drives WebKitWebDriver on Linux and msedgedriver on Windows. The app needs no changes: `tauri-driver` sets `TAURI_WEBVIEW_AUTOMATION=true`, which wry reads at runtime.
@@ -116,7 +118,11 @@ The first look at the real app on Windows. Use Tauri's `tauri-driver` 2.1.0 (pin
 - **Release assets:** add a SHA256SUMS file and `actions/attest-build-provenance`, and a Windows ARM64 build (`windows-11-arm` runners are free for public repos).
 - **User data in three places:** remotes are in `~/.glasshouse/remotes.json` (`App.tsx:526,549`), pins and tags in the config folder, and settings and tabs in localStorage. Move remotes into the config folder, with migration.
 - **Unused plugins:** `lib.rs:28-30` registers the fs, os and shell plugins, and `capabilities/default.json:19-22` grants them, but the frontend uses only the dialog plugin. Drop them, then run `pnpm notices`.
-- **D3** (identifier and name) is the owner's call; don't change them here.
+- **The identity change (D3):**
+  - **Rename:** `identifier` becomes `io.github.johnson_anthony.glasshouse` everywhere it's used: tauri.conf.json, `APP_ID` in `commands/integration_xdg.rs`, `CONTROL_IFACE` and the `#[zbus::interface]` name in `resident.rs`, and anything task 31 adds, plus docs/INTEGRATION.md and ARCHITECTURE.md. Keep the product name lowercase "glasshouse" everywhere, About included.
+  - **Publisher:** set `publisher` explicitly (the LICENSE holder, Anthony Johnson), because Tauri otherwise takes the identifier's second part ("github") as the manufacturer. Update `scripts/installers-check.ps1`'s `HKCU:\Software\<manufacturer>\<product>` path to match.
+  - **Migration:** on first start, if the new config and data folders don't exist but the old `sh.glasshouse.viles` ones do, move or copy them. That covers pins, tags, recents, window state, `integration.json`, and the webview's localStorage (settings, tabs; on Linux under `~/.local/share/<identifier>`, on Windows under EBWebView in `%LOCALAPPDATA%\<identifier>`). Unit-test it on scratch folders. The owner's own session runs the integration from the old binary path, so `glasshouse --integration-off` then `--integration-on` after the switch (the lead does this).
+  - **Upgrade code:** pin the MSI upgrade code to the one the current name derives, so existing MSI installs upgrade in place.
 
 ## 36. os-clipboard (both, M–L)
 Copy in glasshouse then Paste in Explorer, Nautilus, Dolphin, a mail or chat app does nothing, nor does the reverse, nor does it work between two glasshouse windows (one process each). The clipboard lives only in the app (`commandState.ts:26`), and Copy Path just logs when the webview refuses the write (`handlers/tools.ts:35-44`).
@@ -159,10 +165,8 @@ Copy in glasshouse then Paste in Explorer, Nautilus, Dolphin, a mail or chat app
 - **Shred:** "random bytes" (`misc.ts:329`) is wrong, since `fs_ops.rs:907` writes fixed patterns, and overwriting doesn't reach old data on SSDs, btrfs, ZFS or NTFS with shadow copies. Fix the wording, or hide Shred on copy-on-write filesystems. This also belongs to task 16's honesty list; do it here.
 - **D5** (a string table) is out of scope.
 
-## 40. consumer-defaults (frontend, M; after D4)
-- **Theme:** a light theme and a "System" default. Every theme in `themes.css` is `color-scheme: dark`, and the default is gruvbox-dark (`App.tsx:95`).
-- **Fonts:** add a system-UI font option. Drop Iosevka and Berkeley Mono or label them "if installed": they aren't bundled and fall back silently (`Preferences.tsx:20-22`).
-- **Window controls:** native-style on Windows, if D4 says so.
+## 40. first-run-defaults (frontend, S–M; after 47)
+The theme, font and window-control items moved to task 47.
 - **Status bar:** a lean default (items, selection, free space), with cpu, mem, net, uptime and the clock opt-in. Remove the fake `i/o ▁▂▃▅▂▁` graph (`components.tsx:1110`), and stop the 2 s polling while it's hidden (`:1057`).
 - **First run:**
   - Seed the pins with the known folders. Today the sidebar says "no pins yet" (`Sidebar.tsx:747`).
@@ -211,3 +215,26 @@ Poll; don't sleep (watcher refreshes are asynchronous). Use unique names, becaus
 In `release.yml`, before publishing:
 - install the MSI and the NSIS setup silently, run the smoke flow, uninstall, and check nothing is left behind, task 30's registry keys included;
 - smoke-test the .deb and the AppImage.
+
+## 47. themes-and-cosmetics (frontend, L; user request 2026-11-20)
+The owner wants the themes and cosmetic options expanded massively. Today there are 8 themes in `src/styles/themes.css`, every one `color-scheme: dark`; the default is gruvbox-dark (`App.tsx:95`) in a monospace Nerd Font. Preferences → Appearance (`src/dialogs/Preferences.tsx`) offers theme, font, density, scanlines and zoom, saved under `glasshouse.tweaks`.
+- **Themes:**
+  - Many more, light and dark, covering the well-known editor and terminal palettes and high-contrast ones.
+  - "System" follows the OS light/dark setting (`prefers-color-scheme`, plus the window's `setTheme`), as the default for new users, with separate light and dark picks.
+  - An accent color picker, with live preview in Preferences.
+  - Forced-colors (Windows High Contrast) support.
+  - Keep the existing theme names working.
+- **Custom themes:** a theme editor for the color tokens, saved as user themes, with import/export as a small JSON file. Validate imports, and check contrast (warn under WCAG AA).
+- **Typography:** a system-UI font option next to the monospace ones, with a separate UI font and file-list font, size and line height. The bundled fonts work offline; Iosevka and Berkeley Mono get "if installed" labels or go.
+- **Chrome:**
+  - Window-control style: native-looking on Windows (right side, so Snap Layouts works on hover if the WebView allows), GNOME-style, macOS-style dots, or hidden.
+  - Corner radius, borders and shadows; the tab style; the sidebar width and icon size; the toolbar, breadcrumb and status-bar visibility and layout; transparency where the platform supports it (unverified on WebKitGTK; check before offering).
+- **File list:** icon sets (Nerd Font glyphs, colored file-type icons, minimal), row density beyond the three current steps, zebra rows, grid lines, a selection style, git-badge style, and colors by file type or tag.
+- **Effects:** scanlines and similar effects stay opt-in. Respect `prefers-reduced-motion`.
+- **Coordination:** task 38 (a11y) owns contrast of the shipped themes and ARIA, so every new theme must pass WCAG AA for body text. Task 40 (first-run defaults) follows this task. The demo (`pnpm site:build`) and the landing page's theme screenshots must keep working; re-capture as needed.
+
+## 48. updater (both + CI, M; after 35; D2)
+- **Plugin:** `tauri-plugin-updater` for the NSIS, MSI and AppImage builds (the .deb updates through the package manager, so it gets a "download the new .deb" notice instead). Set `includeUpdaterJson: true` in `release.yml`, and have it sign the builds with `TAURI_SIGNING_PRIVATE_KEY`.
+- **The signing key:** the lead generates the key pair (`pnpm tauri signer generate`). The private key goes only into a GitHub Actions secret and the owner's password manager, never into the repo or a log; the public key goes into tauri.conf.json.
+- **Off by default:** Preferences → "Check for updates automatically" (daily at most). Help → Check for Updates checks once when clicked. Both say what they contact (the GitHub release's latest.json) and send nothing else. Show what's new from the release notes, and install only when the user says so.
+- **Docs:** a privacy line in the README (task 43).

@@ -28,5 +28,5 @@ The survey-fix pass (2026-11-08 to 2026-11-10) fixed the defects found in the co
 
 ## Open questions (owner to confirm)
 - **Remote browsing:** the README mentions "remote-target browsing", but there's no remote filesystem backend, only ssh terminal profiles. Is that planned or dropped?
-- **macOS:** only `open_url` has a macOS branch. Is macOS a non-goal?
+- ~~**macOS:** only `open_url` has a macOS branch. Is macOS a non-goal?~~ Decided 2026-11-20: not a goal for now. Translation isn't either; the UI is English only.
 - **`origin/feature`:** it has one commit, `ddb5466`, that was never merged. Merge, cherry-pick or drop?
