@@ -54,6 +54,7 @@ What changed in each release, for people using glasshouse. Downloads are on the 
 
 ### Changed
 
+- **The README is a user guide:** which download to pick, system requirements, privacy, where your data lives and how to remove it, and checking a download. Building from source moved to CONTRIBUTING.md. Security reports go through GitHub's private reporting (SECURITY.md), and bugs through an issue form.
 - **New installs get a lean status bar** (items, selection, size, free space on the drive). CPU, memory, network, uptime, the clock and the rest can be switched on one by one in Preferences → Status bar. Existing settings keep what they showed.
 - The status bar no longer shows a made-up i/o graph or a READY badge, and it stops polling while the window is hidden or the bar is off, fetching only what it shows.
 - New installs get generic tags (important, todo, work, personal, archive); existing tags are kept.

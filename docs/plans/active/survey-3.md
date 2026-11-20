@@ -28,7 +28,7 @@ The scan for the user's own paths and names found none in app code. The gaps are
 | **Wave 7c: devices, transfers, docs** |||||
 | 41 | devices | both | M–L | queued |
 | 42 | transfers-and-cloud | both | M | queued (tell task 25 folder-size about the cloud flag) |
-| 43 | docs-and-community | docs + repo files | S–M | running (11-20) |
+| 43 | docs-and-community | docs + repo files | S–M | merged 11-20 (`claude/elegant-jemison-47aa69`; plan in `docs/plans/completed/docs-and-community.md`) |
 | **Wave 7d: more testing** |||||
 | 44 | e2e-core-flows | test code | M | after 32 |
 | 45 | e2e-nightly-matrix | CI | S–M | after 32 |
@@ -277,3 +277,7 @@ The owner asked for "split view for tabs and also to be able to drag drop tabs i
 - *(from first-run-defaults, for 45)* Not run: Windows (Quick Access, `GetDiskFreeSpaceExW`, the window fit), a second window's fit on Linux, and the fit under a real window manager or Wayland compositor (positions are ignored there). KDE's and GNOME's bookmark files were tested as files.
 - *(from docs-and-community, for 34)* On Windows, .7z support needs 7-Zip on PATH: `find_tool` looks only on PATH, and 7-Zip's installer doesn't add itself there. Also look in `%ProgramFiles%\7-Zip` (and the x86 one); the README now tells users to add it to PATH by hand.
 - *(from docs-and-community, for 34)* On Windows, the terminal's "bash" profile is the first `bash.exe` on PATH, usually `System32\bash.exe` (WSL's launcher), not Git Bash. Unverified on a real PC; `docs/testing/windows.md` W9.1 checks it.
+- *(from docs-and-community, for 48)* When the updater lands, update README "Privacy" (the "Update checks (planned)" paragraph), "Known limitations" ("No automatic updates yet") and the .deb and AppImage update sentences under "Linux".
+- *(from docs-and-community, for 33)* README "Getting help" says "Help → Open Log Folder (planned)", with no log path, and the bug form's intro and README say Report Bug… pre-fills `version`, `os`, `desktop` and `webview` (`?template=bug_report.yml&…`). Both are true only once 33 lands.
+- *(from docs-and-community, for 49)* README "Linux" says an AppImage doesn't add itself to the app menu; so does `docs/testing/linux.md` L2.3.
+- *(from docs-and-community)* No code of conduct yet: it needs a contact for reports, and the owner hasn't picked one.
