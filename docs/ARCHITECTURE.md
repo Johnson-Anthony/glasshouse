@@ -103,9 +103,31 @@ A Tauri 2 app. The window is a React 18 UI (`src/`) that calls Rust commands (`s
   - backend on Ubuntu and Windows: clippy with `-D warnings`, cargo test;
   - `notices`: `pnpm notices --check` against the lockfiles.
   - `installers` (Windows): a debug build of the NSIS and MSI installers with their uninstall hooks (`src-tauri/windows/`), then `scripts/installers-check.ps1` installs each, turns "Open folders with glasshouse" on, uninstalls and checks the registry.
+- **e2e** (`.github/workflows/e2e.yml`): the end-to-end smoke test (below) on ubuntu-22.04 and windows-latest. It runs on pushes to main and by hand, and isn't a required check.
 - **Releases:** `release.yml` runs on a `v*` tag. It builds the Windows installers (msi, NSIS) and Linux packages (AppImage, deb) with tauri-action. The Linux menu entry comes from `src-tauri/linux/glasshouse.desktop`.
 - **Locally:** `pnpm tauri build --no-bundle` makes the Linux binary. This machine links it into its app launcher.
 - **Third-party notices:** `pnpm notices` (`scripts/gen-notices.mjs`, cargo-about) regenerates `src/assets/third-party.json`.
+
+## End-to-end tests (`e2e/`)
+These drive the real app, built with `pnpm tauri build --debug --no-bundle`, through W3C WebDriver.
+- **Driver chain:** `e2e/webdriver.mjs` (a small client over `fetch`, with a deadline on every request) → `tauri-driver` 2.1.0 → WebKitWebDriver on Linux or msedgedriver on Windows → the app. tauri-driver sets `TAURI_WEBVIEW_AUTOMATION=true`, which Tauri reads to allow automation, so the app has no test code. There's no macOS driver.
+- **Harness** (`e2e/harness.mjs`): finds the binaries (overrides: `E2E_APP`, `E2E_TAURI_DRIVER`, `E2E_NATIVE_DRIVER`), makes the scratch folder and the fixture, starts tauri-driver and stops its whole process tree, and takes the desktop screenshot.
+  - On Linux, the app gets a minimal environment: a scratch HOME and XDG dirs with the known folders and `user-dirs.dirs`, `GDK_BACKEND=x11` and no `WAYLAND_DISPLAY`. It also runs on a private session bus whose config starts no system services (`sessionBus`), so a local run touches none of the user's session.
+  - On Windows, it runs as the runner's user, because known folders come from the profile.
+- **Flow 1** (`e2e/smoke.test.mjs`):
+  - the window renders with no notice, pane error or dialog;
+  - Ctrl+L, a typed fixture path and Enter list the fixture's entries;
+  - the sidebar's DEVICES lists `/` or `C:\`, and the tree shows home with Documents and Downloads;
+  - there are no uncaught errors or unhandled rejections from the session's start. On Windows, msedgedriver's browser log (`ms:loggingPrefs`) also covers the time before that.
+- **Artifacts:** `e2e/artifacts/` (ignored by git) gets them on every run:
+  - a webview screenshot after each test, and `desktop.png`, taken while the app is open;
+  - `driver-and-app.log` (both drivers' output and the app's stderr);
+  - `session.json` (the drivers and the versions they report), and the page's text and errors;
+  - on Windows, `session.txt`: `query user`, the screens, the app's process session and window rect (`e2e/windows-desktop.ps1`).
+- **Running it:**
+  - Linux: `pnpm e2e` (Xvfb at 1920x1080x24 through `xvfb-run`). It needs `webkit2gtk-driver` (apt) and `cargo install tauri-driver --version 2.1.0 --locked`. Run it in a memory-capped scope; the app and WebKit take about 300 MB.
+  - Windows: `node --test e2e/smoke.test.mjs` in an interactive session. First run `e2e/edgedriver.ps1`: msedgedriver must match the WebView2 Runtime in the first three version parts, or the session start hangs. The script uses the runner image's driver when it matches and otherwise downloads the matching one, then sets `E2E_NATIVE_DRIVER`.
+- **Adding a flow:** poll with `waitFor`, never sleep, because listings and watcher refreshes are asynchronous. Read the page with `session.execute`, and type with `sendKeys` or `chord`, so the input goes through real key events. See `docs/decisions/2026-11-20-e2e-smoke-design.md`.
 
 ## Project site (`docs/` on GitHub Pages)
 - `docs/index.html` with `docs/assets/site.css` and `site.js` is the landing page, hand-written with no build step. It uses the app's theme tokens (`docs/assets/themes.css`, copied from `src/styles/themes.css` by the site build).

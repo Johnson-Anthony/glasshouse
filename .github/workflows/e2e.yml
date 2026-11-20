@@ -1,0 +1,77 @@
+# End-to-end smoke test of the real app (e2e/, "End-to-end tests" in
+# docs/ARCHITECTURE.md): tauri-driver drives the window through
+# WebKitWebDriver on Linux, under Xvfb, and through msedgedriver on Windows.
+# Not a required check yet. The artifacts (screenshots, the app's output,
+# versions) are kept from every run.
+name: e2e
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  smoke:
+    strategy:
+      fail-fast: false
+      matrix:
+        # Linux: the oldest Ubuntu with WebKitGTK 4.1, which the release's
+        # Linux packages are built on (release.yml).
+        os: [ubuntu-22.04, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v5
+      - if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev patchelf webkit2gtk-driver xvfb imagemagick dbus
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+      - uses: dtolnay/rust-toolchain@stable
+      # The repo's Actions cache is over its 10 GB limit, so a run makes no
+      # new entry. Windows reads the entry of ci.yml's installers job (the
+      # same debug build): a shared-key equal to that job's id gives its key,
+      # as long as this job sets no CARGO_*/RUST* env. Linux keeps one entry,
+      # saved from main only.
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+          shared-key: ${{ runner.os == 'Windows' && 'installers' || 'e2e' }}
+          save-if: ${{ runner.os == 'Linux' && github.ref == 'refs/heads/main' }}
+      - run: pnpm install --frozen-lockfile
+      - run: cargo install tauri-driver --version 2.1.0 --locked
+      - run: pnpm tauri build --debug --no-bundle
+      # A msedgedriver that doesn't match the WebView2 Runtime hangs the
+      # session start, so this picks (or downloads) one that does.
+      - name: Match msedgedriver to the WebView2 Runtime
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./e2e/edgedriver.ps1
+      # The step's own limit leaves time to upload the artifacts.
+      - name: Smoke test (Xvfb)
+        if: runner.os == 'Linux'
+        timeout-minutes: 10
+        run: pnpm e2e
+      - name: Smoke test
+        if: runner.os == 'Windows'
+        timeout-minutes: 10
+        run: node --test --test-reporter=spec e2e/smoke.test.mjs
+      - name: Keep the artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-${{ matrix.os }}
+          path: e2e/artifacts/
+          if-no-files-found: warn
+          retention-days: 14
