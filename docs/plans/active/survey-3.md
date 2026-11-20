@@ -22,7 +22,7 @@ The scan for the user's own paths and names found none in app code. The gaps are
 | 37 | linux-launch-env | Rust + CI | M | queued (coordinate with task 30's activation token) |
 | 38 | a11y | frontend | M–L | queued |
 | 39 | locale-and-names | frontend (+ a little Rust) | S–M | queued |
-| 40 | first-run-defaults | frontend | S–M | running (11-20; also the first window fitting the work area) |
+| 40 | first-run-defaults | frontend | S–M | merged 11-20 (`claude/nice-ishizaka-1d4fec`; plan in `docs/plans/completed/first-run-defaults.md`) |
 | 47 | themes-and-cosmetics | frontend | L | merged 11-20 (`claude/elegant-euler-fb95a5`; plan in `docs/plans/completed/themes-and-cosmetics.md`) |
 | 48 | updater | both + CI | M | queued (after 35; D2) |
 | **Wave 7c: devices, transfers, docs** |||||
@@ -264,3 +264,6 @@ The owner wants the themes and cosmetic options expanded massively. Today there 
 - *(from release-identity, for 46)* Upgrading over 0.2.0's setup.exe is untested: the publisher change means the new installer can't find 0.2.0's install-folder key, so its "uninstall first" may fail (installing over it works). See `docs/decisions/2026-11-20-release-identity-installers.md`.
 - *(from release-identity, for 45/46)* Not run yet: the release workflow's Windows arm64 build, SHA256SUMS and `attest-build-provenance`, and CI's new `windows-11-arm` leg.
 - *(from release-identity)* The Tauri `opener` plugin is no longer registered (Rust still calls its functions), and fs, os and shell are gone. The theme names are "glasshouse Light/Dark".
+- *(from first-run-defaults)* The site's hero images and tour clips in `docs/media` still show the old status bar (READY, the i/o graph); `pnpm site:capture` re-records them.
+- *(from first-run-defaults)* A window restored maximized whose saved normal size doesn't fit the screen still un-maximizes too big.
+- *(from first-run-defaults, for 45)* Not run: Windows (Quick Access, `GetDiskFreeSpaceExW`, the window fit), a second window's fit on Linux, and the fit under a real window manager or Wayland compositor (positions are ignored there). KDE's and GNOME's bookmark files were tested as files.

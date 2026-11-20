@@ -6,6 +6,8 @@ What changed in each release, for people using glasshouse. Downloads are on the 
 
 ### New
 
+- **A first run pins your home and standard folders** plus your desktop's bookmarks (GTK, KDE Dolphin, Windows Quick Access).
+- **The status bar shows the selected files' size** when something is selected, and the free space on the folder's drive.
 - **Windows on Arm:** native arm64 installers (setup.exe and MSI).
 - **Checking a download:** each release has a `SHA256SUMS` file, and `gh attestation verify` checks that the release workflow built a file.
 - **The .deb recommends git, 7-Zip and xdg-utils,** so apt installs them with glasshouse.
@@ -52,6 +54,9 @@ What changed in each release, for people using glasshouse. Downloads are on the 
 
 ### Changed
 
+- **New installs get a lean status bar** (items, selection, size, free space on the drive). CPU, memory, network, uptime, the clock and the rest can be switched on one by one in Preferences → Status bar. Existing settings keep what they showed.
+- The status bar no longer shows a made-up i/o graph or a READY badge, and it stops polling while the window is hidden or the bar is off, fetching only what it shows.
+- New installs get generic tags (important, todo, work, personal, archive); existing tags are kept.
 - **glasshouse's folders have a new name,** `io.github.johnson-anthony.glasshouse` (they were `sh.glasshouse.viles`, a name left over from the start). The first start of this version moves your pins, tags, recent folders, window size, settings, tabs and integration settings over, with nothing to do. Saved remotes move from `~/.glasshouse` into the same folder.
 - **Windows: the publisher is Anthony Johnson** in Settings → Apps and the installers (it was "glasshouse"). MSI installs of 0.2.0 upgrade in place.
 - **The name is "glasshouse" everywhere,** About included.
@@ -74,6 +79,7 @@ What changed in each release, for people using glasshouse. Downloads are on the 
 
 ### Fixed
 
+- **The window fits the screen:** the first window opens centered at a size that fits small and scaled screens (it was 1400×900 whatever the screen), and a saved window too big for the current screen shrinks to fit.
 - **Moving from the setup.exe to the MSI** no longer puts the MSI's per-machine install in your user folder: uninstalling the setup.exe version now forgets its install folder.
 - On Windows, the app's Content Security Policy blocked Tauri's IPC, so every call between the window and the backend fell back to a slower path and logged an error.
 - With striped rows on, a selected odd row showed the stripe instead of the selection.
