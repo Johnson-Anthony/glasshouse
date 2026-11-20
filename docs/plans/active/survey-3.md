@@ -24,7 +24,7 @@ The scan for the user's own paths and names found none in app code. The gaps are
 | 39 | locale-and-names | frontend (+ a little Rust) | S–M | queued |
 | 40 | first-run-defaults | frontend | S–M | merged 11-20 (`claude/nice-ishizaka-1d4fec`; plan in `docs/plans/completed/first-run-defaults.md`) |
 | 47 | themes-and-cosmetics | frontend | L | merged 11-20 (`claude/elegant-euler-fb95a5`; plan in `docs/plans/completed/themes-and-cosmetics.md`) |
-| 48 | updater | both + CI | M | running (11-20; the signing key pair is generated; see PROGRESS) |
+| 48 | updater | both + CI | M | merged 11-20 (`claude/eloquent-chebyshev-4e12bf`; plan in `docs/plans/completed/updater.md`; releases wait for the two signing secrets) |
 | **Wave 7c: devices, transfers, docs** |||||
 | 41 | devices | both | M–L | queued |
 | 42 | transfers-and-cloud | both | M | queued (tell task 25 folder-size about the cloud flag) |
@@ -277,9 +277,11 @@ The owner asked for "split view for tabs and also to be able to drag drop tabs i
 - *(from first-run-defaults, for 45)* Not run: Windows (Quick Access, `GetDiskFreeSpaceExW`, the window fit), a second window's fit on Linux, and the fit under a real window manager or Wayland compositor (positions are ignored there). KDE's and GNOME's bookmark files were tested as files.
 - *(from docs-and-community, for 34; done by 33: 7-Zip is now found in Program Files too)* On Windows, .7z support needed 7-Zip on PATH: `find_tool` looks only on PATH, and 7-Zip's installer doesn't add itself there. Also look in `%ProgramFiles%\7-Zip` (and the x86 one); the README now tells users to add it to PATH by hand.
 - *(from docs-and-community, for 34)* On Windows, the terminal's "bash" profile is the first `bash.exe` on PATH, usually `System32\bash.exe` (WSL's launcher), not Git Bash. Unverified on a real PC; `docs/testing/windows.md` W9.1 checks it.
-- *(from docs-and-community, for 48)* When the updater lands, update README "Privacy" (the "Update checks (planned)" paragraph), "Known limitations" ("No automatic updates yet") and the .deb and AppImage update sentences under "Linux".
+- *(from docs-and-community, for 48; done by 48)* When the updater lands, update README "Privacy" (the "Update checks (planned)" paragraph), "Known limitations" ("No automatic updates yet") and the .deb and AppImage update sentences under "Linux".
 - *(from docs-and-community, for 33; settled by 33)* README "Getting help" says "Help → Open Log Folder (planned)", with no log path, and the bug form's intro and README say Report Bug… pre-fills `version`, `os`, `desktop` and `webview` (`?template=bug_report.yml&…`). Both are true only once 33 lands.
 - *(from docs-and-community, for 49)* README "Linux" says an AppImage doesn't add itself to the app menu; so does `docs/testing/linux.md` L2.3.
 - *(from docs-and-community)* No code of conduct yet: it needs a contact for reports, and the owner hasn't picked one.
 - *(from diagnostics-and-errors)* Commands that still return plain-text errors (convert with `AppError::io`/`other` when next touched): git, find/replace and search, config, integration, file_info, read_image_b64, shred, change_owner, create_shortcut, run_script, spawn_terminal, reveal_in_explorer, spawn_new_window, the trash list/restore/purge, start_drag_out, pty_kill, the chooser commands, net_rate, path_fs_type.
 - *(from diagnostics-and-errors, for 45)* Not run on Windows: the MessageBoxW box, the WebView2 check before `build()`, the 7-Zip Program Files lookup, and the trash's HRESULT→Win32 mapping ("in use" for errors 32/33). No real release-build panic or failed `build()` has been triggered; the box was checked through `--fatal-dialog`.
+- *(from updater, for 41)* On Linux, the sidebar's DEVICES lists an AppImage's own FUSE mount (`/tmp/.mount_glass…`, type `fuse.glasshouse_…AppImage`) for anyone running the AppImage. Hide it.
+- *(from updater, for 45/46)* Not run: anything on Windows (NSIS and MSI updates, UAC and cancelling it, Restart Manager closing other windows, `/R` restarting), a real GitHub release with release.yml's new publish step, and the x64 Linux packages. `docs/testing` has W14 and L12 for them. `includeUpdaterJson` stays off: the publish job verifies every .sig and writes latest.json itself (`scripts/updater-json.mjs`), because tauri-action's parallel jobs race on it.

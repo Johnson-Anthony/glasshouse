@@ -6,6 +6,9 @@ What changed in each release, for people using glasshouse. Downloads are on the 
 
 ### New
 
+- **Update checks, off until you ask.** Help → Check for Updates checks once, and Preferences → Updates → "check for updates automatically" checks at most once a day. A check is one request to github.com for the latest release's latest.json: nothing about you or your computer is sent.
+- **Updates install from the app when you choose Install.** The setup.exe and the MSI download and run the new installer of the same kind, so a per-user install stays per user. An AppImage in a folder you can write to replaces itself and restarts with your tabs. A .deb install gets a notice with a link to the new .deb. An update must be signed with glasshouse's release key for the version announced. The dialog shows the release notes first.
+- **Each release has a latest.json, and a .sig beside each package** (for the update check).
 - **Help → Open Log Folder.** glasshouse keeps a log, glasshouse.log: errors, crashes, and each start's version and system. It stays on your computer.
 - **Report Bug… fills in the bug form** with the version, OS, desktop and display scale, and the WebKitGTK or WebView2 version, after showing you exactly those lines. No paths, user name or computer name.
 - **A first run pins your home and standard folders** plus your desktop's bookmarks (GTK, KDE Dolphin, Windows Quick Access).
