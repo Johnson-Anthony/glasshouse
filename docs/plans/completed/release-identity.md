@@ -3,6 +3,8 @@
 The app's identity and its release packaging, before anyone but the owner depends on them. Scope: survey-3.md §35 and the owner decisions D1 (no code signing) and D3 (new identifier now, data migrated, lowercase "glasshouse").
 
 ## Status
+Done, 2026-11-20 (`ca977f8`; plan in `docs/plans/completed/`). Two questions to the lead were still open at handoff: the identifier spelling (the hyphen form is in, one constant plus docs if it changes), and cutting the two AppImage items.
+
 | Step | State |
 |---|---|
 | Plan | done |
@@ -18,7 +20,7 @@ The app's identity and its release packaging, before anyone but the owner depend
 | Name: lowercase in About, the about alert, the two glasshouse theme names, README | done |
 | Docs: INTEGRATION, ARCHITECTURE, SPEC, README (installers, checksums, data and uninstalling), decision records | done |
 | AppImage update information and desktop integration | asked the lead to cut (48 has the updater; a menu entry is its own feature) |
-| Checks | |
+| Checks | done (below) |
 
 ## The identifier
 D3 picked `io.github.johnson_anthony.glasshouse`: the GitHub Pages domain reversed, `_` for the hyphen, because D-Bus interface names can't contain `-`. But `tauri build` refuses identifiers with anything but letters, digits, `-` and `.`, so the Tauri identifier can't have the `_`. Proposal sent to the lead (11-20):
@@ -50,3 +52,10 @@ The integration files themselves (mimeapps lines, `glasshouse-folders.desktop`, 
 ## Not done here
 - AppImage update information and desktop integration: see the report to the lead (task 48's updater covers AppImage updates; a menu entry for the AppImage is a feature of its own).
 - Code signing (D1).
+
+## Results
+- **Checks:** clippy `-D warnings`, cargo test (329 passed, 5 ignored), vitest (1049), `check:wiring`, `notices --check` (regenerated: the os and shell plugins and five crates only they used are gone; fs stays, dialog uses it), `site:build` (demo rebuilt for the remotes mock) and `site:capture check` (25/25), actionlint, `pnpm e2e` (5/5).
+- **The migration on the real binary:** `glasshouse --dbus nonsense` (it migrates, then exits before touching a bus) with a scratch HOME holding 0.2.0-style folders. The config and data folders and `remotes.json` moved, `~/.glasshouse` went, and a second start changed nothing.
+- **A real profile surviving the rename:** under the e2e harness (Xvfb, private bus, scratch HOME), run 1 wrote a localStorage key, a pin and a remote. The folders were then renamed to `sh.glasshouse.viles`, and run 2 read all three back, with no old folder left.
+- **Not built or run:** anything on Windows. `migrate.rs` was type-checked with clippy for `x86_64-pc-windows-msvc` in a scratch crate; `hooks.nsh` compiled with makensis 3.11 against stub defines (its `!if` skips the old-key cleanup when the publisher is still "glasshouse"); `installers-check.ps1` parsed with pwsh. The release workflow (arm64, SHA256SUMS, attestation) and the CI arm64 leg haven't run. An NSIS upgrade from 0.2.0's setup.exe hasn't been tried (the installers decision has what to expect; task 46).
+- **The owner's session:** nothing to turn off and on. The integration files name the binary, not the identifier, and the migration moves `integration.json` and `dialogs.json` on the first start in any mode. A running resident from the old build is recognized and released. Close old glasshouse windows before the first start of the new build (an old window keeps writing to the old folder).
