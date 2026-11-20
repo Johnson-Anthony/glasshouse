@@ -34,7 +34,7 @@ The scan for the user's own paths and names found none in app code. The gaps are
 | 45 | e2e-nightly-matrix | CI | S–M | after 32 |
 | 46 | release-smoke | CI + docs | M | after 32 and task 30 |
 | 49 | appimage-menu-entry | both | M | queued (split from 35 on 11-20) |
-| 50 | split-and-tear-off | both | L | running (user request 11-20: "split view for tabs" and dragging tabs into their own window "like you can with browsers") |
+| 50 | split-and-tear-off | both | L | running (user request 11-20: "split view for tabs" and dragging tabs into their own window "like you can with browsers"; one process with many windows, in three phases) |
 
 Run at most two Rust tasks at once (RAM). Tasks 33, 34, 36 and 37 all touch `src-tauri/src/commands/`, so keep diffs narrow.
 
@@ -252,6 +252,7 @@ The owner asked for "split view for tabs and also to be able to drag drop tabs i
 - **Split view:** two panes side by side (and top/bottom as an option), each with its own tab bar, like editor groups. Drag a tab onto the other pane's tab bar to move it there, or to the left/right edge of the file area to split. View → Split, a shortcut, a Close Split that merges the tabs back, and a keyboard way to switch panes. The pane with focus drives the menus, the status bar, the Inspector and the terminal's Follow Folder. Copy and move between the two panes by drag already works through the file drag; add "Copy to/Move to the other pane" commands. Split state is part of the saved session.
 - **Tear off:** drag a tab out of the window and drop it where no glasshouse tab bar takes it, and it opens in a new window there (a new process, as File → New Window is), keeping its folder, sort, view and history, and closes in the old window. Drop it on another glasshouse window's tab bar and it moves there. A tab bar context menu gets "Move to New Window". Windows are separate processes (`spawn_new_window` in `commands/launch.rs`, `session.rs`), so the move between windows needs a way across processes: the OS drag (`commands/drag_out.rs` already starts native drags) or a local channel. The plan should choose one and say why.
 - **Where it applies:** Linux (X11 and Wayland, where windows can't place themselves) and Windows. Private tabs stay private when they move.
+- **Changed 11-20, on the owner's question "why do we do it that way if browsers dont":** glasshouse moves to one process with many windows, as browsers do, so tabs move between windows in memory. Three phases, each merged on its own: (1) split view; (2) one process, many windows: New Window, the command line, a second launch and the FileManager1 resident open windows in the running app; backend events scoped per window; the session saves every window; (3) tear-off. The file-chooser dialog may stay a process per dialog. Trade-off: a Rust panic closes every window (web content still runs in separate WebKit/WebView2 processes).
 
 ## Found by tasks
 - *(from e2e-smoke, for 44)* Reuse `e2e/harness.mjs` and its `waitFor`, not sleeps. Fixtures are made per run in a scratch dir, but on Windows the run uses the runner's real profile, so use unique names. Put the Trash fixture under the scratch `XDG_DATA_HOME`. A task that needs a D-Bus service in the test drops its `.service` file into the scratch `$XDG_DATA_HOME/dbus-1/services`.
