@@ -88,7 +88,7 @@ On Windows, Explorer's own "Show in folder", Win+E and other apps' open and save
 
 ## Privacy
 
-glasshouse doesn't collect anything and makes no network connections of its own: no telemetry, no crash reports, no account. Its window is only allowed to talk to the app itself (its Content Security Policy has `connect-src 'self' ipc: http://ipc.localhost`), so it doesn't load remote images, fonts or scripts either.
+glasshouse doesn't collect anything and makes no network connections of its own: no telemetry, no crash reports, no account. Its log (errors, and what each start found) stays on your computer unless you attach it to an issue yourself. Its window is only allowed to talk to the app itself (its Content Security Policy has `connect-src 'self' ipc: http://ipc.localhost`), so it doesn't load remote images, fonts or scripts either.
 
 What reaches the network is what you start:
 - git's Pull, Push and Fetch, and ssh in the terminal, connect where you point them, as they do outside glasshouse;
@@ -131,7 +131,7 @@ With the [GitHub CLI](https://cli.github.com), `gh attestation verify glasshouse
 
 ## Getting help
 
-- **Bugs:** Help → Report Bug… opens the bug form with the version, OS, desktop and web view filled in. You can also [open an issue](https://github.com/Johnson-Anthony/glasshouse/issues/new/choose) yourself: say which version (Help → About), how you installed it, your OS and, on Linux, your desktop. Help → Open Log Folder (planned) will open the folder with the app's log, to attach.
+- **Bugs:** Help → Report Bug… opens the bug form with the version, OS, desktop and web view filled in, after showing you those lines. You can also [open an issue](https://github.com/Johnson-Anthony/glasshouse/issues/new/choose) yourself: say which version (Help → About), how you installed it, your OS and, on Linux, your desktop. Help → Open Log Folder opens the folder with the app's log, `glasshouse.log`, to attach: `~/.local/share/io.github.johnson-anthony.glasshouse/logs` on Linux, `%LOCALAPPDATA%\io.github.johnson-anthony.glasshouse\logs` on Windows. Look through it first: it can name files and folders you worked with.
 - **Ideas:** the same page has a feature request form.
 - **Security problems:** report them privately; [SECURITY.md](SECURITY.md) says how.
 
