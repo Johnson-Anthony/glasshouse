@@ -115,6 +115,7 @@ pub struct ChooserAnswer {
 }
 
 impl ChooserAnswer {
+    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
     pub fn cancelled() -> Self {
         ChooserAnswer { response: 1, paths: vec![], choices: vec![], current_filter: None }
     }
