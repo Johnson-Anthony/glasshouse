@@ -115,7 +115,7 @@ A Tauri 2 app. The window is a React 18 UI (`src/`) that calls Rust commands (`s
   - `installers` (Windows): a debug build of the NSIS and MSI installers with their hooks (`src-tauri/windows/`), then `scripts/installers-check.ps1` installs each, turns "Open folders with glasshouse" on, uninstalls and checks the registry, the NSIS install-folder keys included.
 - **e2e** (`.github/workflows/e2e.yml`): the end-to-end smoke test (below) on ubuntu-22.04 and windows-latest. It runs on pushes to main and by hand, and isn't a required check.
 - **Releases:** `release.yml` runs on a `v*` tag. It builds the Windows installers (msi, NSIS; x64 and arm64) and Linux packages (AppImage, deb; x64 and arm64) with tauri-action into a draft, then adds `SHA256SUMS` and a build provenance attestation for it (`gh attestation verify`) and publishes. The Linux menu entry comes from `src-tauri/linux/glasshouse.desktop`. The bundle metadata, the publisher (which names the Windows registry key `HKCU\Software\Anthony Johnson\glasshouse`) and the pinned MSI upgrade code are in `tauri.conf.json`; see `docs/decisions/2026-11-20-release-identity-installers.md`.
-- **Locally:** `pnpm tauri build --no-bundle` makes the Linux binary. This machine links it into its app launcher.
+- **Locally:** `pnpm tauri build --no-bundle` makes a release binary, `src-tauri/target/release/glasshouse`, without packaging it.
 - **Third-party notices:** `pnpm notices` (`scripts/gen-notices.mjs`, cargo-about) regenerates `src/assets/third-party.json`.
 
 ## End-to-end tests (`e2e/`)
@@ -143,5 +143,5 @@ These drive the real app, built with `pnpm tauri build --debug --no-bundle`, thr
 - `docs/index.html` with `docs/assets/site.css` and `site.js` is the landing page, hand-written with no build step. It uses the app's theme tokens (`docs/assets/themes.css`: the site build copies `src/styles/themes.css` up to its "site cut" line, the eight themes the page offers).
 - `site/demo/` is a browser demo of the real UI. `main.tsx` installs `@tauri-apps/api/mocks` before importing `App`, and `mock/` holds an in-memory file system, a pretend git repo and shell, and one handler per command. It starts in the look from before themes-and-cosmetics, which the site's images show; `?theme=<id>` and `?look=<preset>` start it in another. `pnpm site:build` (`vite.site.config.ts`) builds it into `docs/demo/`, which is committed.
 - `site/capture/capture.mjs` drives headless Chromium to record `docs/media/` (hero images and tour clips; needs chromium and ffmpeg) and runs the behavior checks (`check`). `themes <dir>` saves review shots of some themes and looks.
-- Pages runs Jekyll; `docs/_config.yml` keeps the working docs (SPEC, ARCHITECTURE, plans, decisions) off the site, so no published name may start with `_` or `.`.
+- Pages runs Jekyll; `docs/_config.yml` keeps the working docs (SPEC, ARCHITECTURE, INTEGRATION, plans, decisions, testing) off the site, so no published name may start with `_` or `.`.
 - After UI changes: `pnpm site:build`, `pnpm site:capture`, `pnpm site:capture check`.

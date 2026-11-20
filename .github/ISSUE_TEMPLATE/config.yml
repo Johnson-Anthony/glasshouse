@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security problem
+    url: https://github.com/Johnson-Anthony/glasshouse/security/advisories/new
+    about: Report it privately here, not in a public issue. See SECURITY.md.
+  - name: Install help and known limitations
+    url: https://github.com/Johnson-Anthony/glasshouse#install
+    about: Which installer to pick, system requirements, SmartScreen, and what doesn't work yet.
