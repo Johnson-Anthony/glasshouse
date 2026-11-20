@@ -108,15 +108,15 @@ fn archive_create_refuses_bad_input_before_running_a_tool() {
     put(&d.join("b/y.txt"), "y");
 
     let err = archive_create(vec![], s(&d.join("o.tar.gz")), "tar.gz".into()).unwrap_err();
-    assert!(err.contains("no input paths"), "{}", err);
+    assert!(err.detail.contains("no input paths"), "{}", err);
 
     let mixed = vec![s(&d.join("a/x.txt")), s(&d.join("b/y.txt"))];
     let err = archive_create(mixed, s(&d.join("o.tar.gz")), "tar.gz".into()).unwrap_err();
-    assert!(err.contains("share a parent"), "{}", err);
+    assert!(err.detail.contains("share a parent"), "{}", err);
 
     let err = archive_create(vec![s(&d.join("a/x.txt"))], s(&d.join("o.rar")), "rar".into())
         .unwrap_err();
-    assert!(err.contains("unsupported format 'rar'"), "{}", err);
+    assert!(err.detail.contains("unsupported format 'rar'"), "{}", err);
     assert_eq!(tree(d.path()), ["a/", "a/x.txt", "b/", "b/y.txt"], "nothing written");
 }
 
@@ -125,7 +125,7 @@ fn archive_extract_refuses_unknown_extensions() {
     let d = Scratch::new("extract-bad");
     put(&d.join("a.rar"), "not really");
     let err = archive_extract(s(&d.join("a.rar")), s(&d.join("out"))).unwrap_err();
-    assert!(err.contains("unsupported archive extension"), "{}", err);
+    assert!(err.detail.contains("unsupported archive extension"), "{}", err);
 }
 
 #[test]
@@ -164,7 +164,7 @@ fn zip_extract_refuses_entries_that_climb_out() {
     hostile_zip(&archive, &[("../escaped.txt", "evil"), ("a/../../escaped2.txt", "evil")]);
 
     let err = archive_extract(s(&archive), s(&d.join("out"))).unwrap_err();
-    assert!(err.starts_with("extract "), "{}", err);
+    assert!(err.detail.starts_with("extract "), "{}", err);
     assert_eq!(outside(&d, "evil.zip"), Vec::<String>::new());
 }
 
@@ -189,7 +189,7 @@ fn zip_extract_refuses_rooted_entry_names() {
         let archive = d.join(format!("rooted{}.zip", i));
         hostile_zip(&archive, &[(name, "evil")]);
         let err = archive_extract(s(&archive), s(&d.join("out"))).unwrap_err();
-        assert!(err.contains("points outside the folder"), "{}: {}", name, err);
+        assert!(err.detail.contains("points outside the folder"), "{}: {}", name, err);
     }
     assert!(!d.join("out").exists());
 }
@@ -305,7 +305,7 @@ fn failed_extract_leaves_no_partial_output() {
     let out = d.join("out");
     put(&out.join("keep.txt"), "keep");
     let err = archive_extract(s(&archive), s(&out)).unwrap_err();
-    assert!(err.starts_with("extract "), "{}", err);
+    assert!(err.detail.starts_with("extract "), "{}", err);
     assert_eq!(tree(&out), ["keep.txt"], "no a.txt and no staging folder");
 
     // A folder the extraction made for itself goes too.
@@ -490,13 +490,13 @@ fn failed_create_removes_the_partial_archive() {
     let zip = d.join("out.zip");
     let err = archive_create(vec![s(&d.join("good.txt")), missing.clone()], s(&zip), "zip".into())
         .unwrap_err();
-    assert!(err.starts_with("stat "), "{}", err);
+    assert!(err.detail.starts_with("stat "), "{}", err);
     assert!(!zip.exists());
 
     if which::which("tar").is_ok() {
         let tgz = d.join("out.tar.gz");
         let err = archive_create(vec![missing], s(&tgz), "tar.gz".into()).unwrap_err();
-        assert!(err.starts_with("tar exited"), "{}", err);
+        assert!(err.detail.starts_with("tar exited"), "{}", err);
         assert!(!tgz.exists());
     }
 }
@@ -590,7 +590,8 @@ fn archive_extract_refuses_a_fifo() {
         mkfifo(&d.join(name));
         let (archive, out) = (s(&d.join(name)), s(&d.join("out")));
         let err = without_blocking(move || archive_extract(archive, out)).unwrap_err();
-        assert_eq!(err, format!("open {}: a named pipe, not a regular file", d.join(name).display()));
+        assert_eq!(err.detail, format!("{}: a named pipe, not a regular file", d.join(name).display()));
+        assert_eq!(err.message, format!("Couldn't open “{name}”: a named pipe, not a regular file."));
     }
     assert!(!d.join("out").exists());
 }

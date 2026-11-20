@@ -10,6 +10,7 @@ import { IS_WINDOWS } from "../platform";
 import { checksumsFor, type Checksums } from "./checksums";
 import { AUDIO_EXTS, FilePreview } from "./FilePreview";
 import { errText } from "../errors";
+import { showError } from "../errorDialog";
 import { pushUndo } from "../state";
 import { permissionsUndo } from "../undoActions";
 
@@ -67,7 +68,7 @@ export async function applyPermissions(path: string, label: string, before: numb
     await setPermissions(path, after);
     pushUndo(permissionsUndo(label, [{ path, before, after }]));
   } catch (e) {
-    void dialogs.showAlert({ title: "couldn't change permissions", variant: "error", message: errText(e) });
+    void showError({ title: "couldn't change permissions", err: e });
   } finally {
     // Read the mode back either way, so the Inspector shows what's on disk.
     onChanged();

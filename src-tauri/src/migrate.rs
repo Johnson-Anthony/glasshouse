@@ -44,36 +44,41 @@ fn bases() -> Vec<PathBuf> {
     out
 }
 
-pub(crate) fn run() {
+/// The lines it printed, for the log once there is one (`diagnostics`).
+pub(crate) fn run() -> Vec<(log::Level, String)> {
     let config = dirs::config_dir().map(|d| d.join(APP_ID));
-    migrate(&bases(), crate::commands::listing::home_dir_path().as_deref(), config.as_deref());
+    migrate(&bases(), crate::commands::listing::home_dir_path().as_deref(), config.as_deref())
 }
 
 /// Moves `<base>/OLD_APP_ID` to `<base>/APP_ID` in each of `bases`, then
 /// the saved remotes from `home` into `config`. Says on stderr what moved
-/// and what couldn't.
-pub(crate) fn migrate(bases: &[PathBuf], home: Option<&Path>, config: Option<&Path>) {
+/// and what couldn't, and returns those lines.
+pub(crate) fn migrate(bases: &[PathBuf], home: Option<&Path>, config: Option<&Path>) -> Vec<(log::Level, String)> {
     let mut done = Vec::new();
+    let mut said = Vec::new();
     for base in bases {
         if done.contains(&base) {
             continue;
         }
         done.push(base);
         let (old, new) = (base.join(OLD_APP_ID), base.join(APP_ID));
-        report(&old, &new, move_dir(&old, &new));
+        said.extend(report(&old, &new, move_dir(&old, &new)));
     }
     if let (Some(home), Some(config)) = (home, config) {
         let old = home.join(".glasshouse/remotes.json");
-        report(&old, &config.join("remotes.json"), move_remotes(home, config));
+        said.extend(report(&old, &config.join("remotes.json"), move_remotes(home, config)));
     }
+    said
 }
 
-fn report(old: &Path, new: &Path, m: Moved) {
-    match m {
-        Moved::Nothing => {}
-        Moved::Renamed | Moved::Copied => eprintln!("glasshouse: moved {} to {}", old.display(), new.display()),
-        Moved::Failed(e) => eprintln!("glasshouse: couldn't move {} to {}: {e}", old.display(), new.display()),
-    }
+fn report(old: &Path, new: &Path, m: Moved) -> Option<(log::Level, String)> {
+    let line = match m {
+        Moved::Nothing => return None,
+        Moved::Renamed | Moved::Copied => (log::Level::Info, format!("moved {} to {}", old.display(), new.display())),
+        Moved::Failed(e) => (log::Level::Warn, format!("couldn't move {} to {}: {e}", old.display(), new.display())),
+    };
+    eprintln!("glasshouse: {}", line.1);
+    Some(line)
 }
 
 /// Renames `old` to `new` when `old` is a folder and nothing is at `new`.

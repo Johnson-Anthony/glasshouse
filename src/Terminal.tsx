@@ -13,7 +13,8 @@ import {
   type ShellProfile,
 } from "./api";
 import { PromptTracker, followDecision, makeCdCommand } from "./shellCd";
-import { errText } from "./errors";
+import { errDetail, errText } from "./errors";
+import { describeForLog, logWarn } from "./log";
 
 export interface TerminalDrawerProps {
   open: boolean;
@@ -242,8 +243,10 @@ function TermPane({ profile, cwd, visible, open, follow, height, onExit }: TermP
         pendingExits.length = 0;
         if (exited) showExit(exited.exit_code);
       } catch (e) {
-        const msg = errText(e);
-        if (!disposed) term.write(`\x1b[31mpty spawn failed: ${msg}\x1b[0m\r\n`);
+        // The sentence in red, the raw error under it in grey.
+        logWarn(`terminal: ${describeForLog(e)}`);
+        const detail = errDetail(e);
+        if (!disposed) term.write(`\x1b[31m${errText(e)}\x1b[0m\r\n${detail ? `\x1b[90m${detail}\x1b[0m\r\n` : ""}`);
       }
     })();
 

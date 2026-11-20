@@ -13,7 +13,7 @@ import {
   type StagedExtract,
 } from "../api";
 import { dialogs } from "../dialogs/DialogHost";
-import { errText } from "../errors";
+import { showError } from "../errorDialog";
 import { basename, joinPath } from "../paths";
 import { IS_WINDOWS } from "../platform";
 import { failureDetails, runTransfer, type TransferResult } from "../transfer";
@@ -69,7 +69,7 @@ async function doCreate(
     showLeftOut(report.skipped, "left out of the archive");
   } catch (e) {
     console.log(`[archive] create failed:`, e);
-    void dialogs.showAlert({ title: "archive failed", message: String(e), variant: "error" });
+    void showError({ title: "archive failed", err: e });
   }
 }
 
@@ -105,7 +105,7 @@ async function doExtract(ctx: HandlerCtx, promptFolder: boolean): Promise<void> 
     staged = await archiveExtract(archive, destDir);
   } catch (e) {
     console.log(`[archive] extract failed:`, e);
-    void dialogs.showAlert({ title: "extract failed", message: errText(e), variant: "error" });
+    void showError({ title: "extract failed", err: e });
     return;
   }
   let done: PathPair[] = [];
@@ -124,7 +124,7 @@ async function doExtract(ctx: HandlerCtx, promptFolder: boolean): Promise<void> 
     showLeftOut(staged.skipped, "left out of the extraction");
   } catch (e) {
     console.log(`[archive] extract failed:`, e);
-    void dialogs.showAlert({ title: "extract failed", message: errText(e), variant: "error" });
+    void showError({ title: "extract failed", err: e });
   } finally {
     // Skipped and failed entries go with it.
     try {
@@ -229,9 +229,12 @@ export const archiveHandler: Handler = async (label, ctx) => {
     case "7-Zip": {
       const ok = await archiveCanHandle("7z");
       if (!ok) {
+        // As the backend says it (SEVEN_ZIP_MISSING in commands/archive.rs).
         void dialogs.showAlert({
           title: "7-Zip not found",
-          message: "7z.exe not found on PATH — install 7-Zip",
+          message: IS_WINDOWS
+            ? "This needs 7-Zip, which wasn't found. Install it from 7-zip.org, then try again."
+            : "This needs 7-Zip, which isn't installed. Install your system's 7zip (or p7zip) package, then try again.",
           variant: "error",
         });
         return true;

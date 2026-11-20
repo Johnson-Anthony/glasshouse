@@ -5,13 +5,14 @@
 // One UI op can own several backend op ids: the inspector's three checksums
 // run as three backend ops under one row and one Cancel.
 
-import { errText } from "./errors";
+import { errKind, errText } from "./errors";
 
-/** The error a cancelled backend op rejects with (ops.rs `CANCELLED`). */
+/** The error a cancelled backend op rejects with (ops.rs `CANCELLED`), by
+ *  commands that still return text. */
 const OP_CANCELLED = "cancelled";
 
 export function isCancelled(err: unknown): boolean {
-  return errText(err) === OP_CANCELLED;
+  return errKind(err) === "cancelled" || errText(err) === OP_CANCELLED;
 }
 
 /** Payload of the backend's `op-progress` event. */

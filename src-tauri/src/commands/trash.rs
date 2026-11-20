@@ -17,6 +17,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use serde::{Deserialize, Serialize};
 
 use super::recycle_bin::no_recycle_bin;
+use crate::error::{Action, AppError, Kind};
 
 /// What Move to Trash did with one path, for its undo.
 #[derive(Serialize, Debug, Clone, PartialEq)]
@@ -81,17 +82,42 @@ fn now_secs() -> i64 {
 /// Move `path` to the trash. Refuses a path on a drive with no Recycle Bin,
 /// where Windows would delete it instead. `move_to_trash` and git's discard
 /// both go through here.
-pub(crate) fn trash_path(path: &Path) -> Result<Trashed, String> {
+pub(crate) fn trash_path(path: &Path) -> Result<Trashed, AppError> {
     if let Some(why) = no_recycle_bin(path) {
-        return Err(format!(
-            "{}, where Windows has no Recycle Bin: moving it to the trash would delete it for good",
-            why
-        ));
+        let why = format!("{why}, where Windows has no Recycle Bin: moving it there would delete it for good");
+        return Err(AppError::other(Action::Trash, path, &why));
     }
-    let original = trash_original(path)?;
+    // The crate's own error for a missing file says only "could not access".
+    std::fs::symlink_metadata(path).map_err(|e| AppError::io(Action::Trash, path, &e))?;
+    let original = trash_original(path).map_err(|why| AppError::other(Action::Trash, path, &why))?;
     let from = now_secs();
-    trash::delete(path).map_err(|e| e.to_string())?;
+    trash::delete(path).map_err(|e| trash_error(path, e))?;
     Ok(Trashed { original: original.to_string_lossy().into_owned(), from, to: now_secs() })
+}
+
+/// The trash crate's error for trashing `path`, read as an OS error where
+/// it carries one.
+fn trash_error(path: &Path, e: trash::Error) -> AppError {
+    let detail = format!("{}: {e}", path.display());
+    let err = match &e {
+        #[cfg(all(unix, not(target_os = "macos")))]
+        trash::Error::FileSystem { source, .. } => AppError::io(Action::Trash, path, source),
+        // On Windows an HRESULT: 0x8007xxxx wraps the Win32 error xxxx.
+        trash::Error::Os { code, description } => {
+            let code = if (*code as u32) & 0xFFFF_0000 == 0x8007_0000 { code & 0xFFFF } else { *code };
+            let os = std::io::Error::from_raw_os_error(code);
+            match crate::error::kind_of(&os) {
+                Kind::Other => AppError::other(Action::Trash, path, description),
+                _ => AppError::io(Action::Trash, path, &os),
+            }
+        }
+        trash::Error::CouldNotAccess { .. } => {
+            AppError::other(Action::Trash, path, "it isn't there anymore, or you don't have permission to reach it")
+        }
+        trash::Error::TargetedRoot => AppError::other(Action::Trash, path, "it's the top of a disk"),
+        _ => AppError::other(Action::Trash, path, &e.to_string()),
+    };
+    AppError { detail, ..err }
 }
 
 /// `path` as the trash will record it: the crate canonicalizes the parent

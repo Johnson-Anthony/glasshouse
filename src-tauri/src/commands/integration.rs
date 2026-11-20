@@ -414,7 +414,7 @@ mod imp {
             state.session_env = left;
             match live::session_env_on(c, &vars) {
                 Ok(changes) => state.session_env.extend(changes),
-                Err(e) => eprintln!("integration: session environment: {e}"),
+                Err(e) => crate::diagnostics::note(log::Level::Warn, &format!("integration: session environment: {e}")),
             }
         }
         Ok(())
@@ -437,7 +437,7 @@ mod imp {
         portal::service_on(p, Path::new(&exe), &portal_file, &pt.env.conf_target())?;
         if let Some(c) = &conn {
             if let Err(e) = resident::reload_config(c) {
-                eprintln!("integration: ReloadConfig: {e}");
+                crate::diagnostics::note(log::Level::Warn, &format!("integration: ReloadConfig: {e}"));
             }
         }
         let mut changed = false;
@@ -506,7 +506,7 @@ mod imp {
         if let Some(c) = &conn {
             state.session_env = live::session_env_off(c, std::mem::take(&mut state.session_env));
             if let Err(e) = resident::reload_config(c) {
-                eprintln!("integration: ReloadConfig: {e}");
+                crate::diagnostics::note(log::Level::Warn, &format!("integration: ReloadConfig: {e}"));
             }
             if matches!(resident::holder(c, CHOOSER_NAME), Ok(Holder::Glasshouse)) {
                 if let Err(e) = resident::release(c, CHOOSER_NAME) {
@@ -582,7 +582,7 @@ mod imp {
         // The bus would also see the file on the next activation; this
         // makes it count now.
         if let Err(e) = resident::reload_config(&conn) {
-            eprintln!("integration: ReloadConfig: {e}");
+            crate::diagnostics::note(log::Level::Warn, &format!("integration: ReloadConfig: {e}"));
         }
         match resident::holder(&conn, FILE_MANAGER_NAME).map_err(|e| e.to_string())? {
             Holder::Glasshouse => Ok(()),
@@ -597,7 +597,7 @@ mod imp {
         xdg::service_off(p)?;
         let Ok(conn) = resident::connect() else { return Ok(()) };
         if let Err(e) = resident::reload_config(&conn) {
-            eprintln!("integration: ReloadConfig: {e}");
+            crate::diagnostics::note(log::Level::Warn, &format!("integration: ReloadConfig: {e}"));
         }
         if matches!(resident::holder(&conn, FILE_MANAGER_NAME), Ok(Holder::Glasshouse)) {
             resident::release(&conn, FILE_MANAGER_NAME).map_err(|e| format!("asking glasshouse to give up {FILE_MANAGER_NAME}: {e}"))?;

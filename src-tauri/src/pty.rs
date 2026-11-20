@@ -8,6 +8,7 @@ use portable_pty::{ChildKiller, CommandBuilder, MasterPty, PtySize, native_pty_s
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, State};
 
+use crate::error::{AppError, Kind};
 use crate::lock;
 
 pub mod profiles;
@@ -88,10 +89,11 @@ pub fn pty_spawn(
     cwd: String,
     cols: Option<u16>,
     rows: Option<u16>,
-) -> Result<String, String> {
+) -> Result<String, AppError> {
     // Only the profiles list_shell_profiles and saved remotes produce: no
     // arbitrary executable, no ssh host that ssh would read as an option.
     check_profile(&profile, &detect_shells())?;
+    let label = profile.label.clone();
     let size = PtySize {
         rows: rows.unwrap_or(24),
         cols: cols.unwrap_or(80),
@@ -127,7 +129,8 @@ pub fn pty_spawn(
         move |exit| {
             let _ = app.emit("pty-exit", exit);
         },
-    )?;
+    )
+    .map_err(|detail| AppError::new(Kind::Other, None, format!("Couldn't start {label} in the terminal."), detail))?;
     Ok(session_id)
 }
 

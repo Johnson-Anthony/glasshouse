@@ -1,8 +1,8 @@
-import { invoke } from "@tauri-apps/api/core";
+import { invoke as rawInvoke } from "@tauri-apps/api/core";
 import { audioDir, desktopDir, documentDir, downloadDir, pictureDir, videoDir } from "@tauri-apps/api/path";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
-import { errText } from "./errors";
+import { errKind, errText, fromBackend } from "./errors";
 import { joinPath } from "./paths";
 
 export async function winClose(): Promise<void> {
@@ -191,6 +191,12 @@ export const TAURI_AVAILABLE: boolean =
   typeof window !== "undefined" &&
   (window as unknown as TauriWindow).__TAURI_INTERNALS__ !== undefined;
 
+/** Every command goes through here: a structured backend error (error.rs)
+ *  rejects as a BackendError, whose message is the sentence for the user. */
+function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
+  return rawInvoke<T>(cmd, args).catch((e: unknown) => Promise.reject(fromBackend(e)));
+}
+
 async function safe<T>(fn: () => Promise<T>, fallback: T): Promise<T> {
   if (!TAURI_AVAILABLE) return fallback;
   try {
@@ -307,9 +313,10 @@ export function renameEntry(from: string, to: string): Promise<void> {
 }
 
 /** True for the error make_dir, rename_entry and a creating write_text give
- *  when the target name is already taken. The backend words it
- *  `"<name>" already exists in <folder>` (`no_clobber_err`). */
+ *  when the target name is already taken (kind "exists"), and for undo's own
+ *  refusal, worded the same: `"<name>" already exists in <folder>`. */
 export function isAlreadyExists(err: unknown): boolean {
+  if (errKind(err) === "exists") return true;
   const msg = errText(err);
   return /^".*" already exists in /s.test(msg);
 }
@@ -770,6 +777,30 @@ export function runScript(script: string, targets: string[], cwd?: string): Prom
 
 export function openUrl(url: string): Promise<void> {
   return safe(() => invoke<void>("open_url", { url }), undefined);
+}
+
+/** Like openUrl, but rejects when the browser couldn't be started. */
+export function openUrlStrict(url: string): Promise<void> {
+  return mustInvoke<void>("open_url", { url });
+}
+
+/** What Report Bug… fills in about this system (diagnostics.rs): nothing
+ *  that names the user, the machine or a file. */
+export interface SystemReport {
+  version: string;
+  os: string;
+  arch: string;
+  desktop: string | null;
+  webview: string | null;
+}
+
+export function bugReportInfo(): Promise<SystemReport | null> {
+  return safe(() => invoke<SystemReport>("bug_report_info"), null);
+}
+
+/** The app's log folder, made if it's missing; null in the browser demo. */
+export function logDir(): Promise<string | null> {
+  return mustInvoke<string | null>("log_dir");
 }
 
 export function spawnNewWindow(): Promise<void> {

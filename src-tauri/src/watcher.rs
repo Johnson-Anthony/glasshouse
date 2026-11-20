@@ -39,7 +39,7 @@ pub fn watch_dir(
 ) -> Result<(), String> {
     watch(&state, PathBuf::from(&path), move |dir| {
         if let Err(e) = app.emit("fs-changed", dir) {
-            eprintln!("fs-changed emit failed: {}", e);
+            log::warn!("fs-changed emit failed: {}", e);
         }
     })
 }
@@ -89,7 +89,7 @@ fn watch(
                 }
                 Err(errors) => {
                     for e in errors {
-                        eprintln!("notify error: {}", e);
+                        log::warn!("watching folders: {}", e);
                     }
                 }
             },
@@ -139,7 +139,7 @@ fn unwatch(state: &WatcherState, pb: PathBuf) -> Result<(), String> {
     let mut guard = state.debouncer.lock().map_err(|e| e.to_string())?;
     if let Some(deb) = guard.as_mut() {
         if let Err(e) = deb.unwatch(&pb) {
-            eprintln!("unwatch failed for {:?}: {}", pb, e);
+            log::warn!("unwatch failed for {:?}: {}", pb, e);
         }
     }
 

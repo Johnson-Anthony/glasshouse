@@ -296,6 +296,7 @@ export const MENUS: MenusData = {
     { kind: "item", ic: "", label: "Release Notes" },
     { kind: "sep" },
     { kind: "item", ic: "", label: "Report Bug…" },
+    { kind: "item", ic: "", label: "Open Log Folder" },
     { kind: "item", ic: "", label: "Check for Updates" },
     { kind: "item", ic: "", label: "About" },
     { kind: "item", ic: "", label: "Third-party Notices" },

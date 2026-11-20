@@ -219,11 +219,11 @@ pub fn chooser_painted(state: State<'_, Chooser>) -> Result<(), String> {
     let call = (req.requested_ms > 0).then(|| now_ms().saturating_sub(req.requested_ms));
     let shown = lock(&state.shown).map(|t| t.elapsed().as_millis());
     match call {
-        Some(ms) => eprintln!(
+        Some(ms) => log::info!(
             "glasshouse --chooser: first paint {ms} ms after the call ({process} ms after this process started; shown {} ms before)",
             shown.unwrap_or(0)
         ),
-        None => eprintln!("glasshouse --chooser: first paint {process} ms after this process started"),
+        None => log::info!("glasshouse --chooser: first paint {process} ms after this process started"),
     }
     Ok(())
 }
@@ -402,11 +402,11 @@ fn show_dialog(window: &tauri::WebviewWindow, parent: &str, modal: bool) {
         None => Err("no window yet".into()),
     };
     match how {
-        Ok(how) => eprintln!("glasshouse --chooser: parented to {parent} ({how})"),
+        Ok(how) => log::info!("glasshouse --chooser: parented to {parent} ({how})"),
         Err(why) if parent.is_empty() => {
             let _ = why;
         }
-        Err(why) => eprintln!("glasshouse --chooser: not parented to {parent}: {why}"),
+        Err(why) => log::warn!("glasshouse --chooser: not parented to {parent}: {why}"),
     }
     let _ = window.show();
 }

@@ -55,6 +55,13 @@ base64 = "0.22"
 similar = "2"
 portable-pty = "0.9"
 tauri-plugin-window-state = "2.5"
+# The log file in the app's log folder (Help → Open Log Folder), for what
+# went wrong: stderr goes nowhere in a Windows release build.
+tauri-plugin-log = "2.10"
+log = "0.4"
+# Already in the lock file through tauri-plugin-log, with these features: the
+# log's timestamps (diagnostics.rs).
+time = { version = "0.3", features = ["formatting", "macros"] }
 # Already in the lock file through tauri: file:// URIs on the command line
 # (startup.rs) and in the FileManager1 calls.
 url = "2"
@@ -79,6 +86,8 @@ windows = { version = "0.58", features = [
     "Win32_System_Diagnostics_Debug",
     # ShellExecuteExW with a class (open_with "Text Editor (.txt)").
     "Win32_System_Registry",
+    # MessageBoxW: the box when glasshouse can't start or has crashed (fatal.rs).
+    "Win32_UI_WindowsAndMessaging",
 ] }
 
 # Dragging files out on Windows: OLE DoDragDrop with CF_HDROP

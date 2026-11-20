@@ -64,8 +64,9 @@ fn list_dir_hides_dotfiles_unless_asked() {
 fn list_dir_of_a_missing_folder_is_an_error() {
     let d = Scratch::new("ls-missing");
     let err = list_dir(s(&d.join("nope")), true).unwrap_err();
-    assert!(err.starts_with("read_dir("), "{}", err);
-    assert!(err.contains("nope"), "{}", err);
+    assert_eq!(err.kind, crate::error::Kind::NotFound);
+    assert_eq!(err.message, "Couldn't open “nope” because it isn't there anymore.");
+    assert!(err.detail.contains("nope"), "{}", err.detail);
 }
 
 #[test]

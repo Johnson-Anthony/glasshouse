@@ -87,6 +87,8 @@ import { runTransfer, planTransfer, type TransferOp } from "./transfer";
 import { loadTags, movePath, renamePath, setTags, trashPath, useTags } from "./tags";
 import { transferDeps, reportTransfer, pushTransferUndo, asItems, listNames } from "./transferUi";
 import { errText } from "./errors";
+import { logWarn } from "./log";
+import { showError } from "./errorDialog";
 import { findStatusText } from "./findStatus";
 import { clearHandOff, dropPaths, dropTargetAt, recordHandOff } from "./dragDrop";
 import { OsDrop } from "./OsDrop";
@@ -774,10 +776,10 @@ export function App() {
       dialogs.showToast({ message: `${which === "undo" ? "undid" : "redid"}: ${r.label}`, variant: "success" });
     } else {
       const msg = errText(r.error);
-      void dialogs.showAlert({
+      void showError({
         title: `${which} failed`,
+        err: r.error,
         message: `${r.label}: ${msg}\n\nThis step was removed from the ${which} history.`,
-        variant: "error",
       });
     }
   };
@@ -877,17 +879,19 @@ export function App() {
         const r = h(label, ctx);
         if (typeof r === "boolean" ? r : await r) return;
       }
-      // Give the user visible feedback instead of silent no-op. Task #13
-      // is specifically about this — don't let palette commands vanish.
+      // Say so rather than do nothing. No handler for a label is a bug
+      // (check:wiring audits the menus), so it goes in the log too.
       console.warn("menu command not wired:", label);
+      logWarn(`menu command not wired: ${label}`);
       dialogs.showToast({
-        message: `"${label}" — not yet wired`,
+        message: `“${label}” isn't available.`,
         variant: "warning",
       });
     } catch (err) {
-      const msg = errText(err);
-      console.error("file op failed", label, err);
-      void dialogs.showAlert({ title: "error", variant: "error", message: msg });
+      // Handlers without a catch of their own end up here: the error's
+      // sentence, titled with the command, its raw text under Show details.
+      console.error("menu command failed", label, err);
+      void showError({ title: label.replace(/…$/, "").toLowerCase(), err });
     }
   }
   handleMenuCommandRef.current = handleMenuCommand;
@@ -1316,7 +1320,7 @@ export function App() {
                   return;
                 case "open-in-code":
                   spawnVscodeStrict(path).catch((err: unknown) => {
-                    void dialogs.showAlert({ title: "open in VS Code failed", variant: "error", message: errText(err) });
+                    void showError({ title: "open in VS Code failed", err });
                   });
                   return;
                 case "git-blame":

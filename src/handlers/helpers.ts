@@ -2,6 +2,7 @@ import { gitBlame, gitDiscard, gitStage, gitUnstage, homeDir, openUrl, pathKind,
 import { dialogs } from "../dialogs/DialogHost";
 import { isModalOpen } from "../dialogs/modal";
 import { errText } from "../errors";
+import { showError } from "../errorDialog";
 import { discardReport, gitTargets, type GitAction } from "../gitTargets";
 import { basename } from "../paths";
 import { markIrreversible, type RevealResult, type UseTabResult } from "../state";
@@ -95,9 +96,8 @@ export async function showBlame(
     const lines = await gitBlame(path, 2000);
     setBlame({ path, lines });
   } catch (err) {
-    const msg = errText(err);
-    console.error("git blame:", msg);
-    void dialogs.showAlert({ title: "git blame failed", variant: "error", message: msg });
+    console.error("git blame:", errText(err));
+    void showError({ title: "git blame failed", err });
   }
 }
 
