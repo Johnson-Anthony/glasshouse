@@ -39,6 +39,6 @@ The README's "Your data, and uninstalling" says the same, for users.
 - Attesting in the publish job, not in each build job, attests exactly the bytes on the release. tauri-action uploads straight to the draft, and every file is listed once.
 
 ## Not done
-- **AppImage update information** (zsync): task 48's updater handles the AppImage. Two update mechanisms for one file would disagree.
-- **AppImage desktop integration** (a menu entry for an AppImage that isn't installed): a feature of its own, left out here; see the report.
+- **AppImage update information** (zsync): none. Task 48's updater owns AppImage updates, and two update mechanisms for one file would disagree. Cut by the lead on 11-20.
+- **AppImage desktop integration** (a menu entry for an AppImage that isn't installed): its own task, 49 `appimage-menu-entry`.
 - **Code signing:** D1.

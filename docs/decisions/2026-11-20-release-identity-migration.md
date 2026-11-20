@@ -5,11 +5,7 @@ Date: 2026-11-20. Task: `release-identity` (survey-3 task 35). Owner decision D3
 ## The identifier
 D3 picked `io.github.johnson_anthony.glasshouse`: the project page's domain (`johnson-anthony.github.io`) reversed, with `_` for the hyphen because D-Bus interface names can't contain `-`. The Tauri CLI (2.12.4) refuses it: every `tauri build` and `tauri dev` stops with "The bundle identifier string must contain only alphanumeric characters (A-Z, a-z, and 0-9), hyphens (-), and periods (.)". There's no setting to turn the check off.
 
-So there are two spellings, one per rule:
-- **Tauri** (`tauri.conf.json`, `APP_ID` in `lib.rs`): `io.github.johnson-anthony.glasshouse`. It names the config, data and cache folders, the WebView2 profile, the NSIS data folders and the bundle ID.
-- **D-Bus** (the resident's control interface, `resident.rs`): `io.github.johnson_anthony.glasshouse.Resident1` at `/io/github/johnson_anthony/glasshouse/Resident`. Swapping `-` for `_` is the D-Bus specification's own rule for a reversed domain with a hyphen. A test checks that the D-Bus name is `APP_ID` with that swap.
-
-Rejected: `io.github.johnsonanthony.glasshouse` (one spelling everywhere, but it reverses a domain that isn't ours).
+So the Tauri identifier is `io.github.johnson-anthony.glasshouse`, and the D-Bus form `io.github.johnson_anthony.glasshouse` is used only for the resident's interface and object path. `2026-11-20-release-identity-id-form.md` has why, where each form is used, and what a Flatpak would need.
 
 ## What moves
 `migrate.rs` runs first in every mode: window, file chooser, resident, and `--integration-on/off`. The CLI needs it because `--integration-off` reads `integration.json`. If it ran before any window had started, it would otherwise find no record, so it couldn't put the old folder default back.
