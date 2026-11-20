@@ -1434,6 +1434,89 @@ select option { background: var(--bg-2); color: var(--fg-0); }
 }
 .segmented button.active { background: var(--accent); color: var(--bg-0); }
 
+/* Git branch picker and commit dialog (dialogs/GitDialogs.tsx) */
+.gitdlg-backdrop {
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,0.55);
+  z-index: 300;
+  display: flex; align-items: flex-start; justify-content: center;
+  padding-top: 12vh;
+}
+.gitdlg {
+  width: 72ch; max-width: 95vw; max-height: 76vh;
+  display: flex; flex-direction: column;
+  background: var(--bg-1);
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  color: var(--fg-1);
+  font-size: 12px;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.6);
+}
+.gitdlg-head, .gitdlg-foot {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 12px;
+  background: var(--bg-2);
+}
+.gitdlg-head { border-bottom: 1px solid var(--fg-3); }
+.gitdlg-foot { border-top: 1px solid var(--fg-3); justify-content: flex-end; }
+.gitdlg-title { color: var(--accent); }
+.gitdlg-sub { color: var(--fg-3); }
+.gitdlg-keys { color: var(--fg-3); margin-right: auto; }
+.gitdlg button { font: inherit; cursor: pointer; }
+.gitdlg-x { margin-left: auto; }
+.gitdlg-x, .gitdlg-foot button {
+  background: transparent;
+  border: 1px solid var(--fg-3);
+  color: var(--fg-1);
+  border-radius: 2px;
+  padding: 2px 10px;
+}
+.gitdlg-foot button.primary { background: var(--accent); border-color: var(--accent); color: var(--bg-0); }
+.gitdlg-x:hover, .gitdlg-foot button:hover:not(:disabled) { border-color: var(--fg-1); }
+.gitdlg button:disabled { opacity: 0.4; cursor: default; }
+.gitdlg button:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
+.gitdlg-body {
+  display: flex; flex-direction: column; gap: 8px;
+  padding: 12px 14px;
+  min-height: 0;
+}
+.gitdlg-input, .gitdlg-message {
+  width: 100%; box-sizing: border-box;
+  background: var(--bg-0); color: var(--fg-0);
+  border: 1px solid var(--fg-3); border-radius: 3px;
+  padding: 6px 9px;
+  font: inherit; font-size: 13px;
+  outline: none;
+}
+.gitdlg-input:focus, .gitdlg-message:focus { border-color: var(--accent); }
+.gitdlg-message { resize: vertical; min-height: 7em; line-height: 1.4; }
+.gitdlg-list {
+  list-style: none; margin: 0; padding: 0;
+  overflow: auto; min-height: 0;
+  max-height: 40vh;
+}
+.gitdlg-staged { max-height: 24vh; border: 1px solid var(--bg-3); border-radius: 3px; padding: 3px 0; }
+.gitdlg-row {
+  display: flex; gap: 10px; align-items: baseline;
+  padding: 2px 8px;
+  white-space: nowrap;
+}
+div.gitdlg-row { cursor: pointer; }
+.gitdlg-row.active { background: var(--bg-sel); color: var(--fg-0); }
+.gitdlg-row > span:first-child { overflow: hidden; text-overflow: ellipsis; }
+.gitdlg-remote { color: var(--fg-2); }
+.gitdlg-hint { color: var(--fg-3); margin-left: auto; }
+.gitdlg-path { overflow: hidden; text-overflow: ellipsis; }
+.gitdlg-code { width: 1ch; flex: none; }
+.gitdlg-code.git-A { color: var(--green); }
+.gitdlg-code.git-M, .gitdlg-code.git-R, .gitdlg-code.git-T { color: var(--yellow); }
+.gitdlg-code.git-D { color: var(--red); }
+.gitdlg-label { color: var(--fg-2); }
+.gitdlg-note { color: var(--fg-3); padding: 2px 0; }
+li.gitdlg-note { padding: 2px 8px; }
+.gitdlg-note b { color: var(--fg-1); font-weight: normal; }
+.gitdlg-error { color: var(--red); white-space: pre-wrap; word-break: break-word; }
+
 /* CRT scanlines overlay */
 .scanlines {
   pointer-events: none;
@@ -1807,4 +1890,8 @@ html[data-focused-pane="terminal"] .term-drawer {
 .ops-detail {
   margin-top: 3px;
   color: var(--fg-3);
+  /* git's progress lines can be long */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }

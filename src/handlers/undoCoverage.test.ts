@@ -19,6 +19,11 @@ const dialogs = vi.hoisted(() => ({
   showToast: vi.fn(),
 }));
 vi.mock("../dialogs/DialogHost", () => ({ dialogs }));
+const gitDialogs = vi.hoisted(() => ({
+  pickBranch: vi.fn(async (_o?: unknown): Promise<string | null> => null),
+  commit: vi.fn(async (_o?: unknown): Promise<string[] | null> => null),
+}));
+vi.mock("../dialogs/GitDialogs", () => ({ gitDialogs }));
 
 function entry(name: string, extra: Partial<FileEntry> = {}): FileEntry {
   return { name, path: `/w/${name}`, kind: "text", size: 1, modified_ms: 0, hidden: false, ext: "", is_symlink: false, lossy: false, git: null, ...extra } as FileEntry;
@@ -393,8 +398,13 @@ describe("commands that can't be undone drop the history before them", () => {
 
   it("a git command that failed partway, such as a merge with conflicts", async () => {
     vi.mocked(api.gitRun).mockResolvedValue({ ok: false, exit: 1, stdout: "", stderr: "CONFLICT" });
-    dialogs.showPrompt.mockResolvedValueOnce("feature");
+    gitDialogs.pickBranch.mockResolvedValueOnce("feature");
     await expectStop("Merge…", makeCtx([], []), "git merge feature --no-edit");
+  });
+
+  it("a git command cancelled partway, such as a pull", async () => {
+    vi.mocked(api.gitRun).mockRejectedValueOnce("cancelled");
+    await expectStop("Pull", makeCtx([], []), "git pull --ff-only");
   });
 
   it("Stage, Unstage and Discard", async () => {

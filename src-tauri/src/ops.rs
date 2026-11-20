@@ -1,4 +1,5 @@
-//! Progress and cancellation for long operations: hashing, copying, finding.
+//! Progress and cancellation for long operations: hashing, copying, finding,
+//! and git's menu commands.
 //!
 //! The frontend picks an op id and passes it along with the command. The
 //! command does its work through an [`Op`], which sends `op-progress` events
@@ -26,6 +27,8 @@ pub struct OpProgress {
     pub done: u64,
     /// `None` when the size of the job isn't known up front (a search).
     pub total: Option<u64>,
+    /// What the op is doing now, for an op that says (git's progress line).
+    pub detail: Option<String>,
 }
 
 /// At most this many events a second per op, plenty for a progress bar.
@@ -86,6 +89,7 @@ impl OpRegistry {
             every,
             done: AtomicU64::new(0),
             total: AtomicU64::new(NO_TOTAL),
+            detail: Mutex::new(None),
             last_emit: Mutex::new(None),
             entries: Some(Arc::clone(&self.entries)),
         }
@@ -118,6 +122,7 @@ pub struct Op {
     every: Duration,
     done: AtomicU64,
     total: AtomicU64,
+    detail: Mutex<Option<String>>,
     last_emit: Mutex<Option<Instant>>,
     entries: Option<Entries>,
 }
@@ -133,6 +138,7 @@ impl Op {
             every: EMIT_EVERY,
             done: AtomicU64::new(0),
             total: AtomicU64::new(NO_TOTAL),
+            detail: Mutex::new(None),
             last_emit: Mutex::new(None),
             entries: None,
         }
@@ -172,6 +178,16 @@ impl Op {
         self.report();
     }
 
+    /// Say what the op is doing now, with its `(done, total)` if that step
+    /// has a size. A step without one leaves the bar indeterminate.
+    pub fn set_step(&self, detail: &str, progress: Option<(u64, u64)>) {
+        let (done, total) = progress.unwrap_or((0, NO_TOTAL));
+        self.done.store(done, Ordering::SeqCst);
+        self.total.store(total, Ordering::SeqCst);
+        *lock(&self.detail) = Some(detail.to_string());
+        self.report();
+    }
+
     fn report(&self) {
         let (Some(id), Some(emit)) = (&self.id, &self.emit) else {
             return;
@@ -188,6 +204,7 @@ impl Op {
             op_id: id.clone(),
             done: self.done.load(Ordering::SeqCst),
             total: (total != NO_TOTAL).then_some(total),
+            detail: lock(&self.detail).clone(),
         });
     }
 }
@@ -253,7 +270,7 @@ mod tests {
         // Only the first report goes out within the hour.
         assert_eq!(
             events(&sent),
-            vec![OpProgress { op_id: "slow".into(), done: 0, total: Some(10) }]
+            vec![OpProgress { op_id: "slow".into(), done: 0, total: Some(10), detail: None }]
         );
 
         let (_reg, op, sent) = recorded("fast");
@@ -261,6 +278,21 @@ mod tests {
         op.advance(4);
         let got: Vec<_> = events(&sent).iter().map(|p| (p.done, p.total)).collect();
         assert_eq!(got, vec![(3, None), (7, None)]);
+    }
+
+    #[test]
+    fn a_step_sets_the_detail_and_replaces_the_count() {
+        let (_reg, op, sent) = recorded("steps");
+        op.set_step("Receiving objects:  40% (4/10)", Some((4, 10)));
+        op.set_step("Resolving deltas", None);
+        let got: Vec<_> = events(&sent).into_iter().map(|p| (p.done, p.total, p.detail)).collect();
+        assert_eq!(
+            got,
+            vec![
+                (4, Some(10), Some("Receiving objects:  40% (4/10)".to_string())),
+                (0, None, Some("Resolving deltas".to_string())),
+            ]
+        );
     }
 
     #[test]

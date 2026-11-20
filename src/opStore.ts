@@ -1,4 +1,4 @@
-// Running long operations (hash, copy, find) as the UI sees them, without
+// Running long operations (hash, copy, find, git) as the UI sees them, without
 // Tauri, so it's testable. ops.ts wires it to the backend's `op-progress`
 // events and `cancel_op`; OpsTray renders it.
 //
@@ -20,10 +20,13 @@ export interface OpProgress {
   done: number;
   /** Null when the size isn't known up front (a search counts files). */
   total: number | null;
+  /** What the op is doing now, from an op that says (git's progress line). */
+  detail?: string | null;
 }
 
-/** What `done` and `total` count. */
-export type OpUnit = "bytes" | "items";
+/** What `done` and `total` count. "status": the op's `detail` says what
+ *  it's doing (git), and done/total belong to that step. */
+export type OpUnit = "bytes" | "items" | "status";
 
 export interface RunningOp {
   key: number;
@@ -34,6 +37,8 @@ export interface RunningOp {
   done: number;
   /** Null until every backend id has reported a total. */
   total: number | null;
+  /** The latest detail any of its backend ids sent. */
+  detail: string | null;
   cancelled: boolean;
 }
 
@@ -42,6 +47,7 @@ interface Entry {
   unit: OpUnit;
   startedAt: number;
   ids: Map<string, { done: number; total: number | null }>;
+  detail: string | null;
   cancelled: boolean;
 }
 
@@ -69,7 +75,7 @@ export class OpStore {
 
   begin(label: string, unit: OpUnit = "bytes"): number {
     const key = this.nextKey++;
-    this.ops.set(key, { label, unit, startedAt: this.now(), ids: new Map(), cancelled: false });
+    this.ops.set(key, { label, unit, startedAt: this.now(), ids: new Map(), detail: null, cancelled: false });
     this.changed();
     return key;
   }
@@ -93,7 +99,10 @@ export class OpStore {
     const cur = e?.ids.get(p.op_id);
     if (!e || !cur) return;
     // Parallel search threads can report slightly out of order.
-    e.ids.set(p.op_id, { done: Math.max(cur.done, p.done), total: p.total });
+    // A new step (a detail with it) may count from zero again.
+    const done = p.detail ? p.done : Math.max(cur.done, p.done);
+    e.ids.set(p.op_id, { done, total: p.total });
+    if (p.detail) e.detail = p.detail;
     this.changed();
   }
 
@@ -132,6 +141,7 @@ export class OpStore {
         startedAt: e.startedAt,
         done: parts.reduce((n, p) => n + p.done, 0),
         total: known ? parts.reduce((n, p) => n + (p.total ?? 0), 0) : null,
+        detail: e.detail,
         cancelled: e.cancelled,
       };
     });

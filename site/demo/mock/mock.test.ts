@@ -183,6 +183,31 @@ describe("backend", () => {
     expect(await b.invoke("git_status", { path: HOME })).toBeNull();
   });
 
+  it("answers the git dialogs: remote branches, what's staged, amend", async () => {
+    const { hooks } = quietHooks();
+    const b = createBackend(hooks);
+    const local = await b.invoke("git_branch_list", { cwd: REPO }) as Array<{ name: string; remote: boolean }>;
+    expect(local.every(x => !x.remote)).toBe(true);
+    const all = await b.invoke("git_branch_list", { cwd: REPO, remotes: true }) as Array<{ name: string; remote: boolean }>;
+    expect(all.filter(x => x.remote).map(x => x.name)).toContain("origin/release-0.3");
+
+    await b.invoke("git_stage", { paths: [`${REPO}/README.md`] });
+    const info = await b.invoke("git_commit_info", { cwd: REPO }) as { staged: Array<{ path: string }>; head_message: string };
+    // src/fuzzy.ts starts out staged.
+    expect(info.staged.map(f => f.path)).toEqual(["README.md", "src/fuzzy.ts"]);
+    const head = info.head_message.trim();
+    const r = await b.invoke("git_run", { cwd: REPO, args: ["commit", "--amend", "--no-edit"], opId: "op-1" }) as { ok: boolean; stdout: string };
+    expect(r.ok).toBe(true);
+    expect(r.stdout).toContain(head);
+    const after = await b.invoke("git_commit_info", { cwd: REPO }) as { staged: unknown[]; head_message: string };
+    expect(after.staged).toEqual([]);
+    expect(after.head_message.trim()).toBe(head);
+
+    const co = await b.invoke("git_run", { cwd: REPO, args: ["checkout", "release-0.3", "--"] }) as { ok: boolean };
+    expect(co.ok).toBe(true);
+    expect((await b.invoke("git_status", { path: REPO }) as { branch: string }).branch).toBe("release-0.3");
+  });
+
   it("copies, then announces the change", async () => {
     const { hooks, events } = quietHooks();
     const b = createBackend(hooks);

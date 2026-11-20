@@ -3,8 +3,10 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant, SystemTime};
+use tauri::{AppHandle, State};
 use super::file_info::read_capped;
 use super::listing::canonicalize_soft;
+use crate::ops::{Op, OpRegistry, CANCELLED};
 #[cfg(windows)]
 use super::launch::CREATE_NO_WINDOW;
 
@@ -891,6 +893,8 @@ pub struct GitBranch {
     /// The upstream is configured but its ref no longer exists (deleted on
     /// the remote and pruned), so ahead/behind are 0 without meaning "in sync".
     pub upstream_gone: bool,
+    /// A remote-tracking branch (`origin/main`), listed only when asked for.
+    pub remote: bool,
 }
 
 fn build_git_command(cwd: &str) -> std::process::Command {
@@ -928,10 +932,10 @@ struct GitRunSpec {
 /// that runs something else needs an entry here.
 const GIT_RUN_ALLOWED: &[GitRunSpec] = &[
     GitRunSpec { name: "status", flags: &["--short"], valued: &[], positionals: 0 },
-    GitRunSpec { name: "commit", flags: &["--amend"], valued: &["-m"], positionals: 0 },
-    GitRunSpec { name: "pull", flags: &["--ff-only"], valued: &[], positionals: 0 },
-    GitRunSpec { name: "push", flags: &[], valued: &[], positionals: 0 },
-    GitRunSpec { name: "fetch", flags: &["--all", "--prune"], valued: &[], positionals: 0 },
+    GitRunSpec { name: "commit", flags: &["--amend", "--no-edit"], valued: &["-m"], positionals: 0 },
+    GitRunSpec { name: "pull", flags: &["--ff-only", "--progress"], valued: &[], positionals: 0 },
+    GitRunSpec { name: "push", flags: &["--progress"], valued: &[], positionals: 0 },
+    GitRunSpec { name: "fetch", flags: &["--all", "--prune", "--progress"], valued: &[], positionals: 0 },
     GitRunSpec { name: "stash", flags: &["-u"], valued: &[], positionals: 1 },
     GitRunSpec {
         name: "log",
@@ -953,6 +957,8 @@ const GIT_RUN_ALLOWED: &[GitRunSpec] = &[
 /// No paths either: `--` is taken only last, and `checkout` must end with
 /// it, because `git checkout docs` restores the folder `docs` when there's
 /// no branch of that name, and `git checkout docs --` only switches.
+///
+/// And no editor: a `commit` has `-m <msg>`, or is `--amend --no-edit`.
 fn check_git_args(args: &[String]) -> Result<(), String> {
     let (sub, rest) = args.split_first().ok_or("git_run: no git subcommand")?;
     let spec = GIT_RUN_ALLOWED
@@ -960,17 +966,21 @@ fn check_git_args(args: &[String]) -> Result<(), String> {
         .find(|s| s.name == sub)
         .ok_or_else(|| format!("git_run: `git {}` isn't one of the git menu's commands", sub))?;
     let mut positionals = 0;
+    // The options given, without their values (a message may read `--amend`).
+    let mut options: Vec<&str> = Vec::new();
     let mut it = rest.iter();
     while let Some(a) = it.next() {
         if spec.flags.contains(&a.as_str()) {
             if a == "--" && it.len() > 0 {
                 return Err(format!("git_run: `git {}` takes no paths after `--`", sub));
             }
+            options.push(a);
             continue;
         }
         if spec.valued.contains(&a.as_str()) {
             it.next()
                 .ok_or_else(|| format!("git_run: `{}` needs a value", a))?;
+            options.push(a);
             continue;
         }
         // A lone `-` is git's "previous branch", not an option.
@@ -985,28 +995,256 @@ fn check_git_args(args: &[String]) -> Result<(), String> {
     if spec.name == "checkout" && positionals > 0 && rest.last().is_none_or(|a| a != "--") {
         return Err("git_run: `git checkout <branch>` must end with `--`".to_string());
     }
+    if spec.name == "commit" {
+        let has = |f: &str| options.contains(&f);
+        let message = has("-m");
+        let keep = has("--no-edit");
+        if keep && !has("--amend") {
+            return Err("git_run: `--no-edit` is for `git commit --amend`".to_string());
+        }
+        if message == keep {
+            return Err("git_run: `git commit` needs `-m <message>`, or `--amend --no-edit`".to_string());
+        }
+    }
     Ok(())
 }
 
+/// Runs a menu command (see `run_git`). With an `op_id` it shows in the ops
+/// tray and can be cancelled.
 #[tauri::command(async)]
-pub fn git_run(cwd: String, args: Vec<String>) -> Result<GitRunResult, String> {
-    check_git_args(&args)?;
-    let mut cmd = build_git_command(&cwd);
-    cmd.args(&args);
-    let out = cmd.output().map_err(|e| classify_spawn_err(&e))?;
-    let stdout = String::from_utf8_lossy(&out.stdout).into_owned();
-    let stderr = String::from_utf8_lossy(&out.stderr).into_owned();
-    let exit = out.status.code().unwrap_or(-1);
+pub fn git_run(
+    app: AppHandle,
+    ops: State<'_, OpRegistry>,
+    cwd: String,
+    args: Vec<String>,
+    op_id: Option<String>,
+) -> Result<GitRunResult, String> {
+    run_menu_command(&cwd, &args, &ops.start(op_id, &app))
+}
+
+fn run_menu_command(cwd: &str, args: &[String], op: &Op) -> Result<GitRunResult, String> {
+    check_git_args(args)?;
+    let mut cmd = build_git_command(cwd);
+    cmd.args(args);
+    run_git(cmd, op, idle_timeout(args))
+}
+
+// ---------- running git_run's commands ----------
+
+/// A remote command that prints nothing for this long is stopped: the
+/// network is down, or something is waiting for an answer nobody can give.
+/// It's a limit on silence, not on time, so a long fetch that's still
+/// sending progress (`--progress`) runs to the end. It's a little under
+/// Linux's default TCP connect timeout (about 127 s).
+const REMOTE_IDLE_TIMEOUT: Duration = Duration::from_secs(120);
+/// How long to keep reading after git exits. A process it started in the
+/// background (a hook's, an ssh master's) can hold the pipes open.
+const GIT_DRAIN_GRACE: Duration = Duration::from_secs(2);
+/// A progress line is cut to this many characters.
+const GIT_DETAIL_MAX: usize = 160;
+
+/// Pull, push and fetch get `REMOTE_IDLE_TIMEOUT`. Nothing else has a
+/// timeout, since a commit hook may run quietly for a long time; those can
+/// still be cancelled.
+fn idle_timeout(args: &[String]) -> Option<Duration> {
+    matches!(args.first().map(String::as_str), Some("pull" | "push" | "fetch"))
+        .then_some(REMOTE_IDLE_TIMEOUT)
+}
+
+enum ReaderEvent {
+    /// Some output arrived.
+    Output,
+    /// stderr finished a line (at a `\r` or `\n`): git's progress.
+    Line(String),
+    Eof,
+}
+
+/// Read `r` to the end into the returned buffer, telling `tx` as it goes.
+fn spawn_reader(
+    mut r: impl std::io::Read + Send + 'static,
+    lines: bool,
+    tx: std::sync::mpsc::Sender<ReaderEvent>,
+) -> std::sync::Arc<Mutex<Vec<u8>>> {
+    let sink = std::sync::Arc::<Mutex<Vec<u8>>>::default();
+    let out = sink.clone();
+    std::thread::spawn(move || {
+        let mut buf = [0u8; 8192];
+        let mut line = Vec::new();
+        loop {
+            match r.read(&mut buf) {
+                Ok(0) => break,
+                Ok(n) => {
+                    crate::lock(&out).extend_from_slice(&buf[..n]);
+                    let _ = tx.send(ReaderEvent::Output);
+                    if !lines {
+                        continue;
+                    }
+                    for &b in &buf[..n] {
+                        if b == b'\r' || b == b'\n' {
+                            let text = clean_line(&String::from_utf8_lossy(&line)).trim().to_string();
+                            line.clear();
+                            if !text.is_empty() {
+                                let _ = tx.send(ReaderEvent::Line(text));
+                            }
+                        } else {
+                            line.push(b);
+                        }
+                    }
+                }
+                Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
+                Err(_) => break,
+            }
+        }
+        let _ = tx.send(ReaderEvent::Eof);
+    });
+    sink
+}
+
+/// Run a prepared git command for `git_run`:
+/// - with stdin closed and `GIT_TERMINAL_PROMPT=0`, so a credential no
+///   helper has fails at once instead of waiting for a terminal;
+/// - on Unix in a session of its own (`proc_tree::spawn_detached`), so ssh
+///   and the rest can't prompt on the terminal the app was started from
+///   either, and a kill reaches all of them;
+/// - reporting each stderr line (git's `--progress`) to `op`, and killed
+///   when `op` is cancelled (`Err("cancelled")`) or when it prints nothing
+///   for `idle`.
+fn run_git(
+    mut cmd: std::process::Command,
+    op: &Op,
+    idle: Option<Duration>,
+) -> Result<GitRunResult, String> {
+    use std::process::Stdio;
+    use std::sync::mpsc::{self, RecvTimeoutError};
+    op.check()?;
+    cmd.env("GIT_TERMINAL_PROMPT", "0")
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    let mut tree = crate::proc_tree::spawn_detached(&mut cmd).map_err(|e| classify_spawn_err(&e))?;
+    let (tx, rx) = mpsc::channel();
+    let stdout = spawn_reader(tree.child.stdout.take().expect("stdout is piped"), false, tx.clone());
+    let stderr = spawn_reader(tree.child.stderr.take().expect("stderr is piped"), true, tx);
+    let mut eofs = 0;
+    let mut heard = Instant::now();
+    let handle = |ev: ReaderEvent, eofs: &mut usize, heard: &mut Instant| match ev {
+        ReaderEvent::Output => *heard = Instant::now(),
+        ReaderEvent::Line(text) => op.set_step(&cut(&text, GIT_DETAIL_MAX), parse_progress(&text)),
+        ReaderEvent::Eof => *eofs += 1,
+    };
+
+    let status = loop {
+        match tree.child.try_wait() {
+            Ok(Some(s)) => break s,
+            Ok(None) => {}
+            Err(e) => {
+                tree.kill_tree();
+                return Err(format!("git: {}", e));
+            }
+        }
+        if op.cancelled() {
+            tree.kill_tree();
+            return Err(CANCELLED.to_string());
+        }
+        if let Some(idle) = idle.filter(|t| heard.elapsed() >= *t) {
+            tree.kill_tree();
+            let said = terminal_text(&crate::lock(&stderr));
+            return Err(idle_message(idle, said.trim()));
+        }
+        match rx.recv_timeout(Duration::from_millis(20)) {
+            Ok(ev) => handle(ev, &mut eofs, &mut heard),
+            Err(RecvTimeoutError::Timeout) => {}
+            // Both pipes are closed; only the exit is left to wait for.
+            Err(RecvTimeoutError::Disconnected) => std::thread::sleep(Duration::from_millis(20)),
+        }
+    };
+
+    let drain_until = Instant::now() + GIT_DRAIN_GRACE;
+    while eofs < 2 {
+        match rx.recv_timeout(drain_until.saturating_duration_since(Instant::now())) {
+            Ok(ev) => handle(ev, &mut eofs, &mut heard),
+            Err(_) => break,
+        }
+    }
+    let stdout = String::from_utf8_lossy(&crate::lock(&stdout)).into_owned();
+    let stderr = terminal_text(&crate::lock(&stderr));
     Ok(GitRunResult {
-        ok: out.status.success(),
+        ok: status.success(),
         stdout,
         stderr,
-        exit,
+        exit: status.code().unwrap_or(-1),
     })
 }
 
+fn idle_message(idle: Duration, said: &str) -> String {
+    let mut msg = format!(
+        "git printed nothing for {} s, so glasshouse stopped it. The remote may be \
+         unreachable, or waiting for a password or passphrase glasshouse can't ask for.",
+        idle.as_secs()
+    );
+    if !said.is_empty() {
+        msg.push_str("\n\n");
+        msg.push_str(said);
+    }
+    msg
+}
+
+/// `(done, total)` from a progress line such as
+/// `Receiving objects:  45% (450/1000), 1.20 MiB | 2.00 MiB/s`.
+fn parse_progress(line: &str) -> Option<(u64, u64)> {
+    let at = line.find("% (")?;
+    let rest = &line[at + 3..];
+    let (done, total) = rest[..rest.find(')')?].split_once('/')?;
+    Some((done.trim().parse().ok()?, total.trim().parse().ok()?))
+}
+
+/// git's stderr as a terminal would show it: each line only as its last
+/// `\r` update left it, without ANSI escapes or trailing blanks.
+fn terminal_text(raw: &[u8]) -> String {
+    String::from_utf8_lossy(raw)
+        .split('\n')
+        .map(|line| {
+            let last = line.rsplit('\r').find(|seg| !seg.trim().is_empty()).unwrap_or("");
+            clean_line(last).trim_end().to_string()
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// One line without ANSI escapes (CSI sequences such as the `\x1b[K` git
+/// ends remote lines with on a terminal) or other control characters.
+fn clean_line(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut chars = s.chars();
+    while let Some(c) = chars.next() {
+        if c == '\x1b' {
+            if chars.next() == Some('[') {
+                // Parameters, then one final byte in @..~.
+                for f in chars.by_ref() {
+                    if ('@'..='~').contains(&f) {
+                        break;
+                    }
+                }
+            }
+        } else if !c.is_control() || c == '\t' {
+            out.push(c);
+        }
+    }
+    out
+}
+
+/// `s` cut to at most `max` characters.
+fn cut(s: &str, max: usize) -> String {
+    match s.char_indices().nth(max) {
+        Some((i, _)) => format!("{}…", &s[..i]),
+        None => s.to_string(),
+    }
+}
+
+/// The local branches, then with `remotes` the remote-tracking ones
+/// (without symbolic refs such as `origin/HEAD`).
 #[tauri::command(async)]
-pub fn git_branch_list(cwd: String) -> Result<Vec<GitBranch>, String> {
+pub fn git_branch_list(cwd: String, remotes: Option<bool>) -> Result<Vec<GitBranch>, String> {
     // One for-each-ref gives every branch's ahead/behind via upstream:track,
     // instead of a rev-list per branch. Its words ("ahead", "behind", "gone")
     // are translated, so ask for the untranslated ones.
@@ -1046,9 +1284,141 @@ pub fn git_branch_list(cwd: String) -> Result<Vec<GitBranch>, String> {
             ahead,
             behind,
             upstream_gone,
+            remote: false,
         });
     }
+    if remotes == Some(true) {
+        let mut cmd = build_git_command(&cwd);
+        cmd.args(["for-each-ref", "--format=%(refname:short)\t%(symref)", "refs/remotes/"]);
+        let out = cmd.output().map_err(|e| classify_spawn_err(&e))?;
+        if !out.status.success() {
+            return Err(String::from_utf8_lossy(&out.stderr).into_owned());
+        }
+        for line in String::from_utf8_lossy(&out.stdout).lines() {
+            let (name, symref) = line.split_once('\t').unwrap_or((line, ""));
+            if name.is_empty() || !symref.is_empty() {
+                continue;
+            }
+            branches.push(GitBranch {
+                name: name.to_string(),
+                current: false,
+                upstream: None,
+                ahead: 0,
+                behind: 0,
+                upstream_gone: false,
+                remote: true,
+            });
+        }
+    }
     Ok(branches)
+}
+
+// ---------- the commit dialog ----------
+
+#[derive(Debug, Serialize, PartialEq)]
+pub struct StagedFile {
+    /// "A" added, "M" modified, "D" deleted, "R" renamed, "T" type change.
+    pub code: &'static str,
+    /// Repo-relative, with `/` (as libgit2 gives it on every platform).
+    pub path: String,
+    /// The old path of a rename.
+    pub old_path: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct CommitInfo {
+    /// The branch HEAD is on, or "(detached)".
+    pub branch: String,
+    /// What a commit would record, in path order, at most `STAGED_SHOWN`.
+    pub staged: Vec<StagedFile>,
+    pub staged_total: usize,
+    /// Changed or untracked items that aren't staged (an untracked folder
+    /// counts once).
+    pub unstaged: usize,
+    /// HEAD's commit message; none on a branch with no commits yet.
+    pub head_message: Option<String>,
+}
+
+/// The commit dialog lists this many staged files at most.
+const STAGED_SHOWN: usize = 500;
+
+/// What the commit dialog shows: the staged files (the index against HEAD,
+/// with renames), how much isn't staged, and HEAD's message for Amend.
+/// libgit2 only, so nothing from the repo's config runs.
+#[tauri::command(async)]
+pub fn git_commit_info(cwd: String) -> Result<CommitInfo, String> {
+    use git2::Status;
+    let repo = git2::Repository::discover(&cwd).map_err(|e| format!("not a git repo: {}", e))?;
+    let head = repo.head().ok();
+    let branch = head
+        .as_ref()
+        .and_then(|h| h.is_branch().then(|| h.shorthand().map(str::to_string)).flatten())
+        // A branch with no commits yet: HEAD names it, but it doesn't exist.
+        .or_else(|| {
+            let target = repo.find_reference("HEAD").ok()?.symbolic_target()?.to_string();
+            target.strip_prefix("refs/heads/").map(str::to_string)
+        })
+        .unwrap_or_else(|| "(detached)".to_string());
+    let head_message = head
+        .as_ref()
+        .and_then(|h| h.peel_to_commit().ok())
+        .and_then(|c| c.message().map(str::to_string));
+
+    let mut opts = status_options();
+    opts.renames_head_to_index(true);
+    let statuses = repo.statuses(Some(&mut opts)).map_err(|e| format!("git status: {}", e))?;
+    let index_flags = Status::INDEX_NEW
+        | Status::INDEX_MODIFIED
+        | Status::INDEX_DELETED
+        | Status::INDEX_RENAMED
+        | Status::INDEX_TYPECHANGE;
+    let worktree_flags = Status::WT_NEW
+        | Status::WT_MODIFIED
+        | Status::WT_DELETED
+        | Status::WT_RENAMED
+        | Status::WT_TYPECHANGE
+        | Status::CONFLICTED;
+    let mut staged = Vec::new();
+    let mut unstaged = 0;
+    for s in statuses.iter() {
+        let flags = s.status();
+        if flags.intersects(worktree_flags) {
+            unstaged += 1;
+        }
+        if !flags.intersects(index_flags) {
+            continue;
+        }
+        let delta = s.head_to_index();
+        let new_path = delta.as_ref().and_then(|d| d.new_file().path());
+        let old_path = delta.as_ref().and_then(|d| d.old_file().path());
+        let lossy = |p: &Path| p.to_string_lossy().into_owned();
+        let Some(path) = new_path.or(old_path).map(lossy).or_else(|| s.path().map(str::to_string)) else {
+            continue;
+        };
+        let code = if flags.contains(Status::INDEX_RENAMED) {
+            "R"
+        } else if flags.contains(Status::INDEX_NEW) {
+            "A"
+        } else if flags.contains(Status::INDEX_DELETED) {
+            "D"
+        } else if flags.contains(Status::INDEX_TYPECHANGE) {
+            "T"
+        } else {
+            "M"
+        };
+        let old_path = (code == "R").then(|| old_path.map(lossy)).flatten();
+        staged.push(StagedFile { code, path, old_path });
+    }
+    staged.sort_by(|a, b| a.path.cmp(&b.path));
+    let staged_total = staged.len();
+    staged.truncate(STAGED_SHOWN);
+    Ok(CommitInfo {
+        branch,
+        staged,
+        staged_total,
+        unstaged,
+        head_message,
+    })
 }
 
 /// Parse `%(upstream:track,nobracket)` as git prints it under LC_ALL=C: ""
@@ -1259,7 +1629,7 @@ mod tests {
             .delete()
             .unwrap();
 
-        let branches = git_branch_list(dir.to_string_lossy().into_owned()).unwrap();
+        let branches = git_branch_list(dir.to_string_lossy().into_owned(), None).unwrap();
         let get = |n: &str| branches.iter().find(|b| b.name == n).unwrap();
         let main = get("main");
         assert!(main.current);
@@ -1336,10 +1706,15 @@ mod tests {
             &["status", "--short"],
             &["commit", "-m", "fix: things"],
             &["commit", "-m", "-starts with a dash"],
+            &["commit", "-m", "--no-edit"],
             &["commit", "--amend", "-m", "msg"],
+            &["commit", "--amend", "--no-edit"],
             &["pull", "--ff-only"],
+            &["pull", "--ff-only", "--progress"],
             &["push"],
+            &["push", "--progress"],
             &["fetch", "--all", "--prune"],
+            &["fetch", "--all", "--prune", "--progress"],
             &["stash", "push", "-u"],
             &["log", "--oneline", "--graph", "--decorate", "--all", "-n", "200"],
             &["clean", "-fd"],
@@ -1370,6 +1745,13 @@ mod tests {
             &["rebase", "-x", "calc", "main"],
             &["log", "--output=/tmp/x"],
             &["commit", "-m"],
+            // A commit that would open an editor, or both kinds of message.
+            &["commit"],
+            &["commit", "--amend"],
+            &["commit", "--no-edit"],
+            &["commit", "-m", "--amend", "--no-edit"],
+            &["commit", "--amend", "--no-edit", "-m", "msg"],
+            &["status", "--progress"],
             &["checkout", "a", "b", "--"],
             // Paths: what `git checkout` restores.
             &["checkout", "docs"],
@@ -1867,10 +2249,10 @@ mod tests {
         repo.branch("other", &repo.find_commit(head).unwrap(), false).unwrap();
         put(&dir.join("docs/f.txt"), "edited");
 
-        let r = git_run(s(&dir), args(&["checkout", "docs", "--"])).unwrap();
+        let r = run_menu_command(&s(&dir), &args(&["checkout", "docs", "--"]), &Op::untracked()).unwrap();
         assert!(!r.ok, "{:?}", r.stderr);
         assert_eq!(read(&dir.join("docs/f.txt")), "edited");
-        let r = git_run(s(&dir), args(&["checkout", "other", "--"])).unwrap();
+        let r = run_menu_command(&s(&dir), &args(&["checkout", "other", "--"]), &Op::untracked()).unwrap();
         assert!(r.ok, "{:?}", r.stderr);
         assert_eq!(git2::Repository::open(&dir).unwrap().head().unwrap().shorthand(), Some("other"));
         assert_eq!(read(&dir.join("docs/f.txt")), "edited");
@@ -1887,3 +2269,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
+
+#[cfg(test)]
+#[path = "git_tests.rs"]
+mod git_tests;

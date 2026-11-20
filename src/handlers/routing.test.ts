@@ -24,6 +24,11 @@ const dialogs = vi.hoisted(() => ({
   showToast: vi.fn(),
 }));
 vi.mock("../dialogs/DialogHost", () => ({ dialogs }));
+const gitDialogs = vi.hoisted(() => ({
+  pickBranch: vi.fn(async (_o: { cwd: string; action: string }): Promise<string | null> => null),
+  commit: vi.fn(async (_o: { cwd: string; amend: boolean }): Promise<string[] | null> => null),
+}));
+vi.mock("../dialogs/GitDialogs", () => ({ gitDialogs }));
 
 const BY_FILE: Array<[string, Handler]> = [
   ["selection", selectionHandler],
@@ -354,20 +359,82 @@ describe("routed commands", () => {
     }));
   });
 
-  it("every branch switch ends with `--`, so a folder name restores nothing", async () => {
-    const result = { ok: true, stdout: "", stderr: "", exit: 0 };
-    vi.mocked(api.gitRun).mockResolvedValue(result);
-    dialogs.showPrompt.mockResolvedValueOnce(" docs ");
-    expect(await owner("Checkout…", makeCtx([], []))).toBe(gitHandler);
-    expect(api.gitRun).toHaveBeenLastCalledWith("/w", ["checkout", "docs", "--"]);
-    expect(await owner("git-branch:feature/x", makeCtx([], []))).toBe(gitHandler);
-    expect(api.gitRun).toHaveBeenLastCalledWith("/w", ["checkout", "feature/x", "--"]);
-    vi.mocked(api.gitBranchList).mockResolvedValueOnce([
-      { name: "main", current: true, upstream: null, ahead: 0, behind: 0, upstream_gone: false },
-    ]);
-    dialogs.showPrompt.mockResolvedValueOnce("1");
-    expect(await owner("Git: Checkout Branch →", makeCtx([], []))).toBe(gitHandler);
-    expect(api.gitRun).toHaveBeenLastCalledWith("/w", ["checkout", "main", "--"]);
+  describe("git commands", () => {
+    const ok = { ok: true, stdout: "", stderr: "", exit: 0 };
+    const opId = expect.stringMatching(/^op-/);
+    beforeEach(() => vi.mocked(api.gitRun).mockResolvedValue(ok));
+    afterEach(() => {
+      vi.mocked(api.gitRun).mockReset();
+      gitDialogs.pickBranch.mockReset();
+      gitDialogs.commit.mockReset();
+    });
+
+    it("every branch switch ends with `--`, so a folder name restores nothing", async () => {
+      gitDialogs.pickBranch.mockResolvedValueOnce("docs");
+      expect(await owner("Checkout…", makeCtx([], []))).toBe(gitHandler);
+      expect(gitDialogs.pickBranch).toHaveBeenLastCalledWith({ cwd: "/w", action: "checkout" });
+      expect(api.gitRun).toHaveBeenLastCalledWith("/w", ["checkout", "docs", "--"], opId);
+      expect(await owner("git-branch:feature/x", makeCtx([], []))).toBe(gitHandler);
+      expect(api.gitRun).toHaveBeenLastCalledWith("/w", ["checkout", "feature/x", "--"], opId);
+      gitDialogs.pickBranch.mockResolvedValueOnce("main");
+      expect(await owner("Git: Checkout Branch →", makeCtx([], []))).toBe(gitHandler);
+      expect(api.gitRun).toHaveBeenLastCalledWith("/w", ["checkout", "main", "--"], opId);
+    });
+
+    it("Merge and Rebase pick their branch from the list", async () => {
+      gitDialogs.pickBranch.mockResolvedValueOnce("origin/main");
+      await owner("Merge…", makeCtx([], []));
+      expect(gitDialogs.pickBranch).toHaveBeenLastCalledWith({ cwd: "/w", action: "merge" });
+      expect(api.gitRun).toHaveBeenLastCalledWith("/w", ["merge", "origin/main", "--no-edit"], opId);
+      gitDialogs.pickBranch.mockResolvedValueOnce("origin/main");
+      await owner("Rebase onto…", makeCtx([], []));
+      expect(gitDialogs.pickBranch).toHaveBeenLastCalledWith({ cwd: "/w", action: "rebase" });
+      expect(api.gitRun).toHaveBeenLastCalledWith("/w", ["rebase", "origin/main"], opId);
+      // A cancelled picker runs nothing.
+      vi.mocked(api.gitRun).mockClear();
+      await owner("Merge…", makeCtx([], []));
+      expect(api.gitRun).not.toHaveBeenCalled();
+    });
+
+    it("Commit and Amend run what the commit dialog gives", async () => {
+      gitDialogs.commit.mockResolvedValueOnce(["commit", "-m", "two\nlines"]);
+      expect(await owner("Commit…", makeCtx([], []))).toBe(gitHandler);
+      expect(gitDialogs.commit).toHaveBeenLastCalledWith({ cwd: "/w", amend: false });
+      expect(api.gitRun).toHaveBeenLastCalledWith("/w", ["commit", "-m", "two\nlines"], opId);
+      gitDialogs.commit.mockResolvedValueOnce(["commit", "--amend", "--no-edit"]);
+      expect(await owner("Commit Amend", makeCtx([], []))).toBe(gitHandler);
+      expect(gitDialogs.commit).toHaveBeenLastCalledWith({ cwd: "/w", amend: true });
+      expect(api.gitRun).toHaveBeenLastCalledWith("/w", ["commit", "--amend", "--no-edit"], opId);
+    });
+
+    it("Pull, Push and Fetch ask git for progress and run in the tray", async () => {
+      await owner("Pull", makeCtx([], []));
+      expect(api.gitRun).toHaveBeenLastCalledWith("/w", ["pull", "--ff-only", "--progress"], opId);
+      await owner("Push", makeCtx([], []));
+      expect(api.gitRun).toHaveBeenLastCalledWith("/w", ["push", "--progress"], opId);
+      await owner("Fetch All", makeCtx([], []));
+      expect(api.gitRun).toHaveBeenLastCalledWith("/w", ["fetch", "--all", "--prune", "--progress"], opId);
+    });
+
+    it("a cancel says so; a prompt git couldn't show gets a hint", async () => {
+      const setGitOutput = vi.fn();
+      const ctx = { ...makeCtx([], []), setGitOutput };
+      vi.mocked(api.gitRun).mockRejectedValueOnce("cancelled");
+      await owner("Push", ctx);
+      expect(dialogs.showToast).toHaveBeenLastCalledWith({ message: "git push: cancelled", variant: "warning" });
+      expect(setGitOutput).not.toHaveBeenCalled();
+      expect(ctx.refresh).toHaveBeenCalled();
+
+      const denied = "fatal: could not read Username for 'https://example.com': terminal prompts disabled";
+      vi.mocked(api.gitRun).mockResolvedValueOnce({ ok: false, stdout: "", stderr: denied, exit: 128 });
+      await owner("Pull", ctx);
+      const shown = setGitOutput.mock.lastCall?.[0];
+      expect(shown).toMatchObject({ title: "git pull --ff-only", ok: false, exit: 128 });
+      expect(shown.output).toContain(denied);
+      expect(shown.output).toContain("credential helper");
+      // The same text, so the dialog doesn't show it twice.
+      expect(shown.stderr).toBe(shown.output);
+    });
   });
 
   it("Copy as UNC puts the admin-share path on the clipboard", async () => {

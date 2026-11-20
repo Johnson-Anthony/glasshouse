@@ -22,6 +22,7 @@ import { AboutDialog } from "./dialogs/About";
 import { KeybindingsDialog } from "./dialogs/Keybindings";
 import { PreferencesDialog } from "./dialogs/Preferences";
 import { DialogHost, dialogs } from "./dialogs/DialogHost";
+import { GitDialogHost } from "./dialogs/GitDialogs";
 import { OpsTray } from "./OpsTray";
 import { isCancelled, newOpId } from "./ops";
 import { FolderPickerDialog } from "./dialogs/FolderPicker";
@@ -1467,6 +1468,7 @@ export function App() {
         />
       )}
       <DialogHost />
+      <GitDialogHost />
       <OpsTray />
       <NoticesHost />
     </div>

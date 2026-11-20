@@ -430,13 +430,30 @@ export function createBackend(hooks: BackendHooks) {
     },
     git_branch_list: a => {
       if (!vfs.repoOf(str(a.cwd))) throw "not a git repository";
-      return repo.branches.map(name => ({
+      const local = repo.branches.map(name => ({
         name,
         current: name === repo.branch,
         upstream: name === "main" ? "origin/main" : null,
         ahead: name === repo.branch ? repo.ahead : 0,
         behind: 0,
+        upstream_gone: false,
+        remote: false,
       }));
+      const remote = a.remotes ? repo.remoteBranches.map(name => ({
+        name, current: false, upstream: null, ahead: 0, behind: 0, upstream_gone: false, remote: true,
+      })) : [];
+      return [...local, ...remote];
+    },
+    git_commit_info: a => {
+      if (!vfs.repoOf(str(a.cwd))) throw "not a git repo: could not find repository";
+      const staged = repo.staged().map(path => ({ code: "A", path, old_path: null }));
+      return {
+        branch: repo.branch,
+        staged,
+        staged_total: staged.length,
+        unstaged: repo.changes().length - staged.length,
+        head_message: repo.commits[0] ? `${repo.commits[0].subject}\n` : null,
+      };
     },
     git_file_info: a => {
       const p = str(a.path);

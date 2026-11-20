@@ -15,6 +15,8 @@ const AUTHOR = "Demo User";
 export class GitRepo {
   branch = "main";
   branches = ["main", "quick-look", "paste-conflicts"];
+  /** Remote-tracking branches, as `git branch -r` names them. */
+  remoteBranches = ["origin/main", "origin/quick-look", "origin/release-0.3"];
   ahead = 2;
   commits: Commit[] = [
     { sha: "4b8043a", when: BASE_TIME - 3 * 3600_000, subject: "Rewrite the README and project site in plain language" },
@@ -71,6 +73,24 @@ export class GitRepo {
     return this.branches.map(b => (b === this.branch ? `* ${b}` : `  ${b}`)).join("\n") + "\n";
   }
 
+  /** Staged changes: the demo's model stages new files ("A") only. */
+  staged(): string[] {
+    return this.changes().filter(([, c]) => c === "A").map(([p]) => p);
+  }
+
+  /** `git commit --amend`: the last commit takes what's staged, and the new
+   *  message unless `message` is null (`--no-edit`). */
+  amend(message: string | null, now: number): string {
+    for (const rel of this.staged()) {
+      const n = this.vfs.get(`${this.root}/${rel.replace(/\/$/, "")}`);
+      if (n) delete n.git;
+    }
+    const last = this.commits[0];
+    last.subject = message ?? last.subject;
+    last.when = now;
+    return `[${this.branch} ${last.sha}] ${last.subject}\n Date: just now\n`;
+  }
+
   commit(message: string, now: number): string {
     const ch = this.changes().filter(([, c]) => c !== "?");
     if (!ch.length) throw new Error("nothing to commit, working tree clean");
@@ -95,15 +115,23 @@ export class GitRepo {
         case "branch": return ok(this.branchText());
         case "commit": {
           const m = rest.indexOf("-m");
-          return ok(this.commit(m >= 0 ? rest[m + 1] ?? "" : "update", now));
+          const message = m >= 0 ? rest[m + 1] ?? "" : null;
+          if (rest.includes("--amend")) return ok(this.amend(message, now));
+          return ok(this.commit(message ?? "update", now));
         }
         case "checkout":
         case "switch": {
           const b = rest.filter(a => !a.startsWith("-"))[0];
           if (!b) throw new Error("missing branch name");
           if (!this.branches.includes(b)) {
-            if (!rest.includes("-b") && !rest.includes("-c")) throw new Error(`pathspec '${b}' did not match any file(s) known to git`);
+            // git's guess: a remote branch of that name becomes a local one.
+            const tracked = this.remoteBranches.includes(`origin/${b}`);
+            if (!tracked && !rest.includes("-b") && !rest.includes("-c")) throw new Error(`pathspec '${b}' did not match any file(s) known to git`);
             this.branches.push(b);
+            if (tracked) {
+              this.branch = b;
+              return ok(`Switched to a new branch '${b}'\nbranch '${b}' set up to track 'origin/${b}'.\n`);
+            }
           }
           this.branch = b;
           return ok(`Switched to branch '${b}'\n`);

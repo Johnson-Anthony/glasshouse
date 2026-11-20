@@ -39,6 +39,30 @@ pub fn spawn(cmd: &mut Command) -> io::Result<TreeChild> {
     }
 }
 
+/// `spawn`, but on Unix the child also leaves the app's session (`setsid`),
+/// so neither it nor anything it starts has a controlling terminal to
+/// prompt on. Its group is its pid, as with `spawn`. Windows: as `spawn`.
+pub fn spawn_detached(cmd: &mut Command) -> io::Result<TreeChild> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        // setsid() is async-signal-safe, so it may run between fork and exec.
+        unsafe {
+            cmd.pre_exec(|| {
+                if libc::setsid() == -1 {
+                    return Err(io::Error::last_os_error());
+                }
+                Ok(())
+            });
+        }
+        Ok(TreeChild { child: cmd.spawn()? })
+    }
+    #[cfg(windows)]
+    {
+        spawn(cmd)
+    }
+}
+
 impl TreeChild {
     /// Kill the child and everything still in its group or job, then reap
     /// the child. Processes that left the group (`setsid`) or broke away
@@ -108,7 +132,15 @@ mod tests {
     /// prints (the background child's pid, in these tests), and the pipe.
     /// Callers keep the pipe open so no process dies writing to a closed one.
     fn spawn_and_read_pid(cmd: &mut Command) -> (TreeChild, u32, impl Sized) {
-        let mut tree = spawn(cmd.stdin(Stdio::null()).stdout(Stdio::piped())).unwrap();
+        spawn_with_and_read_pid(spawn, cmd)
+    }
+
+    /// `spawn_and_read_pid` through `spawner` (`spawn` or `spawn_detached`).
+    fn spawn_with_and_read_pid(
+        spawner: fn(&mut Command) -> io::Result<TreeChild>,
+        cmd: &mut Command,
+    ) -> (TreeChild, u32, impl Sized) {
+        let mut tree = spawner(cmd.stdin(Stdio::null()).stdout(Stdio::piped())).unwrap();
         let mut out = std::io::BufReader::new(tree.child.stdout.take().unwrap());
         let mut line = String::new();
         out.read_line(&mut line).unwrap();
@@ -137,6 +169,21 @@ mod tests {
         let (mut tree, bg, _out) =
             spawn_and_read_pid(Command::new("sh").args(["-c", "sleep 30 & echo $!; wait"]));
         assert!(alive(bg));
+        tree.kill_tree();
+        assert!(gone_within(bg, alive), "background child {} survived kill_tree", bg);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn a_detached_tree_has_its_own_session_and_still_dies_whole() {
+        let (mut tree, bg, _out) =
+            spawn_with_and_read_pid(spawn_detached, Command::new("sh").args(["-c", "sleep 30 & echo $!; wait"]));
+        // /proc/<pid>/stat: "pid (comm) state ppid pgrp session …".
+        let stat = std::fs::read_to_string(format!("/proc/{}/stat", tree.child.id())).unwrap();
+        let after = &stat[stat.rfind(')').unwrap() + 2..];
+        let fields: Vec<&str> = after.split(' ').collect();
+        let id = tree.child.id().to_string();
+        assert_eq!((fields[2], fields[3]), (id.as_str(), id.as_str()), "pgrp and session");
         tree.kill_tree();
         assert!(gone_within(bg, alive), "background child {} survived kill_tree", bg);
     }
