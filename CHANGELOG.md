@@ -6,6 +6,10 @@ What changed in each release, for people using glasshouse. Downloads are on the 
 
 ### New
 
+- **Split view:** View → Split → Split Side by Side (Ctrl+\\) or Split Top and Bottom shows two panes in one window, each with its own tabs. Ctrl+F6 moves between them, the divider can be dragged (a double-click centers it), and Swap Panes and Close Split are in the same menu. The toolbar, path bar and search follow the pane you're in.
+- **Copy to Other Pane and Move to Other Pane** in the Edit menu and the file context menu, with undo and the usual questions before anything is replaced. A tab's context menu has Move to Other Pane too.
+- **Tabs can be dragged:** to reorder them, into the other pane's tabs or file list, or to the edge of the file list to split with that tab. Esc cancels. Dragging a window's only tab moves the window.
+- **A split is remembered** with the rest of the window's tabs.
 - **Update checks, off until you ask.** Help → Check for Updates checks once, and Preferences → Updates → "check for updates automatically" checks at most once a day. A check is one request to github.com for the latest release's latest.json: nothing about you or your computer is sent.
 - **Updates install from the app when you choose Install.** The setup.exe and the MSI download and run the new installer of the same kind, so a per-user install stays per user. An AppImage in a folder you can write to replaces itself and restarts with your tabs. A .deb install gets a notice with a link to the new .deb. An update must be signed with glasshouse's release key for the version announced. The dialog shows the release notes first.
 - **Each release has a latest.json, and a .sig beside each package** (for the update check).
@@ -59,6 +63,7 @@ What changed in each release, for people using glasshouse. Downloads are on the 
 
 ### Changed
 
+- **Duplicate Tab keeps the tab's back and forward history and its filter.**
 - **Error messages are sentences:** "Couldn't move “notes.txt” to the trash because it isn't there anymore." instead of text like `move_to_trash(…): …`. The raw error is under Show details. Alerts are titled with the command, not "error". This covers opening folders, new folder, rename, copy, move, delete, trash, permissions, links, archives, the terminal, VS Code and links.
 - **If glasshouse crashes or can't start, a box says so** and shows where the log is, instead of the window just vanishing. On Windows without the WebView2 Runtime, the box links to Microsoft's download.
 - **A window that fails to render shows a crash screen** with Reload, Open Log Folder and Report Bug…, instead of going blank.

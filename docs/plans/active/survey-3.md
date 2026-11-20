@@ -34,7 +34,7 @@ The scan for the user's own paths and names found none in app code. The gaps are
 | 45 | e2e-nightly-matrix | CI | S–M | after 32 |
 | 46 | release-smoke | CI + docs | M | after 32 and task 30 |
 | 49 | appimage-menu-entry | both | M | queued (split from 35 on 11-20) |
-| 50 | split-and-tear-off | both | L | running (user request 11-20: "split view for tabs" and dragging tabs into their own window "like you can with browsers"; one process with many windows, in three phases) |
+| 50 | split-and-tear-off | both | L | running: phase 1 (split view) merged 11-20; phases 2 and 3 next (user request 11-20: "split view for tabs" and dragging tabs into their own window "like you can with browsers"; one process with many windows, in three phases) |
 
 Run at most two Rust tasks at once (RAM). Tasks 33, 34, 36 and 37 all touch `src-tauri/src/commands/`, so keep diffs narrow.
 
@@ -285,3 +285,5 @@ The owner asked for "split view for tabs and also to be able to drag drop tabs i
 - *(from diagnostics-and-errors, for 45)* Not run on Windows: the MessageBoxW box, the WebView2 check before `build()`, the 7-Zip Program Files lookup, and the trash's HRESULT→Win32 mapping ("in use" for errors 32/33). No real release-build panic or failed `build()` has been triggered; the box was checked through `--fatal-dialog`.
 - *(from updater, for 41)* On Linux, the sidebar's DEVICES lists an AppImage's own FUSE mount (`/tmp/.mount_glass…`, type `fuse.glasshouse_…AppImage`) for anyone running the AppImage. Hide it.
 - *(from updater, for 45/46)* Not run: anything on Windows (NSIS and MSI updates, UAC and cancelling it, Restart Manager closing other windows, `/R` restarting), a real GitHub release with release.yml's new publish step, and the x64 Linux packages. `docs/testing` has W14 and L12 for them. `includeUpdaterJson` stays off: the publish job verifies every .sig and writes latest.json itself (`scripts/updater-json.mjs`), because tauri-action's parallel jobs race on it.
+- *(from split-and-tear-off phase 1)* Not run on Windows: WebView2's pointer capture during a tab drag, and Ctrl+F6 there (checklist W8.8, W8.9). Not run under a real window manager: dragging a window's only tab moves the window (L9.10).
+- *(from split-and-tear-off phase 1, for 38)* Ctrl+\\ for Split Side by Side may be out of reach on AltGr layouts (German, Nordic) where `\` needs AltGr; View → Split works everywhere.
