@@ -31,6 +31,7 @@ use tauri::utils::config::BundleType;
 use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_updater::{Error as UpdaterError, Update, UpdaterExt};
 
+use crate::error::{kind_of, AppError, Kind};
 use crate::lock;
 
 /// How this copy was installed.
@@ -203,9 +204,16 @@ fn write_record(app: &AppHandle, r: &Record) {
     }
 }
 
-/// The running AppImage, if that's how glasshouse runs.
+/// The running AppImage, if that's how glasshouse runs. Tauri's `Env` has
+/// the field only on Linux.
+#[cfg(target_os = "linux")]
 fn app_image(app: &AppHandle) -> Option<std::path::PathBuf> {
     app.env().appimage.map(Into::into)
+}
+
+#[cfg(not(target_os = "linux"))]
+fn app_image(_app: &AppHandle) -> Option<std::path::PathBuf> {
+    None
 }
 
 /// Whether the user can replace the file at `path`: the updater moves it
@@ -285,6 +293,21 @@ pub fn words(e: &UpdaterError) -> String {
     }
 }
 
+/// A request the updater turns down: the sentence is all there is.
+fn refused(why: &str) -> AppError {
+    AppError::new(Kind::Other, None, why, why)
+}
+
+/// An updater error as the app's error: the sentence from `words`, with the
+/// plugin's own text under "Show details".
+fn fail(e: &UpdaterError) -> AppError {
+    let kind = match e {
+        UpdaterError::Io(io) => kind_of(io),
+        _ => Kind::Other,
+    };
+    AppError::new(kind, None, words(e), e.to_string())
+}
+
 /// The download link for an update the user installs themselves: the
 /// package latest.json lists for this install, if it's that kind of file.
 fn download_link(install: Install, url: &str) -> Option<String> {
@@ -309,7 +332,7 @@ pub fn update_info(app: AppHandle) -> UpdateInfo {
 /// Asks the endpoint for the latest release, once. With `auto` (the
 /// automatic check) it asks only when `due`, and reports each version once.
 #[tauri::command]
-pub async fn update_check(app: AppHandle, state: State<'_, UpdateState>, auto: bool) -> Result<CheckResult, String> {
+pub async fn update_check(app: AppHandle, state: State<'_, UpdateState>, auto: bool) -> Result<CheckResult, AppError> {
     let mut record = read_record(&app);
     let now = now_secs();
     if auto {
@@ -323,7 +346,7 @@ pub async fn update_check(app: AppHandle, state: State<'_, UpdateState>, auto: b
         .updater_builder()
         .timeout(CHECK_TIMEOUT)
         .build()
-        .map_err(|e| words(&e))?;
+        .map_err(|e| fail(&e))?;
     let found = updater.check().await;
     record.last_try = Some(now);
     if !matches!(&found, Err(UpdaterError::Reqwest(r)) if r.is_connect() || r.is_timeout()) {
@@ -333,7 +356,7 @@ pub async fn update_check(app: AppHandle, state: State<'_, UpdateState>, auto: b
         Ok(f) => f,
         Err(e) => {
             write_record(&app, &record);
-            return Err(words(&e));
+            return Err(fail(&e));
         }
     };
     let current = app.package_info().version.to_string();
@@ -366,18 +389,18 @@ pub async fn update_check(app: AppHandle, state: State<'_, UpdateState>, auto: b
 /// an AppImage is replaced and glasshouse starts again. Progress comes as
 /// `update-progress` events. Only for an install that updates itself.
 #[tauri::command]
-pub async fn update_install(app: AppHandle, state: State<'_, UpdateState>) -> Result<(), String> {
+pub async fn update_install(app: AppHandle, state: State<'_, UpdateState>) -> Result<(), AppError> {
     let install = Install::current();
     if !can_install(install, app_image(&app).as_deref()) {
-        return Err("This copy of glasshouse can't install updates itself.".into());
+        return Err(refused("This copy of glasshouse can't install updates itself."));
     }
     let Some(update) = lock(&state.found).clone() else {
-        return Err("Check for updates first.".into());
+        return Err(refused("Check for updates first."));
     };
     {
         let mut run = lock(&state.run);
         if run.is_some() {
-            return Err("An update is already being installed.".into());
+            return Err(refused("An update is already being installed."));
         }
         *run = Some(Running::default());
     }
@@ -400,7 +423,7 @@ pub async fn update_install(app: AppHandle, state: State<'_, UpdateState>) -> Re
                 || {},
             )
             .await
-            .map_err(|e| words(&e))?;
+            .map_err(|e| fail(&e))?;
         {
             let state = task_app.state::<UpdateState>();
             let mut run = lock(&state.run);
@@ -409,20 +432,20 @@ pub async fn update_install(app: AppHandle, state: State<'_, UpdateState>) -> Re
                     r.installing = true;
                     r.abort = None;
                 }
-                _ => return Err("Cancelled.".to_string()),
+                _ => return Err(AppError::cancelled()),
             }
         }
         emit(Progress { got, total: Some(got), installing: true });
         tauri::async_runtime::spawn_blocking(move || update.install(bytes))
             .await
-            .map_err(|e| e.to_string())?
-            .map_err(|e| words(&e))
+            .map_err(|e| AppError::new(Kind::Other, None, "The update stopped before it was installed.", e.to_string()))?
+            .map_err(|e| fail(&e))
     });
     let abort = task.inner().abort_handle();
     if let Some(r) = lock(&state.run).as_mut() {
         r.abort = Some(Box::new(move || abort.abort()));
     }
-    let finished = task.await.unwrap_or_else(|_| Err("Cancelled.".to_string()));
+    let finished = task.await.unwrap_or_else(|_| Err(AppError::cancelled()));
     *lock(&state.run) = None;
     finished?;
     // Only the AppImage gets here: the Windows installers end the process.
@@ -458,11 +481,11 @@ fn close_on_exec() {
 /// Stops a download in progress. Once the installer has started it can't
 /// be stopped, and this says so.
 #[tauri::command]
-pub fn update_cancel(state: State<'_, UpdateState>) -> Result<(), String> {
+pub fn update_cancel(state: State<'_, UpdateState>) -> Result<(), AppError> {
     let mut run = lock(&state.run);
     let Some(r) = run.as_mut() else { return Ok(()) };
     if r.installing {
-        return Err("The update is being installed and can't be stopped now.".into());
+        return Err(refused("The update is being installed and can't be stopped now."));
     }
     r.cancelled = true;
     if let Some(abort) = r.abort.take() {
@@ -595,6 +618,18 @@ mod tests {
         assert_eq!(v["canInstall"], true);
         assert_eq!(serde_json::to_value(CheckResult::Quiet).unwrap()["status"], "quiet");
         assert_eq!(serde_json::to_value(Install::AppImage).unwrap(), "appimage");
+    }
+
+    #[test]
+    fn updater_errors_are_app_errors_with_the_plugins_text_as_detail() {
+        let e = fail(&UpdaterError::ReleaseNotFound);
+        assert_eq!(e.kind, Kind::Other);
+        assert!(e.message.contains("latest.json"));
+        assert_eq!(e.detail, UpdaterError::ReleaseNotFound.to_string());
+        let denied = fail(&UpdaterError::Io(std::io::Error::from(std::io::ErrorKind::PermissionDenied)));
+        assert_eq!(denied.kind, Kind::Permission);
+        assert!(denied.message.contains("couldn't replace itself"));
+        assert_eq!(refused("Check for updates first.").detail, "Check for updates first.");
     }
 
     #[test]

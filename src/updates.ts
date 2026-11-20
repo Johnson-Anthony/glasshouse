@@ -4,7 +4,7 @@
 
 import { useEffect, useRef } from "react";
 import { sessionOwner, updateCheck, type InstallKind, type UpdateAvailable, type UpdateInfo } from "./api";
-import { errText } from "./errors";
+import { describeForLog, logWarn } from "./log";
 
 export const RELEASES_URL = "https://github.com/Johnson-Anthony/glasshouse/releases";
 
@@ -168,7 +168,7 @@ export function useAutoUpdateCheck(on: boolean, onFound: (u: UpdateAvailable) =>
         const r = await updateCheck(true);
         if (live && r.status === "available") found.current(r);
       } catch (e) {
-        console.warn("update check:", errText(e));
+        logWarn(`automatic update check: ${describeForLog(e)}`);
       }
       if (live) timer = window.setTimeout(() => void tick(), CHECK_TICK_MS);
     };

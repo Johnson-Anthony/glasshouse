@@ -15,8 +15,10 @@ const api = vi.hoisted(() => ({
   onUpdateProgress: vi.fn(),
   openUrl: vi.fn(),
 }));
-vi.mock("../api", () => api);
+// log.ts reads TAURI_AVAILABLE; false, so failures aren't logged here.
+vi.mock("../api", () => ({ ...api, TAURI_AVAILABLE: false }));
 
+import { BackendError } from "../errors";
 import { UpdateDialog } from "./Update";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -105,17 +107,24 @@ describe("UpdateDialog", () => {
     await click(byText("install and restart"));
     await click(byText("cancel"));
     expect(api.updateCancel).toHaveBeenCalledTimes(1);
-    await act(async () => { fail("Cancelled."); });
+    await act(async () => { fail(new BackendError({ kind: "cancelled", path: null, message: "cancelled", detail: "cancelled" })); });
     expect(byText("install and restart")).toBeTruthy();
   });
 
-  it("reports a failed install with the reason", async () => {
+  it("reports a failed install with the reason, and the updater's own text under Show details", async () => {
     api.updateCheck.mockResolvedValue(AVAILABLE);
-    api.updateInstall.mockRejectedValue("The download's signature doesn't match glasshouse's key, so it wasn't installed.");
+    api.updateInstall.mockRejectedValue(new BackendError({
+      kind: "other", path: null,
+      message: "The download's signature doesn't match glasshouse's key, so it wasn't installed.",
+      detail: "minisign error: signature verification failed",
+    }));
     await mount();
     await click(byText("install and restart"));
     expect(host.textContent).toContain("glasshouse 0.3.0 wasn't installed.");
     expect(host.querySelector("[role=alert]")?.textContent).toContain("signature doesn't match");
+    const details = host.querySelector("details.error-details");
+    expect(details?.querySelector("summary")?.textContent).toBe("Show details");
+    expect(details?.querySelector("pre")?.textContent).toBe("minisign error: signature verification failed");
     expect(byText("release page")).toBeTruthy();
   });
 

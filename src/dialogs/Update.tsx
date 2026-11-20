@@ -3,10 +3,12 @@ import {
   onUpdateProgress, openUrl, updateCancel, updateCheck, updateInfo, updateInstall,
   type UpdateAvailable, type UpdateInfo,
 } from "../api";
-import { errText } from "../errors";
+import { errDetail, errKind, errText } from "../errors";
+import { describeForLog, logWarn } from "../log";
 import {
   CHECK_PRIVACY, RELEASES_URL, dayText, installText, manualSteps, noteBlocks, progressText, releasePage,
 } from "../updates";
+import { ErrorDetails } from "./DialogHost";
 import { useEscapeClose } from "./useEscapeClose";
 import { useModal } from "./modal";
 
@@ -30,7 +32,14 @@ type Phase =
   | { kind: "available"; update: UpdateAvailable }
   | { kind: "downloading"; update: UpdateAvailable; got: number; total: number | null }
   | { kind: "installing"; update: UpdateAvailable }
-  | { kind: "error"; message: string; update?: UpdateAvailable };
+  | { kind: "error"; message: string; detail: string; update?: UpdateAvailable };
+
+/** A failed check or install: logged, like every error alert (showError),
+ *  and shown in the dialog with the raw text under "Show details". */
+function failed(what: string, e: unknown, fallback: string, update?: UpdateAvailable): Phase {
+  logWarn(`${what}: ${describeForLog(e)}`);
+  return { kind: "error", message: errText(e) || fallback, detail: errDetail(e), update };
+}
 
 export function UpdateDialog({ open, found, onClose }: UpdateDialogProps) {
   const [phase, setPhase] = useState<Phase>({ kind: "checking" });
@@ -47,7 +56,7 @@ export function UpdateDialog({ open, found, onClose }: UpdateDialogProps) {
     updateCheck(false).then(
       r => setPhase(r.status === "available" ? { kind: "available", update: r }
         : { kind: "current", version: r.status === "current" ? r.version : "" }),
-      e => setPhase({ kind: "error", message: errText(e) || "The check failed." }),
+      e => setPhase(failed("update check", e, "The check failed.")),
     );
   };
 
@@ -81,10 +90,7 @@ export function UpdateDialog({ open, found, onClose }: UpdateDialogProps) {
     // Windows installer ends this process.
     updateInstall().then(
       () => onClose(),
-      e => {
-        const message = errText(e) || "The update failed.";
-        setPhase(message === "Cancelled." ? { kind: "available", update } : { kind: "error", message, update });
-      },
+      e => setPhase(errKind(e) === "cancelled" ? { kind: "available", update } : failed("update install", e, "The update failed.", update)),
     );
   };
 
@@ -129,6 +135,7 @@ export function UpdateDialog({ open, found, onClose }: UpdateDialogProps) {
             <>
               <p id="upd-title" className="upd-title">{update ? `glasshouse ${update.version} wasn't installed.` : "The check didn't work."}</p>
               <p className="prefs-note error" role="alert">{phase.message}</p>
+              {phase.detail && <ErrorDetails detail={phase.detail} />}
             </>
           )}
           {update && phase.kind !== "error" && (
