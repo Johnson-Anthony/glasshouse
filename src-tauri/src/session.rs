@@ -2,9 +2,11 @@
 //! place (the window-state plugin, which `lib.rs` registers only in the
 //! owner) and, in the frontend, the tabs (`src/session.ts`).
 //!
-//! File → New Window starts another process. The first one running takes an
-//! exclusive lock on `session.lock` in the app config dir and keeps it until
-//! it ends; the OS drops it then, crash or not. A process that finds the
+//! File → New Window starts another process, and so does a window opened
+//! for another app (startup.rs), which never claims the session. The first
+//! plain one running takes an exclusive lock on `session.lock` in the app
+//! config dir and keeps it until it ends; the OS drops it then, crash or
+//! not. A process that finds the
 //! lock taken restores and saves nothing, so a second window neither opens
 //! the first one's tabs on top of it nor overwrites them. See
 //! docs/decisions/2026-11-15-session-persistence-windows.md.
@@ -23,6 +25,13 @@ pub struct SessionOwner {
 impl SessionOwner {
     pub fn is_owner(&self) -> bool {
         self.owner
+    }
+
+    /// A window started with paths by another app ("Show in folder"): it
+    /// doesn't take the session, so it never replaces the saved tabs, and
+    /// the user's next plain start still restores them.
+    pub fn guest() -> Self {
+        SessionOwner { owner: false, _lock: None }
     }
 }
 

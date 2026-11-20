@@ -10,6 +10,10 @@ pub mod file_info;
 pub mod fs_ops;
 pub mod git;
 pub mod hash;
+pub mod integration;
+#[cfg_attr(windows, allow(dead_code))]
+pub(crate) mod integration_xdg;
+mod integration_win;
 pub mod launch;
 pub mod listing;
 pub mod open_with;

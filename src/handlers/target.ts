@@ -1,5 +1,5 @@
 import { dialogs } from "../dialogs/DialogHost";
-import { spawnTerminal, spawnVscodeStrict, revealInExplorer, homeDir, listDir } from "../api";
+import { spawnTerminal, spawnVscodeStrict, homeDir, listDir } from "../api";
 import { openFile } from "../openWith";
 import { renamePath } from "../tags";
 import { basename, parentPath, joinPath, normalizePath } from "../paths";
@@ -10,7 +10,7 @@ import { pushUndo } from "../state";
 import { moveUndo } from "../undoActions";
 import { runTransfer } from "../transfer";
 import type { Handler } from "./types";
-import { clearAllTags, copyWslPath, removeTagPrompt } from "./helpers";
+import { clearAllTags, copyWslPath, removeTagPrompt, revealInFileManager } from "./helpers";
 import { trashPaths } from "./fileOps";
 import { cmdState } from "../commandState";
 import { sshProfileFor } from "../remotes";
@@ -147,7 +147,7 @@ export const targetHandler: Handler = (label, ctx) => {
         }
         case "Reveal in Explorer":
           cmdState.contextTarget = null;
-          void revealInExplorer(target); return true;
+          void revealInFileManager(activeHandle, target); return true;
         case "Rename": {
           cmdState.contextTarget = null;
           const base = basename(target);

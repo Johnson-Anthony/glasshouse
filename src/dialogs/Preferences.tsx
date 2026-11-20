@@ -1,5 +1,7 @@
-import React, { useEffect, useRef } from "react";
+import React, { useEffect, useRef, useState } from "react";
+import { integrationSet, integrationStatus, type IntegrationFeature, type IntegrationKey, type IntegrationStatus } from "../api";
 import type { TweakDensity, TweakState } from "../components";
+import { errText } from "../errors";
 import { THEMES } from "../data";
 import { KEYMAP, matches } from "../keymap";
 import { stepZoom, ZOOM_DEFAULT, ZOOM_STEPS, zoomLabel } from "../zoom";
@@ -154,12 +156,63 @@ export function PreferencesDialog({ open, state, setState, onClose }: Preference
               <Choice label="follow folder" value={state.termFollow} options={offOn} onPick={set("termFollow")} />
             </Row>
           </Section>
+          <IntegrationSection />
         </div>
         <div className="prefs-foot">
           <button type="button" onClick={onClose}>close</button>
         </div>
       </div>
     </div>
+  );
+}
+
+/** Preferences → Integration: glasshouse as the file manager other apps
+ *  hand off to (src-tauri/src/commands/integration.rs). Read when the
+ *  dialog opens; each switch reports what the desktop does afterwards.
+ *  Hidden where there's nothing to set. */
+function IntegrationSection() {
+  const [status, setStatus] = useState<IntegrationStatus | null>(null);
+  const [busy, setBusy] = useState<IntegrationKey | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    let live = true;
+    void integrationStatus().then(s => { if (live) setStatus(s); });
+    return () => { live = false; };
+  }, []);
+  if (!status?.supported) return null;
+
+  const flip = (key: IntegrationKey, on: boolean) => {
+    setBusy(key);
+    setError(null);
+    integrationSet(key, on)
+      .then(setStatus, err => setError(errText(err)))
+      .finally(() => setBusy(null));
+  };
+  const row = (key: IntegrationKey, label: string, hint: string, f: IntegrationFeature | null) => f && (
+    <Row label={label} hint={hint}>
+      <Choice<boolean>
+        label={label}
+        value={f.on}
+        options={[[false, "off"], [true, "on"]]}
+        disabled={busy !== null}
+        onPick={on => { if (on !== f.on) flip(key, on); }}
+      />
+      <p className="prefs-note">{busy === key ? "applying…" : f.detail}</p>
+      {f.warning && <p className="prefs-note warn">{f.warning}</p>}
+    </Row>
+  );
+  return (
+    <Section title="integration">
+      {row("folders", "open folders with glasshouse", "folders opened from other apps", status.folders)}
+      {row("fileManager", "show files for other apps", "a browser's “show in folder”", status.fileManager)}
+      {error && <p className="prefs-note error" role="alert">{error}</p>}
+      {(status.limits.length > 0 || status.program) && (
+        <div className="prefs-foot-note">
+          {status.limits.map(l => <p key={l}>{l}</p>)}
+          {status.program && <p>Settings start {status.program}.</p>}
+        </div>
+      )}
+    </Section>
   );
 }
 
@@ -185,11 +238,12 @@ function Row({ label, hint, children }: { label: string; hint?: string; children
 }
 
 /** A row of buttons, one pressed: the setting's value. */
-function Choice<T extends string | boolean>({ label, value, options, onPick }: {
+function Choice<T extends string | boolean>({ label, value, options, onPick, disabled }: {
   label: string;
   value: T;
   options: Array<[T, string]>;
   onPick: (v: T) => void;
+  disabled?: boolean;
 }) {
   return (
     <div className="segmented" role="group" aria-label={label}>
@@ -199,6 +253,7 @@ function Choice<T extends string | boolean>({ label, value, options, onPick }: {
           type="button"
           className={v === value ? "active" : ""}
           aria-pressed={v === value}
+          disabled={disabled}
           onClick={() => onPick(v)}
         >{name}</button>
       ))}

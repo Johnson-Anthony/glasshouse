@@ -1,4 +1,4 @@
-import { type FileEntry, type Trashed, type TrashProblem, trashUnsupported, makeDir, createTextFile, spawnTerminal, spawnVscodeStrict, revealInExplorer, archiveCreate, hashSha256, homeDir } from "../api";
+import { type FileEntry, type Trashed, type TrashProblem, trashUnsupported, makeDir, createTextFile, spawnTerminal, spawnVscodeStrict, archiveCreate, hashSha256, homeDir } from "../api";
 import { MUTATING_LABELS } from "../data";
 import { dialogs } from "../dialogs/DialogHost";
 import { basename, parentPath, joinPath } from "../paths";
@@ -14,7 +14,7 @@ import { isCancelled, runOp } from "../ops";
 import { type TransferOp, runTransfer, type TransferItem, type TransferResult } from "../transfer";
 import type { PasteSpecialItem } from "../dialogs/PasteSpecial";
 import type { Handler } from "./types";
-import { clearAllTags, copyWslPath, removeTagPrompt, runGitAction, selectedOrFirst, showBlame } from "./helpers";
+import { clearAllTags, copyWslPath, removeTagPrompt, revealInFileManager, runGitAction, selectedOrFirst, showBlame } from "./helpers";
 import { showLeftOut } from "./archive";
 import { cmdState } from "../commandState";
 import { errText } from "../errors";
@@ -367,7 +367,7 @@ export const fileOpsHandler: Handler = async (label, ctx) => {
       return true;
     }
     case "Reveal in Explorer": {
-      if (firstPath) await revealInExplorer(firstPath);
+      if (firstPath) await revealInFileManager(activeHandle, firstPath);
       return true;
     }
     case "Copy Path": {

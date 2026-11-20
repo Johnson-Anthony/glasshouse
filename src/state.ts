@@ -13,7 +13,7 @@ import {
 import { basename, normalizePath, parentPath } from "./paths";
 import { navBack, navClear, navForward, navGoTo, navInit, type NavState } from "./history";
 import { errText } from "./errors";
-import { EMPTY_LISTING, indexOfName, keepGitInfo, relist, selectOnly, withAnchor, withFocus, withSelected, type Listing } from "./listing";
+import { EMPTY_LISTING, indexOfName, keepGitInfo, relist, selectIndices, withAnchor, withFocus, withSelected, type Listing } from "./listing";
 import { RefreshGate } from "./refreshGate";
 import { pruneListed } from "./tags";
 import type { TabSort } from "./session";
@@ -57,8 +57,10 @@ export interface TabActions {
   goTo: (path: string) => void;
   /** Opens `path`'s folder, or re-lists it if it's the one shown, with the
    *  filter box and tag filter cleared, and selects, focuses and anchors
-   *  `path` when the listing arrives. */
-  reveal: (path: string) => Promise<RevealResult>;
+   *  `path` when the listing arrives. Given several paths, it opens the
+   *  first one's folder and selects every one in it ("selected" if any is
+   *  listed). */
+  reveal: (path: string | readonly string[]) => Promise<RevealResult>;
   back: () => void;
   forward: () => void;
   up: () => void;
@@ -233,7 +235,7 @@ export function useTabState(initialPath: string, isPrivate: boolean = false, act
   // rows or error on screen until the result arrives, so nothing blinks.
   const fetchSeq = useRef(0);
   // A reveal waiting for a listing of its folder that started after it.
-  const revealRef = useRef<{ folder: string; name: string; after: number; done: (r: RevealResult) => void } | null>(null);
+  const revealRef = useRef<{ folder: string; names: string[]; after: number; done: (r: RevealResult) => void } | null>(null);
   const dropReveal = () => {
     revealRef.current?.done("dropped");
     revealRef.current = null;
@@ -252,9 +254,9 @@ export function useTabState(initialPath: string, isPrivate: boolean = false, act
       const want = revealRef.current;
       if (want && seq > want.after && want.folder === normalizePath(p)) {
         revealRef.current = null;
-        const at = indexOfName(dir, want.name);
-        setListing(l => (at >= 0 ? selectOnly(relist(l, dir), at) : relist(l, dir)));
-        want.done(at >= 0 ? "selected" : "not-listed");
+        const at = want.names.map(n => indexOfName(dir, n)).filter(i => i >= 0);
+        setListing(l => (at.length > 0 ? selectIndices(relist(l, dir), at) : relist(l, dir)));
+        want.done(at.length > 0 ? "selected" : "not-listed");
       } else {
         setListing(l => relist(l, dir));
       }
@@ -410,8 +412,10 @@ export function useTabState(initialPath: string, isPrivate: boolean = false, act
     setRefreshTick(t => t + 1);
   }, []);
 
-  const reveal = useCallback((target: string): Promise<RevealResult> => {
-    const folder = parentPath(target);
+  const reveal = useCallback((target: string | readonly string[]): Promise<RevealResult> => {
+    const targets = typeof target === "string" ? [target] : target;
+    const folder = parentPath(targets[0] ?? "");
+    const inFolder = targets.filter(t => normalizePath(parentPath(t)) === normalizePath(folder));
     const stay = navRef.current.path === folder;
     // A move drops the rows, the filter box and any older reveal.
     goTo(folder);
@@ -419,7 +423,7 @@ export function useTabState(initialPath: string, isPrivate: boolean = false, act
     setTagFilter(null);
     setSearchQuery("");
     return new Promise<RevealResult>(resolve => {
-      revealRef.current = { folder: normalizePath(folder), name: basename(target), after: fetchSeq.current, done: resolve };
+      revealRef.current = { folder: normalizePath(folder), names: inFolder.map(basename), after: fetchSeq.current, done: resolve };
       if (stay) refresh();
     });
   }, [goTo, refresh]);

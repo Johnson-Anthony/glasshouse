@@ -1,10 +1,10 @@
-import { gitBlame, gitDiscard, gitStage, gitUnstage, homeDir, openUrl, pathKind, winToWsl, type BlameLine, type FileEntry, type GitDiscardResult } from "../api";
+import { gitBlame, gitDiscard, gitStage, gitUnstage, homeDir, openUrl, pathKind, revealInExplorer, winToWsl, type BlameLine, type FileEntry, type GitDiscardResult } from "../api";
 import { dialogs } from "../dialogs/DialogHost";
 import { isModalOpen } from "../dialogs/modal";
 import { errText } from "../errors";
 import { discardReport, gitTargets, type GitAction } from "../gitTargets";
 import { basename } from "../paths";
-import { markIrreversible, type UseTabResult } from "../state";
+import { markIrreversible, type RevealResult, type UseTabResult } from "../state";
 import { winPathToWsl } from "../shellCd";
 import { parseTyped } from "../typedPath";
 import type { AppCommands, HandlerCtx } from "./types";
@@ -41,16 +41,17 @@ export async function pickNumbered<T>(
   return items[parseInt(picked.trim(), 10) - 1];
 }
 
-/** Opens `path`'s folder in the tab with it selected (`reveal`), then puts
- *  the keyboard on the file pane, which scrolls to it. Says so when the
- *  listing doesn't have it: hidden files are off, or it's gone. */
-export async function revealPath(handle: UseTabResult | undefined, path: string): Promise<void> {
-  if (!handle) return;
+/** Opens `path`'s folder in the tab with it selected (`reveal`; several
+ *  paths: all of them in the first one's folder), then puts the keyboard on
+ *  the file pane, which scrolls to it. Says so when the listing doesn't
+ *  have it: hidden files are off, or it's gone. */
+export async function revealPath(handle: UseTabResult | undefined, path: string | readonly string[]): Promise<RevealResult | undefined> {
+  if (!handle) return undefined;
   const result = await handle.actions.reveal(path);
   if (result === "selected") {
     if (!isModalOpen()) document.querySelector<HTMLElement>("section.pane")?.focus();
   } else if (result === "not-listed") {
-    const name = basename(path);
+    const name = basename(typeof path === "string" ? path : path[0] ?? "");
     dialogs.showToast({
       message: handle.state.showHidden
         ? `${name} is no longer in this folder`
@@ -58,6 +59,13 @@ export async function revealPath(handle: UseTabResult | undefined, path: string)
       variant: "info",
     });
   }
+  return result;
+}
+
+/** Reveal in File Manager: the desktop's file manager, or this window
+ *  when that's glasshouse (Preferences → Integration). */
+export async function revealInFileManager(handle: UseTabResult | undefined, path: string): Promise<void> {
+  if ((await revealInExplorer(path)) === "inApp") await revealPath(handle, path);
 }
 
 /** Opens what was typed into Go to Path…, Open… or the palette's "Go to"

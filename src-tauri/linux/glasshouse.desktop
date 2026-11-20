@@ -1,0 +1,18 @@
+# glasshouse's menu entry (tauri.conf.json: bundle.linux.deb.desktopTemplate,
+# used by the .deb and the AppImage). It has no MimeType, so installing never
+# changes which app opens folders: Preferences -> Integration writes its own
+# entry for that (glasshouse-folders.desktop). See docs/INTEGRATION.md.
+[Desktop Entry]
+Type=Application
+Name={{name}}
+GenericName=File Manager
+{{#if comment}}
+Comment={{comment}}
+{{/if}}
+Exec={{exec}} %U
+Icon={{icon}}
+Terminal=false
+StartupNotify=true
+StartupWMClass={{exec}}
+Categories=System;FileTools;FileManager;
+Keywords=folder;files;explorer;

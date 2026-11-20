@@ -242,6 +242,17 @@ describe("useTabState reveal", () => {
     expect(tab.state.historyBack).toEqual([]);
   });
 
+  it("selects several items of one folder, focused on the first given, and skips the ones elsewhere or gone", async () => {
+    fake.dirs["/x"] = ["y", "z", "q"].map(n => entry("/x", n));
+    let shown!: Promise<string>;
+    act(() => { shown = tab.actions.reveal(["/x/z", "/x/gone", "/w/a", "/x/y"]); });
+    await settle();
+    await expect(shown).resolves.toBe("selected");
+    expect(tab.state.path).toBe("/x");
+    expect(sel()).toEqual(["z", "y"]);
+    expect([at(tab.state.focusIndex), at(tab.state.anchorIndex)]).toEqual(["z", "z"]);
+  });
+
   it("says so when the listing doesn't have the file (hidden files off)", async () => {
     let shown!: Promise<string>;
     act(() => { shown = tab.actions.reveal("/x/.secret"); });

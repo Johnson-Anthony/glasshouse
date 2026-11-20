@@ -112,6 +112,12 @@ export function selectOnly(l: Listing, i: number): Listing {
   return { ...l, selected: [i], focusIndex: i, anchorIndex: i };
 }
 
+/** Selects exactly `indices` (at least one), focused and anchored on the
+ *  first. */
+export function selectIndices(l: Listing, indices: readonly number[]): Listing {
+  return indices.length === 1 ? selectOnly(l, indices[0]) : { ...l, selected: [...indices], focusIndex: indices[0], anchorIndex: indices[0] };
+}
+
 /** `next`, or `prev` itself when the repo's status hasn't changed, so a
  *  re-read doesn't re-render the toolbar and status bar for nothing. */
 export function keepGitInfo(prev: GitInfo | null, next: GitInfo | null): GitInfo | null {

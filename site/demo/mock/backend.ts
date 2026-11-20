@@ -12,6 +12,15 @@ const USER_DIRS: Record<number, string> = { 6: "Documents", 7: "Downloads", 8: "
 type Args = Record<string, unknown>;
 type Handler = (a: Args) => unknown;
 
+/** Preferences → Integration in the demo: both settings off. */
+const DEMO_INTEGRATION = {
+  supported: true,
+  program: "/usr/bin/glasshouse",
+  folders: { on: false, detail: "Folders open with Files (org.example.Files.desktop, set in ~/.config/mimeapps.list).", warning: null },
+  fileManager: { on: false, detail: "Files (pid 1234) answers \"Show in folder\" from other apps.", warning: null },
+  limits: [],
+};
+
 export interface BackendHooks {
   /** Emit a Tauri event to the app (pty output, fs changes). */
   emit(event: string, payload: unknown): void;
@@ -575,6 +584,15 @@ export function createBackend(hooks: BackendHooks) {
     // Saves the tabs as the app does (src/session.ts), into the demo's
     // in-memory storage (install.ts), so no visit reopens another's tabs.
     session_owner: () => true,
+    // The demo starts as a plain window: no paths from another app.
+    launch_request: () => null,
+    // Preferences → Integration, as on a desktop where it's off; the
+    // switches explain instead of changing anything.
+    integration_status: () => DEMO_INTEGRATION,
+    integration_set: () => {
+      hooks.notice("Making glasshouse the desktop's file manager isn't available in the browser demo.");
+      return DEMO_INTEGRATION;
+    },
     start_drag_out: notInDemo("Dragging files into other apps"),
     // The app zooms its whole webview. A page can't zoom itself that way (CSS
     // `zoom` would misplace menus and drags), so the demo leaves it to the

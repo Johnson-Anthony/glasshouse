@@ -3,5 +3,6 @@
 exclude:
   - SPEC.md
   - ARCHITECTURE.md
+  - INTEGRATION.md
   - plans
   - decisions

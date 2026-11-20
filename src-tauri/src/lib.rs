@@ -2,7 +2,10 @@ mod commands;
 mod ops;
 mod proc_tree;
 mod pty;
+#[cfg(target_os = "linux")]
+mod resident;
 mod session;
+mod startup;
 mod watcher;
 
 use std::sync::{Mutex, MutexGuard, PoisonError};
@@ -20,6 +23,26 @@ pub(crate) fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
 }
 
 pub fn run() {
+    match startup::from_env() {
+        startup::Startup::Window(launch) => run_window(launch),
+        startup::Startup::IntegrationOn(features) => std::process::exit(commands::integration::on_from_cli(&features)),
+        startup::Startup::IntegrationOff => std::process::exit(commands::integration::off_from_cli()),
+        #[cfg(target_os = "linux")]
+        startup::Startup::Resident(services) => std::process::exit(resident::run(&services)),
+        #[cfg(not(target_os = "linux"))]
+        startup::Startup::Resident(_) => {
+            eprintln!("glasshouse --dbus: D-Bus services are Linux only");
+            std::process::exit(2)
+        }
+    }
+}
+
+fn run_window(launch: Option<startup::LaunchRequest>) {
+    // Before anything starts a thread: this sets environment variables.
+    // GTK sends DESKTOP_STARTUP_ID when it maps the window: the
+    // xdg-activation token on Wayland, the startup-notification ID on X11.
+    #[cfg(target_os = "linux")]
+    startup::take_activation_token();
     #[cfg(windows)]
     commands::drive_letters::no_critical_error_boxes();
     let app = tauri::Builder::default()
@@ -102,6 +125,9 @@ pub fn run() {
             commands::config::append_recent,
             commands::config::clear_recent,
             session::session_owner,
+            startup::launch_request,
+            commands::integration::integration_status,
+            commands::integration::integration_set,
             commands::file_info::file_stat_extended,
             commands::hash::hash_md5,
             commands::hash::hash_crc32,
@@ -121,7 +147,13 @@ pub fn run() {
     // Built but not run: the main window is made when the app runs, so the
     // window-state plugin, which restores a window as it's made, can still
     // be left out of a process that doesn't own the session (session.rs).
-    let session = session::claim(app.path().app_config_dir().ok().as_deref());
+    // A window another app asked for ("Show in folder") leaves the session
+    // to the user's own windows.
+    let session = if launch.is_some() {
+        session::SessionOwner::guest()
+    } else {
+        session::claim(app.path().app_config_dir().ok().as_deref())
+    };
     if session.is_owner() {
         let window_state = tauri_plugin_window_state::Builder::new()
             .with_state_flags(StateFlags::SIZE | StateFlags::POSITION | StateFlags::MAXIMIZED)
@@ -131,5 +163,6 @@ pub fn run() {
         }
     }
     app.manage(session);
+    app.manage(startup::Launch(launch));
     app.run(|_, _| {});
 }

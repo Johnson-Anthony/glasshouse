@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  glasshouse's MSI fragment (tauri.conf.json: bundle.windows.wix.fragmentPaths;
+  its component group is in componentGroupRefs, which links it in).
+
+  A full uninstall turns "Open folders with glasshouse" off for the user
+  running it, as Preferences -> Integration does, so folders still open after
+  glasshouse is gone: the installed glasshouse.exe (File "Path" in Tauri's
+  main.wxs) runs with its integration-off flag while it's still there. An upgrade
+  (UPGRADINGPRODUCTCODE) leaves it on. Immediate, so it runs as that user
+  and reaches their HKCU. The NSIS installer does the same in hooks.nsh.
+-->
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+  <Fragment>
+    <ComponentGroup Id="GlasshouseIntegration" />
+    <CustomAction Id="GlasshouseIntegrationOff" FileKey="Path" ExeCommand="--integration-off" Execute="immediate" Return="ignore" />
+    <InstallExecuteSequence>
+      <Custom Action="GlasshouseIntegrationOff" Before="RemoveFiles">REMOVE="ALL" AND NOT UPGRADINGPRODUCTCODE</Custom>
+    </InstallExecuteSequence>
+  </Fragment>
+</Wix>
