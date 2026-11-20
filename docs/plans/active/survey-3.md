@@ -33,6 +33,7 @@ The scan for the user's own paths and names found none in app code. The gaps are
 | 44 | e2e-core-flows | test code | M | after 32 |
 | 45 | e2e-nightly-matrix | CI | S–M | after 32 |
 | 46 | release-smoke | CI + docs | M | after 32 and task 30 |
+| 49 | appimage-menu-entry | both | M | queued (split from 35 on 11-20) |
 
 Run at most two Rust tasks at once (RAM). Tasks 33, 34, 36 and 37 all touch `src-tauri/src/commands/`, so keep diffs narrow.
 
@@ -238,6 +239,11 @@ The owner wants the themes and cosmetic options expanded massively. Today there 
 - **The signing key:** the lead generates the key pair (`pnpm tauri signer generate`). The private key goes only into a GitHub Actions secret and the owner's password manager, never into the repo or a log; the public key goes into tauri.conf.json.
 - **Off by default:** Preferences → "Check for updates automatically" (daily at most). Help → Check for Updates checks once when clicked. Both say what they contact (the GitHub release's latest.json) and send nothing else. Show what's new from the release notes, and install only when the user says so.
 - **Docs:** a privacy line in the README (task 43).
+- **AppImage updates** are this task's too (split from 35): the Tauri updater covers the AppImage, so no zsync update information is embedded.
+
+## 49. appimage-menu-entry (both, M; split from 35 on 2026-11-20)
+- An AppImage that isn't installed has no menu entry or icon. Add a Preferences → Integration switch, "Add glasshouse to the app menu", shown only when running from an AppImage (`$APPIMAGE`): it writes a desktop entry pointing at `$APPIMAGE`, plus the icon, under `~/.local/share`, and removes them when turned off. Follow how `integration.rs` keeps and restores what it changes, with tests and the UI.
+- Handle the AppImage moving or being deleted (the entry should not point at nothing), and keep it consistent with the folder-default and file-manager entries, which today start the binary path.
 
 ## Found by tasks
 - *(from e2e-smoke, for 44)* Reuse `e2e/harness.mjs` and its `waitFor`, not sleeps. Fixtures are made per run in a scratch dir, but on Windows the run uses the runner's real profile, so use unique names. Put the Trash fixture under the scratch `XDG_DATA_HOME`. A task that needs a D-Bus service in the test drops its `.service` file into the scratch `$XDG_DATA_HOME/dbus-1/services`.
