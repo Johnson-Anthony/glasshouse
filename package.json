@@ -18,7 +18,8 @@
     "site:dev": "vite -c vite.site.config.ts",
     "site:build": "tsc -p tsconfig.site.json && vite build -c vite.site.config.ts",
     "site:preview": "vite preview -c vite.site.config.ts",
-    "site:capture": "node --experimental-websocket site/capture/capture.mjs"
+    "site:capture": "node --experimental-websocket site/capture/capture.mjs",
+    "e2e": "xvfb-run -a -s \"-screen 0 1920x1080x24\" node --test --test-reporter=spec e2e/smoke.test.mjs"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.12.4",
