@@ -17,10 +17,20 @@ const samePath = (a, b) => (IS_WINDOWS ? a.toLowerCase() === b.toLowerCase() : a
 
 let scratch, home, fixture, driver, session;
 const notes = [];
+/** Every browser-log entry read so far: the driver hands each out once. */
+const browserLog = [];
+
+async function readBrowserLog() {
+  browserLog.push(...((await session.browserLog()) ?? []));
+  return browserLog;
+}
 
 /** Collects what goes wrong in the page from session start: uncaught
- *  errors, unhandled rejections and console.error calls. */
+ *  errors, unhandled rejections and console.error calls. Not before the
+ *  app's page is there: msedgedriver can attach while the webview still
+ *  shows about:blank, and listeners put there go when the app loads. */
 function installErrorListeners() {
+  if (location.protocol === "about:") return false;
   if (window.__e2e) return true;
   const seen = (window.__e2e = { errors: [], consoleErrors: [] });
   const text = v => (v instanceof Error ? v.stack || String(v) : typeof v === "string" ? v : JSON.stringify(v));
@@ -88,8 +98,11 @@ after(async () => {
     } catch (e) {
       notes.push(`reading the page failed: ${e.message}`);
     }
-    const log = await session.browserLog();
-    if (log) writeFileSync(join(ARTIFACTS, "browser-log.json"), JSON.stringify(log, null, 2) + "\n");
+    try {
+      if (IS_WINDOWS) writeFileSync(join(ARTIFACTS, "browser-log.json"), JSON.stringify(await readBrowserLog(), null, 2) + "\n");
+    } catch (e) {
+      notes.push(`reading the browser log failed: ${e.message}`);
+    }
     try {
       await session.delete();
     } catch (e) {
@@ -157,12 +170,14 @@ test("the sidebar shows drives and known folders", { timeout: 30_000 }, async ()
 });
 
 test("no uncaught errors", { timeout: 30_000 }, async () => {
-  const seen = await session.execute(() => window.__e2e);
+  const seen = await session.execute(() => window.__e2e ?? null);
+  assert.ok(seen, "the page was replaced after the error listeners went in, so what happened since went unwatched");
   const errors = [...seen.errors];
-  const log = await session.browserLog();
-  // msedgedriver's log has what happened before the listeners went in.
-  for (const entry of log ?? []) {
-    if (/Uncaught/.test(entry.message)) errors.push(`browser log: ${entry.message}`);
+  // msedgedriver's log has what happened before the listeners went in, and
+  // Content Security Policy violations, which no page listener sees in time:
+  // one blocked Tauri's IPC on Windows, where it's http://ipc.localhost.
+  for (const entry of await readBrowserLog()) {
+    if (/Uncaught/.test(entry.message) || entry.source === "security") errors.push(`browser log: ${entry.message}`);
   }
   assert.deepEqual(errors, []);
 });
