@@ -13,7 +13,7 @@ The scan for the user's own paths and names found none in app code. The gaps are
 | # | Task | Area | Size | Status |
 |---|---|---|---|---|
 | **Wave 7a: see it run, and make failures reportable** |||||
-| 32 | e2e-smoke | CI + test code | S–M | queued (first) |
+| 32 | e2e-smoke | CI + test code | S–M | merged (`gifted-bun-817ccd`, 11-20) |
 | 33 | diagnostics-and-errors | both | M | queued |
 | 34 | windows-paths | Rust + a little frontend | M | queued |
 | 35 | release-identity | Rust + config + CI | M | queued (after task 31, whose resident and integration code use the identifier) |
@@ -238,3 +238,10 @@ The owner wants the themes and cosmetic options expanded massively. Today there 
 - **The signing key:** the lead generates the key pair (`pnpm tauri signer generate`). The private key goes only into a GitHub Actions secret and the owner's password manager, never into the repo or a log; the public key goes into tauri.conf.json.
 - **Off by default:** Preferences → "Check for updates automatically" (daily at most). Help → Check for Updates checks once when clicked. Both say what they contact (the GitHub release's latest.json) and send nothing else. Show what's new from the release notes, and install only when the user says so.
 - **Docs:** a privacy line in the README (task 43).
+
+## Found by tasks
+- *(from e2e-smoke, for 44)* Reuse `e2e/harness.mjs` and its `waitFor`, not sleeps. Fixtures are made per run in a scratch dir, but on Windows the run uses the runner's real profile, so use unique names. Put the Trash fixture under the scratch `XDG_DATA_HOME`. A task that needs a D-Bus service in the test drops its `.service` file into the scratch `$XDG_DATA_HOME/dbus-1/services`.
+- *(from e2e-smoke, for 45)* ubuntu-22.04 retires on 2027-04-17, with brownouts before that (runner-images#14254). release.yml builds Linux there too, so move both together. The windows-latest D: drive becomes ReFS from 2026-11-30 (#15315); the checkout and build are on D:, the fixture on C:. Add the release exe (the debug exe is a console program). Make e2e blocking after about two green weeks.
+- *(from e2e-smoke, for 46)* `E2E_APP` in `e2e/harness.mjs` can point the suite at an installed binary.
+- *(from e2e-smoke, for 40)* The seeded tags are project/school/secret/review/archive (`SEED_TAGS`, `src/Sidebar.tsx:31`); "school" reads as one user's. Use a generic set.
+- *(from e2e-smoke, for 33)* WebKitWebDriver reports wry's version (0.57.2) as `browserVersion`, not WebKitGTK's. If bug reports want the WebKitGTK version, About or the log has to supply it.

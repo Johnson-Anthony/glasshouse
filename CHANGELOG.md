@@ -36,6 +36,7 @@ What changed in each release, for people using glasshouse. Downloads are on the 
 
 ### Changed
 
+- Every change to `main` now also runs the app itself on Linux and Windows in CI: it opens the window, lists a folder typed into Go to Path, checks the sidebar's drives and known folders, and fails on any uncaught error (`pnpm e2e` runs the same locally).
 - The Linux menu entry accepts paths and is listed as a file manager. It doesn't claim folders until "Open folders with glasshouse" is on.
 - The Windows uninstallers turn "Open folders with glasshouse" off, so folders go back to Explorer.
 - **View → Sort By shows the tab's actual sort,** with a ✓ on Descending when it is; so does the file list's right-click Sort By. A new tab starts with the sort of the tab it was opened from.
