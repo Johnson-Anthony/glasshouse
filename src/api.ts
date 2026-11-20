@@ -432,8 +432,11 @@ export function rewriteText(path: string, content: string): Promise<void> {
   return mustInvoke<void>("rewrite_text", { path, content });
 }
 
-export function revealInExplorer(path: string): Promise<void> {
-  return safe(() => invoke<void>("reveal_in_explorer", { path }), undefined);
+/** "inApp" when glasshouse is the desktop's file manager (Preferences →
+ *  Integration): the caller selects the item itself rather than opening
+ *  another glasshouse window. */
+export function revealInExplorer(path: string): Promise<"shown" | "inApp"> {
+  return safe(() => invoke<"shown" | "inApp">("reveal_in_explorer", { path }), "shown");
 }
 
 /** Hands `paths` to the OS as a drag (copies), to drop into another app.
@@ -784,6 +787,57 @@ export function ptyKill(sessionId: string): Promise<void> {
  *  glasshouse process running does (src-tauri/src/session.rs). */
 export function sessionOwner(): Promise<boolean> {
   return safe(() => invoke<boolean>("session_owner"), true);
+}
+
+/** How a window started with paths opens them (src-tauri/src/startup.rs):
+ *  "open" opens a folder or a file's folder with the file selected; "select"
+ *  selects each item in its folder (FileManager1.ShowItems); "properties"
+ *  also shows the first one's Properties. */
+export type LaunchMode = "open" | "select" | "properties";
+
+export interface LaunchRequest {
+  mode: LaunchMode;
+  paths: string[];
+  /** Arguments that couldn't be used, each with why. */
+  skipped: string[];
+}
+
+/** The paths another app (or the command line) started this window with,
+ *  or null for a plain start. */
+export function launchRequest(): Promise<LaunchRequest | null> {
+  return safe(() => invoke<LaunchRequest | null>("launch_request"), null);
+}
+
+export interface IntegrationFeature {
+  on: boolean;
+  /** What the desktop does now, in a line. */
+  detail: string;
+  warning: string | null;
+}
+
+export interface IntegrationStatus {
+  supported: boolean;
+  /** The program the settings start. */
+  program: string | null;
+  /** Open folders with glasshouse (Linux and Windows). */
+  folders: IntegrationFeature | null;
+  /** Answer other apps' "Show in folder" (Linux). */
+  fileManager: IntegrationFeature | null;
+  /** What can't be changed, for a footnote. */
+  limits: string[];
+}
+
+export type IntegrationKey = "folders" | "fileManager";
+
+const NO_INTEGRATION: IntegrationStatus = { supported: false, program: null, folders: null, fileManager: null, limits: [] };
+
+export function integrationStatus(): Promise<IntegrationStatus> {
+  return safe(() => invoke<IntegrationStatus>("integration_status"), NO_INTEGRATION);
+}
+
+/** Turns a Preferences → Integration setting on or off; the new status. */
+export function integrationSet(feature: IntegrationKey, on: boolean): Promise<IntegrationStatus> {
+  return mustInvoke<IntegrationStatus>("integration_set", { feature, on });
 }
 
 export function readRecent(): Promise<string[]> {

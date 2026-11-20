@@ -41,6 +41,10 @@ Download a package from the [Releases page](https://github.com/Johnson-Anthony/g
 
 macOS isn't built or tested.
 
+## Use it as your file manager
+
+Installing glasshouse doesn't change which app opens folders. To have other apps hand folders to it, a browser's "Show in folder" included, turn the settings on in Edit → Preferences → Integration, or run `glasshouse --integration-on folders file-manager`. Turning them off puts back what was there. [docs/INTEGRATION.md](docs/INTEGRATION.md) explains what each setting changes, how each Linux desktop and Windows behave, and the `glasshouse PATH…` command line.
+
 ## Build from source
 
 You need a Rust toolchain, Node 20+ and pnpm, plus:

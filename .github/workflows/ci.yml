@@ -71,6 +71,29 @@ jobs:
           RUSTFLAGS: -D warnings
       - run: cargo test
 
+  # The Windows installers build with their hooks (src-tauri/windows/), and
+  # uninstalling turns "Open folders with glasshouse" off. A debug build: the
+  # release workflow's release build of both takes about 10 minutes.
+  installers:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm tauri build --debug --bundles nsis,msi
+      - name: Uninstalling puts the folder default back
+        shell: pwsh
+        run: ./scripts/installers-check.ps1
+
   # Lints every workflow, with shellcheck (preinstalled on the runner) on each
   # run: script. Uses actionlint's own download script, pinned to a release.
   actionlint:

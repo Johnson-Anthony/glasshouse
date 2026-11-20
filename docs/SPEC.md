@@ -13,6 +13,7 @@ glasshouse is a desktop file manager built with Tauri 2 (Rust backend) and React
 - Tags, bookmarks/pins, recents, fuzzy search, find in files, checksums, diff, hex view, bulk rename and undo for common operations.
 - An inspector with type-aware previews (text, image, PDF, audio, hex) and quick look.
 - 8 themes plus themed dialogs and context menus instead of native OS chrome.
+- It can be the file manager other apps hand off to (the open "Launch path" question, answered yes on 2026-11-20). `glasshouse PATH…` opens folders, or a file's folder with it selected. Preferences → Integration, off by default, makes it the folder handler (Linux `inode/directory` default; Windows Directory and Drive verbs) and, on Linux, the `org.freedesktop.FileManager1` service behind "Show in folder". See `docs/INTEGRATION.md`.
 
 ## Platforms and constraints
 - **Windows:** WebView2 and an msi/nsis bundle. **Linux:** WebKitGTK 4.1, AppImage/deb built in CI. Development also happens on Linux arm64 under Wayland (niri).
@@ -28,5 +29,4 @@ The survey-fix pass (2026-11-08 to 2026-11-10) fixed the defects found in the co
 ## Open questions (owner to confirm)
 - **Remote browsing:** the README mentions "remote-target browsing", but there's no remote filesystem backend, only ssh terminal profiles. Is that planned or dropped?
 - **macOS:** only `open_url` has a macOS branch. Is macOS a non-goal?
-- **Launch path:** should the app accept a path on the command line, so it can be the default folder handler?
 - **`origin/feature`:** it has one commit, `ddb5466`, that was never merged. Merge, cherry-pick or drop?

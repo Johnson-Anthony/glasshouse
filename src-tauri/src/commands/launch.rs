@@ -8,7 +8,7 @@ use crate::pty::profiles::{check_profile, detect_shells, ShellProfile};
 /// Reap a spawned helper in the background. `drop(Child)` never waits, so on
 /// Unix every exited helper (xdg-open, terminals, editors) would linger as a
 /// zombie for the app's lifetime; a parked wait thread reaps it on exit.
-pub(super) fn reap(mut child: std::process::Child) {
+pub(crate) fn reap(mut child: std::process::Child) {
     std::thread::spawn(move || {
         let _ = child.wait();
     });
@@ -32,21 +32,39 @@ pub(super) fn xdg_open(path: &str) -> Result<(), String> {
         .map_err(|e| e.to_string())
 }
 
+/// Where Reveal in File Manager went.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum Revealed {
+    /// Handed to the desktop's file manager.
+    Shown,
+    /// glasshouse is the desktop's file manager (Preferences →
+    /// Integration), so the window selects the item itself rather than
+    /// opening another glasshouse window.
+    InApp,
+}
+
 #[tauri::command(async)]
-pub fn reveal_in_explorer(path: String) -> Result<(), String> {
+pub fn reveal_in_explorer(path: String) -> Result<Revealed, String> {
     #[cfg(windows)]
     {
+        // Explorer's /select never goes through the folder verb that
+        // "Open folders with glasshouse" sets, so this is always Explorer.
         std::process::Command::new("explorer.exe")
             .arg("/select,")
             .arg(&path)
             .spawn()
             .map(reap)
+            .map(|_| Revealed::Shown)
             .map_err(|e| e.to_string())
     }
     #[cfg(target_os = "linux")]
     {
-        // D-Bus activation of a cold file manager can take seconds, and
-        // commands run on the main thread, so don't wait for it here.
+        if super::integration::reveals_in_glasshouse() {
+            return Ok(Revealed::InApp);
+        }
+        // D-Bus activation of a cold file manager can take seconds, so
+        // don't wait for it here.
         std::thread::spawn(move || {
             let p = Path::new(&path);
             if let Err(e) = show_items_dbus(p) {
@@ -54,11 +72,11 @@ pub fn reveal_in_explorer(path: String) -> Result<(), String> {
                 let _ = open_parent(p);
             }
         });
-        Ok(())
+        Ok(Revealed::Shown)
     }
     #[cfg(all(not(windows), not(target_os = "linux")))]
     {
-        open_parent(Path::new(&path))
+        open_parent(Path::new(&path)).map(|_| Revealed::Shown)
     }
 }
 
@@ -600,8 +618,7 @@ pub fn open_url(url: String) -> Result<(), String> {
 #[tauri::command(async)]
 pub fn spawn_new_window() -> Result<(), String> {
     use std::process::{Command, Stdio};
-    let exe = std::env::current_exe()
-        .map_err(|e| format!("current_exe: {}", e))?;
+    let exe = crate::startup::self_exe()?;
 
     #[cfg(windows)]
     {

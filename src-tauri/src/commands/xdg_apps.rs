@@ -71,7 +71,7 @@ impl XdgDirs {
     /// Every `mimeapps.list` the spec names, most important first. A
     /// desktop-specific `<desktop>-mimeapps.list` comes before the plain one
     /// in the same folder.
-    fn mimeapps_lists(&self) -> Vec<PathBuf> {
+    pub(crate) fn mimeapps_lists(&self) -> Vec<PathBuf> {
         let mut out = Vec::new();
         let mut add = |dir: &Path| {
             for d in &self.desktops {

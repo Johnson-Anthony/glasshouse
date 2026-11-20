@@ -87,7 +87,7 @@ commands.allow = [
 
 [[permission]]
 identifier = "settings"
-description = "Read and write the app's own pins, tags and recent folders, and ask whether this window saves the session."
+description = "Read and write the app's own pins, tags and recent folders; ask whether this window saves the session and which paths it was started with; read and change Preferences → Integration (glasshouse as the desktop's folder handler and FileManager1 service: mimeapps.list, a desktop entry and a D-Bus service file on Linux, the HKCU folder verb on Windows)."
 commands.allow = [
   "read_pins",
   "write_pins",
@@ -97,6 +97,9 @@ commands.allow = [
   "append_recent",
   "clear_recent",
   "session_owner",
+  "launch_request",
+  "integration_status",
+  "integration_set",
 ]
 
 [[permission]]

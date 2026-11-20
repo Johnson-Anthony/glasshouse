@@ -50,6 +50,7 @@ import type { MenuAnchor } from "./menuNav";
 import { isModalOpen, useModal } from "./dialogs/modal";
 import { makeTab, closeTab, closeOtherTabs, moveTab as moveTabIn, tabLabel, type TabRecord } from "./tabs";
 import { DEFAULT_SORT, loadSession, restoreSession, saveSession, sessionOf, type Session, type TabSort } from "./session";
+import { launchPlan } from "./launch";
 import { canExtractArchive } from "./handlers/archive";
 import { revealPath, showBlame } from "./handlers/helpers";
 import { DISPLAY_MODE_DEFAULT, DISPLAY_MODE_KEY, LAYOUT_KEY, slugify } from "./handlers/view";
@@ -58,7 +59,7 @@ import { IS_WINDOWS } from "./platform";
 import { NoticesHost } from "./NoticesScreen";
 import { MillerView } from "./Miller";
 import { entryName, viewRows } from "./viewRows";
-import { joinPath, basename } from "./paths";
+import { joinPath, basename, normalizePath } from "./paths";
 import { launchApp, openFile, withOpenWithPath } from "./openWith";
 import {
   homeDir,
@@ -74,6 +75,7 @@ import {
   findInFiles,
   cancelOp,
   sessionOwner,
+  launchRequest,
   type FileEntry,
   type BlameLine,
   type FindMatch,
@@ -511,16 +513,51 @@ export function App() {
     s.last = saveSession(sessionOf(live, activeTab), s.last);
   }, [tabs, activeTab, tabHandles]);
 
+  // What a window another app asked for still has to select, by tab id,
+  // and whose Properties to show once it's selected (launch.ts).
+  const launchPending = useRef<{ reveals: Map<number, string[]>; properties: string | null }>({ reveals: new Map(), properties: null });
+  useEffect(() => {
+    const pending = launchPending.current;
+    for (const [id, paths] of pending.reveals) {
+      const h = tabHandles[id];
+      if (!h) continue;
+      pending.reveals.delete(id);
+      void revealPath(h, paths).then(r => {
+        if (r !== "selected" && pending.properties && paths.includes(pending.properties)) pending.properties = null;
+      });
+    }
+    const want = pending.properties;
+    if (!want || pending.reveals.size > 0) return;
+    for (const h of Object.values(tabHandles)) {
+      const entry = h.state.selected.map(i => h.state.entries[i]).find(e => e && normalizePath(e.path) === normalizePath(want));
+      if (entry) {
+        pending.properties = null;
+        setPropsEntry(entry);
+        return;
+      }
+    }
+  }, [tabHandles]);
+
   useEffect(() => {
     void (async () => {
-      const [home, owner] = await Promise.all([homeDir(), sessionOwner()]);
+      const [home, owner, launch] = await Promise.all([homeDir(), sessionOwner(), launchRequest()]);
       const p = home ?? FALLBACK_PATH;
       setHomePath(home);
-      // The window that owns the session reopens its tabs (session.ts).
-      const saved = owner ? loadSession() : null;
-      const start: Session = saved ? await restoreSession(saved, p) : { tabs: [{ path: p, sort: DEFAULT_SORT }], active: 0 };
+      // A window started with paths opens them, and the window that owns
+      // the session reopens its tabs (session.ts); only a plain start owns it.
+      const plan = launch ? await launchPlan(launch) : null;
+      const saved = owner && !plan ? loadSession() : null;
+      const start: Session = plan?.tabs.length
+        ? { tabs: plan.tabs.map(t => ({ path: t.path, sort: DEFAULT_SORT })), active: 0 }
+        : saved ? await restoreSession(saved, p) : { tabs: [{ path: p, sort: DEFAULT_SORT }], active: 0 };
       session.current = { owner, last: null };
-      setTabs(start.tabs.map((t, i) => makeTab(t.path, { color: i === 0 ? "var(--blue)" : undefined, sort: t.sort })));
+      const records = start.tabs.map((t, i) => makeTab(t.path, { color: i === 0 ? "var(--blue)" : undefined, sort: t.sort }));
+      if (plan) {
+        plan.tabs.forEach((t, i) => { if (t.select.length > 0) launchPending.current.reveals.set(records[i].id, t.select); });
+        launchPending.current.properties = plan.properties;
+        if (plan.problems.length > 0) dialogs.showToast({ message: `couldn't open ${plan.problems.join("; ")}`, variant: "warning" });
+      }
+      setTabs(records);
       setActiveTab(start.active);
       if (home) {
         const remotesPath = joinPath(joinPath(home, ".glasshouse"), "remotes.json");
