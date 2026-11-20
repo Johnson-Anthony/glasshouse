@@ -11,6 +11,7 @@ import { THEME_IDS, THEME_TOKENS } from "../themes";
 import { FONTS, LOOK_CLASSIC, LOOK_DEFAULTS } from "../look";
 import { exportTheme, getUserThemes, resetUserThemesForTest } from "../userThemes";
 import type { TweakState } from "../components";
+import { STATUS_DEFAULTS, STATUS_ITEMS, STATUS_LEGACY } from "../statusItems";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -25,6 +26,8 @@ const START: TweakState = {
   showSidebar: true,
   showInspector: true,
   showStatusBar: true,
+  statusItems: [...STATUS_LEGACY],
+  tagSet: "classic",
 };
 
 let host: HTMLDivElement;
@@ -87,7 +90,7 @@ describe("PreferencesDialog", () => {
     await mount();
     const nav = [...host.querySelectorAll(".prefs-nav button")].map(b => b.textContent);
     // Integration only shows where the platform has it (not in a browser).
-    expect(nav).toEqual(["theme", "text", "window", "file list", "effects", "files", "terminal"]);
+    expect(nav).toEqual(["theme", "text", "window", "status bar", "file list", "effects", "files", "terminal"]);
     expect(labels()).toEqual(["presets", "mode", "themes", "accent", "your themes"]);
     await category("text");
     expect(labels()).toEqual(["interface font", "file list font", "code font", "text size", "line spacing", "zoom"]);
@@ -114,7 +117,7 @@ describe("PreferencesDialog", () => {
 
   it("uses no native <select>, whose list WebKitGTK draws with GTK", async () => {
     await mount();
-    for (const c of ["theme", "text", "window", "file list", "effects", "files", "terminal"]) {
+    for (const c of ["theme", "text", "window", "status bar", "file list", "effects", "files", "terminal"]) {
       await category(c);
       expect(host.querySelector("select")).toBeNull();
     }
@@ -260,7 +263,10 @@ describe("PreferencesDialog", () => {
     await click(button("window buttons", "Windows"));
     await click(button("tabs", "underlined"));
     await click(button("sidebar width", "wider sidebar"));
+    await category("status bar");
     await click(button("status bar", "hide"));
+    await click(button("clock", "hide"));
+    await click(button("free space", "show"));
     await category("file list");
     await click(button("icons", "Nerd Font"));
     await click(button("striped rows", "off"));
@@ -279,6 +285,7 @@ describe("PreferencesDialog", () => {
       tabStyle: "line",
       sidebarWidth: 240,
       showStatusBar: false,
+      statusItems: ["path", "git", "items", "size", "free", "fs", "mem", "cpu", "net", "term", "uptime"],
       iconSet: "nerd",
       zebra: false,
       selection: "outline",
@@ -288,6 +295,23 @@ describe("PreferencesDialog", () => {
       foldersFirst: false,
       termFollow: false,
     });
+  });
+
+  it("shows and hides each status bar item, in the bar's order", async () => {
+    await mount({ ...START, statusItems: [...STATUS_DEFAULTS] });
+    await category("status bar");
+    expect(labels()).toEqual(["status bar", "items", ...STATUS_ITEMS.map(i => i.label)]);
+    expect(pressed("status bar items")).toEqual(["lean"]);
+    expect(pressed("free space")).toEqual(["show"]);
+    expect(pressed("clock")).toEqual(["hide"]);
+    await click(button("clock", "show"));
+    await click(button("folder path", "show"));
+    expect(latest.statusItems).toEqual(["path", "items", "size", "free", "clock"]);
+    expect(pressed("status bar items")).toEqual([]);
+    await click(button("status bar items", "everything"));
+    expect(latest.statusItems).toEqual(STATUS_ITEMS.map(i => i.id));
+    await click(button("status bar items", "lean"));
+    expect(latest.statusItems).toEqual(["items", "size", "free"]);
   });
 
   it("resets the appearance, leaving the rest, and undoes it", async () => {

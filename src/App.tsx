@@ -3,7 +3,6 @@ import {
   Titlebar,
   Toolbar,
   FilePane,
-  StatusBar,
   Palette,
   type TweakState,
   type ContextKind,
@@ -30,7 +29,10 @@ import { TrashDialog } from "./dialogs/Trash";
 import { useEscapeClose } from "./dialogs/useEscapeClose";
 import { Inspector, type InspectableFile } from "./preview/Inspector";
 import { QuickLook } from "./preview/FilePreview";
-import { Sidebar, type SavedRemote, type SidebarRowKind } from "./Sidebar";
+import { Sidebar, loadTagSet, type SavedRemote, type SidebarRowKind } from "./Sidebar";
+import { StatusBar } from "./StatusBar";
+import { STATUS_DEFAULTS, loadStatusItems } from "./statusItems";
+import { firstRunPins, mergePins } from "./places";
 import { Menubar, ContextMenu, setDynamicGitCwd, type MenuToggleState } from "./menus";
 import { CONTEXT_FILE, CONTEXT_EMPTY, CONTEXT_SIDEBAR, CONTEXT_SIDEBAR_FOLDER, CONTEXT_SIDEBAR_FILE, CONTEXT_SIDEBAR_DRIVE, CONTEXT_SIDEBAR_REMOTE, CONTEXT_TAB, CONTEXT_BREADCRUMB, GIT_CHORDS, type MenuItemDef, type DynamicPayload } from "./data";
 import {
@@ -68,7 +70,7 @@ import {
   startDragOut,
   spawnVscodeStrict,
   trashDir,
-  readPins,
+  readSavedPins,
   writePins,
   readRemotes,
   writeRemotes,
@@ -104,6 +106,8 @@ const TWEAK_DEFAULTS: TweakState = {
   showSidebar: true,
   showInspector: true,
   showStatusBar: true,
+  statusItems: [...STATUS_DEFAULTS],
+  tagSet: "standard",
 };
 
 type PanelKey = "showSidebar" | "showInspector" | "showStatusBar";
@@ -325,6 +329,12 @@ function TabShell({ id, initialPath, initialSort, isPrivate, active, onReady }: 
 }
 
 export function App() {
+  // No saved settings: a new user. The look, the status bar, the tags and
+  // the pins start differently for one (places.ts), and saved settings
+  // without a newer setting keep what they showed before it.
+  const [firstRun] = useState(() => {
+    try { return localStorage.getItem("glasshouse.tweaks") === null; } catch { return false; }
+  });
   const [state, setState] = useState<TweakState>(() => {
     try {
       const saved = JSON.parse(localStorage.getItem("glasshouse.tweaks") || "null");
@@ -334,6 +344,8 @@ export function App() {
         showSidebar: saved.showSidebar !== false,
         showInspector: saved.showInspector !== false,
         showStatusBar: saved.showStatusBar !== false,
+        statusItems: loadStatusItems(saved),
+        tagSet: loadTagSet(saved),
       } : TWEAK_DEFAULTS;
     } catch { return TWEAK_DEFAULTS; }
   });
@@ -407,10 +419,21 @@ export function App() {
     return Math.max(160, Math.floor(window.innerHeight * 0.3));
   });
 
+  const pinsRef = useRef(pins);
+  pinsRef.current = pins;
   useEffect(() => {
     void (async () => {
-      setPins(await readPins());
+      const saved = await readSavedPins();
+      setPins(saved ?? []);
       await loadTags();
+      // A first run with no pins file: the known folders and the desktop's
+      // bookmarks, before any pin added meanwhile.
+      if (saved !== null || !firstRun) return;
+      const seeded = await firstRunPins();
+      if (seeded.length === 0) return;
+      const next = mergePins(seeded, pinsRef.current);
+      setPins(next);
+      void writePins(next);
     })();
   }, []);
 
@@ -1023,6 +1046,11 @@ export function App() {
 
   const totalBytes = liveRows.reduce((acc, r) => acc + (r.kind === "folder" ? 0 : r.entry.size), 0);
   const totalSize = formatBytes(totalBytes, false);
+  // The status bar's size: the selected files', when any are.
+  const selectedFiles = selectedForInspector.map(i => liveRows[i]).filter(r => r && r.kind !== "folder");
+  const selectionSize = selectedForInspector.length === 0 ? null
+    : selectedFiles.length === 0 ? "—"
+    : formatBytes(selectedFiles.reduce((acc, r) => acc + r.entry.size, 0), false);
 
   const currentCwd = activeHandle?.state.path ?? "";
   // Feed cwd into the module-level ref used by loadDynamic's "git-branches"
@@ -1245,6 +1273,7 @@ export function App() {
             dialogs.showToast({ message: `pinned ${basename(p) || p}`, variant: "success" });
           }}
           tags={tagStore}
+          tagSet={state.tagSet}
           activeTagFilter={activeHandle?.state.tagFilter ?? null}
           onTagFilter={(tag) => {
             if (!activeHandle) return;
@@ -1314,14 +1343,16 @@ export function App() {
           />
         </Suspense>
       )}
-      <StatusBar
+      {showStatusBar && <StatusBar
+        items={state.statusItems}
         selectedCount={selectedForInspector.length}
         totalCount={liveRows.length}
-        totalSize={totalSize}
+        folderSize={totalSize}
+        selectionSize={selectionSize}
         path={activeHandle?.state.path ?? ""}
         gitInfo={activeHandle?.state.gitInfo ?? null}
         onToggleTerm={() => setTermOpen(v => !v)}
-      />
+      />}
 
       {palOpen && <Palette onClose={() => setPalOpen(false)} onCommand={handleMenuCommand} />}
       {ctx && <ContextMenu items={ctx.items} x={ctx.x} y={ctx.y} keyboard={ctx.keyboard} onClose={() => { setCtx(null); cmdState.contextTarget = null; }} onCommand={handleMenuCommand} onPayload={handleMenuPayload} toggles={menuToggles} />}
@@ -1388,6 +1419,7 @@ export function App() {
       {tagPickerPath && (
         <TagPickerDialog
           path={tagPickerPath}
+          tagSet={state.tagSet}
           onClose={() => setTagPickerPath(null)}
           onSaved={() => setTagPickerPath(null)}
         />

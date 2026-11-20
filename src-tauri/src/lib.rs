@@ -11,6 +11,7 @@ mod resident;
 mod session;
 mod startup;
 mod watcher;
+mod window_fit;
 
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
@@ -153,6 +154,8 @@ fn builder() -> tauri::Builder<tauri::Wry> {
             ops::cancel_op,
             commands::git::git_file_info,
             commands::system::path_fs_type,
+            commands::system::path_space,
+            commands::places::desktop_places,
             commands::system::net_rate,
             watcher::watch_dir,
             watcher::unwatch_dir,
@@ -184,18 +187,32 @@ fn run_window(launch: Option<startup::LaunchRequest>) {
     } else {
         session::claim(app.path().app_config_dir().ok().as_deref())
     };
+    // A window with nothing saved opens centered at a size that fits; one
+    // the plugin restored, or a second window, is only made to fit.
+    let mut fit = window_fit::Start::Placed;
     if session.is_owner() {
         let window_state = tauri_plugin_window_state::Builder::new()
             .with_state_flags(StateFlags::SIZE | StateFlags::POSITION | StateFlags::MAXIMIZED)
             .build();
-        if let Err(e) = app.handle().plugin(window_state) {
-            eprintln!("window-state plugin: {e}");
-        }
+        let registered = match app.handle().plugin(window_state) {
+            Ok(()) => true,
+            Err(e) => {
+                eprintln!("window-state plugin: {e}");
+                false
+            }
+        };
+        fit = window_fit::start_for_owner(app.handle(), registered);
     }
     app.manage(session);
     app.manage(startup::Launch(launch));
     app.manage(chooser::Chooser::none());
-    app.run(|_, _| {});
+    app.run(move |handle, event| {
+        // Ready comes once, right after the window is made and restored,
+        // before anything is painted.
+        if let tauri::RunEvent::Ready = event {
+            window_fit::fit_main(handle, fit);
+        }
+    });
 }
 
 /// A file chooser for another app (`chooser.rs`): `chooser.html` in a
@@ -220,9 +237,9 @@ fn run_chooser(state: chooser::Chooser) {
     app.manage(session::SessionOwner::guest());
     app.manage(startup::Launch(None));
     app.manage(state);
-    app.run(|handle, event| {
-        if let tauri::RunEvent::Exit = event {
-            chooser::at_exit(&handle.state::<chooser::Chooser>());
-        }
+    app.run(|handle, event| match event {
+        tauri::RunEvent::Ready => window_fit::fit_main(handle, window_fit::Start::Fresh),
+        tauri::RunEvent::Exit => chooser::at_exit(&handle.state::<chooser::Chooser>()),
+        _ => {}
     });
 }

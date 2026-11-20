@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import { desktopDir, documentDir, downloadDir, pictureDir } from "@tauri-apps/api/path";
+import { audioDir, desktopDir, documentDir, downloadDir, pictureDir, videoDir } from "@tauri-apps/api/path";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
 import { errText } from "./errors";
@@ -213,13 +213,16 @@ export function homeDir(): Promise<string | null> {
   return safe(() => invoke<string | null>("home_dir"), null);
 }
 
-const KNOWN_FOLDERS = { Desktop: desktopDir, Documents: documentDir, Downloads: downloadDir, Pictures: pictureDir };
+const KNOWN_FOLDERS = {
+  Desktop: desktopDir, Documents: documentDir, Downloads: downloadDir, Music: audioDir, Pictures: pictureDir, Videos: videoDir,
+};
 export type KnownFolder = keyof typeof KNOWN_FOLDERS;
 
-/** Where the OS keeps the user's Desktop, Documents, Downloads or Pictures
- *  folder: OneDrive's copy when it has moved them on Windows, the localised
- *  XDG folders on Linux. When the OS has none set (Linux without
- *  user-dirs.dirs), home plus the English name, as XDG itself defaults. */
+/** Where the OS keeps the user's Desktop, Documents, Downloads, Music,
+ *  Pictures or Videos folder: OneDrive's copy when it has moved them on
+ *  Windows, the localised XDG folders on Linux. When the OS has none set
+ *  (Linux without user-dirs.dirs), home plus the English name, as XDG
+ *  itself defaults. */
 export async function knownFolder(name: KnownFolder): Promise<string | null> {
   const dir = await safe<string | null>(() => KNOWN_FOLDERS[name](), null);
   if (dir) return dir;
@@ -616,7 +619,18 @@ export function unwatchDir(path: string): Promise<void> {
 }
 
 export function readPins(): Promise<string[]> {
-  return safe(() => invoke<string[]>("read_pins"), []);
+  return readSavedPins().then(p => p ?? []);
+}
+
+/** The pins, or null when none were ever saved (no pins file). */
+export function readSavedPins(): Promise<string[] | null> {
+  return safe(() => invoke<string[] | null>("read_pins"), []);
+}
+
+/** The folders the desktop's own file manager bookmarks (GTK, KDE, Quick
+ *  Access), for a first run's pins (places.ts). */
+export function desktopPlaces(): Promise<string[]> {
+  return safe(() => invoke<string[]>("desktop_places"), []);
 }
 
 export function writePins(pins: string[]): Promise<void> {
@@ -971,6 +985,18 @@ export function gitFileInfo(cwd: string, path: string): Promise<GitFileInfo | nu
 
 export function pathFsType(path: string): Promise<string> {
   return safe(() => invoke<string>("path_fs_type", { path }), "");
+}
+
+export interface Space {
+  /** What the user can still write. */
+  free: number;
+  total: number;
+}
+
+/** Free and total space of the volume holding `path`; null when the OS
+ *  can't say. */
+export function pathSpace(path: string): Promise<Space | null> {
+  return safe(() => invoke<Space | null>("path_space", { path }), null);
 }
 
 export function netRate(): Promise<NetRate | null> {

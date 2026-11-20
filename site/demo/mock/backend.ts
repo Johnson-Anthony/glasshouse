@@ -6,6 +6,18 @@ import { GitRepo } from "./git";
 import { FakeShell } from "./shell";
 import { Vfs, basename, join, parent, type VNode } from "./vfs";
 
+const DRIVES = [
+  { letter: "/", label: "", total: 512e9, free: 301e9, fs: "ext4" },
+  { letter: "/boot/efi", label: "", total: 536e6, free: 498e6, fs: "vfat" },
+  { letter: "/mnt/data", label: "data", total: 2e12, free: 1.1e12, fs: "btrfs" },
+];
+
+/** The drive a path is on: the longest mount point holding it. */
+function driveOf(path: string) {
+  const holds = (m: string) => m === "/" || path === m || path.startsWith(`${m}/`);
+  return DRIVES.filter(d => holds(d.letter)).sort((a, b) => b.letter.length - a.letter.length)[0];
+}
+
 /** Tauri's BaseDirectory numbers for the folders the app asks for. */
 const USER_DIRS: Record<number, string> = { 6: "Documents", 7: "Downloads", 8: "Pictures", 18: "Desktop", 21: "~" };
 
@@ -196,13 +208,15 @@ export function createBackend(hooks: BackendHooks) {
       const n = vfs.get(str(a.path));
       return n ? (n.dir ? "folder" : "file") : null;
     },
-    drives: () => [
-      { letter: "/", label: "", total: 512e9, free: 301e9, fs: "ext4" },
-      { letter: "/boot/efi", label: "", total: 536e6, free: 498e6, fs: "vfat" },
-      { letter: "/mnt/data", label: "data", total: 2e12, free: 1.1e12, fs: "btrfs" },
-    ],
+    drives: () => DRIVES,
     list_wsl_distros: () => [],
-    path_fs_type: a => (str(a.path).startsWith("/boot/efi") ? "vfat" : str(a.path).startsWith("/mnt/data") ? "btrfs" : "ext4"),
+    path_fs_type: a => driveOf(str(a.path)).fs,
+    path_space: a => {
+      const d = driveOf(str(a.path));
+      return { free: d.free, total: d.total };
+    },
+    // A first run's pins don't come up: the demo starts with settings.
+    desktop_places: () => [],
     system_info: () => {
       const t = (Date.now() - started) / 1000;
       return {

@@ -205,3 +205,28 @@ describe("the sidebar tree", () => {
     root = createRoot(host);
   });
 });
+
+describe("the sidebar's tags", () => {
+  const tagRows = () => {
+    const group = host.querySelector('[data-sb-group-title="TAGS"]')!.closest(".sb-group")!;
+    // Label and count (the first span is the icon).
+    return [...group.querySelectorAll(".sb-item")].map(r => `${r.children[1].textContent}${r.children[2].textContent}`);
+  };
+  const show = async (props: { tags: Record<string, string[]>; tagSet?: "standard" | "classic" }) => {
+    act(() => root.render(
+      <Sidebar activePath="/elsewhere" onGoTo={goTo} pins={[]} onAddPin={noop} {...props}
+               savedRemotes={[]} onOpenConnectDialog={noop} onRemoteClick={noop} />,
+    ));
+    await settle();
+  };
+
+  it("offers a generic set to new users, then the tags in use", async () => {
+    await show({ tags: { "/h/a": ["work", "zines"] } });
+    expect(tagRows()).toEqual(["important0", "todo0", "work1", "personal0", "archive0", "zines1"]);
+  });
+
+  it("keeps the original five for settings saved before", async () => {
+    await show({ tags: { "/h/a": ["school"] }, tagSet: "classic" });
+    expect(tagRows()).toEqual(["project0", "school1", "secret0", "review0", "archive0"]);
+  });
+});

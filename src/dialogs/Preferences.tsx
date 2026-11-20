@@ -13,6 +13,7 @@ import {
   type Density, type FontOption, type LookState,
 } from "../look";
 import { IS_WINDOWS } from "../platform";
+import { STATUS_DEFAULTS, STATUS_ITEMS, ordered, withItem } from "../statusItems";
 import { THEME_LIST, builtinTheme, type ThemeGroup } from "../themes";
 import {
   DRAFT_ID, MAX_FILE_BYTES, deleteUserTheme, newThemeId, parseThemeFile, readThemeColors, saveUserTheme,
@@ -36,11 +37,12 @@ import { useModal } from "./modal";
  *  while a modal is open). */
 const PREFS_KEYS = KEYMAP.filter(b => b.send === "Preferences…");
 
-type Category = "theme" | "text" | "window" | "list" | "effects" | "files" | "terminal" | "integration";
+type Category = "theme" | "text" | "window" | "statusbar" | "list" | "effects" | "files" | "terminal" | "integration";
 const CATEGORIES: ReadonlyArray<{ id: Category; label: string; group: string }> = [
   { id: "theme", label: "theme", group: "appearance" },
   { id: "text", label: "text", group: "appearance" },
   { id: "window", label: "window", group: "appearance" },
+  { id: "statusbar", label: "status bar", group: "appearance" },
   { id: "list", label: "file list", group: "appearance" },
   { id: "effects", label: "effects", group: "appearance" },
   { id: "files", label: "files", group: "behavior" },
@@ -164,6 +166,7 @@ export function PreferencesDialog({ open, state, setState, onClose }: Preference
               {shows("theme") && <ThemeSection {...props} />}
               {shows("text") && <TextSection {...props} />}
               {shows("window") && <WindowSection {...props} />}
+              {shows("statusbar") && <StatusBarSection {...props} />}
               {shows("list") && <ListSection {...props} />}
               {shows("effects") && <EffectsSection {...props} />}
               {shows("files") && <FilesSection {...props} />}
@@ -651,9 +654,34 @@ function WindowSection({ state, set }: SectionProps) {
       <Row label="inspector" hint="the details panel · Ctrl+J" keys="panel details preview show hide">
         <Choice label="inspector" value={state.showInspector} options={SHOW_HIDE} onPick={set("showInspector")} />
       </Row>
+    </Section>
+  );
+}
+
+// ---- status bar ----
+const ALL_ITEMS = ordered(STATUS_ITEMS.map(i => i.id));
+const sameItems = (a: readonly string[], b: readonly string[]) => a.length === b.length && a.every((x, i) => x === b[i]);
+
+function StatusBarSection({ state, set }: SectionProps) {
+  const items = state.statusItems;
+  const lean = sameItems(items, ordered(STATUS_DEFAULTS));
+  const all = sameItems(items, ALL_ITEMS);
+  return (
+    <Section title="status bar">
       <Row label="status bar" keys="panel bottom show hide">
         <Choice label="status bar" value={state.showStatusBar} options={SHOW_HIDE} onPick={set("showStatusBar")} />
       </Row>
+      <Row label="items" hint="lean: items, size and free space" keys="default reset all everything">
+        <div className="segmented" role="group" aria-label="status bar items">
+          <button type="button" className={lean ? "active" : ""} aria-pressed={lean} onClick={() => set("statusItems")(ordered(STATUS_DEFAULTS))}>lean</button>
+          <button type="button" className={all ? "active" : ""} aria-pressed={all} onClick={() => set("statusItems")(ALL_ITEMS)}>everything</button>
+        </div>
+      </Row>
+      {STATUS_ITEMS.map(i => (
+        <Row key={i.id} label={i.label} hint={i.hint} keys={i.keys}>
+          <Choice label={i.label} value={items.includes(i.id)} options={SHOW_HIDE} onPick={v => set("statusItems")(withItem(items, i.id, v))} />
+        </Row>
+      ))}
     </Section>
   );
 }

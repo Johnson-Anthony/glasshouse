@@ -19,6 +19,7 @@ mod integration_win;
 pub mod launch;
 pub mod listing;
 pub mod open_with;
+pub mod places;
 mod recycle_bin;
 pub mod replace;
 pub mod search;

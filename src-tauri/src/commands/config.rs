@@ -56,8 +56,10 @@ fn write_json<T: Serialize>(app: &AppHandle, name: &str, value: &T) -> Result<()
     write_config_atomic(&path, &body)
 }
 
+/// The pins, or None when none were ever saved (no pins file): a first run
+/// then pins the known folders (src/places.ts).
 #[tauri::command]
-pub fn read_pins(app: AppHandle) -> Result<Vec<String>, String> {
+pub fn read_pins(app: AppHandle) -> Result<Option<Vec<String>>, String> {
     read_json(&app, "pins.json")
 }
 

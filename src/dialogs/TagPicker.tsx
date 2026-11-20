@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useMemo } from "react";
-import { SEED_TAGS, TAG_COLOR_MAP } from "../Sidebar";
+import { TAG_COLOR_MAP, TAG_SETS, type TagSet } from "../Sidebar";
 import { getTags, setTags, useTags, useTagsLoaded } from "../tags";
 import { useEscapeClose } from "./useEscapeClose";
 import { useModal } from "./modal";
@@ -10,9 +10,12 @@ export interface TagPickerDialogProps {
   onClose: () => void;
   /** Called once the path's tags are in the store (which writes the file). */
   onSaved: () => void;
+  /** The tags offered whether used or not. */
+  tagSet?: TagSet;
 }
 
-export function TagPickerDialog({ path, onClose, onSaved }: TagPickerDialogProps) {
+export function TagPickerDialog({ path, onClose, onSaved, tagSet = "standard" }: TagPickerDialogProps) {
+  const seed = TAG_SETS[tagSet];
   const store = useTags();
   const loaded = useTagsLoaded();
   // This path's labels as edited here, from the store; null until it has
@@ -33,10 +36,10 @@ export function TagPickerDialog({ path, onClose, onSaved }: TagPickerDialogProps
 
   const allTags = useMemo(() => {
     const set = new Set<string>();
-    for (const s of SEED_TAGS) set.add(s.label);
+    for (const s of seed) set.add(s.label);
     for (const tags of Object.values(store)) for (const t of tags) set.add(t);
     return Array.from(set);
-  }, [store]);
+  }, [store, seed]);
 
   const hasTag = (t: string) => current.includes(t);
 
@@ -70,13 +73,13 @@ export function TagPickerDialog({ path, onClose, onSaved }: TagPickerDialogProps
   };
 
   const shownTags = useMemo(() => {
-    const seedLabels = SEED_TAGS.map(s => s.label);
+    const seedLabels = seed.map(s => s.label);
     const seedSet = new Set(seedLabels);
     const rest = new Set<string>();
     for (const t of allTags) if (!seedSet.has(t)) rest.add(t);
     for (const t of current) if (!seedSet.has(t)) rest.add(t);
     return [...seedLabels, ...Array.from(rest).sort()];
-  }, [allTags, current]);
+  }, [allTags, current, seed]);
 
   return (
     <div onClick={onClose} style={{

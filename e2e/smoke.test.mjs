@@ -1,5 +1,6 @@
-// Flow 1: the real app starts, renders, lists a folder typed into Go to
-// Path, and shows drives and known folders in the sidebar, with no
+// Flow 1: the real app starts in a window that fits the screen, renders,
+// lists a folder typed into Go to Path, and shows drives and known folders
+// in the sidebar (on Linux, also the pins a first run starts with), with no
 // uncaught errors. Linux: `pnpm e2e` (Xvfb and a private bus). Windows: run
 // this file directly with `node --test` in an interactive session, with a
 // msedgedriver that matches the WebView2 Runtime (e2e/edgedriver.ps1).
@@ -7,6 +8,7 @@
 import assert from "node:assert/strict";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { basename as posixBasename, join, win32 } from "node:path";
+import { pathToFileURL } from "node:url";
 import { after, afterEach, before, test } from "node:test";
 
 import { ARTIFACTS, IS_WINDOWS, SESSION_DEADLINE_MS, appEnv, appPath, capabilities, captureDesktop, makeFixture, makeScratch, startDriver } from "./harness.mjs";
@@ -53,6 +55,12 @@ before(async () => {
   const { env, home: appHome, wrap } = appEnv(scratch);
   home = appHome;
   fixture = makeFixture(scratch);
+  // A GTK bookmark, which a first run pins (Linux's scratch home makes it
+  // one; on Windows the runner's profile has Quick Access instead).
+  if (!IS_WINDOWS) {
+    mkdirSync(join(env.XDG_CONFIG_HOME, "gtk-3.0"), { recursive: true });
+    writeFileSync(join(env.XDG_CONFIG_HOME, "gtk-3.0", "bookmarks"), `${pathToFileURL(fixture.path).href} fixture\nsftp://example.com/x remote\n`);
+  }
   driver = await startDriver({ env, wrap, logFile: join(ARTIFACTS, "driver-and-app.log") });
   const start = { deadlineMs: SESSION_DEADLINE_MS };
   try {
@@ -124,6 +132,19 @@ test("the window renders", { timeout: 60_000 }, async () => {
   assert.equal(shell.title, "glasshouse");
 });
 
+test("the window fits the screen's work area", { timeout: 30_000 }, async () => {
+  const fit = await session.execute(() => ({
+    x: window.screenX, y: window.screenY, w: window.innerWidth, h: window.innerHeight,
+    ax: screen.availLeft ?? 0, ay: screen.availTop ?? 0, aw: screen.availWidth, ah: screen.availHeight,
+  }));
+  // A pixel or two of rounding at fractional scales.
+  const slack = 2;
+  const where = JSON.stringify(fit);
+  assert.ok(fit.w <= fit.aw + slack && fit.h <= fit.ah + slack, `the window is bigger than the work area: ${where}`);
+  assert.ok(fit.x >= fit.ax - slack && fit.y >= fit.ay - slack, `the window starts off the work area: ${where}`);
+  assert.ok(fit.x + fit.w <= fit.ax + fit.aw + slack && fit.y + fit.h <= fit.ay + fit.ah + slack, `the window runs off the work area: ${where}`);
+});
+
 test("it starts with no notice, error or dialog", { timeout: 30_000 }, async () => {
   const shown = await session.execute(() => ({
     // A toast for launch arguments it couldn't use (App.tsx, launch.ts):
@@ -167,6 +188,18 @@ test("the sidebar shows drives and known folders", { timeout: 30_000 }, async ()
   for (const name of ["Documents", "Downloads"]) {
     assert.ok(children.includes(name), `no ${name} under home in the tree: ${JSON.stringify(children)}`);
   }
+});
+
+test("a first run pins the known folders and the desktop's bookmarks", { timeout: 30_000, skip: IS_WINDOWS && "the runner's profile may not be a first run" }, async () => {
+  const pins = await waitFor("the first run's pins", () => session.execute(() => {
+    const group = document.querySelector('[data-sb-group-title="PINNED"]')?.closest(".sb-group");
+    const titles = group ? [...group.querySelectorAll(".sb-item[title]")].map(e => e.getAttribute("title")) : [];
+    return titles.length > 0 ? titles : null;
+  }));
+  // The harness makes Desktop, Documents, Downloads and Pictures, and no
+  // Music or Videos; the sftp:// bookmark can't be listed, so it's left out.
+  const want = [home, ...["Desktop", "Documents", "Downloads", "Pictures"].map(n => join(home, n)), fixture.path];
+  assert.deepEqual(pins, want);
 });
 
 test("no uncaught errors", { timeout: 30_000 }, async () => {
