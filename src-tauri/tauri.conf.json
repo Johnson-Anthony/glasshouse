@@ -47,7 +47,13 @@
       }
     },
     "linux": {
-      "deb": { "desktopTemplate": "linux/glasshouse.desktop" }
+      "deb": {
+        "desktopTemplate": "linux/glasshouse.desktop",
+        "files": {
+          "/usr/share/xdg-desktop-portal/portals/glasshouse.portal": "linux/glasshouse.portal",
+          "/usr/share/dbus-1/services/org.freedesktop.impl.portal.desktop.glasshouse.service": "linux/org.freedesktop.impl.portal.desktop.glasshouse.service"
+        }
+      }
     }
   }
 }

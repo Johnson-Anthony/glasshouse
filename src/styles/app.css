@@ -1553,6 +1553,18 @@ select option { background: var(--bg-2); color: var(--fg-0); }
 .prefs-note.warn { color: var(--yellow); }
 .prefs-note.error { color: var(--red); margin: 4px 0; }
 .prefs-foot-note { color: var(--fg-3); font-size: calc(10.5px * var(--fs-k, 1)); line-height: 1.4; padding-top: 4px; }
+.prefs-code {
+  display: block; margin: 4px 0; padding: 4px 6px;
+  background: var(--bg-2); border: 1px solid var(--border); border-radius: calc(2px * var(--rk, 1));
+  color: var(--fg-1); font-size: calc(11px * var(--fs-k, 1)); white-space: pre-wrap; word-break: break-all;
+  user-select: text; -webkit-user-select: text;
+}
+.prefs-advanced { margin-top: 6px; }
+.prefs-advanced summary { cursor: pointer; color: var(--fg-2); }
+.prefs-advanced summary:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
+.prefs-toolkit { margin: 6px 0 0 4px; }
+.prefs-toolkit label { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.prefs-toolkit code { color: var(--fg-2); font-size: calc(11px * var(--fs-k, 1)); }
 .prefs-foot-note p { margin: 2px 0; }
 .prefs-stepper { display: flex; align-items: center; gap: 6px; }
 .prefs-stepper .value { min-width: 6ch; text-align: center; color: var(--fg-0); }

@@ -182,6 +182,27 @@ impl MimeDb {
         }
         out
     }
+
+    /// The globs that type a name as `mime` or one of its subtypes (a file
+    /// chooser's MIME filter): `image/*` takes every `image/` type, and
+    /// `text/plain` every text type. Each with whether it's case-sensitive.
+    pub fn globs_for(&self, mime: &str) -> Vec<(String, bool)> {
+        let wanted = self.unalias(mime).to_string();
+        let prefix = wanted.strip_suffix("/*").map(|major| format!("{major}/"));
+        let mut chains: HashMap<&str, bool> = HashMap::new();
+        let mut out: Vec<(String, bool)> = Vec::new();
+        for g in &self.globs {
+            let is_kind = *chains.entry(g.mime.as_str()).or_insert_with(|| match &prefix {
+                Some(p) => self.unalias(&g.mime).starts_with(p.as_str()),
+                None => self.type_chain(&g.mime).contains(&wanted),
+            });
+            let glob = (g.pattern.clone(), g.case_sensitive);
+            if is_kind && !out.contains(&glob) {
+                out.push(glob);
+            }
+        }
+        out
+    }
 }
 
 /// `globs2` (`weight:type:pattern[:flags]`), or the older `globs`

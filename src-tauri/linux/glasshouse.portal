@@ -1,0 +1,5 @@
+# Installed with glasshouse. It does nothing until glasshouse is named in a portals.conf,
+# which Preferences → Integration → Use glasshouse for open and save dialogs does.
+[portal]
+DBusName=org.freedesktop.impl.portal.desktop.glasshouse
+Interfaces=org.freedesktop.impl.portal.FileChooser;

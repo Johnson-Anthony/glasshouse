@@ -23,6 +23,8 @@ use super::xdg_apps::{parse_entry, AppIndex, MimeDb, XdgDirs};
 
 pub(crate) const FOLDER_MIME: &str = "inode/directory";
 pub(crate) const FILE_MANAGER_NAME: &str = "org.freedesktop.FileManager1";
+/// The FileChooser portal backend's bus name (`portal.rs`).
+pub(crate) const CHOOSER_NAME: &str = "org.freedesktop.impl.portal.desktop.glasshouse";
 pub(crate) const DESKTOP_ID: &str = "glasshouse-folders.desktop";
 const DEFAULTS_GROUP: &str = "[Default Applications]";
 /// The app identifier in tauri.conf.json, which names the app config dir.
@@ -217,7 +219,7 @@ fn exec_arg(s: &str) -> String {
     }
 }
 
-fn checked_path(exe: &Path) -> Result<&str, String> {
+pub(crate) fn checked_path(exe: &Path) -> Result<&str, String> {
     let s = exe.to_str().ok_or_else(|| format!("glasshouse's path isn't UTF-8: {}", exe.display()))?;
     if s.chars().any(char::is_control) {
         return Err(format!("glasshouse's path has control characters: {s:?}"));
@@ -300,7 +302,7 @@ fn write_state(p: &Places, s: &State) -> Result<(), String> {
 
 /// Writes `path` through a temp file and a rename. A symlink (a dotfiles
 /// repo) is written through, so it stays a link; the file keeps its mode.
-fn write_atomic(path: &Path, body: &str) -> Result<(), String> {
+pub(crate) fn write_atomic(path: &Path, body: &str) -> Result<(), String> {
     use std::io::Write;
     let target = match std::fs::symlink_metadata(path) {
         Ok(m) if m.file_type().is_symlink() => {
@@ -329,7 +331,7 @@ fn write_atomic(path: &Path, body: &str) -> Result<(), String> {
     })
 }
 
-fn read_or_empty(path: &Path) -> Result<Option<String>, String> {
+pub(crate) fn read_or_empty(path: &Path) -> Result<Option<String>, String> {
     match std::fs::read_to_string(path) {
         Ok(t) => Ok(Some(t)),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
@@ -338,7 +340,7 @@ fn read_or_empty(path: &Path) -> Result<Option<String>, String> {
 }
 
 /// Removes `path` if it's a file we wrote (it has `mark`).
-fn remove_ours(path: &Path, mark: &str) -> Result<(), String> {
+pub(crate) fn remove_ours(path: &Path, mark: &str) -> Result<(), String> {
     match std::fs::read_to_string(path) {
         Ok(t) if t.contains(mark) => std::fs::remove_file(path).map_err(|e| format!("{}: {e}", path.display())),
         Ok(_) => Err(format!("{} wasn't written by glasshouse; leaving it", path.display())),
@@ -347,7 +349,7 @@ fn remove_ours(path: &Path, mark: &str) -> Result<(), String> {
     }
 }
 
-fn is_ours(path: &Path, mark: &str) -> bool {
+pub(crate) fn is_ours(path: &Path, mark: &str) -> bool {
     std::fs::read_to_string(path).is_ok_and(|t| t.contains(mark))
 }
 

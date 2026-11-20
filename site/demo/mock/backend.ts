@@ -12,13 +12,28 @@ const USER_DIRS: Record<number, string> = { 6: "Documents", 7: "Downloads", 8: "
 type Args = Record<string, unknown>;
 type Handler = (a: Args) => unknown;
 
-/** Preferences → Integration in the demo: both settings off. */
+/** Preferences → Integration in the demo: every setting off. */
 const DEMO_INTEGRATION = {
   supported: true,
   program: "/usr/bin/glasshouse",
   folders: { on: false, detail: "Folders open with Files (org.example.Files.desktop, set in ~/.config/mimeapps.list).", warning: null },
   fileManager: { on: false, detail: "Files (pid 1234) answers \"Show in folder\" from other apps.", warning: null },
-  limits: [],
+  dialogs: {
+    on: false,
+    detail: "Apps that ask xdg-desktop-portal for open and save dialogs get the gtk backend's.",
+    warning: null,
+    rootCommand: null,
+    pendingLogin: false,
+    toolkits: [
+      { key: "gtk3", label: "GTK 3 apps, and Firefox", on: true, sets: "GTK_USE_PORTAL=1", note: "GTK 3 apps ask the portal when this is set, and so do Firefox and its forks (LibreWolf, Thunderbird) in their default \"auto\" mode. Recent releases may ask on their own.", warning: null },
+      { key: "gtk4", label: "GTK 4 apps", on: true, sets: null, note: "GTK 4.18 and later ask the portal on their own when it's there (this system has 4.18.6), so nothing is set.", warning: null },
+      { key: "qt", label: "Qt apps", on: true, sets: "QT_QPA_PLATFORMTHEME=xdgdesktopportal", note: "Qt apps ask the portal with this platform theme. It also changes how they look: they lose the theme they'd get from the desktop.", warning: null },
+    ],
+  },
+  limits: [
+    "Apps that don't use GTK, Qt or a browser engine keep their own open and save dialogs: Java (Swing) and Tk apps, Wine and terminal programs.",
+    "So do GTK and Qt apps that build their own dialog instead of the toolkit's standard one.",
+  ],
 };
 
 export interface BackendHooks {
@@ -586,6 +601,8 @@ export function createBackend(hooks: BackendHooks) {
     session_owner: () => true,
     // The demo starts as a plain window: no paths from another app.
     launch_request: () => null,
+    // Nor is it another app's open or save dialog.
+    chooser_request: () => null,
     // Preferences → Integration, as on a desktop where it's off; the
     // switches explain instead of changing anything.
     integration_status: () => DEMO_INTEGRATION,

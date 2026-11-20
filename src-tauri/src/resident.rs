@@ -7,10 +7,14 @@
 //! running, as caja, Nautilus and the portal backends do, so another file
 //! manager can't take the name in a gap.
 //!
-//! Services: `file-manager` is `org.freedesktop.FileManager1` (ShowFolders,
-//! ShowItems, ShowItemProperties). Each one is a `Service` with its bus
-//! name and object; a new one (task 31's file chooser) adds a variant and
-//! its interface in `serve`.
+//! Services, each a `Service` with its bus name and object:
+//! - `file-manager`: `org.freedesktop.FileManager1` (ShowFolders, ShowItems,
+//!   ShowItemProperties).
+//! - `file-chooser`: xdg-desktop-portal's FileChooser backend
+//!   (`portal.rs`), the open and save dialogs other apps show.
+//!
+//! One process can serve both (`--dbus file-manager file-chooser`); the
+//! service files Preferences writes start one each.
 //!
 //! Every resident also serves `sh.glasshouse.viles.Resident1` at
 //! `/sh/glasshouse/viles/Resident`. It's how the app tells that a bus name
@@ -39,21 +43,24 @@ const CONTROL_IFACE: &str = "sh.glasshouse.viles.Resident1";
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Service {
     FileManager,
+    FileChooser,
 }
 
 impl Service {
-    const ALL: [Service; 1] = [Service::FileManager];
+    const ALL: [Service; 2] = [Service::FileManager, Service::FileChooser];
 
     /// Its name after `--dbus`.
     pub(crate) fn arg(self) -> &'static str {
         match self {
             Service::FileManager => "file-manager",
+            Service::FileChooser => "file-chooser",
         }
     }
 
     pub(crate) fn bus_name(self) -> &'static str {
         match self {
             Service::FileManager => FILE_MANAGER_NAME,
+            Service::FileChooser => crate::portal::CHOOSER_NAME,
         }
     }
 }
@@ -142,6 +149,9 @@ fn serve(
     for s in services {
         builder = match s {
             Service::FileManager => builder.serve_at(FILE_MANAGER_PATH, FileManager1 { exe: exe.to_path_buf() })?,
+            Service::FileChooser => {
+                builder.serve_at(crate::portal::PORTAL_PATH, crate::portal::FileChooser { exe: exe.to_path_buf() })?
+            }
         };
     }
     builder.build()
@@ -375,7 +385,11 @@ mod tests {
     #[test]
     fn services_by_name() {
         assert_eq!(parse_services(&["file-manager".into(), "file-manager".into()]), Ok(vec![Service::FileManager]));
-        assert!(parse_services(&[]).unwrap_err().contains("file-manager"));
+        assert_eq!(
+            parse_services(&["file-chooser".into(), "file-manager".into()]),
+            Ok(vec![Service::FileChooser, Service::FileManager])
+        );
+        assert!(parse_services(&[]).unwrap_err().contains("file-manager, file-chooser"));
         assert!(parse_services(&["portal".into()]).unwrap_err().contains("unknown service"));
     }
 

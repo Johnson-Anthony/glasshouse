@@ -1,0 +1,96 @@
+/* The open/save dialog window (Chooser.tsx): the toolbar, the sidebar and
+   the file pane as in the main window, then the bottom bar. */
+.chooser {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  /* The search strip comes and goes; the body always takes what's left. */
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  background: var(--bg-0);
+}
+.chooser > :first-child { grid-row: 1; }
+.chooser-strip { grid-row: 2; }
+.chooser-body { grid-row: 3; }
+.chooser-bar { grid-row: 4; }
+.chooser-body {
+  display: grid;
+  grid-template-columns: 200px minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+  min-height: 0;
+}
+.chooser-body > * { min-height: 0; }
+.chooser.no-sidebar .chooser-body { grid-template-columns: minmax(0, 1fr); }
+
+.chooser-strip {
+  padding: 3px var(--pad-x);
+  background: var(--bg-1);
+  border-bottom: 1px solid var(--border);
+  color: var(--fg-2);
+  font-size: 11px;
+}
+
+.chooser-bar {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px var(--pad-x);
+  background: var(--bg-1);
+  border-top: 1px solid var(--border);
+}
+.chooser-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.chooser-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1 1 320px;
+  min-width: 0;
+}
+.chooser-field > span, .chooser-choice > span { color: var(--fg-2); }
+.chooser-field input {
+  flex: 1;
+  min-width: 0;
+}
+.chooser-bar input:not([type="checkbox"]), .chooser-bar select {
+  font: inherit;
+  color: var(--fg-0);
+  background: var(--bg-2);
+  border: 1px solid var(--border-strong);
+  border-radius: 2px;
+  padding: 3px 6px;
+}
+.chooser-bar input:focus, .chooser-bar select:focus { outline: none; border-color: var(--accent); }
+.chooser-choice {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.chooser-files {
+  color: var(--fg-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 45%;
+}
+.chooser-problem {
+  margin-left: auto;
+  color: var(--red);
+}
+.chooser-bar button, .chooser-strip button {
+  font: inherit;
+  cursor: pointer;
+  background: transparent;
+  border: 1px solid var(--fg-3);
+  color: var(--fg-1);
+  border-radius: 2px;
+  padding: 3px 12px;
+}
+.chooser-strip button { padding: 0 6px; font-size: 11px; }
+.chooser-bar button.primary { background: var(--accent); border-color: var(--accent); color: var(--bg-0); }
+.chooser-bar button:hover:not(:disabled), .chooser-strip button:hover { border-color: var(--fg-1); }
+.chooser-bar button:disabled { opacity: 0.4; cursor: default; }
+.chooser-bar button:focus-visible, .chooser-strip button:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }

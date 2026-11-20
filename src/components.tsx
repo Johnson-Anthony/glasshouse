@@ -107,7 +107,8 @@ export interface ToolbarProps {
   showHidden: boolean;
   onToggleHidden: () => void;
   showInspector: boolean;
-  onToggleInspector: () => void;
+  /** Left out where there's no inspector (the open/save dialog). */
+  onToggleInspector?: () => void;
   onCrumbContext?: (e: React.MouseEvent, path: string) => void;
   tagFilter?: string | null;
   onClearTagFilter?: () => void;
@@ -192,12 +193,12 @@ export function Toolbar({ path, gitInfo, canBack, canForward, onBack, onForward,
           onClick={onToggleHidden}
           aria-pressed={showHidden}
         >·h</button>
-        <button
+        {onToggleInspector && <button
           className={"nav-btn" + (showInspector ? " active" : "")}
           title="Toggle inspector"
           onClick={onToggleInspector}
           aria-pressed={showInspector}
-        >◨</button>
+        >◨</button>}
       </div>
     </div>
   );
