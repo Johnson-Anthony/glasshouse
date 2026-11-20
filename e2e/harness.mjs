@@ -66,7 +66,7 @@ export function makeScratch() {
  *  user's settings, and never opens on their Wayland desktop. tauri-driver
  *  runs under its own session bus (sessionBus), started in that same env.
  *  Windows has no such redirect (known folders come from the profile), so
- *  it runs as the runner's user. */
+ *  it runs as the runner's user, without admin rights (startDriver). */
 export function appEnv(scratch) {
   if (IS_WINDOWS) return { env: { ...process.env }, home: homedir(), wrap: [] };
   if (!process.env.DISPLAY) throw new Error("no DISPLAY: run the suite through `pnpm e2e` (xvfb-run)");
@@ -163,11 +163,29 @@ function found(bin, env) {
   return (env.PATH ?? env.Path ?? "").split(delimiter).some(dir => dir && existsSync(join(dir, bin)));
 }
 
+/** One argument as the Windows C runtime parses a command line. */
+function quoteWindowsArg(arg) {
+  if (arg && !/[\s"]/.test(arg)) return arg;
+  let out = '"';
+  let slashes = 0;
+  for (const ch of arg) {
+    if (ch === "\\") { slashes++; continue; }
+    out += "\\".repeat(ch === '"' ? slashes * 2 + 1 : slashes) + ch;
+    slashes = 0;
+  }
+  return out + "\\".repeat(slashes * 2) + '"';
+}
+
 /** Starts tauri-driver (through `wrap`, if any) on free ports, its output
  *  and the native driver's (and so the app's stderr) going to `logFile`,
  *  and waits until it answers /status. On Linux it leads its own process
  *  group, which `stop` ends, so the bus, the native driver and the app go
- *  with it whatever state they're in. */
+ *  with it whatever state they're in.
+ *
+ *  On Windows it starts through e2e/unelevated.ps1, so the driver and the
+ *  app run without admin rights even when the suite runs elevated, as on
+ *  GitHub's runners: an elevated WebView2 ignores the WEBVIEW2_* variables
+ *  msedgedriver turns remote debugging on with, and no session starts. */
 export async function startDriver({ env, wrap = [], logFile }) {
   const port = await freePort();
   const nativePort = await freePort();
@@ -178,8 +196,12 @@ export async function startDriver({ env, wrap = [], logFile }) {
   for (const need of [bin, ...wrap.slice(0, 1)]) {
     if (!found(need, env)) throw new Error(`${need} not found${need === bin ? " (install it with `cargo install tauri-driver --version 2.1.0 --locked`)" : ""}`);
   }
+  let command = [...wrap, bin, ...args];
+  if (IS_WINDOWS) {
+    env = { ...env, E2E_UNELEVATED_COMMAND: command.map(quoteWindowsArg).join(" ") };
+    command = ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", join(ROOT, "e2e", "unelevated.ps1")];
+  }
   const log = openSync(logFile, "w");
-  const command = [...wrap, bin, ...args];
   const proc = spawn(command[0], command.slice(1), { env, stdio: ["ignore", log, log], detached: !IS_WINDOWS });
   closeSync(log);
   let exited = null;
