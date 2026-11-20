@@ -18,7 +18,7 @@ GitHub shows the README of `main`, and Help → Documentation opens it, so it de
 The update check (task 48) and Help → Open Log Folder (task 33) are described as planned, each in one place, so they're easy to update when those tasks land.
 
 ## Issue forms
-- The bug form's field ids `version`, `install`, `os` and `desktop` are meant to stay, so Report Bug… (task 33) can fill them from the new-issue URL.
+- The bug form is `bug_report.yml`, and its field ids `version`, `os`, `desktop`, `webview` (inputs) and `what-happened` (a textarea) are the ones the lead set for task 33: Report Bug… opens `issues/new?template=bug_report.yml&<id>=<value>…`. The form's intro names Report Bug… as the easy way to fill them in.
 - `blank_issues_enabled: false`, so `/issues/new` shows the chooser, which also links the private advisory form and the README's install notes.
 - Labels are the repo's existing `bug` and `enhancement`.
 

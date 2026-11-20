@@ -1,5 +1,6 @@
-# The field ids (version, install, os, desktop) are stable: Help → Report Bug…
-# can fill them in through the new-issue URL's query string.
+# Help → Report Bug… opens issues/new?template=bug_report.yml with the
+# fields below filled in through the query string, by their ids: version,
+# os, desktop, webview and what-happened. Keep those ids.
 name: Bug report
 description: Something doesn't work, or works differently from what you expected.
 labels: ["bug"]
@@ -7,7 +8,9 @@ body:
   - type: markdown
     attributes:
       value: |
-        Thanks for reporting. For a security problem, don't use this form: see [SECURITY.md](https://github.com/Johnson-Anthony/glasshouse/blob/main/SECURITY.md).
+        Thanks for reporting. The easy way to fill in the version fields is **Help → Report Bug…** in glasshouse, which opens this form with them filled in.
+
+        For a security problem, don't use this form: see [SECURITY.md](https://github.com/Johnson-Anthony/glasshouse/blob/main/SECURITY.md).
   - type: input
     id: version
     attributes:
@@ -40,8 +43,21 @@ body:
     id: desktop
     attributes:
       label: Desktop and session (Linux)
-      description: "`echo $XDG_CURRENT_DESKTOP $XDG_SESSION_TYPE` shows them, and the scaling if it isn't 100%. Leave it empty on Windows."
+      description: "`echo $XDG_CURRENT_DESKTOP $XDG_SESSION_TYPE` shows them; add the display scale if it isn't 100%. Leave it empty on Windows."
       placeholder: "GNOME wayland, 125%"
+  - type: input
+    id: webview
+    attributes:
+      label: Web view version
+      description: "WebView2 on Windows (Settings → Apps → Installed apps → Microsoft Edge WebView2 Runtime), WebKitGTK on Linux (for the .deb, `dpkg -s libwebkit2gtk-4.1-0 | grep Version`). Leave it empty if you can't find it."
+      placeholder: "WebView2 131.0.2903.70, or WebKitGTK 2.48.3"
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: The error message word for word, if there was one. Screenshots help; you can paste them here.
+    validations:
+      required: true
   - type: textarea
     id: steps
     attributes:
@@ -56,13 +72,6 @@ body:
     id: expected
     attributes:
       label: What you expected
-    validations:
-      required: true
-  - type: textarea
-    id: actual
-    attributes:
-      label: What happened
-      description: The error message word for word, if there was one. Screenshots help; you can paste them here.
     validations:
       required: true
   - type: textarea

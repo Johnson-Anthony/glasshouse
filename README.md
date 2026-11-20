@@ -131,7 +131,7 @@ With the [GitHub CLI](https://cli.github.com), `gh attestation verify glasshouse
 
 ## Getting help
 
-- **Bugs:** [open an issue](https://github.com/Johnson-Anthony/glasshouse/issues/new/choose) (Help → Report Bug… goes there too). Say which version (Help → About), how you installed it, your OS and, on Linux, your desktop. Help → Open Log Folder (planned) will open the folder with the app's log, to attach.
+- **Bugs:** Help → Report Bug… opens the bug form with the version, OS, desktop and web view filled in. You can also [open an issue](https://github.com/Johnson-Anthony/glasshouse/issues/new/choose) yourself: say which version (Help → About), how you installed it, your OS and, on Linux, your desktop. Help → Open Log Folder (planned) will open the folder with the app's log, to attach.
 - **Ideas:** the same page has a feature request form.
 - **Security problems:** report them privately; [SECURITY.md](SECURITY.md) says how.
 

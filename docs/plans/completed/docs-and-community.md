@@ -20,7 +20,7 @@ Not verified: everything the checklists list, by definition. The upgrade over 0.
 
 Lines that change when other tasks land:
 - task 48 (updater): README "Privacy" → "Update checks (planned)", "Known limitations" → "No automatic updates yet", and "Linux" → the .deb and AppImage update notes;
-- task 33 (diagnostics): README "Getting help" → Help → Open Log Folder (planned); the bug form's ids for Report Bug…'s pre-fill;
+- task 33 (diagnostics): README "Getting help" → Help → Open Log Folder (planned), and Report Bug… filling in the bug form (written as present, as is the form's intro, at the lead's request);
 - task 49 (AppImage menu entry): README "Linux" → "An AppImage doesn't add itself to your app menu", and `linux.md` L2.3.
 
 Found while checking:
@@ -36,7 +36,7 @@ Found while checking:
   - task 33: Help → Open Log Folder, the log folder, and Report Bug… filling in the version, OS and desktop.
 - **Privacy** from the code: no HTTP client in `Cargo.toml`, and a CSP whose `connect-src` is only `'self' ipc: http://ipc.localhost`. Programs the user starts (git, ssh, the browser) reach the network as usual, and the Windows installers' WebView2 bootstrapper downloads the runtime when it's missing (`webviewInstallMode: embedBootstrapper`).
 - **Data folders** from `migrate.rs` and Tauri's path rules: on Linux `~/.config/<id>` and `~/.local/share/<id>` (the webview's storage and cache are in the second), on Windows `%APPDATA%\<id>` and `%LOCALAPPDATA%\<id>`. What each uninstaller removes is from `docs/decisions/2026-11-20-release-identity-installers.md`.
-- **Issue forms:** the bug form's field ids (`version`, `os`, `desktop`) are stable, so task 33's Report Bug… can fill them through the URL's query string. `config.yml` turns off blank issues and links security reports to the private advisory form.
+- **Issue forms:** the bug form's field ids (`version`, `os`, `desktop`, `webview`, `what-happened`) are the ones the lead set for task 33's Report Bug…, which fills them through the URL's query string. `config.yml` turns off blank issues and links security reports to the private advisory form.
 - **SECURITY.md** at the repo root: report through Security → "Report a vulnerability" (private reporting is on, D7), never a public issue; the latest release is the supported one.
 - **Checklists** (`docs/testing/`): numbered checks with what to expect, so a tester can mark pass or fail, grouped by area. They cover what CI's unit, e2e and `installers` jobs don't drive, taken from CHANGELOG's [Unreleased] and the "Not run" notes in PROGRESS.md. `docs/_config.yml` keeps them off the Pages site, like the other working docs.
 - **Not added:** a code of conduct. It needs an enforcement contact, which is the owner's to choose, so it goes to the lead as a question.
