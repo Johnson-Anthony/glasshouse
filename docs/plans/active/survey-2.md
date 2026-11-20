@@ -42,7 +42,7 @@ On 2026-11-11, four read-only agents surveyed the app (at `45ea31b`): frontend b
 | 28 | deps-bump | both | M | queued |
 | **User requests** |||||
 | 29 | settings-dialog | frontend | M | merged (`distracted-yalow-967327`, 11-13; user-requested) |
-| 30 | folder-handler | both (Linux D-Bus, Windows registry) | L | running (`suspicious-heisenberg-08b25d`; user request 11-20) |
+| 30 | folder-handler | both (Linux D-Bus, Windows registry) | L | merged (`suspicious-heisenberg-08b25d`, 11-20; user request) |
 | 31 | file-chooser | both (Linux portal) | L | queued (user request 11-20; after 30) |
 
 **Scheduling notes:**
@@ -334,6 +334,7 @@ The user wants glasshouse to be the open/save dialog other apps show: a text edi
 - *(from session-persistence)* New Tab (Ctrl+T and the + button) adds a tab without switching to it. If the first window closes while a later one stays open, the later one doesn't take over the saved session.
 - *(from git-ux)* "Commit Amend" has no "…" though it now opens a dialog. `run_git` and launch.rs's `run_capped` share a spawn-read-timeout pattern a cleanup pass could merge.
 - *(from open-with)* An explicit "Set as default" for a type (rather than a remember box); Open With on a multi-selection (the backend already takes a list); MIME magic for names no glob matches (today `.tsx` is application/x-tiled-tsx, as shared-mime-info says). The Windows handler list and launch have never run: `docs/decisions/2026-11-20-open-with-windows-handlers.md` lists five things to check on real Windows.
+- *(from folder-handler)* Record the new `installers` CI job's time after its first run, and limit it to main pushes if it's slow. Removing the .deb can't clean per-user files (turn the settings off first; `TryExec` makes a leftover entry harmless): say so in the release notes' Install section. X11 focus behavior under a real window manager wasn't observed (Xvfb had none). The per-desktop rows in docs/INTEGRATION.md besides generic and MATE come from the standards rather than from runs.
 - *(from undo-coverage)* Task 7 can push `contentUndo(label, path, before, after)` per file; task 12 (Move to Trash) is the last file change with neither an undo entry nor `markIrreversible`. Change Owner could get an undo if `file_stat_extended` returned uid:gid. Paste Special's undo entry and the "can't undo" toast aren't unit-tested (no DOM; see dom-tests).
 
 ## Unconfirmed: check before fixing

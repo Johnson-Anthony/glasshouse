@@ -6,6 +6,13 @@ What changed in each release, for people using glasshouse. Downloads are on the 
 
 ### New
 
+- **glasshouse can be the file manager other apps hand off to.** Two settings, both off by default, are under Edit → Preferences → Integration:
+  - **Open folders with glasshouse** makes it the folder default: on Linux in `mimeapps.list` (desktop-specific lists included), on Windows as the open verb for folders and drives.
+  - **Show files for other apps** (Linux) makes a browser's "Show in folder" open glasshouse with the file selected (`org.freedesktop.FileManager1`).
+
+  Turning either off puts back the app that was there before. `glasshouse --integration-on folders file-manager` and `glasshouse --integration-off` do the same from a terminal. On Windows, Explorer's own "Show in folder" and Win+E still open Explorer. See [docs/INTEGRATION.md](docs/INTEGRATION.md).
+- **`glasshouse PATH…` opens folders,** or a file's folder with the file selected. It also takes `file://` URIs, `--select` and `--properties`. Windows opened this way don't restore or overwrite your saved tabs.
+- **Reveal in File Manager selects the item in the current window** when glasshouse is the desktop's file manager.
 - **glasshouse remembers where you left off.** The window's size and position (and whether it was maximized), the open tabs with their folders and sort, the tab you were on, and whether the sidebar, Inspector and status bar are shown all come back after a restart. A folder that's gone opens its nearest parent instead, or your home folder. Private tabs aren't remembered. With several windows open (File → New Window), the first one is the one remembered; the others start at home and leave it alone.
 - **Preferences… (Ctrl+, or Edit → Preferences…) is a proper settings dialog** with Appearance (theme, font, density, scanlines, zoom), Files (hidden files, file extensions, folders first, git gutters) and Terminal (follow folder). Changes apply as you make them. It replaces the floating Tweaks panel and its ◉ button, and your settings carry over.
 - **Drag files out into other apps.** Drag files past the edge of the window and drop them into a browser's upload field, a terminal (which types the path) or another file manager. They're always copied.
@@ -29,6 +36,8 @@ What changed in each release, for people using glasshouse. Downloads are on the 
 
 ### Changed
 
+- The Linux menu entry accepts paths and is listed as a file manager. It doesn't claim folders until "Open folders with glasshouse" is on.
+- The Windows uninstallers turn "Open folders with glasshouse" off, so folders go back to Explorer.
 - **View → Sort By shows the tab's actual sort,** with a ✓ on Descending when it is; so does the file list's right-click Sort By. A new tab starts with the sort of the tab it was opened from.
 - **Zoom (Ctrl+= / Ctrl+- / Ctrl+0) scales the whole window,** from 50% to 200%, and is remembered. It used to change only the Inspector's text. A zoom set in 0.2 starts at 100% again.
 - **The window follows the theme's dark or light scheme,** so parts the system draws (such as GTK popup menus) match the dark themes instead of opening white.
