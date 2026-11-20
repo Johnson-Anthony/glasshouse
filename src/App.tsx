@@ -61,18 +61,17 @@ import { NoticesHost } from "./NoticesScreen";
 import { MillerView } from "./Miller";
 import { viewRows } from "./viewRows";
 import { entryToRow, formatBytes } from "./rows";
-import { joinPath, basename, normalizePath } from "./paths";
+import { basename, normalizePath } from "./paths";
 import { launchApp, openFile, withOpenWithPath } from "./openWith";
 import {
   homeDir,
-  ensureDir,
   startDragOut,
   spawnVscodeStrict,
   trashDir,
-  writeText,
   readPins,
   writePins,
-  readText,
+  readRemotes,
+  writeRemotes,
   findInFiles,
   cancelOp,
   sessionOwner,
@@ -503,37 +502,21 @@ export function App() {
       }
       setTabs(records);
       setActiveTab(start.active);
-      if (home) {
-        const remotesPath = joinPath(joinPath(home, ".glasshouse"), "remotes.json");
-        try {
-          const txt = await readText(remotesPath, 0);
-          if (txt) {
-            const parsed: unknown = JSON.parse(txt);
-            if (Array.isArray(parsed)) {
-              const valid = parsed.filter((r): r is SavedRemote =>
-                !!r && typeof r === "object" &&
-                typeof (r as SavedRemote).label === "string" &&
-                typeof (r as SavedRemote).host === "string" &&
-                typeof (r as SavedRemote).path === "string",
-              );
-              setSavedRemotes(valid);
-            }
-          }
-        } catch { /* missing / malformed — start empty */ }
-      }
+      try {
+        const valid = (await readRemotes()).filter((r): r is SavedRemote =>
+          !!r && typeof r === "object" &&
+          typeof (r as SavedRemote).label === "string" &&
+          typeof (r as SavedRemote).host === "string" &&
+          typeof (r as SavedRemote).path === "string",
+        );
+        setSavedRemotes(valid);
+      } catch { /* unreadable or malformed: start empty */ }
     })();
   }, []);
 
   const persistRemotes = (next: SavedRemote[]) => {
     setSavedRemotes(next);
-    if (!homePath) return;
-    const dir = joinPath(homePath, ".glasshouse");
-    const file = joinPath(dir, "remotes.json");
-    void (async () => {
-      try { await ensureDir(dir); } catch { /* the write below reports it */ }
-      try { await writeText(file, JSON.stringify(next, null, 2)); }
-      catch (err) { console.error("remotes.json write failed:", err); }
-    })();
+    writeRemotes(next).catch(err => console.error("saving remotes failed:", err));
   };
 
   // The theme (System: the OS's light or dark pick), fonts, chrome and

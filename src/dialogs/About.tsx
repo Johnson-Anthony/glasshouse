@@ -35,7 +35,7 @@ export function AboutDialog({ open, onClose }: AboutDialogProps) {
   if (!open) return null;
 
   const rows: Array<[string, string]> = [
-    ["app", "Glasshouse"],
+    ["app", "glasshouse"],
     ["version", version],
     ["tauri", TAURI_VERSION],
     // Stamped by vite.config.ts `define` at build (or dev-server start) time.

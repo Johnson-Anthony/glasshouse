@@ -1,0 +1,63 @@
+# release-identity (task 35)
+
+The app's identity and its release packaging, before anyone but the owner depends on them. Scope: survey-3.md §35 and the owner decisions D1 (no code signing) and D3 (new identifier now, data migrated, lowercase "glasshouse").
+
+## Status
+Done, 2026-11-20 (`ca977f8`; plan in `docs/plans/completed/`). The lead then settled the two open questions: the identifier forms as implemented (`docs/decisions/2026-11-20-release-identity-id-form.md`), and both AppImage items cut.
+
+| Step | State |
+|---|---|
+| Plan | done |
+| Identifier: Tauri forbids `_` (CLI 2.12.4 stops the build), asked the lead | done: the lead confirmed the hyphen form for Tauri and `_` only for D-Bus interfaces and paths; decision note with where each form is used |
+| Migration of the old folders and `~/.glasshouse/remotes.json`, unit tests | done |
+| Rename: tauri.conf.json, `APP_ID`, resident control interface (recognizes and releases an old resident) | done |
+| Bundle metadata, publisher, pinned upgrade code, NSIS install mode | done |
+| NSIS hooks: clear the install-folder key on uninstall; remove 0.2.0's key after install; installers-check | done (makensis compiles them; not run on Windows) |
+| Linux: deb Recommends, section; desktop entry categories (already set by our template) | done |
+| Release: Windows ARM64, SHA256SUMS, provenance attestation; CI arm64 backend leg | done (actionlint; not run) |
+| Drop the fs, os and shell plugins (and opener's unused JS permission); notices | done |
+| Remotes in the config folder (commands, frontend, demo mock) | done |
+| Name: lowercase in About, the about alert, the two glasshouse theme names, README | done |
+| Docs: INTEGRATION, ARCHITECTURE, SPEC, README (installers, checksums, data and uninstalling), decision records | done |
+| AppImage update information and desktop integration | cut by the lead: 48 owns AppImage updates (so no zsync); the menu entry is task 49 `appimage-menu-entry` |
+| Checks | done (below) |
+
+## The identifier
+D3 picked `io.github.johnson_anthony.glasshouse`: the GitHub Pages domain reversed, `_` for the hyphen, because D-Bus interface names can't contain `-`. But `tauri build` refuses identifiers with anything but letters, digits, `-` and `.`, so the Tauri identifier can't have the `_`. Proposed to the lead and confirmed (11-20):
+- Tauri identifier (folders, bundle ID, WebView2 profile, NSIS data folders): `io.github.johnson-anthony.glasshouse`.
+- D-Bus (the resident's control interface and object path): `io.github.johnson_anthony.glasshouse`, the D-Bus spec's own rule for a domain with a hyphen.
+`APP_ID` is in `lib.rs` and the D-Bus names in `resident.rs`, with a test that one is the other with `-` → `_`, and one that `APP_ID` is tauri.conf.json's. Everything else (desktop files, the window's app id, the portal backend's bus name, environment.d, registry keys) uses the product name; the decision note has the table.
+
+## Migration (`src-tauri/src/migrate.rs`)
+Runs first thing in every mode (window, chooser, resident, `--integration-on/off`), because the CLI reads `integration.json` and `dialogs.json`: run before a window ever starts, `--integration-off` would otherwise find no record and leave the folder default on glasshouse.
+- For each base folder Tauri uses (`dirs` config, data, local data and cache: on Linux `~/.config`, `~/.local/share`, `~/.cache`; on Windows `%APPDATA%` and `%LOCALAPPDATA%`), deduplicated: when `<base>/<old id>` exists and `<base>/<new id>` doesn't, rename it. That carries pins, tags, recents, window state, `session.lock`, `integration.json`, `dialogs.json`, and the webview's data (WebKitGTK's `localstorage/` on Linux, `EBWebView` on Windows: settings and tabs). The origin (`tauri://localhost`, `http://tauri.localhost`) doesn't change, so localStorage reads back.
+- A rename that fails (another file system, a file held open on Windows): copy into `<new id>.migrating-<pid>`, then rename that into place, so a half copy never counts as done; the old folder stays. If the copy fails too, remove the partial copy and start fresh (logged).
+- Then `~/.glasshouse/remotes.json` moves to `<config>/remotes.json` (if that's missing), and `~/.glasshouse` goes if it's empty.
+- Never merges: once the new folder exists, the old one is left alone.
+
+The integration files themselves (mimeapps lines, `glasshouse-folders.desktop`, both D-Bus service files, `glasshouse.portal`, the portals.conf line, environment.d) name the binary's path, never the identifier, so they keep working. What does change is the resident's control interface: a resident started by the old binary answers only on the old one. The new app recognizes both (`holder`) and releases either, so turning a switch off still hands the name back, and Preferences doesn't call the old resident "another program". It goes away at the next login or the next off/on.
+
+## Windows installers
+- `publisher` "Anthony Johnson" (else Tauri takes "github" from the identifier). The manufacturer names `HKCU\Software\<manufacturer>\glasshouse`, where NSIS keeps its install folder and the MSI its InstallDir and shortcut flags.
+- The upgrade code is pinned to what Tauri derives from the product name today (`tauri inspect wix-upgrade-code`), so 0.2.0 MSIs upgrade in place, and a rename later can't make a second install. ARM64 MSIs get the same code: one product, whichever architecture.
+- NSIS `installMode` "currentUser", set explicitly (it's the default).
+- NSIS post-uninstall hook (not on update): delete the install-folder value and the key if empty, so the MSI doesn't install into `%LOCALAPPDATA%` after the setup.exe was removed.
+- NSIS post-install hook: remove 0.2.0's `HKCU\Software\glasshouse\glasshouse` install-folder value. The new installer reads the previous folder from the new manufacturer's key, so the old one would stay forever.
+- installers-check.ps1 checks both, instead of removing the key itself.
+
+## Release
+- Windows ARM64 on `windows-11-arm` (native, so no `--target`): `glasshouse_<v>_arm64-setup.exe` and `glasshouse_<v>_arm64_en-US.msi`. CI's backend job gets a `windows-11-arm` leg (clippy and tests), so the release isn't the first arm64 compile.
+- The publish job downloads every expected file from the draft, writes `SHA256SUMS`, uploads it, and attests it with `actions/attest-build-provenance@v4` (`subject-checksums`). Then it publishes.
+
+## Not done here
+- AppImage update information: task 48's updater owns AppImage updates, so there's no zsync update information.
+- AppImage desktop integration: task 49 `appimage-menu-entry`.
+- Code signing (D1).
+
+## Results
+- **Checks:** clippy `-D warnings`, cargo test (329 passed, 5 ignored), vitest (1049), `check:wiring`, `notices --check` (regenerated: the os and shell plugins and five crates only they used are gone; fs stays, dialog uses it), `site:build` (demo rebuilt for the remotes mock) and `site:capture check` (25/25), actionlint, `pnpm e2e` (5/5).
+- **The migration on the real binary:** `glasshouse --dbus nonsense` (it migrates, then exits before touching a bus) with a scratch HOME holding 0.2.0-style folders. The config and data folders and `remotes.json` moved, `~/.glasshouse` went, and a second start changed nothing.
+- **A real profile surviving the rename:** under the e2e harness (Xvfb, private bus, scratch HOME), run 1 wrote a localStorage key, a pin and a remote. The folders were then renamed to `sh.glasshouse.viles`, and run 2 read all three back, with no old folder left.
+- **The window's app id** (after the lead's identifier check): under Xvfb on a private bus, `WM_CLASS` is "glasshouse", "Glasshouse", with no `_GTK_APPLICATION_ID` and no bus name of ours, so the identifier doesn't reach the window or the bus. Wayland's `app_id` comes from the same program name (`enableGTKAppId` is off).
+- **Not built or run:** anything on Windows. `migrate.rs` was type-checked with clippy for `x86_64-pc-windows-msvc` in a scratch crate; `hooks.nsh` compiled with makensis 3.11 against stub defines (its `!if` skips the old-key cleanup when the publisher is still "glasshouse"); `installers-check.ps1` parsed with pwsh. The release workflow (arm64, SHA256SUMS, attestation) and the CI arm64 leg haven't run. An NSIS upgrade from 0.2.0's setup.exe hasn't been tried (the installers decision has what to expect; task 46).
+- **The owner's session:** nothing to turn off and on. The integration files name the binary, not the identifier, and the migration moves `integration.json` and `dialogs.json` on the first start in any mode. A running resident from the old build is recognized and released. Close old glasshouse windows before the first start of the new build (an old window keeps writing to the old folder).

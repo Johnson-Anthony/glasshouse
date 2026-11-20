@@ -25,10 +25,9 @@ toml = "0.9"
 # 2.11.1 fixes GHSA-7gmj-67g7-phm9 (remote pages reaching local-only IPC).
 tauri = { version = "2.11.1", features = [] }
 tauri-plugin-dialog = "2.2"
-tauri-plugin-fs = "2.2"
+# Only its open_path and open_url functions; the plugin itself isn't
+# registered, because the frontend never calls it.
 tauri-plugin-opener = "2.2"
-tauri-plugin-os = "2.2"
-tauri-plugin-shell = "2.2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 git2 = { version = "0.19", default-features = false, features = ["vendored-libgit2"] }
@@ -59,6 +58,9 @@ tauri-plugin-window-state = "2.5"
 # Already in the lock file through tauri: file:// URIs on the command line
 # (startup.rs) and in the FileManager1 calls.
 url = "2"
+# Already in the lock file through tauri, which finds its app folders with
+# it: migrate.rs finds the same ones.
+dirs = "7"
 
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.58", features = [

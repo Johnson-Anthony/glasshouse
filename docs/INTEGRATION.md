@@ -38,7 +38,7 @@ Turning it on:
 - also sets it in any `~/.config/<desktop>-mimeapps.list` that names a folder app, such as `gnome-mimeapps.list` for `XDG_CURRENT_DESKTOP=GNOME`. Those files win over `mimeapps.list`, so without this they'd keep their app;
 - if `~/.local/share/applications/mimeinfo.cache` exists, rebuilds it with `update-desktop-database`, so the entry shows up in Open With lists. glasshouse never creates that file.
 
-What each list had before is kept in `~/.config/sh.glasshouse.viles/integration.json`. Turning it off puts each list's old line back, removes the lines and files it added, and removes the hidden entry. A folder app you chose after turning it on is left alone.
+What each list had before is kept in `~/.config/io.github.johnson-anthony.glasshouse/integration.json`. Turning it off puts each list's old line back, removes the lines and files it added, and removes the hidden entry. A folder app you chose after turning it on is left alone.
 
 Preferences shows which app opens folders now and which file sets it, and warns when a setting glasshouse didn't write wins over its own.
 
@@ -70,7 +70,7 @@ Preferences shows which dialog apps get now, and warns when something else wins 
 
 **The dialog.** It's glasshouse's own file pane, sidebar, breadcrumbs, filter and hidden-files toggle, with a bottom bar: the name field (Save), the app's file types, the app's extra options (an encoding, "open read-only" and so on), Cancel and the app's own button label. Enter and double-click accept, Esc cancels, and a path typed in the name field (`~/Documents/notes.txt`, `../`) goes there. Choosing another file type swaps the name's extension. Saving over a file asks first. The dialog starts where the app asks, or else in the folder you last picked for that app. It's parented to the app's window (X11, and Wayland compositors with xdg-foreign), so it stays on top of it.
 
-**What turning it on does.** Everything is in your own folders, and what was there before is kept in `~/.config/sh.glasshouse.viles/dialogs.json`:
+**What turning it on does.** Everything is in your own folders, and what was there before is kept in `~/.config/io.github.johnson-anthony.glasshouse/dialogs.json`:
 1. writes `~/.local/share/dbus-1/services/org.freedesktop.impl.portal.desktop.glasshouse.service`, which starts glasshouse's background process for the portal (`glasshouse --dbus file-chooser`, no window; each dialog is its own short-lived window process);
 2. writes `~/.local/share/xdg-desktop-portal/portals/glasshouse.portal`, which tells the portal glasshouse can show file dialogs (portal 1.20.1 and later; see [Older portals](#older-portals));
 3. names glasshouse first for `org.freedesktop.impl.portal.FileChooser` in the portals.conf the portal reads, and keeps the desktop's other choices: it edits your own `~/.config/xdg-desktop-portal/…portals.conf` in place, or otherwise writes a copy of the desktop's file there with the one line added. On portal 1.19 and later the line is `glasshouse;` followed by what it was, so the desktop's dialog is still the fallback;

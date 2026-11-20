@@ -9,8 +9,9 @@ name: release
 # started from the tag ("Use workflow from" → Tags).
 #
 # Every build uploads to one draft release. It becomes public only after
-# every build has passed and all six files are on it. If a build fails,
-# the draft stays for a re-run, and nothing is published.
+# every build has passed and all eight files are on it; the publish job
+# adds SHA256SUMS and a provenance attestation for them first. If a build
+# fails, the draft stays for a re-run, and nothing is published.
 
 on:
   push:
@@ -58,8 +59,9 @@ jobs:
 
           ## Install
 
-          - **Windows (x64):** the `.msi` or the `-setup.exe` installer. They aren't signed, so SmartScreen warns the first time: choose More info → Run anyway.
+          - **Windows (x64 and arm64):** the `-setup.exe` installs for you alone, with no admin rights: it's the one to pick. The `.msi` installs for every user of the PC, for IT deployment. They aren't signed, so SmartScreen warns the first time: choose More info → Run anyway.
           - **Linux (x64 and arm64):** the `.deb` (`sudo apt install ./glasshouse_*.deb`) or the `.AppImage` (`chmod +x`, then run it). The AppImage needs FUSE 2: `sudo apt install libfuse2t64` on Ubuntu 24.04+ and Debian 13, `libfuse2` on older releases. Both need glibc 2.35 or newer (Ubuntu 22.04, Debian 12 and later).
+          - **Checking a download:** `SHA256SUMS` has each file's SHA-256 (`sha256sum -c SHA256SUMS --ignore-missing`). `gh attestation verify <file> --repo Johnson-Anthony/glasshouse` checks that this repository's release workflow built it.
           EOF
 
       - name: Create the draft release
@@ -94,6 +96,9 @@ jobs:
       matrix:
         include:
           - os: windows-latest
+            args: ""
+          # Native arm64: the x64 build runs on Windows on Arm only emulated.
+          - os: windows-11-arm
             args: ""
           # Linux packages are built on the oldest Ubuntu with WebKitGTK 4.1,
           # so they run on glibc 2.35 and newer (Ubuntu 22.04, Debian 12).
@@ -137,26 +142,57 @@ jobs:
   publish:
     needs: [prepare, build]
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      # The provenance attestation: a signed statement, kept by GitHub, that
+      # this workflow run built the files.
+      id-token: write
+      attestations: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TAG: ${{ github.ref_name }}
+      ID: ${{ needs.prepare.outputs.release_id }}
     steps:
-      - name: Check the files and publish the release
-        env:
-          GH_TOKEN: ${{ github.token }}
-          TAG: ${{ github.ref_name }}
-          ID: ${{ needs.prepare.outputs.release_id }}
+      - name: Check the files and write SHA256SUMS
         run: |
           v=${TAG#v}
-          names=$(gh api "repos/$GITHUB_REPOSITORY/releases/$ID/assets" --paginate --jq '.[].name')
+          gh api "repos/$GITHUB_REPOSITORY/releases/$ID/assets" --paginate \
+            --jq '.[] | "\(.id) \(.name)"' > "$RUNNER_TEMP/assets.txt"
           echo "On the draft:"
-          echo "$names"
+          cat "$RUNNER_TEMP/assets.txt"
+          mkdir -p "$RUNNER_TEMP/files"
           missing=0
           for want in "glasshouse_${v}_x64_en-US.msi" "glasshouse_${v}_x64-setup.exe" \
+                      "glasshouse_${v}_arm64_en-US.msi" "glasshouse_${v}_arm64-setup.exe" \
                       "glasshouse_${v}_amd64.AppImage" "glasshouse_${v}_amd64.deb" \
                       "glasshouse_${v}_aarch64.AppImage" "glasshouse_${v}_arm64.deb"; do
-            if ! grep -qxF -- "$want" <<< "$names"; then
+            asset=$(awk -v n="$want" '$2 == n { print $1 }' "$RUNNER_TEMP/assets.txt")
+            if [ -z "$asset" ]; then
               echo "::error::$want isn't on the draft release; it stays a draft."
               missing=1
+              continue
             fi
+            gh api -H "Accept: application/octet-stream" \
+              "repos/$GITHUB_REPOSITORY/releases/assets/$asset" > "$RUNNER_TEMP/files/$want"
           done
           [ "$missing" = 0 ] || exit 1
+          cd "$RUNNER_TEMP/files"
+          sha256sum -- * > "$RUNNER_TEMP/SHA256SUMS"
+          cat "$RUNNER_TEMP/SHA256SUMS"
+
+      - uses: actions/attest-build-provenance@v4
+        with:
+          subject-checksums: ${{ runner.temp }}/SHA256SUMS
+
+      - name: Add SHA256SUMS and publish the release
+        run: |
+          # A re-run replaces the one an earlier run added.
+          old=$(awk '$2 == "SHA256SUMS" { print $1 }' "$RUNNER_TEMP/assets.txt")
+          if [ -n "$old" ]; then
+            gh api -X DELETE "repos/$GITHUB_REPOSITORY/releases/assets/$old"
+          fi
+          curl -sSf -X POST -H "Authorization: Bearer $GH_TOKEN" -H "Content-Type: text/plain" \
+            --data-binary @"$RUNNER_TEMP/SHA256SUMS" \
+            "https://uploads.github.com/repos/$GITHUB_REPOSITORY/releases/$ID/assets?name=SHA256SUMS" > /dev/null
           gh api -X PATCH "repos/$GITHUB_REPOSITORY/releases/$ID" \
             -F draft=false -f make_latest=true --jq .html_url

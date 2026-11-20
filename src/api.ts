@@ -623,6 +623,16 @@ export function writePins(pins: string[]): Promise<void> {
   return safe(() => invoke<void>("write_pins", { pins }), undefined);
 }
 
+/** The saved remotes as last written, in the app config folder; the caller
+ *  checks each entry's fields. Rejects when the file can't be read. */
+export function readRemotes(): Promise<unknown[]> {
+  return mustInvoke<unknown[]>("read_remotes");
+}
+
+export function writeRemotes(remotes: readonly object[]): Promise<void> {
+  return mustInvoke<void>("write_remotes", { remotes });
+}
+
 export function readTags(): Promise<Record<string, string[]>> {
   return safe(() => invoke<Record<string, string[]>>("read_tags"), {});
 }

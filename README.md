@@ -10,7 +10,7 @@
 
 ## What it is
 
-Glasshouse is a desktop file manager built with Tauri 2 (Rust) and React 18 (TypeScript). It was written for Windows, to add what File Explorer lacks: an embedded terminal, tabs, archive handling and git status. It also runs on Linux, with Linux implementations of drives and mounts, trash, network stats and terminal sessions.
+glasshouse is a desktop file manager built with Tauri 2 (Rust) and React 18 (TypeScript). It was written for Windows, to add what File Explorer lacks: an embedded terminal, tabs, archive handling and git status. It also runs on Linux, with Linux implementations of drives and mounts, trash, network stats and terminal sessions.
 
 ## Features
 
@@ -27,19 +27,31 @@ Glasshouse is a desktop file manager built with Tauri 2 (Rust) and React 18 (Typ
 
 - **Frontend:** React 18, TypeScript, Vite, [xterm.js](https://xtermjs.org)
 - **Backend:** Rust, Tauri 2, [`git2`](https://crates.io/crates/git2), [`notify`](https://crates.io/crates/notify), [`sysinfo`](https://crates.io/crates/sysinfo)
-- **Tauri plugins:** `fs`, `dialog`, `shell`, `os`, `opener`
+- **Tauri plugins:** `dialog`, `window-state`, and `opener`'s functions for opening files and links
 - **Package manager:** pnpm 9
 
 ## Install
 
 Download a package from the [Releases page](https://github.com/Johnson-Anthony/glasshouse/releases). [CHANGELOG.md](CHANGELOG.md) lists what changed in each release.
 
-- **Windows (x64):** the `.msi` or the `-setup.exe` installer. Either one downloads WebView2 if it's missing (Windows 11 already has it). The installers aren't signed, so SmartScreen warns the first time you run one: choose More info → Run anyway.
+- **Windows (x64 and arm64):** the `-setup.exe` installs glasshouse for your account alone and needs no admin rights: it's the one to pick. The `.msi` installs it for every user of the PC, for IT departments that deploy MSIs. Either one downloads WebView2 if it's missing (Windows 11 already has it). The installers aren't signed, so SmartScreen warns the first time you run one: choose More info → Run anyway.
 - **Linux (x64 and arm64):** a `.deb` or an `.AppImage` for each architecture: `amd64` and `arm64` for the `.deb`, `amd64` and `aarch64` for the `.AppImage`. They're built on Ubuntu 22.04, so they need glibc 2.35 or newer: Ubuntu 22.04, Debian 12, or anything newer.
   - `.deb`: `sudo apt install ./glasshouse_<version>_amd64.deb` installs it with its dependencies (WebKitGTK 4.1).
   - `.AppImage`: make it executable (`chmod +x glasshouse_*.AppImage`), then run it. AppImages need FUSE 2, which Ubuntu 24.04+ and Debian 13 don't install by default: `sudo apt install libfuse2t64` (`libfuse2` on older releases). Without FUSE, start it with `--appimage-extract-and-run`.
 
 macOS isn't built or tested.
+
+**Checking a download.** Each release has a `SHA256SUMS` file with every package's SHA-256: `sha256sum -c SHA256SUMS --ignore-missing` in the folder you downloaded to. With the [GitHub CLI](https://cli.github.com), `gh attestation verify glasshouse_<version>_amd64.deb --repo Johnson-Anthony/glasshouse` checks that this repository's release workflow built the file.
+
+### Your data, and uninstalling
+
+glasshouse keeps your pins, tags, saved remotes, recent folders, window size and settings in two folders:
+- **Linux:** `~/.config/io.github.johnson-anthony.glasshouse` and `~/.local/share/io.github.johnson-anthony.glasshouse` (settings and tabs, in the webview's storage).
+- **Windows:** `%APPDATA%\io.github.johnson-anthony.glasshouse` and `%LOCALAPPDATA%\io.github.johnson-anthony.glasshouse`.
+
+Up to 0.2.0 they were named `sh.glasshouse.viles`, and saved remotes were in `~/.glasshouse`; a newer version moves them the first time it starts.
+
+Uninstalling leaves these folders, so a reinstall starts where you left off. The setup.exe's uninstaller removes them when you tick "Delete application data"; the `.msi` and the Linux packages never do, so delete them yourself if you want them gone. On Windows, uninstalling also turns Preferences → Integration off. On Linux, turn it off before you uninstall ([docs/INTEGRATION.md](docs/INTEGRATION.md#uninstalling) says why).
 
 ## Use it as your file manager
 

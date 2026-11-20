@@ -17,10 +17,11 @@ glasshouse is a desktop file manager built with Tauri 2 (Rust backend) and React
 - On Linux it can be the open and save dialog other apps show (task 31): an xdg-desktop-portal FileChooser backend. One switch in Preferences → Integration, off by default and fully undone, covers every app the standards reach, with no per-app setup: the portal config, plus the GTK, GTK 4 and Qt opt-ins in `~/.config/environment.d`. Windows can't be covered (it would take code injected into every app). See `docs/INTEGRATION.md`.
 
 ## Platforms and constraints
-- **Windows:** WebView2 and an msi/nsis bundle. **Linux:** WebKitGTK 4.1, AppImage/deb built in CI. Development also happens on Linux arm64 under Wayland (niri).
+- **Windows:** WebView2 and an msi/nsis bundle, for x64 and arm64. **Linux:** WebKitGTK 4.1, AppImage/deb built in CI, for x64 and arm64.
+- **Identity:** the identifier is `io.github.johnson-anthony.glasshouse` (the project page's domain reversed; `_` for `-` in D-Bus names), the publisher Anthony Johnson, and the name is lowercase "glasshouse" everywhere. 0.2.0's `sh.glasshouse.viles` folders are moved at start (`migrate.rs`). Development also happens on Linux arm64 under Wayland (niri).
 - **Toolchain:** pnpm 9 (pinned in `packageManager`), Node 20+ (CI uses 22), Rust stable. `rust-version` is 1.90, the oldest rustc that builds `Cargo.lock` (tauri 2.12 needs it).
-- **CI** (`.github/workflows/ci.yml`): frontend build and vitest on Ubuntu; `cargo clippy -D warnings` and `cargo test` on Ubuntu and Windows. Both must stay green.
-- **Releases:** pushing a `v*` tag builds them with tauri-action (`release.yml`).
+- **CI** (`.github/workflows/ci.yml`): frontend build and vitest on Ubuntu; `cargo clippy -D warnings` and `cargo test` on Ubuntu, Windows x64 and Windows arm64. Both must stay green.
+- **Releases:** pushing a `v*` tag builds them with tauri-action (`release.yml`), with `SHA256SUMS` and a build provenance attestation.
 - Local-only app: no accounts, no network services.
 - `docs/` is also the GitHub Pages source (`docs/index.html` is the landing page).
 

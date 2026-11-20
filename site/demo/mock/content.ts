@@ -154,9 +154,6 @@ export const SEED: Seed = {
     demo: {
       ".bashrc": `export EDITOR=nvim\nalias ll='ls -la'\nPS1='\\u@\\h:\\w$ '\n`,
       ".gitconfig": `[user]\n\tname = Demo User\n\temail = demo@example.com\n`,
-      ".glasshouse": {
-        "remotes.json": JSON.stringify([{ label: "homelab", host: "homelab", path: "/srv" }]),
-      },
       ".local": { share: { Trash: { "files/": {} } } },
       projects: {
         glasshouse: {
@@ -258,5 +255,7 @@ export const TAGS: Record<string, string[]> = {
   [`${HOME}/Documents/budget-2026.ods`]: ["secret"],
   [`${HOME}/Pictures/wallpapers/aurora.jpg`]: ["archive"],
 };
+
+export const REMOTES = [{ label: "homelab", host: "homelab", path: "/srv" }];
 
 export const RECENT = [REPO, `${HOME}/Documents`, `${HOME}/Pictures/wallpapers`];

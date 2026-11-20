@@ -2,7 +2,7 @@
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "glasshouse",
   "version": "0.2.0",
-  "identifier": "sh.glasshouse.viles",
+  "identifier": "io.github.johnson-anthony.glasshouse",
   "build": {
     "beforeDevCommand": "pnpm dev",
     "devUrl": "http://localhost:1420",
@@ -31,6 +31,12 @@
   "bundle": {
     "active": true,
     "targets": ["msi", "nsis"],
+    "publisher": "Anthony Johnson",
+    "copyright": "Copyright (c) 2026 Anthony Johnson",
+    "homepage": "https://johnson-anthony.github.io/glasshouse/",
+    "category": "Utility",
+    "shortDescription": "A file manager for Windows and Linux",
+    "longDescription": "A desktop file manager with tabs, a built-in terminal, git status for every file, previews, archives and bulk rename. It can open folders for other apps, and on Linux be their open and save dialog.",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -40,14 +46,17 @@
     ],
     "windows": {
       "webviewInstallMode": { "type": "embedBootstrapper" },
-      "nsis": { "installerHooks": "windows/hooks.nsh" },
+      "nsis": { "installMode": "currentUser", "installerHooks": "windows/hooks.nsh" },
       "wix": {
+        "upgradeCode": "d5dc81dc-7659-5d8f-825d-74a5dc726d43",
         "fragmentPaths": ["windows/integration.wxs"],
         "componentGroupRefs": ["GlasshouseIntegration"]
       }
     },
     "linux": {
       "deb": {
+        "section": "utils",
+        "recommends": ["git", "7zip | p7zip-full", "xdg-utils"],
         "desktopTemplate": "linux/glasshouse.desktop",
         "files": {
           "/usr/share/xdg-desktop-portal/portals/glasshouse.portal": "linux/glasshouse.portal",
