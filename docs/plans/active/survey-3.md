@@ -16,7 +16,7 @@ The scan for the user's own paths and names found none in app code. The gaps are
 | 32 | e2e-smoke | CI + test code | S–M | merged (`gifted-bun-817ccd`, 11-20) |
 | 33 | diagnostics-and-errors | both | M | queued |
 | 34 | windows-paths | Rust + a little frontend | M | queued |
-| 35 | release-identity | Rust + config + CI | M | running (11-20; Tauri rejects `_`, so the id is `io.github.johnson-anthony.glasshouse`, with `johnson_anthony` only in D-Bus interface names and paths) |
+| 35 | release-identity | Rust + config + CI | M | merged 11-20 (`claude/stoic-hermann-165fd0`; Tauri rejects `_`, so the id is `io.github.johnson-anthony.glasshouse`, with `johnson_anthony` only in D-Bus interface names and paths; `docs/decisions/2026-11-20-release-identity-id-form.md`) |
 | **Wave 7b: works like other file managers** |||||
 | 36 | os-clipboard | both | M–L | queued |
 | 37 | linux-launch-env | Rust + CI | M | queued (coordinate with task 30's activation token) |
@@ -244,6 +244,7 @@ The owner wants the themes and cosmetic options expanded massively. Today there 
 ## 49. appimage-menu-entry (both, M; split from 35 on 2026-11-20)
 - An AppImage that isn't installed has no menu entry or icon. Add a Preferences → Integration switch, "Add glasshouse to the app menu", shown only when running from an AppImage (`$APPIMAGE`): it writes a desktop entry pointing at `$APPIMAGE`, plus the icon, under `~/.local/share`, and removes them when turned off. Follow how `integration.rs` keeps and restores what it changes, with tests and the UI.
 - Handle the AppImage moving or being deleted (the entry should not point at nothing), and keep it consistent with the folder-default and file-manager entries, which today start the binary path.
+- *(found by 35)* tauri-bundler's AppImage carries glasshouse.desktop and the icons inside the image only. `$APPIMAGE` is the image's real path; `/proc/self/exe` is the mount under `/tmp/.mount_*`, different each run. Check that every integration file (the mimeapps entry, `glasshouse-folders.desktop`, the FileManager1 and portal D-Bus service files) records `$APPIMAGE` when it's set, not the mount (`startup.rs`'s `self_exe()` already prefers it). Keep `StartupWMClass=glasshouse` so docks match the window.
 
 ## Found by tasks
 - *(from e2e-smoke, for 44)* Reuse `e2e/harness.mjs` and its `waitFor`, not sleeps. Fixtures are made per run in a scratch dir, but on Windows the run uses the runner's real profile, so use unique names. Put the Trash fixture under the scratch `XDG_DATA_HOME`. A task that needs a D-Bus service in the test drops its `.service` file into the scratch `$XDG_DATA_HOME/dbus-1/services`.
@@ -260,3 +261,6 @@ The owner wants the themes and cosmetic options expanded massively. Today there 
 - *(from e2e-windows, for 45)* Cold start on the Windows runner took 13–19 s from launch to the first listing (2.4 s warm), possibly Defender scanning the 37 MB debug exe and a new WebView2 profile. The release exe would show whether users see it.
 - *(from e2e-windows, for 45)* `driver-and-app.log` is empty on Windows: tauri-driver discards msedgedriver's output, and the debug app prints nothing.
 - *(for 45)* On 11-20 the Linux e2e leg's `apt-get update`/install step took 13 min (run 44731257806; the tests themselves took 11 s). Consider caching the apt packages or a step timeout.
+- *(from release-identity, for 46)* Upgrading over 0.2.0's setup.exe is untested: the publisher change means the new installer can't find 0.2.0's install-folder key, so its "uninstall first" may fail (installing over it works). See `docs/decisions/2026-11-20-release-identity-installers.md`.
+- *(from release-identity, for 45/46)* Not run yet: the release workflow's Windows arm64 build, SHA256SUMS and `attest-build-provenance`, and CI's new `windows-11-arm` leg.
+- *(from release-identity)* The Tauri `opener` plugin is no longer registered (Rust still calls its functions), and fs, os and shell are gone. The theme names are "glasshouse Light/Dark".
