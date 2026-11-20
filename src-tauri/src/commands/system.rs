@@ -188,6 +188,48 @@ pub fn path_fs_type(path: String) -> Result<String, String> {
     }
 }
 
+// ---------- free space for arbitrary path ----------
+
+#[derive(Debug, Serialize, PartialEq)]
+pub struct Space {
+    /// What the user can still write (quotas and reserved blocks taken off).
+    pub free: u64,
+    pub total: u64,
+}
+
+/// The free and total space of the volume holding `path`, for the status
+/// bar; None when the OS can't say (a path that's gone, a file system with
+/// no size).
+#[tauri::command(async)]
+pub fn path_space(path: String) -> Option<Space> {
+    #[cfg(windows)]
+    {
+        use windows::core::PCWSTR;
+        use windows::Win32::Storage::FileSystem::GetDiskFreeSpaceExW;
+        let wide: Vec<u16> = path.encode_utf16().chain(std::iter::once(0)).collect();
+        let (mut avail, mut total) = (0u64, 0u64);
+        unsafe { GetDiskFreeSpaceExW(PCWSTR(wide.as_ptr()), Some(&mut avail), Some(&mut total), None) }.ok()?;
+        (total > 0).then_some(Space { free: avail, total })
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::ffi::OsStrExt;
+        let c = std::ffi::CString::new(std::path::Path::new(&path).as_os_str().as_bytes()).ok()?;
+        let mut st: libc::statvfs = unsafe { std::mem::zeroed() };
+        if unsafe { libc::statvfs(c.as_ptr(), &mut st) } != 0 {
+            return None;
+        }
+        #[allow(clippy::unnecessary_cast)] // the field types differ between targets
+        let (frag, blocks, avail) = (
+            if st.f_frsize > 0 { st.f_frsize } else { st.f_bsize } as u64,
+            st.f_blocks as u64,
+            st.f_bavail as u64,
+        );
+        let total = blocks.saturating_mul(frag);
+        (total > 0).then_some(Space { free: avail.saturating_mul(frag), total })
+    }
+}
+
 /// The filesystem type of the mount in `mounts` (`/proc/self/mounts` text)
 /// that holds `path`, or "" if none does. The deepest mount point wins. Of
 /// several mounts on that same point, the last listed is the one on top.

@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useLayoutEffect, useRef, useMemo } from "react";
 import { createPortal } from "react-dom";
 import type { FileRow, FileKind } from "./data";
-import { netRate, pathFsType, systemInfo as apiSystemInfo, winClose, winMinimize, winToggleMaximize, type GitInfo, type NetRate, type SystemInfo } from "./api";
+import { winClose, winMinimize, winToggleMaximize, type GitInfo } from "./api";
 import { viewRows } from "./viewRows";
 import { fileType } from "./fileTypes";
 import { remapIndexes } from "./listing";
@@ -12,11 +12,12 @@ import { splitBreadcrumb } from "./paths";
 import { kbKeys, searchPalette } from "./palette";
 import { IS_WINDOWS } from "./platform";
 import type { SortDir, SortKey } from "./state";
-import { TAG_COLOR_MAP } from "./Sidebar";
+import { TAG_COLOR_MAP, type TagSet } from "./Sidebar";
 import { isModalOpen } from "./dialogs/modal";
 import { BOUND_CHARS, chordPending } from "./keymap";
 import { isContextMenuKey, TypeAhead, typeAheadMatch, type MenuAnchor } from "./menuNav";
 import { LOOK_APPLIED, type Density, type LookState } from "./look";
+import type { StatusItem } from "./statusItems";
 
 // ============= Titlebar =============
 export interface TabDef {
@@ -1049,108 +1050,6 @@ export function FilePane({
   );
 }
 
-// ============= Status bar =============
-export interface StatusBarProps {
-  selectedCount: number;
-  totalCount: number;
-  totalSize: string;
-  path: string;
-  gitInfo: GitInfo | null;
-  onToggleTerm: () => void;
-}
-
-function formatUptime(s: number): string {
-  const h = Math.floor(s / 3600);
-  const m = Math.floor((s % 3600) / 60);
-  const sec = s % 60;
-  const pad = (n: number) => n.toString().padStart(2, "0");
-  return `${pad(h)}:${pad(m)}:${pad(sec)}`;
-}
-
-function formatMemGB(bytes: number): string {
-  if (!bytes) return "—";
-  const g = bytes / (1024 ** 3);
-  if (g >= 10) return `${g.toFixed(0)}G`;
-  return `${g.toFixed(1)}G`;
-}
-
-function formatBytesRate(bps: number): string {
-  if (!bps || bps < 1) return "0";
-  if (bps >= 1024 * 1024) return `${(bps / (1024 * 1024)).toFixed(1)}M`;
-  if (bps >= 1024) return `${Math.round(bps / 1024)}K`;
-  return `${bps}`;
-}
-
-export function StatusBar({ selectedCount, totalCount, totalSize, path, gitInfo, onToggleTerm }: StatusBarProps) {
-  const [sys, setSys] = useState<SystemInfo | null>(null);
-  const [now, setNow] = useState<Date>(() => new Date());
-  const [fs, setFs] = useState<string>("");
-  const [net, setNet] = useState<NetRate | null>(null);
-
-  useEffect(() => {
-    void (async () => { setSys(await apiSystemInfo()); })();
-    const id = window.setInterval(async () => {
-      setSys(await apiSystemInfo());
-      setNow(new Date());
-      setNet(await netRate());
-    }, 2000);
-    return () => window.clearInterval(id);
-  }, []);
-
-  useEffect(() => {
-    let cancelled = false;
-    void (async () => {
-      if (!path) { if (!cancelled) setFs(""); return; }
-      const f = await pathFsType(path);
-      if (!cancelled) setFs(f);
-    })();
-    return () => { cancelled = true; };
-  }, [path]);
-
-  const pad = (n: number) => n.toString().padStart(2, "0");
-  const clock = `${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
-  const cpu = sys ? `${sys.cpu_pct.toFixed(0).padStart(2, "0")}%` : "—";
-  const memPct = sys ? `${sys.mem_pct.toFixed(0)}%` : "—";
-  const memUsed = sys ? formatMemGB(sys.mem_used) : "—";
-  const uptime = sys ? formatUptime(sys.uptime_s) : "—";
-  const branch = gitInfo?.branch ?? "—";
-  const aheadParts: string[] = [];
-  if (gitInfo) {
-    if (gitInfo.ahead > 0) aheadParts.push(`↑${gitInfo.ahead}`);
-    if (gitInfo.behind > 0) aheadParts.push(`↓${gitInfo.behind}`);
-    if (gitInfo.dirty > 0) aheadParts.push(`●${gitInfo.dirty}`);
-  }
-  const aheadStr = aheadParts.join(" ");
-  const fsStr = fs || "—";
-  const netStr = net ? `↓${formatBytesRate(net.down_bps)} ↑${formatBytesRate(net.up_bps)}` : "—";
-
-  const numStyle = (ch: number): React.CSSProperties => ({
-    display: "inline-block",
-    minWidth: `${ch}ch`,
-    textAlign: "right",
-  });
-
-  return (
-    <div className="statusbar">
-      <div className="sb-seg mode">READY</div>
-      <div className="sb-seg"><span className="lbl">▸</span><span className="val">{path}</span></div>
-      <div className="sb-seg accent"><span className="lbl">⎇</span><span className="val">{branch}</span>{aheadStr && <span style={{color:"var(--fg-3)"}}>{aheadStr}</span>}</div>
-      <div className="sb-seg"><span className="lbl">sel</span><span className="val" style={numStyle(4)}>{selectedCount}</span><span style={{color:"var(--fg-3)"}}>/ <span style={numStyle(4)}>{totalCount}</span></span></div>
-      <div className="sb-seg"><span className="lbl">Σ</span><span className="val" style={numStyle(8)}>{totalSize}</span></div>
-      <div className="spacer"></div>
-      <div className="sb-seg"><span className="lbl">fs</span><span className="val" style={numStyle(5)}>{fsStr}</span></div>
-      <div className="sb-seg warn"><span className="lbl">mem</span><span className="val" style={numStyle(4)}>{memPct}</span></div>
-      <div className="sb-seg ok"><span className="lbl">cpu</span><span className="val" style={numStyle(4)}>{cpu}</span></div>
-      <div className="sb-seg"><span className="lbl">mem</span><span className="val" style={numStyle(4)}>{memUsed}</span></div>
-      <div className="sb-seg"><span className="lbl">i/o</span><span className="val">▁▂▃▅▂▁</span></div>
-      <div className="sb-seg"><span className="lbl">net</span><span className="val" style={numStyle(13)}>{netStr}</span></div>
-      <div className="sb-seg" style={{cursor:"pointer"}} onClick={onToggleTerm}><span className="val" style={{color:"var(--accent)"}}>⌨ term</span></div>
-      <div className="sb-seg"><span className="lbl">up</span><span className="val" style={numStyle(8)}>{uptime}</span></div>
-      <div className="sb-seg"><span className="val" style={numStyle(8)}>{clock}</span></div>
-    </div>
-  );
-}
-
 // The real embedded terminal drawer now lives in src/Terminal.tsx and is
 // mounted by App.tsx. It talks to the Rust PTY layer via pty_spawn / pty_write
 // / pty_resize / pty_kill and the `pty-data` event.
@@ -1261,4 +1160,8 @@ export interface TweakState extends LookState {
   showSidebar: boolean;
   showInspector: boolean;
   showStatusBar: boolean;
+  /** What the status bar shows (statusItems.ts). */
+  statusItems: StatusItem[];
+  /** The tags offered whether used or not (Sidebar.tsx). */
+  tagSet: TagSet;
 }

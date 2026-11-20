@@ -108,3 +108,11 @@ Inter-|   Receive                                                |  Transmit
         assert!(sample_net_octets().is_ok());
     }
 }
+
+#[test]
+fn path_space_reads_the_volume_of_a_folder() {
+    let dir = std::env::temp_dir();
+    let space = super::path_space(dir.to_string_lossy().into_owned()).expect("the temp dir's volume has a size");
+    assert!(space.total > 0 && space.free <= space.total, "{space:?}");
+    assert_eq!(super::path_space("/no/such/folder/glasshouse-test".into()), None);
+}

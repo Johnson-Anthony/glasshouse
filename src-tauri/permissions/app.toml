@@ -31,6 +31,8 @@ commands.allow = [
   "cancel_op",
   "file_stat_extended",
   "path_fs_type",
+  "path_space",
+  "desktop_places",
   "trash_dir",
   "trash_list",
   "trash_unsupported",

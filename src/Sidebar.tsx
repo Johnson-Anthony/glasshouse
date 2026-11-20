@@ -28,16 +28,37 @@ function formatSidebarBytes(n: number): string {
   return `${v.toFixed(1)}${units[ui]}`;
 }
 
-export const SEED_TAGS: { color: string; label: string }[] = [
-  { color: "var(--magenta)", label: "project" },
-  { color: "var(--green)",   label: "school"  },
-  { color: "var(--red)",     label: "secret"  },
-  { color: "var(--yellow)",  label: "review"  },
-  { color: "var(--cyan)",    label: "archive" },
-];
+/** Which tags the sidebar and the tag picker always offer, used or not:
+ *  a generic set for new users; settings saved before it keep the
+ *  original five (TweakState.tagSet). */
+export type TagSet = "standard" | "classic";
 
+export const TAG_SETS: Record<TagSet, readonly { color: string; label: string }[]> = {
+  standard: [
+    { color: "var(--red)",     label: "important" },
+    { color: "var(--yellow)",  label: "todo"      },
+    { color: "var(--blue)",    label: "work"      },
+    { color: "var(--green)",   label: "personal"  },
+    { color: "var(--cyan)",    label: "archive"   },
+  ],
+  classic: [
+    { color: "var(--magenta)", label: "project" },
+    { color: "var(--green)",   label: "school"  },
+    { color: "var(--red)",     label: "secret"  },
+    { color: "var(--yellow)",  label: "review"  },
+    { color: "var(--cyan)",    label: "archive" },
+  ],
+};
+
+/** The tag set of saved settings (null: none saved, a new user). */
+export function loadTagSet(saved: Record<string, unknown> | null): TagSet {
+  if (!saved) return "standard";
+  return saved.tagSet === "standard" || saved.tagSet === "classic" ? saved.tagSet : "classic";
+}
+
+/** Every label of both sets keeps its color, whichever set is offered. */
 export const TAG_COLOR_MAP: Record<string, string> = Object.fromEntries(
-  SEED_TAGS.map(t => [t.label, t.color]),
+  [...TAG_SETS.classic, ...TAG_SETS.standard].map(t => [t.label, t.color]),
 );
 
 export interface SavedRemote {
@@ -77,6 +98,8 @@ export interface SidebarProps {
   pins: string[];
   onAddPin: () => void;
   tags: Record<string, string[]>;
+  /** The tags offered whether used or not. */
+  tagSet?: TagSet;
   onTagFilter?: (tag: string) => void;
   activeTagFilter?: string | null;
   savedRemotes: SavedRemote[];
@@ -146,7 +169,7 @@ function loadSbOrder(): SbGroupKey[] {
   } catch { return SB_GROUP_DEFAULTS; }
 }
 
-export function Sidebar({ activePath, onGoTo, onOpenFile, onRowContext, pins, onAddPin, tags, onTagFilter, activeTagFilter, savedRemotes, onOpenConnectDialog, onRemoteClick, sidebarRootRef, onActivate, onPickTreeRoot }: SidebarProps) {
+export function Sidebar({ activePath, onGoTo, onOpenFile, onRowContext, pins, onAddPin, tags, tagSet = "standard", onTagFilter, activeTagFilter, savedRemotes, onOpenConnectDialog, onRemoteClick, sidebarRootRef, onActivate, onPickTreeRoot }: SidebarProps) {
   const sidebarRef = useRef<HTMLElement>(null);
   useEffect(() => {
     if (!sidebarRootRef) return;
@@ -461,9 +484,10 @@ export function Sidebar({ activePath, onGoTo, onOpenFile, onRowContext, pins, on
         counts[label] = (counts[label] ?? 0) + 1;
       }
     }
-    const seedLabels = new Set(SEED_TAGS.map(s => s.label));
+    const seed = TAG_SETS[tagSet];
+    const seedLabels = new Set(seed.map(s => s.label));
     const rows: { label: string; color: string; count: number }[] = [];
-    for (const s of SEED_TAGS) {
+    for (const s of seed) {
       rows.push({ label: s.label, color: s.color, count: counts[s.label] ?? 0 });
     }
     const userLabels = Object.keys(counts).filter(k => !seedLabels.has(k)).sort();
@@ -471,7 +495,7 @@ export function Sidebar({ activePath, onGoTo, onOpenFile, onRowContext, pins, on
       rows.push({ label: k, color: TAG_COLOR_MAP[k] ?? "var(--fg-2)", count: counts[k] });
     }
     return rows;
-  }, [tags]);
+  }, [tags, tagSet]);
 
   // Flat list of keyboard-navigable rows in render order. Respects the
   // user's group order and skips collapsed groups so keyboard nav stays in

@@ -21,7 +21,7 @@ Glasshouse is a desktop file manager built with Tauri 2 (Rust) and React 18 (Typ
 - **Tags and bookmarks**, with sidebar filters for tags.
 - **Search**: fuzzy search in the current folder, and find in files.
 - **Themes**: 8 color themes. Dialogs and context menus are drawn by the app, so they follow the theme.
-- **Inspector and status bar**: file details and previews (text, image, PDF, audio, hex), plus disk, memory, CPU and network stats.
+- **Inspector and status bar**: file details and previews (text, image, PDF, audio, hex); the selection's size and free space, plus memory, CPU and network stats if you want them.
 
 ## Stack
 

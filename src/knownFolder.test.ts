@@ -1,13 +1,14 @@
 // @vitest-environment happy-dom
-// knownFolder: Go → Desktop, Documents, Downloads and Pictures ask Tauri's path
-// API where the OS keeps them (OneDrive on Windows, localised XDG folders on
-// Linux), and fall back to home + the English name when it has none.
+// knownFolder: Go → Desktop, Documents, Downloads and Pictures, and a first
+// run's pins (Music and Videos too), ask Tauri's path API where the OS keeps
+// them (OneDrive on Windows, localised XDG folders on Linux), and fall back
+// to home + the English name when it has none.
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const path = vi.hoisted(() => {
   // api.ts only calls the backend inside the app.
   (window as unknown as { __TAURI_INTERNALS__: object }).__TAURI_INTERNALS__ = {};
-  return { desktopDir: vi.fn(), documentDir: vi.fn(), downloadDir: vi.fn(), pictureDir: vi.fn() };
+  return { audioDir: vi.fn(), desktopDir: vi.fn(), documentDir: vi.fn(), downloadDir: vi.fn(), pictureDir: vi.fn(), videoDir: vi.fn() };
 });
 vi.mock("@tauri-apps/api/path", () => path);
 const core = vi.hoisted(() => ({ invoke: vi.fn() }));
@@ -26,10 +27,14 @@ describe("knownFolder", () => {
     path.documentDir.mockResolvedValue("C:\\Users\\me\\OneDrive\\Documents");
     path.downloadDir.mockResolvedValue("/home/me/Téléchargements");
     path.pictureDir.mockResolvedValue("/home/me/Bilder");
+    path.audioDir.mockResolvedValue("/home/me/Musik");
+    path.videoDir.mockResolvedValue("C:\\Users\\me\\Videos");
     expect(await knownFolder("Desktop")).toBe("/home/me/Schreibtisch");
     expect(await knownFolder("Documents")).toBe("C:\\Users\\me\\OneDrive\\Documents");
     expect(await knownFolder("Downloads")).toBe("/home/me/Téléchargements");
     expect(await knownFolder("Pictures")).toBe("/home/me/Bilder");
+    expect(await knownFolder("Music")).toBe("/home/me/Musik");
+    expect(await knownFolder("Videos")).toBe("C:\\Users\\me\\Videos");
   });
 
   it("falls back to home + the English name when the OS has none set", async () => {
