@@ -118,7 +118,7 @@ These drive the real app, built with `pnpm tauri build --debug --no-bundle`, thr
   - the window renders with no notice, pane error or dialog;
   - Ctrl+L, a typed fixture path and Enter list the fixture's entries;
   - the sidebar's DEVICES lists `/` or `C:\`, and the tree shows home with Documents and Downloads;
-  - there are no uncaught errors or unhandled rejections from the session's start. On Windows, msedgedriver's browser log (`ms:loggingPrefs`) also covers the time before that.
+  - there are no uncaught errors or unhandled rejections from the session's start. On Windows, msedgedriver's browser log (`ms:loggingPrefs`) also covers the time before that, and any Content Security Policy violation fails the test too.
 - **Artifacts:** `e2e/artifacts/` (ignored by git) gets them on every run:
   - a webview screenshot after each test, and `desktop.png`, taken while the app is open;
   - `driver-and-app.log` (both drivers' output and, on Linux, the app's stderr; on Windows it's usually empty);
