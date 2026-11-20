@@ -1,8 +1,10 @@
 /* glasshouse file manager — theme tokens
-   Each theme is a set of CSS custom properties.
-   Applied by setting data-theme="<name>" on <html>. Each theme names its
-   color-scheme (dark or light), which native controls follow and App passes
-   on to the window. */
+   Each theme is a set of CSS custom properties, applied by setting
+   data-theme="<id>" on <html> (or on any element, as Preferences' swatches
+   do). Each theme names its color-scheme (dark or light), which native
+   controls follow and App passes on to the window. src/themes.ts lists them
+   with their names and groups; themes.test.ts checks every one meets WCAG AA
+   for body text. Custom themes are added at run time (src/userThemes.ts). */
 
 :root {
   /* default to tokyo-night */
@@ -30,6 +32,16 @@
   --magenta: #bb9af7;
   --glow: 0 0 0 transparent;
 }
+
+/* Tokens a theme may leave out. --on-accent is text on an accent fill
+   (active buttons); here, on every themed element, so a swatch's own
+   background is used rather than the page's. */
+:root, [data-theme] {
+  --on-accent: var(--bg-0);
+  --glow: 0 0 0 transparent;
+}
+
+/* ---- The original eight, unchanged ---- */
 
 [data-theme="tokyo-night"] {
   color-scheme: dark;
@@ -232,3 +244,6 @@
   --magenta: #ff71ce;
   --glow: 0 0 6px rgba(255, 113, 206, 0.3);
 }
+
+/* The landing page's copy (docs/assets/themes.css) ends here: it offers
+   only the eight above. vite.site.config.ts cuts at the next line. */

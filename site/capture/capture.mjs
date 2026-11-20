@@ -215,8 +215,9 @@ async function shootThemes(cdp, base, outDir) {
     await load(cdp, `${base}demo/?theme=${job.theme}&look=${job.look}`);
     await evaluate(cdp, `document.fonts.ready.then(() => true)`);
     if (job.prefs) {
-      await evaluate(cdp, `window.dispatchEvent(new KeyboardEvent("keydown", { key: ",", code: "Comma", ctrlKey: true, bubbles: true })), true`);
+      await evaluate(cdp, `document.body.dispatchEvent(new KeyboardEvent("keydown", { key: ",", code: "Comma", ctrlKey: true, bubbles: true })), true`);
       for (let i = 0; i < 50 && !(await evaluate(cdp, `!!document.querySelector(".prefs")`)); i++) await sleep(100);
+      if (!(await evaluate(cdp, `!!document.querySelector(".prefs")`))) throw new Error(`${name}: Preferences didn't open`);
     } else {
       const ok = await evaluate(cdp, `window.glasshouseDemo.runScene("hero", { speed: 0.5, cursor: false })`);
       if (!ok) throw new Error("scene hero did not finish");

@@ -1,11 +1,12 @@
 #!/bin/sh
 # Rebuild the demo's woff2 font subsets (site/demo/fonts) from the app's Nerd
 # Font (woff2), keeping Latin, the symbol blocks the UI and the demo shell draw,
-# and every non-ASCII character used in src/ and site/. Needs uv (uvx).
+# and every non-ASCII character used in src/ and site/, including CSS escapes
+# (the Nerd Font icon set's glyphs, `--nf: "\e628"`). Needs uv (uvx).
 set -e
 cd "$(dirname "$0")/.."
 unicodes=$(python3 - <<'PY'
-import pathlib
+import pathlib, re
 cps = set(range(0x20, 0x7f)) | set(range(0xa0, 0x100))
 for a, b in [(0x2010, 0x2027), (0x2030, 0x205e), (0x2190, 0x21ff), (0x2300, 0x23ff),
              (0x2500, 0x259f), (0x25a0, 0x25ff), (0x2600, 0x26ff), (0x2700, 0x27bf)]:
@@ -13,7 +14,10 @@ for a, b in [(0x2010, 0x2027), (0x2030, 0x205e), (0x2190, 0x21ff), (0x2300, 0x23
 for root in ["src", "site"]:
     for p in pathlib.Path(root).rglob("*"):
         if p.suffix in {".ts", ".tsx", ".css", ".html"}:
-            cps |= {ord(c) for c in p.read_text(encoding="utf-8", errors="ignore") if ord(c) > 0x7e}
+            text = p.read_text(encoding="utf-8", errors="ignore")
+            cps |= {ord(c) for c in text if ord(c) > 0x7e}
+            if p.suffix == ".css":
+                cps |= {int(h, 16) for h in re.findall(r"\\([0-9a-fA-F]{4,6})", text) if int(h, 16) > 0x7e}
 print(",".join(f"U+{c:04X}" for c in sorted(cps)))
 PY
 )
