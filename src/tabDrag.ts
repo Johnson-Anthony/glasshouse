@@ -1,13 +1,14 @@
 // Dragging a tab: within its tab bar to reorder it, onto the other pane's
-// tab bar or file area, or to the edge of the file area to split
-// (tabMoves.ts).
+// tab bar or file area, to the edge of the file area to split, or out of
+// the window into another glasshouse window or a new one (tabMoves.ts).
 // Pointer events, like the file pane's drag: HTML5 drag and drop doesn't
 // reach the page on Windows while Tauri takes file drops (dragDropEnabled).
 //
 // What takes a tab is marked in the DOM: a tab bar has `data-tab-bar` (its
 // pane) and its tabs `data-tab-index`; a pane's file area has
 // `data-tab-pane`.
-import type { Side } from "./tabLayout";
+import { leftWindow } from "./dragDrop";
+import type { Landing, Side } from "./tabLayout";
 
 export type TabDropTarget =
   /** Between two tabs of a tab bar: `gap` 0 is before the first. */
@@ -135,24 +136,78 @@ export interface TabDragHooks {
   accepts: (t: TabDropTarget) => boolean;
   onDrop: (t: TabDropTarget) => void;
   onWindowMove: () => void;
+  /** Out of the window, for another window or a new one (tabMoves.ts):
+   *  - "handoff" (Linux): at the window's edge, with the button still down,
+   *    the drag becomes the OS's (`onHandOff`), and the windows under it
+   *    answer from then on;
+   *  - "track" (Windows, where the webview keeps the mouse while the button
+   *    is down): `onLeave` when the pointer first goes out, `onOutsideMove`
+   *    each time it moves out there, `onReturn` when it comes back in (or
+   *    Escape), and `onReleaseOutside` when it's let go out there;
+   *  - "none" (unset): let go outside the window, the tab stays. */
+  outside?: "handoff" | "track" | "none";
+  onHandOff?: () => void;
+  onLeave?: () => void;
+  onOutsideMove?: () => void;
+  onReturn?: () => void;
+  onReleaseOutside?: () => void;
+}
+
+/** WebKit lets a selection begin with a press in text that can't be
+ *  selected, and grows it as the pointer moves with the button down: a tab
+ *  dragged out of the window below selected the inspector's text. From a
+ *  press on a tab until it ends, no selection starts, and one the drag made
+ *  anyway is dropped. The press ends with its release; after a hand-off to
+ *  the OS, with the release the backend hands the webview when the OS drag
+ *  ends (src-tauri/src/tab_drag/gtk_dnd.rs). */
+function keepSelection(): void {
+  const had = !(window.getSelection()?.isCollapsed ?? true);
+  const block = (e: Event) => e.preventDefault();
+  const end = () => {
+    window.removeEventListener("selectstart", block, true);
+    window.removeEventListener("pointerup", end, true);
+    window.removeEventListener("pointercancel", end, true);
+    const s = window.getSelection();
+    if (!had && s && !s.isCollapsed) s.removeAllRanges();
+  };
+  window.addEventListener("selectstart", block, true);
+  window.addEventListener("pointerup", end, true);
+  window.addEventListener("pointercancel", end, true);
 }
 
 /** Starts watching a press on a tab; nothing happens unless it moves past
  *  the threshold with the button down. */
 export function beginTabDrag(down: { clientX: number; clientY: number; button: number }, h: TabDragHooks): void {
   if (down.button !== 0) return;
+  keepSelection();
   const feedback = new TabDropFeedback();
+  const mode = h.outside ?? "none";
   let dragging = false;
+  /** Track mode: the pointer is out of the window. */
+  let out = false;
   const outsideNow = (x: number, y: number) => x < 0 || y < 0 || x >= window.innerWidth || y >= window.innerHeight;
 
   const stop = () => {
     window.removeEventListener("pointermove", onMove, true);
     window.removeEventListener("pointerup", onUp, true);
     window.removeEventListener("pointercancel", onCancel, true);
+    window.removeEventListener("mouseout", onOut, true);
     window.removeEventListener("keydown", onKey, true);
     window.removeEventListener("blur", onCancel);
     feedback.clear();
     document.documentElement.classList.remove("tab-dragging");
+  };
+  /** Track mode: the pointer is back in, or the drag is over without a
+   *  release outside. */
+  const back = () => {
+    if (!out) return;
+    out = false;
+    h.onReturn?.();
+  };
+  const handOff = () => {
+    stop();
+    swallowClick();
+    h.onHandOff?.();
   };
   // The click that ends a drag isn't one: it would select the tab under it.
   const swallowClick = () => {
@@ -172,10 +227,22 @@ export function beginTabDrag(down: { clientX: number; clientY: number; button: n
       }
       document.documentElement.classList.add("tab-dragging");
     }
-    if (outsideNow(ev.clientX, ev.clientY)) {
-      feedback.clear();
+    if (mode === "handoff" && leftWindow(ev.clientX, ev.clientY, window.innerWidth, window.innerHeight)) {
+      handOff();
       return;
     }
+    if (outsideNow(ev.clientX, ev.clientY)) {
+      feedback.clear();
+      if (mode === "track") {
+        if (!out) {
+          out = true;
+          h.onLeave?.();
+        }
+        h.onOutsideMove?.();
+      }
+      return;
+    }
+    back();
     const t = tabDropAt(ev.clientX, ev.clientY, h.split, h.pane);
     feedback.label(ev.clientX, ev.clientY, h.label);
     feedback.show(t && h.accepts(t) ? t : null);
@@ -184,21 +251,90 @@ export function beginTabDrag(down: { clientX: number; clientY: number; button: n
     stop();
     if (!dragging) return;
     swallowClick();
-    // Let go outside the window: nothing takes it, and it stays.
-    if (outsideNow(ev.clientX, ev.clientY)) return;
+    if (outsideNow(ev.clientX, ev.clientY)) {
+      // Track mode hands it to the backend; else nothing takes it, and it
+      // stays.
+      if (mode === "track") {
+        out = false;
+        h.onReleaseOutside?.();
+      }
+      return;
+    }
+    back();
     const t = tabDropAt(ev.clientX, ev.clientY, h.split, h.pane);
     if (t && h.accepts(t)) h.onDrop(t);
   };
-  const onCancel = () => stop();
+  const onCancel = () => {
+    stop();
+    back();
+  };
+  // The pointer left the webview, which may stop saying where it is.
+  const onOut = (ev: MouseEvent) => {
+    if (dragging && mode === "handoff" && ev.relatedTarget === null && outsideNow(ev.clientX, ev.clientY)) handOff();
+  };
   const onKey = (ev: KeyboardEvent) => {
     if (ev.key !== "Escape") return;
     ev.preventDefault();
     ev.stopPropagation();
-    stop();
+    onCancel();
   };
   window.addEventListener("pointermove", onMove, true);
   window.addEventListener("pointerup", onUp, true);
   window.addEventListener("pointercancel", onCancel, true);
+  window.addEventListener("mouseout", onOut, true);
   window.addEventListener("keydown", onKey, true);
   window.addEventListener("blur", onCancel);
+}
+
+/** The window's tab bars and file areas, in CSS pixels, for the backend's
+ *  answer to a tab dragged from another window (`zone_at` in
+ *  src-tauri/src/tab_drag.rs). */
+export interface DropZones {
+  zoom: number;
+  split: boolean;
+  bars: { pane: number; rect: [number, number, number, number]; tabs: [number, number][] }[];
+  panes: { pane: number; rect: [number, number, number, number] }[];
+}
+
+function boxOf(el: Element): [number, number, number, number] {
+  const r = el.getBoundingClientRect();
+  return [r.left, r.top, r.width, r.height];
+}
+
+export function dropZones(split: boolean, zoom: number, doc: Document = document): DropZones {
+  return {
+    zoom,
+    split,
+    bars: [...doc.querySelectorAll<HTMLElement>("[data-tab-bar]")].slice(0, 2).map(el => ({
+      pane: numAttr(el, "data-tab-bar"),
+      rect: boxOf(el),
+      tabs: [...el.querySelectorAll<HTMLElement>("[data-tab-index]")].map(t => {
+        const r = t.getBoundingClientRect();
+        return [r.left, r.width] as [number, number];
+      }),
+    })),
+    panes: [...doc.querySelectorAll<HTMLElement>("[data-tab-pane]")].slice(0, 2).map(el => ({ pane: numAttr(el, "data-tab-pane"), rect: boxOf(el) })),
+  };
+}
+
+/** Where a new window's first tab is from the window's top-left, in the
+ *  window's own pixels (CSS pixels at `zoom`): a torn-off tab's window opens
+ *  with it under the pointer. The title bar's tab strip is where it is in
+ *  any window, split or not (split, the strip is empty). */
+export function tabAnchor(zoom: number, doc: Document = document): [number, number] {
+  const strip = doc.querySelector(".titlebar .tabs") ?? doc.querySelector(".titlebar");
+  if (!strip) return [0, 0];
+  const r = strip.getBoundingClientRect();
+  return [(r.left + 40) * zoom, (r.top + r.height / 2) * zoom];
+}
+
+/** The mark for a tab from another window at `at` (the backend's answer). */
+export function targetOf(at: Landing, doc: Document = document): TabDropTarget | null {
+  if (at.kind === "bar") {
+    const el = doc.querySelector<HTMLElement>(`[data-tab-bar="${at.pane}"]`);
+    return el && { kind: "bar", pane: at.pane, gap: at.gap, el };
+  }
+  const el = doc.querySelector<HTMLElement>(`[data-tab-pane="${at.kind === "split" ? 0 : at.pane}"]`);
+  if (!el) return null;
+  return at.kind === "split" ? { kind: "edge", side: at.side, el } : { kind: "pane", pane: at.pane, el };
 }

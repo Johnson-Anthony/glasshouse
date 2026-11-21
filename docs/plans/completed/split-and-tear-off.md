@@ -41,7 +41,42 @@ Why, and what was considered and dropped: `docs/decisions/2026-11-20-split-and-t
     - Wayland focus (a nested niri, or GNOME and KDE): L13.2;
     - a real update restart with several windows: W15.11, L12.3.
   - Known and accepted: a launch that gives up waiting on a slow (not hung) app opens its own window, and the app may open one too; a guest's windows opened before it became the owner don't get their size and place saved.
-- [ ] **Phase 3, tear-off in one process:** design below, after phase 2.
+- [x] **Phase 3, tear-off in one process:** built on `claude/tab-tear-off` from main at c099cfa, as planned below with the lead's answers of 11-21, tested, handed off to the lead for merging.
+  - Decision: `docs/decisions/2026-11-21-split-and-tear-off-tear-off.md`.
+  - The lead's three requirements:
+    - the held record is cleared on every ending, and the source keeps its tab unless a move is confirmed (cargo tests, one per ending);
+    - `tab_drag_hover` goes out only when the pointer has moved, and stops once it's back in or the button is up (`tabMoves.ts`, vitest);
+    - Escape during the OS drag cancels on Linux (checked under Xvfb).
+  - Checks at handoff, all passing:
+    - `pnpm build`;
+    - vitest: 1215 tests (2 skipped);
+    - `check:wiring`;
+    - `notices --check` (no new crate or package);
+    - `cargo clippy --all-targets` with `-D warnings`;
+    - `cargo test`: 414 tests (5 ignored);
+    - `site:build` and `site:capture check` (25 checks);
+    - `pnpm e2e`: 11 of 11, including "move to new window", on Linux under Xvfb;
+    - `tab_drag/win32.rs` type-checked for `x86_64-pc-windows-msvc` with clippy `-D warnings`, through a scratch crate, along with the HWND comparison against tauri's windows 0.62 type.
+  - By hand under Xvfb (XDND, xdotool) on a private bus, with a debug build and two or three windows:
+    - a tab dropped on another window's tab bar (at the end, and at gap 0), on the middle of its file list (appended), and on its left and right quarters (split);
+    - dropped on another window's sidebar, and on the empty screen: a new window, with the pointer over its tab, and inside the screen near its edge;
+    - Escape while outside: the mark and icon go, nothing moves;
+    - dropped back on its own window: a move inside it;
+    - the folder, sort and Back history went with it, and the window that took it got the focus;
+    - a split pane's only tab moved out: the source unsplit;
+    - files dragged in from another GTK app still arrived;
+    - `session.json` after the moves: each tab in the report of the window it went to, once.
+  - Found by hand and fixed:
+    - the drag icon was cut to "…" (`gtk_dnd::icon`);
+    - after a tab drag, the next drag in that window didn't start, because WebKit never saw the release (`gtk_dnd::release`, a synthetic release, and the page swallows its click);
+    - a drag out of the window selected text (`tabDrag.ts`'s `keepSelection`).
+  - Wayland: the nested niri with a virtual pointer couldn't complete any drag between two clients, a plain GTK 3 file drag included, so what a drop on nothing reports there is from GTK 3's source. The choice and the evidence are in the decision note. Hand checks on GNOME and KDE: L9.14.
+  - Not built or run:
+    - anything on Windows: the `cfg(windows)` paths of `tab_drag.rs` and the full app are first built by the windows-latest CI job; W8.9–W8.15 and W15.12;
+    - a real Wayland compositor with a mouse: L9.11–L9.16 on GNOME and KDE.
+  - Found, not fixed (for the lead):
+    - `commands/drag_out.rs` starts its file drag-out the same way and likely leaves WebKit's button state stuck too; it would need the same release;
+    - a long path widens the page past a narrow window, which pushes the Inspector, the search box and the window buttons off screen (it was there before this branch).
 
 # Phase 1: split view
 
@@ -224,3 +259,46 @@ From the lead's review (11-20) of the cross-process design:
   - cargo tests of the zone hit test and placement;
   - e2e: Move to New Window (the tab leaves, a second window lists it);
   - by hand: a real drag between two windows under Xvfb (XDND) and in nested niri.
+
+## Phase 3 plan (11-21)
+
+Built on `claude/tab-tear-off` from main at c099cfa, with the lead's answers of 11-21.
+
+**What moves, and how:**
+- The tab's record is `tabTransfer.ts`'s (folder, sort, back and forward history, filter text, tag filter, private). The source page hands it to the backend when the drag leaves its window (or on Move to New Window), and the backend keeps it in memory with the source window's label and the tab's id until the drag ends. The receiving page gets it in its `tab-drop` event (or, in a new window, from `window_start`), checks it field by field (`parseTransfer`) and makes a new tab from it. No flags, stdin or files.
+- The source removes its tab only once the move is done (`tab-drag-end` with `moved`, or the command's answer). Its last tab going closes the window. Since a window's only tab moves the window, that happens only when its other tabs closed during the drag.
+- Private tabs stay private, and stay out of the session, since each page reports its own tabs as before. A new window's registry entry starts with a report made from the tab (none for a private one), so the session has the tab from the moment the window is made.
+
+**Linux (X11 and Wayland):** `tab_drag/gtk_dnd.rs`.
+- At the window's edge with the button down (the WIP's "handoff" mode), the page calls `tab_drag_start`: a GTK drag from the GTK window, as `drag_out.rs` starts one, with one target, `application/x-glasshouse-tab`, action MOVE, and the tab's name as the drag icon. Every window is told (`tab-drag-began`) and sends its drop zones.
+- Each window's WebKitWebView gets `drag-motion`, `drag-leave` and `drag-drop` handlers, attached as the window is made. They act only when the drag offers that target and comes from this process (`gtk_drag_get_source_widget`), and stop the signal there, so WebKit doesn't see it. Any other drag goes on to wry and WebKit as before.
+- `drag-motion` hit-tests the registered zones (CSS pixels and the window's zoom) and answers MOVE or nothing at once; the page gets `tab-drag-over` with the zone, to draw the mark. Over the tab's own window it always answers MOVE, and the page hit-tests its own DOM with phase 1's rules: a drop back on its own window is a move inside it or nothing, never a new window.
+- `drag-drop` in another window sends it `tab-drop` with the record and the zone, and the backend marks the drag taken. The window takes the focus.
+- At the source: `drag-end` after a drop that was taken sends `tab-drag-end` `moved` (or `home`). `drag-failed` with `NO_TARGET` opens a new window at the pointer with the tab, then sends `moved`. `USER_CANCELLED` sends `cancelled`. Checked in nested niri what Wayland reports; the decision note says what's done with it.
+
+**Windows:** `tab_drag/win32.rs`.
+- The page keeps the pointer (the WIP's "track" mode). Outside its window it calls `tab_drag_start` once (no OS drag: the record is kept, and every window sends its zones) and `tab_drag_hover` only when the pointer has moved (one call in flight, at most one queued), stopping once the pointer is back in or the button is up, so the window under the cursor draws the mark.
+- `GetCursorPos`, `WindowFromPoint` and `GetAncestor(GA_ROOT)`, matched against the app's windows' HWNDs; the point goes to that window's CSS pixels through its inner position, scale factor and zoom.
+- On release outside, `tab_drag_release`: over another window's zone, `tab-drop` there and `moved`; anywhere else (another window's sidebar or toolbar included, as Chrome does), a new window at the cursor. Back inside its own window, or Escape, `tab_drag_cancel`.
+- Not built here: the win32 calls are type-checked through a scratch crate.
+
+**Zones** (the same as phase 1's inside a window): over a tab bar, insert at the gap; over a pane's file area, unsplit, the outer quarter splits with the tab and the middle appends it; split, the pane appends it. The hit test is in Rust (`zone_at`), and the page applies its answer (`landTab`).
+
+**A new window at the drop:** the source window's size, placed so the pointer sits over the first tab of its title bar (an anchor the page sends in CSS pixels), then fit to the work area under the pointer (`window_fit::place`, Keep). The window-state plugin's restore for a reused label is overridden. On Wayland the compositor places it (the pointer position is unknown there).
+
+**Move to New Window** on the tab menu (hidden for a window's only tab), through `tab_to_new_window`, which opens the window where the OS puts it and takes the focus. The keyboard and accessibility path.
+
+**Files:**
+- Rust, new: `src-tauri/src/tab_drag.rs` (state, zones, hit test, placement, commands), `tab_drag/gtk_dnd.rs`, `tab_drag/win32.rs`.
+- Rust, changed: `app_windows.rs` (`Start::Transfer`, a placement for a torn-off window, the handlers attached to each window, zones dropped on close and reload), `lib.rs`, `permissions/app.toml` (the `launch` group).
+- Frontend: `tabDrag.ts` (the two outside modes), `tabMoves.ts` (the outgoing drag, Move to New Window, removal, and the receiving window's zones, marks and drop; no separate `tabTearOff.ts`), `tabTransfer.ts` (`parseTransfer`), `tabLayout.ts` (`splitWith`, `landTab`), `api.ts`, `App.tsx` (the `transfer` start, the tab menu), `data.ts`, `handlers/{target,app,types}.ts`, `site/demo/mock/backend.ts`.
+- e2e: a "move to new window" flow.
+- Docs: `docs/decisions/2026-11-21-split-and-tear-off-tear-off.md`, ARCHITECTURE, `docs/testing/` (Windows, and Wayland on GNOME and KDE).
+
+**Tests:**
+- vitest: `parseTransfer`; `landTab` and `splitWith`; the receiving handler with a fake `tab-drop`; the source's end (`moved` removes, the last tab closes the window, `cancelled` keeps); the drag controller's handoff and track modes (happy-dom).
+- cargo: `zone_at` (bars and gaps, edges, the middle, split, zoom); the placement (anchor, work area, off screen); the registry's `Transfer` start and its seed report; the record's checks.
+- e2e: Move to New Window: the tab leaves, and a second window lists its folder.
+- By hand: a drag between two windows under Xvfb with xdotool (XDND), and in nested niri; files dropped from another app still arrive.
+
+**Known limit:** the hand-off happens at the window's edge, so a glasshouse window lying over part of the tab's own window is reached only after the pointer leaves the tab's own window.

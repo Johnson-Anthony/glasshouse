@@ -478,6 +478,7 @@ export const CONTEXT_TAB: MenuItemDef[] = [
   { kind: "item", ic: "", label: "Duplicate Tab" },
   { kind: "sep" },
   { kind: "item", ic: "", label: "Move to Other Pane",  action: "Move Tab to Other Pane" },
+  { kind: "item", ic: "", label: "Move to New Window",  action: "Move Tab to New Window" },
 ];
 
 /** The file commands that need a split, which menus built for an unsplit

@@ -19,8 +19,8 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Mutex;
 
 use serde::Serialize;
-use serde_json::Value;
-use tauri::{AppHandle, Manager, State, WebviewWindow, WebviewWindowBuilder};
+use serde_json::{json, Value};
+use tauri::{AppHandle, Manager, PhysicalPosition, PhysicalSize, State, WebviewWindow, WebviewWindowBuilder};
 
 use crate::lock;
 use crate::session::{self, has_tabs, Saved, SavedWindow, Session};
@@ -57,6 +57,19 @@ pub enum Start {
     /// The first window, with no session file yet: the tabs in the v1
     /// localStorage key (0.2 and the builds before one process).
     Legacy,
+    /// A tab moved out of another window (`tab_drag.rs`): its record
+    /// (`src/tabTransfer.ts`), which the page checks field by field.
+    Transfer { tab: Value },
+}
+
+/// What the session keeps for a window made with tab `tab`, until its page
+/// reports: that tab, unless it's private.
+fn seed_report(tab: &Value) -> Value {
+    let private = tab.get("private").and_then(Value::as_bool).unwrap_or(true);
+    match tab.get("path").and_then(Value::as_str) {
+        Some(path) if !private => json!({ "tabs": [{ "path": path, "sort": tab.get("sort").cloned().unwrap_or(Value::Null) }], "active": 0 }),
+        _ => json!({ "tabs": [], "active": 0 }),
+    }
 }
 
 /// The windows, what their pages start with, and their session reports.
@@ -103,6 +116,12 @@ impl Registry {
                 self.reports.insert(label.to_string(), session);
                 self.starts.remove(label);
             }
+            // The session has the tab from now on, so a tab moved to a new
+            // window is never in neither; the page still starts with it.
+            Start::Transfer { tab } => {
+                self.reports.insert(label.to_string(), seed_report(&tab));
+                self.starts.insert(label.to_string(), Start::Transfer { tab });
+            }
             other => {
                 self.reports.remove(label);
                 self.starts.insert(label.to_string(), other);
@@ -114,13 +133,13 @@ impl Registry {
         self.open.iter().any(|l| l == label)
     }
 
-    /// What `label`'s page starts with now: its last report once it has
-    /// one, else what it was opened with.
+    /// What `label`'s page starts with now: what it was opened with until
+    /// it first reports, then its last report.
     pub fn start_of(&self, label: &str) -> Start {
-        if let Some(r) = self.reports.get(label) {
-            return Start::Restore { session: r.clone() };
+        if let Some(s) = self.starts.get(label) {
+            return s.clone();
         }
-        self.starts.get(label).cloned().unwrap_or(Start::Plain)
+        self.reports.get(label).map_or(Start::Plain, |r| Start::Restore { session: r.clone() })
     }
 
     /// The page of `label` reports its tabs. Returns whether the session
@@ -198,13 +217,26 @@ impl Windows {
 }
 
 /// How a window's size and place start (`window_fit.rs`).
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Debug)]
 pub enum Fit {
     /// The first window of a process that owns the session: centered at a
     /// size that fits when nothing is saved for it.
     First,
     /// Any other: where the OS puts it, unless something is saved for it.
     Other,
+    /// A tab's new window (`tab_drag.rs`): this size, and this place where
+    /// the platform has one, whatever the window-state plugin saved for the
+    /// label.
+    Torn(Torn),
+}
+
+/// A torn-off tab's window: its inner size and its outer place, physical
+/// pixels, and the scale they were worked out at.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub struct Torn {
+    pub pos: Option<(i32, i32)>,
+    pub inner: (u32, u32),
+    pub scale: f64,
 }
 
 /// Makes a window for `start`, with `label` or the lowest free one. With
@@ -218,7 +250,11 @@ pub fn open(app: &AppHandle, label: Option<String>, start: Start, token: Option<
         reg.add(&label, start);
         label
     };
-    let made = make(app, &label, token.as_deref());
+    let torn = match fit {
+        Fit::Torn(t) => Some(t),
+        _ => None,
+    };
+    let made = make(app, &label, token.as_deref(), torn);
     let window = match made {
         Ok(w) => w,
         Err(e) => {
@@ -227,7 +263,11 @@ pub fn open(app: &AppHandle, label: Option<String>, start: Start, token: Option<
             return Err(e);
         }
     };
-    window_fit::fit_window(&window, window_fit::start_for(app, &label, owns_geometry(app), fit == Fit::First));
+    crate::tab_drag::attach(&window);
+    match torn {
+        Some(t) => place_torn(&window, t),
+        None => window_fit::fit_window(&window, window_fit::start_for(app, &label, owns_geometry(app), fit == Fit::First)),
+    }
     #[cfg(target_os = "linux")]
     if let Some(t) = &token {
         activation::completed(app, t);
@@ -270,10 +310,31 @@ pub fn register_geometry(app: &AppHandle) -> bool {
     }
 }
 
-fn make(app: &AppHandle, label: &str, token: Option<&str>) -> Result<WebviewWindow, String> {
+/// A torn-off tab's window goes where the drop was, at its source's size,
+/// over what the window-state plugin restored for a label used before.
+fn place_torn(window: &WebviewWindow, t: Torn) {
+    let _ = window.unmaximize();
+    let _ = window.set_size(PhysicalSize::new(t.inner.0, t.inner.1));
+    if let Some((x, y)) = t.pos {
+        let _ = window.set_position(PhysicalPosition::new(x, y));
+    }
+}
+
+fn make(app: &AppHandle, label: &str, token: Option<&str>, torn: Option<Torn>) -> Result<WebviewWindow, String> {
     let mut config = app.config().app.windows.first().cloned().ok_or("no window in the config")?;
     config.label = label.to_string();
     config.create = true;
+    // Made there from the start, so it doesn't show elsewhere first.
+    if let Some(t) = torn.filter(|t| t.scale > 0.0) {
+        config.width = f64::from(t.inner.0) / t.scale;
+        config.height = f64::from(t.inner.1) / t.scale;
+        config.maximized = false;
+        if let Some((x, y)) = t.pos {
+            config.x = Some(f64::from(x) / t.scale);
+            config.y = Some(f64::from(y) / t.scale);
+            config.center = false;
+        }
+    }
     #[cfg(target_os = "linux")]
     if let Some(t) = token {
         activation::before_window(app, t);
@@ -411,6 +472,7 @@ pub fn on_window_event(app: &AppHandle, label: &str, event: &tauri::WindowEvent)
         tauri::WindowEvent::Focused(true) => lock(&app.state::<Windows>().0).focus(label),
         tauri::WindowEvent::Destroyed => {
             forget_backend(app, label);
+            crate::tab_drag::forget(app, label);
             let changed = lock(&app.state::<Windows>().0).close(label);
             if changed {
                 session::schedule(app);
@@ -424,6 +486,7 @@ pub fn on_window_event(app: &AppHandle, label: &str, event: &tauri::WindowEvent)
 /// set up in the backend has no one to answer to.
 pub fn on_page_load(app: &AppHandle, label: &str) {
     forget_backend(app, label);
+    crate::tab_drag::forget(app, label);
 }
 
 fn forget_backend(app: &AppHandle, label: &str) {
@@ -669,6 +732,32 @@ mod tests {
         let saved = reg.saved();
         assert_eq!(saved.windows.len(), 2);
         assert_eq!(saved.focused.as_deref(), Some("main-2"));
+    }
+
+    #[test]
+    fn a_window_made_for_a_moved_tab_is_in_the_session_from_the_start() {
+        let mut reg = Registry::default();
+        reg.add("main", Start::Plain);
+        reg.report("main", tabs("/a"));
+        let tab = json!({ "path": "/b", "sort": { "key": "name", "dir": "asc" }, "back": ["/x"], "forward": [], "search": "", "tagFilter": null, "private": false });
+        reg.add("main-2", Start::Transfer { tab: tab.clone() });
+        // Its page starts with the tab, history and all; the session has the
+        // tab before the page reports.
+        assert_eq!(reg.start_of("main-2"), Start::Transfer { tab: tab.clone() });
+        assert_eq!(reg.start_of("main-2"), Start::Transfer { tab });
+        assert_eq!(reg.saved().windows, [SavedWindow { label: "main".into(), session: tabs("/a") }, SavedWindow { label: "main-2".into(), session: tabs("/b") }]);
+        // Once it reports, a reload keeps what it reported.
+        assert!(reg.report("main-2", tabs("/c")));
+        assert_eq!(reg.start_of("main-2"), Start::Restore { session: tabs("/c") });
+    }
+
+    #[test]
+    fn a_moved_private_tab_stays_out_of_the_session() {
+        let mut reg = Registry::default();
+        reg.add("main", Start::Transfer { tab: json!({ "path": "/secret", "sort": { "key": "name", "dir": "asc" }, "private": true }) });
+        assert_eq!(reg.saved().windows, []);
+        // A record without the flag counts as private: nothing is saved by mistake.
+        assert_eq!(seed_report(&json!({ "path": "/x" })), json!({ "tabs": [], "active": 0 }));
     }
 
     #[test]

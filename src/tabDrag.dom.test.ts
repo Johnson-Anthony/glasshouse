@@ -3,7 +3,7 @@
 // the drag controller driven by pointer events. happy-dom has no layout, so
 // each test gives its elements boxes and answers elementFromPoint itself.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { beginTabDrag, edgeAt, gapAt, tabDropAt, TAB_DRAG_THRESHOLD_PX, type TabDragHooks, type TabDropTarget } from "./tabDrag";
+import { beginTabDrag, dropZones, edgeAt, gapAt, tabAnchor, tabDropAt, targetOf, TAB_DRAG_THRESHOLD_PX, type TabDragHooks, type TabDropTarget } from "./tabDrag";
 import { dropTab, tabAccepts, toOtherPane } from "./tabMoves";
 import { DEFAULT_RATIO, type Layout } from "./tabLayout";
 import { makeTab } from "./tabs";
@@ -174,12 +174,106 @@ describe("beginTabDrag", () => {
     expect(clicked).not.toHaveBeenCalled();
   });
 
+  it("handoff (Linux): at the window's edge the OS takes the drag, and the page lets go of it", () => {
+    const h = hooks({ outside: "handoff", onHandOff: vi.fn() });
+    beginTabDrag({ clientX: 150, clientY: 10, button: 0 }, h);
+    fire("pointermove", 420, 10);
+    expect(h.onHandOff).not.toHaveBeenCalled();
+    fire("pointermove", 420, 0);
+    expect(h.onHandOff).toHaveBeenCalledTimes(1);
+    expect(document.querySelector(".tab-insert, .tab-ghost")).toBeNull();
+    // What the page sees after that is the OS's drag, not this one.
+    fire("pointermove", 420, 10);
+    fire("pointerup", 420, 10);
+    expect(h.onDrop).not.toHaveBeenCalled();
+    expect(h.onHandOff).toHaveBeenCalledTimes(1);
+  });
+
+  it("handoff: the pointer leaving the webview hands it off too", () => {
+    const h = hooks({ outside: "handoff", onHandOff: vi.fn() });
+    beginTabDrag({ clientX: 150, clientY: 10, button: 0 }, h);
+    fire("pointermove", 420, 10);
+    window.dispatchEvent(new MouseEvent("mouseout", { clientX: -3, clientY: 10, relatedTarget: null }));
+    expect(h.onHandOff).toHaveBeenCalledTimes(1);
+  });
+
+  it("track (Windows): out, moving out there, back in, then let go outside", () => {
+    const calls: string[] = [];
+    const h = hooks({
+      outside: "track",
+      onLeave: () => calls.push("leave"),
+      onOutsideMove: () => calls.push("move"),
+      onReturn: () => calls.push("return"),
+      onReleaseOutside: () => calls.push("release"),
+    });
+    beginTabDrag({ clientX: 150, clientY: 10, button: 0 }, h);
+    fire("pointermove", 420, 10);
+    fire("pointermove", -20, 10);
+    fire("pointermove", -40, 10);
+    expect(document.querySelector(".tab-ghost")).toBeNull();
+    fire("pointermove", 420, 10);
+    expect(calls).toEqual(["leave", "move", "move", "return"]);
+    fire("pointermove", -30, 50);
+    fire("pointerup", -30, 50);
+    expect(calls).toEqual(["leave", "move", "move", "return", "leave", "move", "release"]);
+    expect(h.onDrop).not.toHaveBeenCalled();
+  });
+
+  it("track: Escape out there ends it as a return, and a release inside is a drop inside", () => {
+    const calls: string[] = [];
+    const h = hooks({ outside: "track", onLeave: () => calls.push("leave"), onReturn: () => calls.push("return"), onReleaseOutside: () => calls.push("release") });
+    beginTabDrag({ clientX: 150, clientY: 10, button: 0 }, h);
+    fire("pointermove", 420, 10);
+    fire("pointermove", -20, 10);
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    fire("pointerup", -20, 10);
+    expect(calls).toEqual(["leave", "return"]);
+    calls.length = 0;
+    beginTabDrag({ clientX: 150, clientY: 10, button: 0 }, h);
+    fire("pointermove", 420, 10);
+    fire("pointerup", 420, 10);
+    expect(calls).toEqual([]);
+    expect(h.onDrop).toHaveBeenCalledWith(expect.objectContaining({ kind: "bar", pane: 1, gap: 0 }));
+  });
+
   it("only the main button drags", () => {
     const h = hooks();
     beginTabDrag({ clientX: 150, clientY: 10, button: 2 }, h);
     fire("pointermove", 420, 10);
     fire("pointerup", 420, 10);
     expect(h.onDrop).not.toHaveBeenCalled();
+  });
+
+  it("starts no text selection until the press ends, handed off or not, and drops one the drag made", () => {
+    document.body.insertAdjacentHTML("beforeend", '<p id="text">no selection</p>');
+    const text = document.getElementById("text")!;
+    const selectStart = () => {
+      const e = new Event("selectstart", { bubbles: true, cancelable: true });
+      text.dispatchEvent(e);
+      return e.defaultPrevented;
+    };
+    const selectText = () => {
+      const r = document.createRange();
+      r.selectNodeContents(text);
+      window.getSelection()!.removeAllRanges();
+      window.getSelection()!.addRange(r);
+    };
+    for (const outside of ["none", "handoff"] as const) {
+      beginTabDrag({ clientX: 150, clientY: 10, button: 0 }, hooks({ outside, onHandOff: vi.fn() }));
+      fire("pointermove", 150, 200);
+      fire("pointermove", 150, 2000);
+      expect(selectStart()).toBe(true);
+      // WebKit made one anyway; the press ends (the OS drag's handed release).
+      selectText();
+      fire("pointerup", 150, 2000);
+      expect(window.getSelection()!.isCollapsed).toBe(true);
+      expect(selectStart()).toBe(false);
+    }
+    // A selection that was there before the press is left alone.
+    selectText();
+    beginTabDrag({ clientX: 150, clientY: 10, button: 0 }, hooks());
+    fire("pointerup", 150, 10);
+    expect(window.getSelection()!.toString()).toBe("no selection");
   });
 });
 
@@ -217,5 +311,37 @@ describe("dropTab and toOtherPane", () => {
     const one = of([["/a"]]);
     expect(toOtherPane(one, { pane: 0, index: 0 })).toBe(one);
     expect(toOtherPane(one, { pane: 0, index: 4 })).toBe(one);
+  });
+});
+
+describe("the zones another window's tab lands in", () => {
+  beforeEach(() => { buildDom(); });
+  afterEach(() => { document.body.innerHTML = ""; });
+
+  it("dropZones: each tab bar with its tabs, and each file area, in CSS pixels", () => {
+    expect(dropZones(true, 1.25)).toEqual({
+      zoom: 1.25,
+      split: true,
+      bars: [
+        { pane: 0, rect: [0, 0, 400, 30], tabs: [[0, 100], [100, 100]] },
+        { pane: 1, rect: [400, 0, 400, 30], tabs: [[400, 100]] },
+      ],
+      panes: [{ pane: 0, rect: [0, 30, 400, 400] }, { pane: 1, rect: [400, 30, 400, 400] }],
+    });
+  });
+
+  it("targetOf: the mark for where the backend says it lands", () => {
+    expect(targetOf({ kind: "bar", pane: 1, gap: 1 })).toEqual({ kind: "bar", pane: 1, gap: 1, el: document.getElementById("bar1") });
+    expect(targetOf({ kind: "split", side: "left" })).toEqual({ kind: "edge", side: "left", el: document.getElementById("pane0") });
+    expect(targetOf({ kind: "pane", pane: 1 })).toEqual({ kind: "pane", pane: 1, el: document.getElementById("pane1") });
+    expect(targetOf({ kind: "bar", pane: 3, gap: 0 })).toBeNull();
+  });
+
+  it("tabAnchor: a new window's first tab, in the window's pixels", () => {
+    expect(tabAnchor(1)).toEqual([0, 0]);
+    document.body.insertAdjacentHTML("beforeend", '<div class="titlebar"><div class="tabs" id="strip"></div></div>');
+    document.getElementById("strip")!.getBoundingClientRect = () => box(120, 0, 600, 36);
+    expect(tabAnchor(1)).toEqual([160, 18]);
+    expect(tabAnchor(1.5)).toEqual([240, 27]);
   });
 });

@@ -28,6 +28,8 @@ export interface PaneCommands {
   transferToOther: (copy: boolean) => void;
   /** A tab in `pane` (the focused one when unset). */
   moveTabToOtherPane: (index: number, pane?: number) => void;
+  /** The tab in a window of its own (tabMoves.ts). */
+  moveTabToNewWindow: (index: number, pane?: number) => void;
 }
 
 /** App state and setters the command handlers moved out of App.tsx use

@@ -15,6 +15,7 @@ mod pty;
 mod resident;
 mod session;
 mod startup;
+mod tab_drag;
 mod update;
 mod watcher;
 mod window_fit;
@@ -83,6 +84,7 @@ fn builder() -> tauri::Builder<tauri::Wry> {
         .manage(ops::OpRegistry::default())
         .manage(update::UpdateState::default())
         .manage(app_windows::Windows::default())
+        .manage(tab_drag::TabDrags::default())
         // A page that loads again (Import Layout reloads it) forgets its
         // folder watches and terminals; the backend drops them too.
         .on_page_load(|webview, payload| {
@@ -162,6 +164,12 @@ fn builder() -> tauri::Builder<tauri::Wry> {
             pty::profiles::list_shell_profiles,
             commands::launch::spawn_terminal_profile,
             commands::drag_out::start_drag_out,
+            tab_drag::tab_drop_zones,
+            tab_drag::tab_drag_start,
+            tab_drag::tab_drag_hover,
+            tab_drag::tab_drag_release,
+            tab_drag::tab_drag_cancel,
+            tab_drag::tab_to_new_window,
             commands::config::read_recent,
             commands::config::append_recent,
             commands::config::clear_recent,

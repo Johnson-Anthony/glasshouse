@@ -16,6 +16,7 @@ export const Keys = {
   CONTROL: "",
   ALT: "",
   ESCAPE: "",
+  ARROW_LEFT: "",
   F6: "",
 };
 
