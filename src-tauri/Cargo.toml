@@ -89,6 +89,10 @@ windows = { version = "0.58", features = [
     "Win32_System_Registry",
     # MessageBoxW: the box when glasshouse can't start or has crashed (fatal.rs).
     "Win32_UI_WindowsAndMessaging",
+    # A second launch's handoff pipe and its same-user check (handoff/pipe.rs).
+    "Win32_System_Pipes",
+    "Win32_System_IO",
+    "Win32_System_Threading",
 ] }
 
 # Dragging files out on Windows: OLE DoDragDrop with CF_HDROP

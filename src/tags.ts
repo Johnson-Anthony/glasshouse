@@ -47,6 +47,17 @@ export function loadTags(): Promise<void> {
   return loading;
 }
 
+/** Another window wrote the tags (`config-changed`): read the file again,
+ *  unless a change of this window's is still being written (that write
+ *  carries this window's whole map, and the other window then reads it). */
+export async function reloadTags(): Promise<void> {
+  await loadTags();
+  const map = await readTags();
+  if (writing) return;
+  current = map && typeof map === "object" ? map : {};
+  emit();
+}
+
 /** The tags now. Replaced, never changed in place, on every change. */
 export function getTags(): TagMap {
   return current;

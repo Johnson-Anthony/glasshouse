@@ -36,6 +36,12 @@ vi.mock("./state", async (orig) => ({
   },
 }));
 
+const reports = vi.hoisted(() => [] as unknown[]);
+vi.mock("./api", async (orig) => ({
+  ...(await orig<typeof import("./api")>()),
+  sessionReport: (s: unknown) => { reports.push(s); return Promise.resolve(); },
+}));
+
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 let host: HTMLDivElement;
@@ -55,6 +61,7 @@ const saved = () => JSON.parse(localStorage.getItem(SESSION_KEY) ?? "null");
 
 beforeEach(() => {
   localStorage.clear();
+  reports.length = 0;
   mounts = 0;
   host = document.createElement("div");
   document.body.appendChild(host);
@@ -88,11 +95,55 @@ describe("useTabLayout", () => {
     expect(saved().tabs).toHaveLength(3);
   });
 
-  it("a window that doesn't own the session saves nothing", async () => {
+  it("a window that doesn't own the session leaves the v1 key alone, and reports its tabs", async () => {
     await render();
     start(["/a", "/b"], false);
     update(l => splitWithTab(l, { pane: 0, index: 1 }, "bottom"));
     expect(localStorage.getItem(SESSION_KEY)).toBeNull();
+    expect(reports).toEqual([
+      { tabs: [{ path: "/a", sort: { key: "name", dir: "asc" } }, { path: "/b", sort: { key: "name", dir: "asc" } }], active: 0 },
+      {
+        tabs: [{ path: "/a", sort: { key: "name", dir: "asc" } }, { path: "/b", sort: { key: "name", dir: "asc" }, pane: 1 }],
+        active: 1,
+        split: { other: 0, dir: "column", ratio: 0.5 },
+      },
+    ]);
+  });
+
+  it("reports each change once, and nothing before the tabs are known", async () => {
+    await render();
+    expect(reports).toEqual([]);
+    start(["/a"]);
+    await render();
+    await render(true);
+    expect(reports).toHaveLength(1);
+    const id = api.layout.panes[0].tabs[0].id;
+    act(() => api.handles[id].actions.goTo("/a/b"));
+    expect(reports).toHaveLength(2);
+    expect((reports[1] as { tabs: { path: string }[] }).tabs[0].path).toBe("/a/b");
+  });
+
+  it("a window with only private tabs reports none", async () => {
+    await render();
+    start(["/secret"], true, [{ private: true }]);
+    expect(reports).toEqual([{ tabs: [], active: 0 }]);
+  });
+
+  it("only the owner's focused window writes the v1 key, and one that takes the focus writes its own", async () => {
+    const focus = vi.spyOn(document, "hasFocus").mockReturnValue(false);
+    try {
+      await render();
+      start(["/a"]);
+      expect(reports).toHaveLength(1);
+      expect(localStorage.getItem(SESSION_KEY)).toBeNull();
+      // Another window wrote its tabs there meanwhile.
+      localStorage.setItem(SESSION_KEY, JSON.stringify({ tabs: [{ path: "/other", sort: { key: "name", dir: "asc" } }], active: 0 }));
+      focus.mockReturnValue(true);
+      act(() => { window.dispatchEvent(new Event("focus")); });
+      expect(saved().tabs.map((t: { path: string }) => t.path)).toEqual(["/a"]);
+    } finally {
+      focus.mockRestore();
+    }
   });
 
   it("saves where a tab has gone since, not where it opened", async () => {

@@ -4,7 +4,7 @@ import { dialogs } from "../dialogs/DialogHost";
 import { IS_WINDOWS } from "../platform";
 import { looksLikePath } from "../paths";
 import {
-  spawnNewWindow,
+  newWindow,
   readPins,
   readRecent,
   knownFolder,
@@ -65,7 +65,7 @@ export const navHandler: Handler = async (label, ctx) => {
 
     case "New Window":
     case "Open in New Window":
-      void spawnNewWindow();
+      void newWindow();
       return true;
 
     case "New Private Session":

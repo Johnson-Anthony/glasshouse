@@ -3,8 +3,8 @@
 //!
 //! The frontend picks an op id and passes it along with the command. The
 //! command does its work through an [`Op`], which sends `op-progress` events
-//! and notices a `cancel_op` for that id. Without an id the op is untracked:
-//! no events, and nothing can cancel it.
+//! to the window that started it and notices a `cancel_op` for that id.
+//! Without an id the op is untracked: no events, and nothing can cancel it.
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -12,7 +12,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use serde::Serialize;
-use tauri::{AppHandle, Emitter, State};
+use tauri::{Emitter, EventTarget, Manager, State, WebviewWindow};
 
 use crate::lock;
 
@@ -53,12 +53,13 @@ pub struct OpRegistry {
 }
 
 impl OpRegistry {
-    /// Track the op `id`, sending its progress to the frontend. `None` gives
-    /// an untracked op.
-    pub fn start(&self, id: Option<String>, app: &AppHandle) -> Op {
-        let app = app.clone();
+    /// Track the op `id`, sending its progress to `window`, the one that
+    /// started it. `None` gives an untracked op.
+    pub fn start(&self, id: Option<String>, window: &WebviewWindow) -> Op {
+        let app = window.app_handle().clone();
+        let target = EventTarget::webview_window(window.label());
         self.start_with(id, EMIT_EVERY, move |p| {
-            let _ = app.emit("op-progress", p);
+            let _ = app.emit_to(target.clone(), "op-progress", p);
         })
     }
 

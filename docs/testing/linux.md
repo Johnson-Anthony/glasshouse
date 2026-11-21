@@ -4,7 +4,7 @@ For a release package on a real login, not a nested or headless session. [README
 
 **Where to run it.** Cover at least:
 - **Packages (L1–L2, L12):** Ubuntu 22.04 and Debian 12, the oldest releases the packages support, on x86-64 and, if you can, arm64.
-- **Desktops (L3–L11):** GNOME on Wayland, KDE Plasma on Wayland, and one X11 session (Xfce, Cinnamon or MATE, or GNOME's or Plasma's X11 session where the release still has one).
+- **Desktops (L3–L11, L13):** GNOME on Wayland, KDE Plasma on Wayland, and one X11 session (Xfce, Cinnamon or MATE, or GNOME's or Plasma's X11 session where the release still has one).
 - **Open and save dialogs (L7):** a release with xdg-desktop-portal 1.17 or newer, such as Ubuntu 24.04, Debian 13 or a current Fedora, plus Debian 12 or Ubuntu 22.04 to check that the switch stays off there.
 
 Note before you start: the distribution and release, the processor (`uname -m`), the desktop and session (`echo $XDG_CURRENT_DESKTOP $XDG_SESSION_TYPE`), the display scale, the portal's version (`/usr/libexec/xdg-desktop-portal --version`; the path varies), and for the .deb the WebKitGTK version (`dpkg -s libwebkit2gtk-4.1-0 | grep Version`).
@@ -40,7 +40,7 @@ Move `~/.config/io.github.johnson-anthony.glasshouse` and `~/.local/share/io.git
 - [ ] **L3.5** Close and restart → the same size and maximized state, the same tabs. (Wayland compositors don't let apps set their position, so only X11 restores it.)
 - [ ] **L3.6** **Theme:** with the System theme, switch the desktop between light and dark (GNOME Settings → Appearance; KDE System Settings → Colors & Themes) → glasshouse follows while running. GTK-drawn parts (the native pickers, any popup menu) match.
 - [ ] **L3.7** GNOME's High Contrast (Settings → Accessibility) → glasshouse switches to its high-contrast theme.
-- [ ] **L3.8** Several windows (File → New Window) → each works; restarting restores the first one's tabs.
+- [ ] **L3.8** Several windows (File → New Window) → each works; File → Quit and a restart restore all of them (L13).
 
 ## L4. Scaling
 
@@ -88,7 +88,7 @@ On a release with portal 1.17 or newer. See [docs/INTEGRATION.md](../INTEGRATION
 ## L8. Opening folders and "Show in folder"
 
 - [ ] **L8.1** Turn on "Open folders with glasshouse" → `xdg-open ~/Documents`, `gio open ~/Documents` (GNOME, Cinnamon, MATE) or `kde-open ~/Documents` (KDE) opens it in glasshouse, and so does a folder opened from another app (a terminal's or an editor's "Open containing folder").
-- [ ] **L8.2** Turn on "Show files for other apps" → with the desktop's file manager not running, a browser's downloads "Show in folder" (Firefox and Chromium) opens glasshouse with the file selected, in front.
+- [ ] **L8.2** Turn on "Show files for other apps" → with the desktop's file manager not running, a browser's downloads "Show in folder" (Firefox and Chromium) opens glasshouse with the file selected, in front. With glasshouse already running behind another window → the file opens in a new window of the running glasshouse, in front (one glasshouse window process: `pgrep -a glasshouse` shows it and the `--dbus` one).
 - [ ] **L8.3** With Nautilus (or Dolphin) running → Preferences says which program holds the name, and "Show in folder" still goes to it (expected). After quitting it, or logging out and in → glasshouse.
 - [ ] **L8.4** On the X11 desktop, follow the [per-desktop table](../INTEGRATION.md#per-desktop) for its file manager and xdg-open. Note anything the table doesn't say.
 - [ ] **L8.5** Turn both off → the previous folder app is back (`xdg-mime query default inode/directory`), and "Show in folder" goes to the desktop's file manager.
@@ -131,6 +131,20 @@ Needs two releases with the update check (any after 0.2.0): install the older on
 
 - [ ] **L12.1** Edit → Preferences → Updates → "check for updates automatically" is off on a first run, and Preferences says what a check sends. Help → Check for Updates on the newest release → "glasshouse X is the newest version." With the network off → "Couldn't reach the update server…".
 - [ ] **L12.2** **.deb** of the older release: Help → Check for Updates → "X is out" with the release notes, the .deb notice and its `sudo apt install ./…` line, and no Install button. Download opens the new .deb's link in the browser.
-- [ ] **L12.3** **AppImage** of the older release, in a folder you own, with a second window open: Install and restart → progress, then this window comes back at the new version (Help → About) with its tabs; the file keeps its name and its `sha256sum` matches the new AppImage's line in `SHA256SUMS`. The other window keeps the old version until closed.
+- [ ] **L12.3** **AppImage** of the older release, in a folder you own, with a second window open: Install and restart → progress, then both windows come back at the new version (Help → About) with their tabs; the file keeps its name and its `sha256sum` matches the new AppImage's line in `SHA256SUMS`.
 - [ ] **L12.4** An AppImage in a folder you can't write to (copy it to `/opt` as root) → the dialog offers the download, not Install.
 - [ ] **L12.5** The older release with the automatic check turned on: start it → within a minute, a "glasshouse X is out." toast. Start it again the same day → no toast.
+
+## L13. Several windows and a second launch
+
+Every glasshouse window is in one process, as a browser's are. `pgrep -a glasshouse` lists it (plus a `--dbus` process if L7 or L8 is on); WebKit's own processes are `WebKitWebProcess` and `WebKitNetworkProcess`.
+
+- [ ] **L13.1** File → New Window (Ctrl+N) → a second window opens in front, at home. One glasshouse window process.
+- [ ] **L13.2** **Focus, on each desktop (GNOME Wayland, KDE Wayland, X11):** with glasshouse open behind another window, start it again from the dock, the app grid or the launcher → a new window opens in front with the keyboard focus (type a letter: the file list jumps to it). Not expected: a "glasshouse is ready" notification, a window behind the others, or only a highlighted dock icon. Still one window process.
+- [ ] **L13.3** From a terminal, with glasshouse running: `glasshouse ~/Documents` → the prompt comes back at once, and a window on Documents opens in the running app. Note whether it takes the focus (a terminal gives no startup ID, so on Wayland it may only ask for attention).
+- [ ] **L13.4** **Restore:** three windows with different tabs, one of them split, each sized differently; focus the middle one, then File → Quit (Ctrl+Q) → all three close. Start glasshouse → all three come back with their tabs, split and size (and place on X11), and the one you focused last is in front.
+- [ ] **L13.5** Close one of three windows with its close button, then Ctrl+Q, then start → the two that were left come back. Close the last window with its button and start → that window comes back.
+- [ ] **L13.6** Private tabs (File → New Private Session) aren't brought back; a window with only private tabs doesn't come back.
+- [ ] **L13.7** With no glasshouse running, `glasshouse ~/Downloads` → one window on Downloads, and your saved windows don't open. Then start glasshouse from the launcher → the saved windows open beside it. Ctrl+Q and start → all of them come back, the Downloads window too.
+- [ ] **L13.8** **Shared settings:** two windows. Change the theme and the zoom in one → the other follows at once. Pin a folder, tag a file and add a remote in one → the other's sidebar shows them.
+- [ ] **L13.9** A terminal open in each of two windows. Close one window → its shell ends (`pgrep -a bash` or your shell), and the other window's terminal keeps working. A long copy with the progress tray in one window → the other window's tray doesn't show it.

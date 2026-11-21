@@ -2,7 +2,7 @@ use serde::de::DeserializeOwned;
 use serde::Serialize;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Emitter, EventTarget, Manager, WebviewWindow};
 
 // ---------- pins / tags / remotes persistence ----------
 
@@ -64,8 +64,10 @@ pub fn read_pins(app: AppHandle) -> Result<Option<Vec<String>>, String> {
 }
 
 #[tauri::command]
-pub fn write_pins(app: AppHandle, pins: Vec<String>) -> Result<(), String> {
-    write_json(&app, "pins.json", &pins)
+pub fn write_pins(window: WebviewWindow, pins: Vec<String>) -> Result<(), String> {
+    write_json(window.app_handle(), "pins.json", &pins)?;
+    changed(&window, "pins");
+    Ok(())
 }
 
 #[tauri::command]
@@ -74,8 +76,20 @@ pub fn read_tags(app: AppHandle) -> Result<HashMap<String, Vec<String>>, String>
 }
 
 #[tauri::command]
-pub fn write_tags(app: AppHandle, tags: HashMap<String, Vec<String>>) -> Result<(), String> {
-    write_json(&app, "tags.json", &tags)
+pub fn write_tags(window: WebviewWindow, tags: HashMap<String, Vec<String>>) -> Result<(), String> {
+    write_json(window.app_handle(), "tags.json", &tags)?;
+    changed(&window, "tags");
+    Ok(())
+}
+
+/// Tells every window but `from` that config file `what` changed, so it
+/// reads it again (`config-changed`, with "pins", "tags" or "remotes").
+fn changed(from: &WebviewWindow, what: &str) {
+    let source = from.label().to_string();
+    let others = |t: &EventTarget| matches!(t, EventTarget::WebviewWindow { label } if *label != source);
+    if let Err(e) = from.app_handle().emit_filter("config-changed", what, others) {
+        log::warn!("config-changed: {e}");
+    }
 }
 
 /// The saved remotes (Sidebar → Remotes), as the frontend wrote them; it
@@ -87,8 +101,10 @@ pub fn read_remotes(app: AppHandle) -> Result<Vec<serde_json::Value>, String> {
 }
 
 #[tauri::command]
-pub fn write_remotes(app: AppHandle, remotes: Vec<serde_json::Value>) -> Result<(), String> {
-    write_json(&app, "remotes.json", &remotes)
+pub fn write_remotes(window: WebviewWindow, remotes: Vec<serde_json::Value>) -> Result<(), String> {
+    write_json(window.app_handle(), "remotes.json", &remotes)?;
+    changed(&window, "remotes");
+    Ok(())
 }
 
 // ---------- recent-paths persistence ----------

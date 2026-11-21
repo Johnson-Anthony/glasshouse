@@ -2,6 +2,8 @@
 
 Date: 2026-11-15. Task 18 of `docs/plans/active/survey-2.md`. Code: `src/session.ts`, `src-tauri/src/session.rs`, the startup and save effects in `App.tsx`, `lib.rs`.
 
+*Superseded in part by `2026-11-21-split-and-tear-off-session.md`: every window is in one process now, the backend saves every window's tabs to `session.json`, and the v1 key below is written only by the focused window. What a window saves, and the checks on reading it, still hold.*
+
 ## Context
 Nothing survived a restart: every start was one tab at home, 1400×900, sorted by Name, with every panel shown. File → New Window (`spawn_new_window`) starts another glasshouse process, not a second window in this one, so "several windows" means several processes, each with its own webview. They share the app config dir and (on both WebKitGTK and WebView2) the same localStorage, and nothing else.
 

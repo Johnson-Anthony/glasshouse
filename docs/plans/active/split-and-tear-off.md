@@ -23,7 +23,24 @@ Why, and what was considered and dropped: `docs/decisions/2026-11-20-split-and-t
   - Not run:
     - anything on Windows (WebView2's pointer capture during a tab drag, Ctrl+F6 there): checklist items W8.8 and W8.9;
     - the one-tab window move under a real window manager: L9.10.
-- [ ] **Phase 2, one process with many windows:** design below. Send it to the lead before building, on a fresh branch from main once phase 1 is merged.
+- [x] **Phase 2, one process with many windows:** built on `claude/one-process-windows` from main at 18526f4, as planned below (with the lead's guest addition), tested, handed off to the lead for merging.
+  - Decisions: `docs/decisions/2026-11-21-split-and-tear-off-one-process.md`, `…-handoff.md` and `…-session.md` (the successor to `2026-11-15-session-persistence-windows.md`, which now points to it).
+  - Checks at handoff, all passing:
+    - `pnpm build`;
+    - vitest: 1186 tests (2 skipped);
+    - `check:wiring`;
+    - `notices --check` (no new crate or package: zbus and the windows crate were already in);
+    - `cargo clippy --all-targets` with `-D warnings`;
+    - `cargo test`: 393 tests (5 ignored);
+    - `site:build` and `site:capture check`;
+    - `pnpm e2e`: 10 of 10, including "new window", on Linux under Xvfb;
+    - `handoff.rs` and `handoff/` type-checked for `x86_64-pc-windows-msvc` with clippy `-D warnings`, through a scratch crate with a stub for tauri.
+  - By hand under Xvfb on a private bus, with a debug build: a second plain launch and a launch with paths opened their windows in the running app and exited in about 70 ms, with the startup ID on the new window (`_NET_STARTUP_ID`, `_NET_WM_USER_TIME`); Ctrl+Q kept three windows and a restart restored them; a guest wrote nothing, and a plain launch handed to it restored the saved windows beside its own; a stopped (SIGSTOP) app held a launch up for about 1.66 s, then it ran alone with a log line; with no session bus the app ran alone, logged it and restored its windows; the resident handed `ShowItems` to the running app, and started a window process when none ran; the debug name was on the bus and the release name wasn't.
+  - Not built or run:
+    - the full app on Windows: `cfg(windows)` paths in `app_windows.rs` and the pipe against the real tauri are first built by the windows-latest CI job; the handoff's focus and the restore on Windows are W15;
+    - Wayland focus (a nested niri, or GNOME and KDE): L13.2;
+    - a real update restart with several windows: W15.11, L12.3.
+  - Known and accepted: a launch that gives up waiting on a slow (not hung) app opens its own window, and the app may open one too; a guest's windows opened before it became the owner don't get their size and place saved.
 - [ ] **Phase 3, tear-off in one process:** design below, after phase 2.
 
 # Phase 1: split view
@@ -130,13 +147,63 @@ Rebase on main first: tasks 33 and 48 touch `lib.rs` and the Help menu.
   - the Windows Directory verb and the Linux menu entry go through the same path.
 - **Closing:** the app quits when its last window closes (not the resident). Each window's close tears down its registry entry.
 
-**Open questions for phase 2:**
-1. Who writes the session: Rust (one writer, sees every window) or each page (simpler, but they race)? Leaning to Rust holding each window's last report and writing on change.
-2. Single-instance plugin or our own handoff? The plugin is less code. Our D-Bus already exists for FileManager1, but Windows would still need a pipe.
-3. Does `--chooser` stay a process per dialog? It's another app's modal dialog with its own lifetime, so yes unless a reason turns up.
-4. Restoring several windows: open them all at once, or only the last-focused one plus a "Reopen windows" item?
-5. Private windows (if any later) and private tabs: never in the session, as now.
-6. The panic trade-off (`panic = "abort"` closes every window) goes in the decision note. Task 33 adds a panic hook that logs.
+**The lead's answers (11-21) to the open questions:**
+1. Rust writes the session: one writer holding each window's last report, writing on change, debounced. The v1 localStorage key keeps the focused window's tabs, for 0.2 and phase 1; the window list goes in a new file. A successor note to `2026-11-15-session-persistence-windows.md`.
+2. tauri-plugin-single-instance only if it can carry the second launch's DESKTOP_STARTUP_ID / XDG_ACTIVATION_TOKEN; else our own handoff, D-Bus on Linux and a named pipe on Windows. Record which and why. The FileManager1 resident asks the running app first.
+3. `--chooser` stays a process per dialog.
+4. Restore every window of the last session at once. Launches started with a path don't restore and don't overwrite the session.
+5. Private tabs are never saved.
+6. The panic trade-off goes in the decision note.
+
+## Phase 2 plan (11-21)
+
+**Single instance: our own handoff.** tauri-plugin-single-instance 2.4.5 sends only `std::env::args()` and the cwd (D-Bus `ExecuteCallback(as, s)` on Linux, `WM_COPYDATA` on Windows), so the activation token can't go with it. It also `unwrap()`s the session bus, which aborts a release build that has none, and it runs inside Tauri's build, after GTK and the webview are up. So:
+- **Linux:** the running app owns `io.github.johnson_anthony.glasshouse.App` on the session bus (object `/io/github/johnson_anthony/glasshouse/App`, interface `….App1`: `Open(mode, paths, skipped, startup_id)` and `NewWindow(startup_id)`). A debug build uses `….AppDebug`, so `tauri dev` doesn't hand off to an installed copy.
+- **Windows:** a named pipe, `\\.\pipe\io.github.johnson-anthony.glasshouse.App-<user SID>-<session id>`: inbound, local clients only, the first instance claimed with `FILE_FLAG_FIRST_PIPE_INSTANCE`, and a new instance made before the connected one is read, so there's no gap. The client opens it with `SECURITY_IDENTIFICATION`, checks the server process runs as the same user, calls `AllowSetForegroundWindow(server pid)` and writes one JSON message.
+- **The second launch** parses its own command line first (relative paths need its cwd), tries the handoff before Tauri or GTK start, and exits 0 when the running app took it. No answer (nothing running, no bus, a hung app) means it starts as before.
+- **The running app** claims the name or pipe right after it decides to run, before building Tauri, and queues requests until it's ready, so a launch during startup isn't lost.
+- **Focus:** on Linux the token becomes the display's startup ID (`gdk_wayland_display_set_startup_notification_id` or `gdk_x11_display_set_startup_notification_id`, looked up with `dlsym`, as GtkApplication does) just before the window is made; on X11 `gdk_notify_startup_complete` follows. A request with no token, and File → New Window, call `set_focus`.
+- **The resident** calls `Open` first (on its own short-lived connection) and starts a window process only if that fails.
+- `--chooser`, `--dbus` and `--integration-*` never hand off or serve.
+
+**Windows in one process** (`app_windows.rs`, new):
+- Labels `main` and `main-<n>`, the lowest free one; `capabilities/default.json` matches `["main", "main-*"]`. `tauri.conf.json`'s window gets `"create": false`, so every window, the first too, is made by our code from that config with its own label (the chooser sets `create` back).
+- A registry: the windows open, in order; what each window's page starts with (plain, a launch, saved tabs, or "read the v1 key"); each window's last session report; the focused window; the labels a guest process must not take.
+- `new_window(paths?)` (async, as WebView2 needs) opens a plain window, or one on a folder (the sidebar's Open in New Window, which opened a tab until now).
+- `window_start` gives the page what it starts with. After its first report it gives that report instead, so a reload (Import Layout) keeps the window's tabs.
+- `quit_app`: Quit (Ctrl+Q) quits every window and keeps them all in the session. Closing one window drops it from the session, unless it's the last.
+- On page load (`on_page_load` Started, which a reload fires too) the window's watches and terminals are dropped; on `Destroyed` too, and its registry entry goes.
+- `window_fit.rs` fits each window as it's made, not just `main`.
+
+**Events per window:**
+- `watch_dir`/`unwatch_dir` count per (window, folder), and `fs-changed` goes only to the windows watching that folder.
+- `pty_spawn` records its window: `pty-data`/`pty-exit` go there, and its terminals are killed when it closes.
+- `op-progress` goes to the window that started the op (the op commands take the calling window). The frontend's op ids get a random part, since two windows can load in the same millisecond.
+- `update-progress` stays app-wide: an update is the whole app's.
+- The frontend listens with its window as the target (`src/events.ts`, `listenHere`); a plain `listen` gets every window's events.
+
+**Session** (`session.rs`):
+- `session.json` in the config dir: `{ version: 1, focused, windows: [{ label, session }] }`, where `session` is the page's own record (the v1 shape, checked by `parseSession` as now). Rust writes it 500 ms after a change (temp file and rename), and on exit.
+- Restore at a plain start: every saved window with tabs, all at once, each with its label, so the window-state plugin restores its size and place. The focused one is made first, so it takes the launcher's token. No `session.json` yet (0.2, phase 1): one window that reads the v1 key.
+- The page also writes the v1 key when it owns the session and has focus (and on focus), so 0.2 and phase 1 reopen the focused window's tabs.
+- A process started with paths doesn't restore and doesn't write. Its windows avoid the saved labels. **One addition:** a plain launch handed off to such a process makes it the owner then (if it can take `session.lock`): it restores the saved windows instead of opening one at home, and saves from then on. Otherwise, if the first window of the day came from "Show in folder", the session would stay shut away until every window closed.
+- `session.lock` stays: a second process that couldn't hand off is still a guest.
+- The automatic update check runs once in the app, not once per window (a lock around its daily gate).
+
+**Settings in every window:** a `storage` listener on `glasshouse.tweaks` applies a change from another window without writing it back. `write_pins` and `write_tags` send `config-changed` to the other windows, which read the file again.
+
+**Files:**
+- Rust, new: `app_windows.rs`, `handoff.rs`, `handoff/dbus.rs` (Linux), `handoff/pipe.rs` (Windows).
+- Rust, changed: `lib.rs`, `session.rs`, `startup.rs`, `resident.rs`, `watcher.rs` (+ tests), `pty.rs`, `ops.rs`, `window_fit.rs`, `update.rs`; the op commands in `commands/{hash,search,git,fs_ops,replace}.rs` and `chooser.rs` (one parameter each); `commands/config.rs`; `commands/launch.rs` (`spawn_new_window` goes); `permissions/app.toml`; `capabilities/default.json`; `tauri.conf.json`; `Cargo.toml` (windows crate features).
+- Frontend: `events.ts` (new), `api.ts`, `App.tsx`, `useTabLayout.tsx`, `session.ts`, `state.ts`, `Sidebar.tsx`, `Miller.tsx`, `Terminal.tsx`, `ops.ts`, `opStore.ts`, `handlers/{nav,app,target}.ts`, `site/demo/mock/backend.ts`.
+- e2e: window handles in `webdriver.mjs`, a "new window" flow in `smoke.test.mjs`.
+- Docs: this plan; decision notes `2026-11-21-split-and-tear-off-session.md` (the successor), `…-handoff.md` and `…-one-process.md` (labels, events, the panic trade-off); ARCHITECTURE, INTEGRATION and `docs/testing/` items.
+
+**Tests:**
+- cargo: the session file's encode and decode (junk, labels, limits, windows with no tabs); the registry (labels, starts, reports, close and quit); the handoff message and its checks; per-window watch counts and dropping a window's watches; a pty's window and killing a window's terminals.
+- vitest: `parseSession` from a value; the page reports, and writes the v1 key only with focus; the tweaks `storage` listener; `listenHere`.
+- e2e "new window": File → New Window opens a second window in the same process (its label is `main-2`) and it lists a folder; a setting changed in one window reaches the other.
+- By hand under Xvfb on a private bus: a second `glasshouse` launch opens a window in the running one (and `_NET_STARTUP_ID`); a restart restores two windows. Windows and Wayland focus go in `docs/testing/`.
 
 # Phase 3: tear-off, in one process
 

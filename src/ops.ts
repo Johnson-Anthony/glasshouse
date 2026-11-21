@@ -1,6 +1,6 @@
 // Long operations with progress and a Cancel: the opStore wired to the
 // backend. See src-tauri/src/ops.rs and docs/decisions/*-op-progress-*.md.
-import { listen } from "@tauri-apps/api/event";
+import { listenHere } from "./events";
 import { cancelOp, TAURI_AVAILABLE } from "./api";
 import { OpStore, type OpProgress, type OpUnit } from "./opStore";
 
@@ -12,7 +12,7 @@ let listening = false;
 function listenOnce(): void {
   if (listening || !TAURI_AVAILABLE) return;
   listening = true;
-  void listen<OpProgress>("op-progress", e => opStore.progress(e.payload));
+  void listenHere<OpProgress>("op-progress", e => opStore.progress(e.payload));
 }
 
 /** Run `work` as one op in the tray, labelled `label`. Each `track()` gives

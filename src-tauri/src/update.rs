@@ -128,6 +128,9 @@ pub struct Progress {
 pub struct UpdateState {
     found: Mutex<Option<Update>>,
     run: Mutex<Option<Running>>,
+    /// Held through an automatic check: every window asks, and the first
+    /// one's answer makes the others' not due.
+    auto: tauri::async_runtime::Mutex<()>,
 }
 
 /// An install in progress. Cancel and the start of the installer both take
@@ -333,6 +336,7 @@ pub fn update_info(app: AppHandle) -> UpdateInfo {
 /// automatic check) it asks only when `due`, and reports each version once.
 #[tauri::command]
 pub async fn update_check(app: AppHandle, state: State<'_, UpdateState>, auto: bool) -> Result<CheckResult, AppError> {
+    let _one_at_a_time = if auto { Some(state.auto.lock().await) } else { None };
     let mut record = read_record(&app);
     let now = now_secs();
     if auto {
@@ -342,9 +346,13 @@ pub async fn update_check(app: AppHandle, state: State<'_, UpdateState>, auto: b
         record.last_try = Some(now);
         write_record(&app, &record);
     }
+    // The Windows installers end the process with `std::process::exit`,
+    // which skips the run loop's Exit: the session is written here instead.
+    let flush_app = app.clone();
     let updater = app
         .updater_builder()
         .timeout(CHECK_TIMEOUT)
+        .on_before_exit(move || crate::session::flush(&flush_app))
         .build()
         .map_err(|e| fail(&e))?;
     let found = updater.check().await;

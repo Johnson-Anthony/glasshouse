@@ -6,7 +6,7 @@ use super::listing::home_dir_path;
 use super::launch::CREATE_NO_WINDOW;
 use crate::error::{Action, AppError, Kind};
 use crate::ops::{Op, OpRegistry};
-use tauri::{AppHandle, State};
+use tauri::State;
 
 // ---------- file operations ----------
 
@@ -188,13 +188,13 @@ fn same_entry(a: &Path, b: &Path) -> bool {
 /// With `op_id` it reports bytes copied and can be cancelled (see ops.rs).
 #[tauri::command(async)]
 pub fn copy_entry(
-    app: AppHandle,
+    window: tauri::WebviewWindow,
     ops: State<'_, OpRegistry>,
     from: String,
     to: String,
     op_id: Option<String>,
 ) -> Result<(), AppError> {
-    copy_path(&from, &to, &ops.start(op_id, &app))
+    copy_path(&from, &to, &ops.start(op_id, &window))
 }
 
 /// copy_entry's work. A copy that fails or is cancelled leaves nothing

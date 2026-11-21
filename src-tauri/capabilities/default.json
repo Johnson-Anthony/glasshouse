@@ -1,8 +1,8 @@
 {
   "$schema": "../gen/schemas/windows-schema.json",
   "identifier": "default",
-  "description": "default capability set for glasshouse: the main window, local (bundled) content only; no remote origin gets IPC access",
-  "windows": ["main"],
+  "description": "default capability set for glasshouse: every app window (main, main-2, …), local (bundled) content only; no remote origin gets IPC access",
+  "windows": ["main", "main-*"],
   "permissions": [
     "core:default",
     "core:window:allow-start-dragging",

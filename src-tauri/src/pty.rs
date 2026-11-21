@@ -6,7 +6,7 @@ use std::thread;
 
 use portable_pty::{ChildKiller, CommandBuilder, MasterPty, PtySize, native_pty_system};
 use serde::Serialize;
-use tauri::{AppHandle, Emitter, State};
+use tauri::{Emitter, EventTarget, Manager, State, WebviewWindow};
 
 use crate::error::{AppError, Kind};
 use crate::lock;
@@ -19,6 +19,9 @@ use profiles::{check_profile, detect_shells, profile_program, ShellProfile};
 /// is owned by the background wait thread so `Child::wait()` and `kill()`
 /// never contend on the same lock.
 pub struct PtySession {
+    /// The label of the window that started it: its output goes there, and
+    /// it's killed when that window closes or loads its page again.
+    window: String,
     master: Box<dyn MasterPty + Send>,
     input: mpsc::Sender<Vec<u8>>,
     writer: WriterHandle,
@@ -83,7 +86,7 @@ fn next_session_id(reg: &PtyRegistry) -> String {
 /// rather than a real console, so no console window flashes.
 #[tauri::command(async)]
 pub fn pty_spawn(
-    app: AppHandle,
+    window: WebviewWindow,
     registry: State<'_, PtyRegistry>,
     profile: ShellProfile,
     cwd: String,
@@ -111,14 +114,19 @@ pub fn pty_spawn(
 
     let session_id = next_session_id(&registry);
     let data_id = session_id.clone();
+    let app = window.app_handle().clone();
     let data_app = app.clone();
+    let target = EventTarget::webview_window(window.label());
+    let data_target = target.clone();
     spawn_session(
         &registry.sessions,
         session_id.clone(),
+        window.label(),
         cmd,
         size,
         move |data| {
-            let _ = data_app.emit(
+            let _ = data_app.emit_to(
+                data_target.clone(),
                 "pty-data",
                 PtyDataEvent {
                     session_id: data_id.clone(),
@@ -127,7 +135,7 @@ pub fn pty_spawn(
             );
         },
         move |exit| {
-            let _ = app.emit("pty-exit", exit);
+            let _ = app.emit_to(target, "pty-exit", exit);
         },
     )
     .map_err(|detail| AppError::new(Kind::Other, None, format!("Couldn't start {label} in the terminal."), detail))?;
@@ -141,6 +149,7 @@ pub fn pty_spawn(
 fn spawn_session(
     sessions: &Sessions,
     session_id: String,
+    window: &str,
     cmd: CommandBuilder,
     size: PtySize,
     on_data: impl Fn(String) + Send + 'static,
@@ -172,6 +181,7 @@ fn spawn_session(
     lock(sessions).insert(
         session_id.clone(),
         PtySession {
+            window: window.to_string(),
             master: pair.master,
             input,
             writer,
@@ -386,6 +396,27 @@ pub fn pty_kill(registry: State<'_, PtyRegistry>, session_id: String) -> Result<
     Ok(())
 }
 
+impl PtyRegistry {
+    /// Kills every terminal the window `label` started: it closed, or its
+    /// page loaded again and lost them. Returns how many there were.
+    pub fn kill_window(&self, label: &str) -> usize {
+        kill_window(&self.sessions, label)
+    }
+}
+
+fn kill_window(sessions: &Sessions, label: &str) -> usize {
+    // Out of the registry first, then killed without its lock, as pty_kill does.
+    let gone: Vec<PtySession> = {
+        let mut sessions = lock(sessions);
+        let ids: Vec<String> = sessions.iter().filter(|(_, s)| s.window == label).map(|(id, _)| id.clone()).collect();
+        ids.iter().filter_map(|id| sessions.remove(id)).collect()
+    };
+    for session in &gone {
+        let _ = lock(&session.killer).kill();
+    }
+    gone.len()
+}
+
 // Unix only: these spawn `sh` in a real PTY. The ConPTY side isn't checked
 // locally, so it isn't asserted here either.
 #[cfg(all(test, unix))]
@@ -417,6 +448,7 @@ mod tests {
         spawn_session(
             &sessions,
             "pty-1".into(),
+            "main",
             sh("printf hello; exit 3"),
             SIZE,
             move |data| data_tx.send(data).unwrap(),
@@ -461,6 +493,7 @@ mod tests {
         spawn_session(
             &sessions,
             "pty-2".into(),
+            "main",
             sh("exit 0"),
             SIZE,
             |_| {},
@@ -469,6 +502,25 @@ mod tests {
         .unwrap();
         assert_eq!(rx.recv_timeout(TIMEOUT).unwrap().exit_code, Some(0));
         assert!(lock(&sessions).is_empty());
+    }
+
+    #[test]
+    fn a_window_that_goes_takes_only_its_own_terminals() {
+        let sessions = Sessions::default();
+        let (tx, rx) = mpsc::channel();
+        for (id, window) in [("pty-a1", "main"), ("pty-a2", "main"), ("pty-b1", "main-2")] {
+            let tx = tx.clone();
+            spawn_session(&sessions, id.into(), window, sh("sleep 30"), SIZE, |_| {}, move |exit| tx.send(exit.session_id).unwrap())
+                .unwrap();
+        }
+        assert_eq!(kill_window(&sessions, "main"), 2);
+        let mut ended = vec![rx.recv_timeout(TIMEOUT).unwrap(), rx.recv_timeout(TIMEOUT).unwrap()];
+        ended.sort();
+        assert_eq!(ended, ["pty-a1", "pty-a2"]);
+        assert_eq!(lock(&sessions).keys().collect::<Vec<_>>(), ["pty-b1"]);
+        assert_eq!(kill_window(&sessions, "main"), 0);
+        assert_eq!(kill_window(&sessions, "main-2"), 1);
+        assert_eq!(rx.recv_timeout(TIMEOUT).unwrap(), "pty-b1");
     }
 
     /// Start `script` in a pty that it puts in raw mode, as an editor or a
@@ -488,6 +540,7 @@ mod tests {
         spawn_session(
             sessions,
             id.into(),
+            "main",
             sh(&format!("stty raw -echo; printf ready; {}", script)),
             SIZE,
             move |data| {

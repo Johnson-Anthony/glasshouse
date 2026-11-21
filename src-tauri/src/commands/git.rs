@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant, SystemTime};
-use tauri::{AppHandle, State};
+use tauri::State;
 use super::file_info::read_capped;
 use super::listing::canonicalize_soft;
 use crate::ops::{Op, OpRegistry, CANCELLED};
@@ -1013,13 +1013,13 @@ fn check_git_args(args: &[String]) -> Result<(), String> {
 /// tray and can be cancelled.
 #[tauri::command(async)]
 pub fn git_run(
-    app: AppHandle,
+    window: tauri::WebviewWindow,
     ops: State<'_, OpRegistry>,
     cwd: String,
     args: Vec<String>,
     op_id: Option<String>,
 ) -> Result<GitRunResult, String> {
-    run_menu_command(&cwd, &args, &ops.start(op_id, &app))
+    run_menu_command(&cwd, &args, &ops.start(op_id, &window))
 }
 
 fn run_menu_command(cwd: &str, args: &[String], op: &Op) -> Result<GitRunResult, String> {

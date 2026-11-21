@@ -2,8 +2,9 @@
 //!
 //! A process with no window or webview, started by D-Bus activation (the
 //! user service file Preferences → Integration writes) or by Preferences
-//! itself. It owns the bus name of each service it's given and starts a
-//! window process for each request, as File → New Window does. It stays
+//! itself. It owns the bus name of each service it's given. For each
+//! FileManager1 request it asks the running app for a window
+//! (`handoff.rs`), and starts a window process when none answers. It stays
 //! running, as caja, Nautilus and the portal backends do, so another file
 //! manager can't take the name in a gap.
 //!
@@ -34,7 +35,7 @@ use zbus::fdo::{RequestNameFlags, RequestNameReply};
 use zbus::names::BusName;
 
 use crate::lock;
-use crate::startup::LaunchMode;
+use crate::startup::{LaunchMode, LaunchRequest};
 
 pub(crate) use crate::commands::integration_xdg::FILE_MANAGER_NAME;
 const FILE_MANAGER_PATH: &str = "/org/freedesktop/FileManager1";
@@ -243,6 +244,16 @@ impl FileManager1 {
         if paths.is_empty() {
             let why = if skipped.is_empty() { "no URIs given".to_string() } else { skipped.join("; ") };
             return Err(zbus::fdo::Error::InvalidArgs(why));
+        }
+        // The running app opens it as a window of its own; with none
+        // running (or one that doesn't answer), a window process starts.
+        let request = crate::handoff::Request {
+            launch: Some(LaunchRequest { mode, paths: paths.clone(), skipped }),
+            token: Some(startup_id.to_string()).filter(|t| !t.is_empty()),
+        };
+        match crate::handoff::send(&request) {
+            Ok(()) => return Ok(()),
+            Err(e) => eprintln!("glasshouse --dbus: no running glasshouse took the window ({e}); starting one"),
         }
         spawn_window(&self.exe, mode, &paths, startup_id).map_err(|e| zbus::fdo::Error::Failed(format!("starting a window: {e}")))
     }

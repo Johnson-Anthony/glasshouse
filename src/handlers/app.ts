@@ -1,4 +1,4 @@
-import { homeDir, winClose, winToggleMaximize } from "../api";
+import { homeDir, quitApp, winToggleMaximize } from "../api";
 import { nextTheme } from "../look";
 import type { Handler } from "./types";
 
@@ -79,7 +79,7 @@ export const appHandler: Handler = (label, ctx) => {
       })();
       return true;
     case "Quit":
-      void winClose(); return true;
+      void quitApp(); return true;
     case "Full Screen":
       void winToggleMaximize(); return true;
     case "Refresh":

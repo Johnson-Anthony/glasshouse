@@ -127,6 +127,21 @@ export class Session {
     await this.cmd("DELETE", "/actions");
   }
 
+  /** The handle of the window commands go to. */
+  windowHandle() {
+    return this.cmd("GET", "/window");
+  }
+
+  /** Every window's handle: each of the app's windows is one. */
+  windowHandles() {
+    return this.cmd("GET", "/window/handles");
+  }
+
+  /** Commands go to the window `handle` from now on. */
+  switchToWindow(handle) {
+    return this.cmd("POST", "/window", { handle });
+  }
+
   /** The webview's viewport as PNG bytes. */
   async screenshot() {
     return Buffer.from(await this.cmd("GET", "/screenshot"), "base64");
