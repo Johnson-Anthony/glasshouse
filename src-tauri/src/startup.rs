@@ -21,10 +21,9 @@
 use std::ffi::OsString;
 use std::path::{Component, Path, PathBuf};
 
-use serde::Serialize;
-use tauri::State;
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum LaunchMode {
     /// A folder opens; a file opens its folder with it selected.
@@ -36,7 +35,7 @@ pub enum LaunchMode {
 }
 
 /// The paths a window was started with.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LaunchRequest {
     pub mode: LaunchMode,
@@ -117,8 +116,8 @@ pub fn parse(args: &[OsString], cwd: &Path) -> Startup {
     Startup::Window(Some(LaunchRequest { mode, paths, skipped }))
 }
 
-/// A URI or absolute path from a D-Bus call, as an absolute path.
-#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+/// A URI or absolute path from a D-Bus call or a second launch's handoff
+/// (`handoff.rs`), as an absolute path.
 pub(crate) fn bus_path(arg: &str) -> Result<String, String> {
     if !has_scheme(arg) && !Path::new(arg).is_absolute() {
         return Err("not a URI or an absolute path".into());
@@ -214,13 +213,14 @@ fn normalize(p: &Path) -> PathBuf {
     out
 }
 
-/// What the window was started with, for the frontend.
-pub struct Launch(pub Option<LaunchRequest>);
-
-/// The paths this window was started with, or null for a plain start.
-#[tauri::command]
-pub fn launch_request(state: State<'_, Launch>) -> Option<LaunchRequest> {
-    state.0.clone()
+/// The launcher's startup ID or xdg-activation token, read without taking
+/// it from the environment: a second launch hands it to the running app
+/// (`handoff.rs`) before `take_activation_token` would move it.
+pub fn activation_token() -> Option<String> {
+    ["DESKTOP_STARTUP_ID", "XDG_ACTIVATION_TOKEN"]
+        .into_iter()
+        .filter_map(|k| std::env::var(k).ok())
+        .find(|t| !t.is_empty())
 }
 
 /// A window handed a startup ID gets focus with it: GTK 3 reads

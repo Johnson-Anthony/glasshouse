@@ -19,7 +19,7 @@ fn output_of(script: &str) -> String {
     let (data_tx, data_rx) = mpsc::channel();
     let mut cmd = CommandBuilder::new("sh");
     cmd.args(["-c", script]);
-    spawn_session(&sessions, "pty-out".into(), cmd, SIZE, move |d| data_tx.send(d).unwrap(), |_| {})
+    spawn_session(&sessions, "pty-out".into(), "main", cmd, SIZE, move |d| data_tx.send(d).unwrap(), |_| {})
         .unwrap();
     let mut out = String::new();
     loop {

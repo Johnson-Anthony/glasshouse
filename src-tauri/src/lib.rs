@@ -1,8 +1,10 @@
+mod app_windows;
 mod chooser;
 mod commands;
 mod diagnostics;
 mod error;
 mod fatal;
+mod handoff;
 mod migrate;
 mod ops;
 #[cfg(target_os = "linux")]
@@ -20,7 +22,6 @@ mod window_fit;
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
 use tauri::Manager;
-use tauri_plugin_window_state::StateFlags;
 
 /// The identifier in tauri.conf.json, which names the app's config and
 /// data folders (`migrate.rs` moves the ones named after the old one).
@@ -81,6 +82,14 @@ fn builder() -> tauri::Builder<tauri::Wry> {
         .manage(pty::PtyRegistry::default())
         .manage(ops::OpRegistry::default())
         .manage(update::UpdateState::default())
+        .manage(app_windows::Windows::default())
+        // A page that loads again (Import Layout reloads it) forgets its
+        // folder watches and terminals; the backend drops them too.
+        .on_page_load(|webview, payload| {
+            if payload.event() == tauri::webview::PageLoadEvent::Started {
+                app_windows::on_page_load(webview.app_handle(), webview.label());
+            }
+        })
         .invoke_handler(tauri::generate_handler![
             commands::listing::home_dir,
             commands::listing::list_dir,
@@ -146,7 +155,10 @@ fn builder() -> tauri::Builder<tauri::Wry> {
             commands::fs_ops::change_owner,
             commands::launch::run_script,
             commands::launch::open_url,
-            commands::launch::spawn_new_window,
+            app_windows::new_window,
+            app_windows::window_start,
+            app_windows::session_report,
+            app_windows::quit_app,
             pty::profiles::list_shell_profiles,
             commands::launch::spawn_terminal_profile,
             commands::drag_out::start_drag_out,
@@ -154,7 +166,6 @@ fn builder() -> tauri::Builder<tauri::Wry> {
             commands::config::append_recent,
             commands::config::clear_recent,
             session::session_owner,
-            startup::launch_request,
             chooser::chooser_request,
             chooser::chooser_ready,
             chooser::chooser_painted,
@@ -187,11 +198,21 @@ fn builder() -> tauri::Builder<tauri::Wry> {
 }
 
 fn run_window(launch: Option<startup::LaunchRequest>, migrated: &[(log::Level, String)]) {
-    // Before anything starts a thread: this sets environment variables.
-    // GTK sends DESKTOP_STARTUP_ID when it maps the window: the
+    // The launcher's startup ID, for the handoff, then (before anything
+    // starts a thread: this sets environment variables) where GTK reads it.
+    // GTK sends DESKTOP_STARTUP_ID when it maps the first window: the
     // xdg-activation token on Wayland, the startup-notification ID on X11.
+    let token = startup::activation_token();
     #[cfg(target_os = "linux")]
     startup::take_activation_token();
+    // Before Tauri, GTK or the webview start: a launch while glasshouse is
+    // running opens a window there, and this process ends.
+    let handoff = handoff::start(&handoff::Request { launch: launch.clone(), token: token.clone() });
+    let server = match handoff.outcome {
+        handoff::Outcome::HandedOff => std::process::exit(0),
+        handoff::Outcome::Serving(s) => Some(s),
+        handoff::Outcome::Alone => None,
+    };
     #[cfg(windows)]
     commands::drive_letters::no_critical_error_boxes();
     // Without WebView2 the window can't be made, and the app would just
@@ -204,52 +225,61 @@ fn run_window(launch: Option<startup::LaunchRequest>, migrated: &[(log::Level, S
     }
     let app = builder().build(context()).unwrap_or_else(|e| diagnostics::start_failed(&e));
     diagnostics::log_start(&app.package_info().version.to_string(), migrated);
-    // Built but not run: the main window is made when the app runs, so the
+    for (level, line) in &handoff.notes {
+        log::log!(target: "handoff", *level, "{line}");
+    }
+    // Built but not run: the windows are made when the app is ready, so the
     // window-state plugin, which restores a window as it's made, can still
     // be left out of a process that doesn't own the session (session.rs).
     // A window another app asked for ("Show in folder") leaves the session
     // to the user's own windows.
-    let session = if launch.is_some() {
-        session::SessionOwner::guest()
+    let dir = app.path().app_config_dir().ok();
+    let owner = if launch.is_some() { session::SessionOwner::guest() } else { session::claim(dir.as_deref()) };
+    let saved = session::read(dir.as_deref());
+    let mut saved = if owner.is_owner() {
+        app_windows::register_geometry(app.handle());
+        saved
     } else {
-        session::claim(app.path().app_config_dir().ok().as_deref())
-    };
-    // A window with nothing saved opens centered at a size that fits; one
-    // the plugin restored, or a second window, is only made to fit.
-    let mut fit = window_fit::Start::Placed;
-    if session.is_owner() {
-        let window_state = tauri_plugin_window_state::Builder::new()
-            .with_state_flags(StateFlags::SIZE | StateFlags::POSITION | StateFlags::MAXIMIZED)
-            .build();
-        let registered = match app.handle().plugin(window_state) {
-            Ok(()) => true,
-            Err(e) => {
-                log::warn!("window-state plugin: {e}");
-                false
-            }
-        };
-        fit = window_fit::start_for_owner(app.handle(), registered);
-    }
-    app.manage(session);
-    app.manage(startup::Launch(launch));
-    app.manage(chooser::Chooser::none());
-    app.run(move |handle, event| {
-        // Ready comes once, right after the window is made and restored,
-        // before anything is painted.
-        if let tauri::RunEvent::Ready = event {
-            diagnostics::started();
-            window_fit::fit_main(handle, fit);
+        // A guest's windows leave the saved labels free, for when it
+        // takes the session (`app_windows::handed_off`).
+        if let Some(s) = saved {
+            app.state::<app_windows::Windows>().reserve(s.windows.into_iter().map(|w| w.label));
         }
+        None
+    };
+    app.manage(session::Session::new(owner, dir));
+    app.manage(chooser::Chooser::none());
+    let mut launch = launch;
+    app.run(move |handle, event| match event {
+        // Ready comes once, before any window is made.
+        tauri::RunEvent::Ready => {
+            app_windows::first_windows(handle, launch.take(), saved.take(), token.is_some());
+            if let Some(s) = &server {
+                s.attach(handle);
+            }
+            diagnostics::started();
+        }
+        tauri::RunEvent::WindowEvent { label, event, .. } => app_windows::on_window_event(handle, &label, &event),
+        tauri::RunEvent::Exit => {
+            if let Some(s) = &server {
+                s.stop();
+            }
+            session::flush(handle);
+            handle.state::<session::Session>().release();
+        }
+        _ => {}
     });
 }
 
 /// A file chooser for another app (`chooser.rs`): `chooser.html` in a
 /// dialog-sized window, made hidden and shown once the page has rendered.
-/// It never takes the session.
+/// It never takes the session, and never hands off or serves.
 #[cfg(target_os = "linux")]
 fn run_chooser(state: chooser::Chooser) {
     let mut ctx = context();
     if let Some(w) = ctx.config_mut().app.windows.first_mut() {
+        // Made by Tauri, unlike the app's windows (`app_windows.rs`).
+        w.create = true;
         w.url = tauri::WebviewUrl::App("chooser.html".into());
         w.title = state.title().to_string();
         w.width = 980.0;
@@ -263,8 +293,7 @@ fn run_chooser(state: chooser::Chooser) {
     }
     let app = builder().build(ctx).unwrap_or_else(|e| diagnostics::start_failed(&e));
     diagnostics::log_start(&app.package_info().version.to_string(), &[]);
-    app.manage(session::SessionOwner::guest());
-    app.manage(startup::Launch(None));
+    app.manage(session::Session::new(session::SessionOwner::guest(), None));
     app.manage(state);
     app.run(|handle, event| match event {
         tauri::RunEvent::Ready => {

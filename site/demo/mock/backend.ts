@@ -613,12 +613,16 @@ export function createBackend(hooks: BackendHooks) {
     spawn_terminal: notInDemo("Opening an external terminal"),
     spawn_terminal_profile: notInDemo("Opening an external terminal"),
     spawn_vscode: notInDemo("Opening VS Code"),
-    spawn_new_window: notInDemo("Opening a second window"),
+    new_window: notInDemo("Opening a second window"),
+    quit_app: notInDemo("Quitting"),
     // Saves the tabs as the app does (src/session.ts), into the demo's
     // in-memory storage (install.ts), so no visit reopens another's tabs.
     session_owner: () => true,
-    // The demo starts as a plain window: no paths from another app.
-    launch_request: () => null,
+    // The demo starts as the app's first window does before it has a
+    // session file: no paths from another app, the tabs in the v1 key.
+    window_start: () => ({ owner: true, start: { kind: "legacy" } }),
+    // The one window's tabs, which the backend would keep for the session.
+    session_report: () => null,
     // Nor is it another app's open or save dialog.
     chooser_request: () => null,
     // Preferences → Integration, as on a desktop where it's off; the

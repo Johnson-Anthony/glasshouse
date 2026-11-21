@@ -1,16 +1,18 @@
 // The tabs a window reopens with: each tab's folder and sort, and which tab
-// was shown. Saved in localStorage under a versioned key, and checked field
-// by field on load: a tab that doesn't check out is dropped, and a record
-// that doesn't is ignored, so a bad or old value never breaks startup.
+// was shown. Checked field by field on load: a tab that doesn't check out
+// is dropped, and a record that doesn't is ignored, so a bad or old value
+// never breaks startup.
 //
-// Only the glasshouse process that owns the session restores and saves it
-// (`session_owner`, src-tauri/src/session.rs). File → New Window starts
-// another process, which opens one tab at home and leaves the record alone.
-// Private tabs aren't saved. A split (tabLayout.ts) is saved in the same
-// record, readable by builds without split view: `tabs` is every tab, the
-// first pane's then the second's, and those builds open them all unsplit.
-// See docs/decisions/2026-11-15-session-persistence-windows.md and
-// docs/decisions/2026-11-20-split-and-tear-off-session.md.
+// Every window reports its record to the backend (`session_report`), which
+// keeps each window's and writes them all to `session.json`; a plain start
+// reopens every window in it (src-tauri/src/session.rs, app_windows.rs).
+// The focused window of the process that owns the session also writes its
+// record to localStorage under the v1 key, which 0.2 and the builds before
+// one process read, and which the first window reads when there's no
+// session file yet. Private tabs aren't saved. A split (tabLayout.ts) is
+// saved in the same record, readable by builds without split view: `tabs`
+// is every tab, the first pane's then the second's, and those builds open
+// them all unsplit. See docs/decisions/2026-11-21-split-and-tear-off-session.md.
 
 import { pathKind } from "./api";
 import { parentPath } from "./paths";
@@ -126,6 +128,11 @@ export function parseSession(raw: string | null): Session | null {
   if (!raw) return null;
   let v: unknown;
   try { v = JSON.parse(raw); } catch { return null; }
+  return sessionFrom(v);
+}
+
+/** A record the backend handed back (`window_start`), checked the same way. */
+export function sessionFrom(v: unknown): Session | null {
   if (!v || typeof v !== "object") return null;
   const { tabs, active, split } = v as { tabs?: unknown; active?: unknown; split?: unknown };
   if (!Array.isArray(tabs)) return null;

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { listen } from "@tauri-apps/api/event";
+import { listenHere } from "./events";
 import {
   readDir,
   gitStatus,
@@ -348,7 +348,7 @@ export function useTabState(initialPath: string, isPrivate: boolean = false, act
     void watchDir(path);
 
     const target = normalizePath(path);
-    void listen<string>("fs-changed", evt => {
+    void listenHere<string>("fs-changed", evt => {
       if (disposed) return;
       const payload = typeof evt.payload === "string" ? evt.payload : "";
       if (normalizePath(payload) === target) relistIfShown();

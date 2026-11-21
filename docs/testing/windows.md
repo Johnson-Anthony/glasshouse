@@ -143,3 +143,19 @@ Needs two releases with the update check (any after 0.2.0): install the older on
 - [ ] **W14.4** **MSI:** the older release installed. Install and restart → an admin (UAC) prompt, Windows Installer's progress, and glasshouse starts again at the new version, still in `Program Files\glasshouse`, one entry in Settings → Apps. Note what happens to a second open window.
 - [ ] **W14.5** MSI as a standard user: Install, then cancel the admin prompt → note what the dialog says; the old version keeps running and stays installed.
 - [ ] **W14.6** The older release with the automatic check turned on: start it → within a minute, a "glasshouse X is out." toast whose "what's new" opens the dialog. Start it again the same day → no toast.
+
+## W15. Several windows and a second launch
+
+Every glasshouse window is in one process, as a browser's are. In Task Manager → Details, `glasshouse.exe` is the app; the `msedgewebview2.exe` processes under it are WebView2's.
+
+- [ ] **W15.1** File → New Window (Ctrl+N) → a second window opens in front, at home. Task Manager → one `glasshouse.exe`.
+- [ ] **W15.2** **Focus:** with glasshouse open behind another app, start it again from the Start menu, then from its taskbar button's right-click menu → each time a new window opens in front with the keyboard focus (type a letter: the file list jumps to it), not just a flashing taskbar button. Still one `glasshouse.exe`.
+- [ ] **W15.3** With "Open folders with glasshouse" on (W12) and glasshouse running behind another app, double-click a folder in Explorer → it opens in a new window of the running glasshouse, in front.
+- [ ] **W15.4** `glasshouse.exe C:\Windows\notepad.exe` from a terminal, with glasshouse running → the terminal's prompt comes back at once, and a window on `C:\Windows` opens with notepad.exe selected.
+- [ ] **W15.5** **Restore:** three windows with different tabs, one of them split, each moved and sized differently; focus the middle one, then File → Quit (Ctrl+Q) → all three close. Start glasshouse → all three come back with their tabs, split, size and place, and the one you focused last is in front.
+- [ ] **W15.6** Close one of three windows with its close button, then Ctrl+Q, then start → the two that were left come back. Close the last window with its button and start → that window comes back.
+- [ ] **W15.7** Private tabs (File → New Private Session) aren't brought back; a window with only private tabs doesn't come back.
+- [ ] **W15.8** **Shared settings:** two windows. Change the theme and the zoom in one → the other follows at once. Pin a folder, tag a file and add a remote in one → the other's sidebar shows them.
+- [ ] **W15.9** A terminal open in each of two windows. Close one window → its shell's process ends (Task Manager), and the other window's terminal keeps working. A long copy with the progress tray in one window → the other window's tray doesn't show it.
+- [ ] **W15.10** Two users signed in at once (Switch user), glasshouse running for both → a launch in each account opens in that account's own glasshouse.
+- [ ] **W15.11** A setup.exe update (W14.3) with three windows open → after the restart, all three come back with their tabs.

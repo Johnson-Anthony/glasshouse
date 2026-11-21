@@ -8,6 +8,7 @@ import {
   restorePath,
   restoreSession,
   saveSession,
+  sessionFrom,
   sessionOf,
   type Session,
 } from "./session";
@@ -24,6 +25,18 @@ describe("parseSession", () => {
   it("ignores a missing, broken or wrong-shaped record", () => {
     for (const v of [null, "", "{", "null", "42", '"tabs"', raw({}), raw({ tabs: "x" }), raw({ tabs: [] }), raw([tab("/")])]) {
       expect(parseSession(v)).toBeNull();
+    }
+  });
+
+  it("checks a record the backend hands back the same way", () => {
+    const s: Session = { tabs: [tab("/a"), tab("/b")] as Session["tabs"], active: 1, split: { other: 0, dir: "row", ratio: 0.5 } };
+    expect(sessionFrom(JSON.parse(raw({ ...s, tabs: [{ path: "/a", pane: 0 }, { path: "/b", pane: 1 }] })))).toEqual({
+      tabs: [tab("/a"), { ...tab("/b"), pane: 1 }],
+      active: 1,
+      split: { other: 0, dir: "row", ratio: 0.5 },
+    });
+    for (const v of [undefined, null, 42, "x", [], {}, { tabs: [{ path: "relative" }] }]) {
+      expect(sessionFrom(v)).toBeNull();
     }
   });
 

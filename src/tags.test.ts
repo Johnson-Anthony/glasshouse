@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import * as api from "./api";
 import type { Trashed } from "./api";
 import {
-  deletePath, getTags, loadTags, movePath, pruneGoneTags, pruneListed, renamePath, resetTagStoreForTests,
+  deletePath, getTags, loadTags, movePath, pruneGoneTags, pruneListed, reloadTags, renamePath, resetTagStoreForTests,
   restoreTrashed, setTags, trashPath,
 } from "./tags";
 
@@ -44,6 +44,24 @@ describe("the store", () => {
     first.resolve();
     await vi.waitFor(() => expect(api.writeTags).toHaveBeenCalledTimes(2));
     expect(api.writeTags).toHaveBeenLastCalledWith({ "/w/a": ["red"], "/w/b": ["blue"], "/w/c": ["green"] });
+  });
+
+  it("reads the file again when another window wrote it, without writing it back", async () => {
+    resetTagStoreForTests({ "/w/a": ["red"] });
+    vi.mocked(api.readTags).mockResolvedValue({ "/w/a": ["red"], "/w/b": ["blue"] });
+    await reloadTags();
+    expect(getTags()).toEqual({ "/w/a": ["red"], "/w/b": ["blue"] });
+    expect(api.writeTags).not.toHaveBeenCalled();
+  });
+
+  it("a reload while this window's own change is being written keeps that change", async () => {
+    const first = deferred();
+    vi.mocked(api.writeTags).mockReturnValueOnce(first.promise);
+    setTags({ "/w/mine": ["red"] });
+    vi.mocked(api.readTags).mockResolvedValue({ "/w/theirs": ["blue"] });
+    await reloadTags();
+    expect(getTags()).toEqual({ "/w/mine": ["red"] });
+    first.resolve();
   });
 
   it("applies changes made before the load to what the file held", async () => {

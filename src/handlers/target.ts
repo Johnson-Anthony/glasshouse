@@ -1,5 +1,5 @@
 import { dialogs } from "../dialogs/DialogHost";
-import { spawnTerminal, spawnVscodeStrict, homeDir, listDir } from "../api";
+import { spawnTerminal, spawnVscodeStrict, homeDir, listDir, newWindow } from "../api";
 import { openFile } from "../openWith";
 import { renamePath } from "../tags";
 import { basename, parentPath, joinPath, normalizePath } from "../paths";
@@ -115,7 +115,7 @@ export const targetHandler: Handler = (label, ctx) => {
           openPathInNewTab(target); return true;
         case "Open in New Window":
           cmdState.contextTarget = null;
-          openPathInNewTab(target); return true;
+          void newWindow([target]); return true;
         case "Open in Terminal":
           cmdState.contextTarget = null;
           void spawnTerminal(target); return true;

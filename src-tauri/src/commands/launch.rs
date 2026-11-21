@@ -622,41 +622,6 @@ pub fn open_url(url: String) -> Result<(), AppError> {
     }
 }
 
-// ---------- spawn new window ----------
-
-/// Launch a detached copy of the current executable (new app window).
-#[tauri::command(async)]
-pub fn spawn_new_window() -> Result<(), String> {
-    use std::process::{Command, Stdio};
-    let exe = crate::startup::self_exe()?;
-
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        let child = Command::new(&exe)
-            .creation_flags(CREATE_NO_WINDOW)
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn()
-            .map_err(|e| format!("spawn_new_window: {}", e))?;
-        reap(child);
-        Ok(())
-    }
-    #[cfg(not(windows))]
-    {
-        let child = Command::new(&exe)
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn()
-            .map_err(|e| format!("spawn_new_window: {}", e))?;
-        reap(child);
-        Ok(())
-    }
-}
-
-
 /// Whether `s` can sit on a `cmd /C` command line without cmd interpreting
 /// any of it (Windows paths can't contain `"`, `<`, `>` or `|` anyway).
 #[cfg(any(windows, test))]

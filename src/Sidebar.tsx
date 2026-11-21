@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from "react";
-import { listen } from "@tauri-apps/api/event";
+import { listenHere } from "./events";
 import { drives as apiDrives, homeDir as apiHomeDir, listDir, listWslDistros, pathKind, pickDirectory, readDir, unwatchDir, watchDir, type Drive, type FileEntry, type WslDistro } from "./api";
 import { basename, joinPath, normalizePath, parentPath, pathSegments } from "./paths";
 import { isModalOpen } from "./dialogs/modal";
@@ -462,7 +462,7 @@ export function Sidebar({ activePath, onGoTo, onOpenFile, onRowContext, pins, on
   useEffect(() => {
     let disposed = false;
     let unlisten: (() => void) | null = null;
-    void listen<string>("fs-changed", evt => {
+    void listenHere<string>("fs-changed", evt => {
       const w = watched.current.get(normalizePath(typeof evt.payload === "string" ? evt.payload : ""));
       w?.gate.refresh(w.path);
     }).then(fn => {

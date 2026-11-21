@@ -1,9 +1,9 @@
 // The window's tabs in one or two panes (tabLayout.ts), with each tab's
 // live state (useTabState, through a headless TabShell keyed by tab id) and
-// the operations the menus, keys and drags use. The owner of the session
-// (session.ts) saves the layout whenever it, or a tab's folder or sort,
-// changes. Moved out of App.tsx for split view; see
-// docs/decisions/2026-11-20-split-and-tear-off-session.md.
+// the operations the menus, keys and drags use. The layout is reported for
+// the session (session.ts) whenever it, or a tab's folder or sort, changes.
+// Moved out of App.tsx for split view; see
+// docs/decisions/2026-11-21-split-and-tear-off-session.md.
 
 import { useEffect, useRef, useState } from "react";
 import { registerTabListMutator, useTabState, type TabSeed, type UseTabResult } from "./state";
@@ -20,8 +20,15 @@ import {
   shownIds,
   type Layout,
 } from "./tabLayout";
-import { DEFAULT_SORT, saveSession, sessionOf, type TabSort } from "./session";
+import { DEFAULT_SORT, saveSession, sessionOf, type Session, type TabSort } from "./session";
 import { recordFromTransfer, transferOf } from "./tabTransfer";
+import { sessionReport } from "./api";
+
+/** Whether this window has the focus (a page with no window to ask, as in
+ *  the tests: yes). */
+function windowFocused(): boolean {
+  try { return document.hasFocus(); } catch { return true; }
+}
 
 /** The sort a new tab opened from `h` starts with. */
 export function sortOf(h: UseTabResult | undefined): TabSort | undefined {
@@ -74,8 +81,9 @@ export interface TabLayoutApi {
   duplicateTabAt: (i: number, pane?: number) => void;
   /** A tab for `h`'s folder, sort and private flag, unmounted. */
   copyOf: (h: UseTabResult | undefined, t: TabRecord) => TabRecord;
-  /** The first layout, once the tabs to open are known. `owner`: this
-   *  window saves the session from now on. */
+  /** The first layout, once the tabs to open are known. From now on the
+   *  tabs are reported for the session; `owner`: this window's process
+   *  saves it, and the window writes the v1 key while it has the focus. */
   start: (l: Layout, owner: boolean) => void;
   /** The headless TabShells; render once. */
   shells: JSX.Element;
@@ -100,11 +108,13 @@ export function useTabLayout(fallbackPath: () => string, hidden: boolean): TabLa
   const shown = shownIds(layout);
 
   // Set once the tabs are known (start); until then there's nothing to save.
-  // The owner then saves the tabs as they change.
-  const session = useRef<{ owner: boolean; last: string | null } | null>(null);
+  // Then every change is reported to the backend, which saves every
+  // window's tabs; the owner's focused window also writes the v1 key, which
+  // older builds read (session.ts).
+  const session = useRef<{ owner: boolean; last: string | null; record: Session | null; reported: string | null } | null>(null);
   useEffect(() => {
     const s = session.current;
-    if (!s?.owner || layout.panes[0].tabs.length === 0) return;
+    if (!s || layout.panes[0].tabs.length === 0) return;
     const live = layout.panes.map(p => ({
       active: p.active,
       tabs: p.tabs.map(t => {
@@ -112,8 +122,25 @@ export function useTabLayout(fallbackPath: () => string, hidden: boolean): TabLa
         return { path: h?.state.path ?? t.initialPath, sort: sortOf(h) ?? t.initialSort ?? DEFAULT_SORT, private: t.private };
       }),
     }));
-    s.last = saveSession(sessionOf(live, layout.focus, layout.dir, layout.ratio), s.last);
+    const record = sessionOf(live, layout.focus, layout.dir, layout.ratio);
+    s.record = record;
+    const json = JSON.stringify(record);
+    if (json !== s.reported) {
+      s.reported = json;
+      void sessionReport(record);
+    }
+    if (s.owner && windowFocused()) s.last = saveSession(record, s.last);
   }, [layout, handles]);
+  // A window that takes the focus writes the v1 key, whatever another
+  // window wrote there meanwhile.
+  useEffect(() => {
+    const onFocus = () => {
+      const s = session.current;
+      if (s?.owner && s.record) s.last = saveSession(s.record, null);
+    };
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
+  }, []);
 
   // Show Hidden is a setting: each shown tab follows it.
   const shownKey = shown.join(",");
@@ -186,7 +213,7 @@ export function useTabLayout(fallbackPath: () => string, hidden: boolean): TabLa
     },
     copyOf,
     start: (l, owner) => {
-      session.current = { owner, last: null };
+      session.current = { owner, last: null, record: null, reported: null };
       setLayout(l);
     },
     shells: (

@@ -1,5 +1,5 @@
 use serde::Serialize;
-use tauri::{AppHandle, State};
+use tauri::State;
 
 use super::clamp_limit;
 use crate::ops::{Op, OpRegistry};
@@ -21,7 +21,7 @@ const FIND_HARD_CAP: usize = 10_000;
 /// "cancelled", not the matches found so far.
 #[tauri::command(async)]
 pub fn find_in_files(
-    app: AppHandle,
+    window: tauri::WebviewWindow,
     ops: State<'_, OpRegistry>,
     root: String,
     query: String,
@@ -29,7 +29,7 @@ pub fn find_in_files(
     max_results: u32,
     op_id: Option<String>,
 ) -> Result<Vec<FindMatch>, String> {
-    search_contents(&root, &query, case_insensitive, max_results, &ops.start(op_id, &app))
+    search_contents(&root, &query, case_insensitive, max_results, &ops.start(op_id, &window))
 }
 
 fn search_contents(
@@ -166,14 +166,14 @@ fn search_contents(
 /// With `op_id` it reports entries looked at and can be cancelled.
 #[tauri::command(async)]
 pub fn find_file_by_name(
-    app: AppHandle,
+    window: tauri::WebviewWindow,
     ops: State<'_, OpRegistry>,
     root: String,
     pattern: String,
     max_results: u32,
     op_id: Option<String>,
 ) -> Result<Vec<String>, String> {
-    search_names(&root, &pattern, max_results, &ops.start(op_id, &app))
+    search_names(&root, &pattern, max_results, &ops.start(op_id, &window))
 }
 
 fn search_names(root: &str, pattern: &str, max_results: u32, op: &Op) -> Result<Vec<String>, String> {

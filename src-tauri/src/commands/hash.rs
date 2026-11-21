@@ -1,4 +1,4 @@
-use tauri::{AppHandle, State};
+use tauri::State;
 
 use crate::ops::{Op, OpRegistry};
 
@@ -51,34 +51,34 @@ fn crc32_file(path: &str, op: &Op) -> Result<String, String> {
 /// reports progress and can be cancelled (see ops.rs).
 #[tauri::command(async)]
 pub fn hash_sha256(
-    app: AppHandle,
+    window: tauri::WebviewWindow,
     ops: State<'_, OpRegistry>,
     path: String,
     op_id: Option<String>,
 ) -> Result<String, String> {
-    digest_file::<sha2::Sha256>(&path, &ops.start(op_id, &app))
+    digest_file::<sha2::Sha256>(&path, &ops.start(op_id, &window))
 }
 
 // ---------- additional checksums ----------
 
 #[tauri::command(async)]
 pub fn hash_md5(
-    app: AppHandle,
+    window: tauri::WebviewWindow,
     ops: State<'_, OpRegistry>,
     path: String,
     op_id: Option<String>,
 ) -> Result<String, String> {
-    digest_file::<md5::Md5>(&path, &ops.start(op_id, &app))
+    digest_file::<md5::Md5>(&path, &ops.start(op_id, &window))
 }
 
 #[tauri::command(async)]
 pub fn hash_crc32(
-    app: AppHandle,
+    window: tauri::WebviewWindow,
     ops: State<'_, OpRegistry>,
     path: String,
     op_id: Option<String>,
 ) -> Result<String, String> {
-    crc32_file(&path, &ops.start(op_id, &app))
+    crc32_file(&path, &ops.start(op_id, &window))
 }
 
 #[cfg(test)]

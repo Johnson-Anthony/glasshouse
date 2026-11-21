@@ -243,7 +243,7 @@ pub fn chooser_finish(app: AppHandle, state: State<'_, Chooser>, answer: Chooser
 /// apply: a build output is still a file to attach.
 #[tauri::command(async)]
 pub fn chooser_search(
-    app: AppHandle,
+    window: tauri::WebviewWindow,
     ops: State<'_, OpRegistry>,
     root: String,
     pattern: String,
@@ -251,7 +251,7 @@ pub fn chooser_search(
     limit: u32,
     op_id: Option<String>,
 ) -> Result<Vec<FileEntry>, String> {
-    let op = ops.start(op_id, &app);
+    let op = ops.start(op_id, &window);
     let needle = pattern.trim().to_lowercase();
     if needle.is_empty() {
         return Ok(Vec::new());

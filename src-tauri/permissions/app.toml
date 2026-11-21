@@ -91,7 +91,7 @@ commands.allow = [
 
 [[permission]]
 identifier = "settings"
-description = "Read and write the app's own pins, tags, saved remotes and recent folders; find (and make) its log folder; ask whether this window saves the session and which paths it was started with; as a file chooser for another app, read its request, show the dialog and answer it; read and change Preferences → Integration (glasshouse as the desktop's folder handler, FileManager1 service and file chooser: mimeapps.list, a desktop entry, D-Bus service files, the portal's backend file and config and environment.d lines on Linux, the HKCU folder verb on Windows)."
+description = "Read and write the app's own pins, tags, saved remotes and recent folders; find (and make) its log folder; ask whether this window saves the session and what it starts with (the paths it was opened with, or its tabs), report its tabs for the session, and quit every window; as a file chooser for another app, read its request, show the dialog and answer it; read and change Preferences → Integration (glasshouse as the desktop's folder handler, FileManager1 service and file chooser: mimeapps.list, a desktop entry, D-Bus service files, the portal's backend file and config and environment.d lines on Linux, the HKCU folder verb on Windows)."
 commands.allow = [
   "read_pins",
   "write_pins",
@@ -104,7 +104,9 @@ commands.allow = [
   "clear_recent",
   "log_dir",
   "session_owner",
-  "launch_request",
+  "window_start",
+  "session_report",
+  "quit_app",
   "chooser_request",
   "chooser_ready",
   "chooser_painted",
@@ -123,7 +125,7 @@ commands.allow = [
   "spawn_terminal",
   "spawn_vscode",
   "open_url",
-  "spawn_new_window",
+  "new_window",
   "spawn_terminal_profile",
   "start_drag_out",
 ]

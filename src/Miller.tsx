@@ -6,7 +6,7 @@
 // takes drops and has the per-path menu of the folder or file it shows.
 // See docs/decisions/2026-11-13-miller-parity-design.md.
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { listen } from "@tauri-apps/api/event";
+import { listenHere } from "./events";
 import { listDir, unwatchDir, watchDir, type FileEntry } from "./api";
 import { normalizePath, parentPath } from "./paths";
 import { RefreshGate } from "./refreshGate";
@@ -81,7 +81,7 @@ function useColumn(path: string | null, showHidden: boolean): FileEntry[] | null
     gate.start();
     void watchDir(path);
     const target = normalizePath(path);
-    void listen<string>("fs-changed", evt => {
+    void listenHere<string>("fs-changed", evt => {
       if (normalizePath(typeof evt.payload === "string" ? evt.payload : "") === target) gate.refresh();
     }).then(fn => {
       if (live) unlisten = fn;

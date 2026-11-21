@@ -1,7 +1,8 @@
 // Flow 1: the real app starts in a window that fits the screen, renders,
 // lists a folder typed into Go to Path, and shows drives and known folders
 // in the sidebar (on Linux, also the pins a first run starts with), with no
-// uncaught errors. Flow 2: split view. Linux: `pnpm e2e` (Xvfb and a private bus). Windows: run
+// uncaught errors. Flow 2: split view. Flow 3: a second window in the same
+// process. Linux: `pnpm e2e` (Xvfb and a private bus). Windows: run
 // this file directly with `node --test` in an interactive session, with a
 // msedgedriver that matches the WebView2 Runtime (e2e/edgedriver.ps1).
 // Artifacts go to e2e/artifacts/ whatever the outcome.
@@ -313,6 +314,48 @@ test("split view", { timeout: 120_000 }, async () => {
   });
   assert.equal(merged.tabs.length, 3);
   assert.equal(await crumb(), fixtureName);
+});
+
+// One process, many windows (src-tauri/src/app_windows.rs): File → New
+// Window opens a second window in the same app (the driver, which started
+// one process, sees it), labelled main-2, which lists its home folder. A
+// setting changed in it reaches the first window. Closing it leaves the
+// first one open.
+test("new window", { timeout: 120_000 }, async () => {
+  const first = await session.windowHandle();
+  assert.deepEqual(await session.windowHandles(), [first]);
+  const label = () => session.execute(() => window.__TAURI_INTERNALS__?.metadata?.currentWindow?.label ?? null);
+  assert.equal(await label(), "main");
+
+  await session.chord([Keys.CONTROL, "n"]);
+  const second = await waitFor("a second window", async () => (await session.windowHandles()).find(h => h !== first), { timeoutMs: 30_000 });
+  await session.switchToWindow(second);
+  await waitFor("the second window's page to run scripts", () => session.execute(installErrorListeners), { timeoutMs: 30_000 });
+  assert.equal(await label(), "main-2");
+  const listed = await waitFor("the second window's listing of home", () => session.execute(() => {
+    const names = [...document.querySelectorAll(".pane .row .name")].map(n => n.textContent.trim());
+    const tabs = document.querySelectorAll(".titlebar [data-tab-bar] [data-tab-index]").length;
+    return names.includes("Documents") && names.includes("Downloads") ? { names, tabs } : null;
+  }), { timeoutMs: 45_000 });
+  assert.equal(listed.tabs, 1, "a new window opens one tab");
+
+  // A theme picked in the second window is the first window's too.
+  const theme = "gruvbox-dark";
+  await session.execute(t => window.dispatchEvent(new CustomEvent("glasshouse:set-theme", { detail: t })), theme);
+  await waitFor("the second window in the new theme", () => session.execute(t => document.documentElement.getAttribute("data-theme") === t, theme));
+  await session.switchToWindow(first);
+  await waitFor("the first window in the theme the second picked", () => session.execute(t => document.documentElement.getAttribute("data-theme") === t, theme));
+  // The first window kept its own tabs (split view left three).
+  assert.equal(await session.execute(() => document.querySelectorAll(".titlebar [data-tab-bar] [data-tab-index]").length), 3);
+
+  // The second window's own close button closes it alone.
+  await session.switchToWindow(second);
+  const seen = await session.execute(() => window.__e2e ?? null);
+  assert.deepEqual(seen?.errors ?? [], [], "uncaught errors in the second window");
+  await session.execute(() => document.querySelector(".wc.close").click());
+  await waitFor("one window again", async () => (await session.windowHandles()).length === 1, { timeoutMs: 30_000 });
+  await session.switchToWindow(first);
+  assert.equal(await label(), "main");
 });
 
 test("no uncaught errors", { timeout: 30_000 }, async () => {

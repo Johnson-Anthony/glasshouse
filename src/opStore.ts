@@ -53,7 +53,9 @@ interface Entry {
 }
 
 let idCounter = 0;
-const idPrefix = `op-${Date.now().toString(36)}`;
+// Every window shares the backend's op registry (one process), and two
+// windows can load in the same millisecond: the random part keeps them apart.
+const idPrefix = `op-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 
 /** A fresh backend op id, for a caller that doesn't need a tray row (the
  *  find panel cancels its own stale searches). */

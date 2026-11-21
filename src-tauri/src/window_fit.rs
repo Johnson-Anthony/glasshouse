@@ -1,14 +1,14 @@
-//! The window fits the screen it opens on. tauri.conf.json asks for
+//! A window fits the screen it opens on. tauri.conf.json asks for
 //! 1400×900 (logical), more than a small screen or a scaled one has: on a
 //! 1024×768 screen the window ran under the taskbar, and at 1920×1080 with
 //! 150% scaling it was too big as well.
 //!
-//! This runs when the app is ready: the window exists, the window-state
-//! plugin has already restored any saved size and place (its restore runs as
-//! the window is made), and nothing has been painted yet. The plugin saves
-//! what the window ends up as, since its move and resize handlers run after
-//! this, so the next start restores a size that fits. See
-//! docs/decisions/2026-11-20-first-run-defaults.md.
+//! This runs as each window is made (`app_windows::open`): the window
+//! exists, the window-state plugin has already restored any saved size and
+//! place for its label (its restore runs as the window is made), and
+//! nothing has been painted yet. The plugin saves what the window ends up
+//! as, since its move and resize handlers run after this, so the next start
+//! restores a size that fits. See docs/decisions/2026-11-20-first-run-defaults.md.
 //!
 //! On Linux a window's size and place are known only once the window system
 //! has configured it, which is after this: until then they read as zeros,
@@ -57,15 +57,15 @@ impl Rect {
     }
 }
 
-/// How the main window starts.
+/// How a window starts.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Start {
     /// Nothing saved: a first run, or the file chooser.
     Fresh,
     /// The window-state plugin restored what it saved.
     Restored(Saved),
-    /// Placed by the OS, at the config's size: a second window, which the
-    /// plugin doesn't restore.
+    /// Placed by the OS, at the config's size: a window after the first
+    /// with nothing saved, or one in a process without the plugin.
     Placed,
 }
 
@@ -179,33 +179,40 @@ pub fn saved_state(file: &Path, label: &str) -> Option<Saved> {
     })
 }
 
-/// How the main window of a process that owns the session starts: Restored
-/// when the window-state plugin was registered and has a size to restore.
-pub fn start_for_owner<R: Runtime>(app: &AppHandle<R>, plugin_registered: bool) -> Start {
-    if !plugin_registered {
-        return Start::Fresh;
+/// How window `label` starts: Restored when the window-state plugin is
+/// registered and saved a size for it; else Fresh for the first window of a
+/// process that owns the session, Placed for any other.
+pub fn start_for<R: Runtime>(app: &AppHandle<R>, label: &str, plugin_registered: bool, first: bool) -> Start {
+    let saved = plugin_registered
+        .then(|| app.path().app_config_dir().ok())
+        .flatten()
+        .and_then(|dir| saved_state(&dir.join(tauri_plugin_window_state::DEFAULT_FILENAME), label));
+    match saved {
+        Some(s) => Start::Restored(s),
+        None if first => Start::Fresh,
+        None => Start::Placed,
     }
-    app.path()
-        .app_config_dir()
-        .ok()
-        .and_then(|dir| saved_state(&dir.join(tauri_plugin_window_state::DEFAULT_FILENAME), "main"))
-        .map_or(Start::Fresh, Start::Restored)
 }
 
-/// Fit the main window to its screen. The size it asks for and its minimum
-/// come from the first window in the config. Errors are printed: a window
-/// that couldn't be fitted is still a window.
+/// Fit the file chooser's window to its screen.
+#[cfg(target_os = "linux")]
 pub fn fit_main<R: Runtime>(app: &AppHandle<R>, start: Start) {
-    let Some(window) = app.get_webview_window("main") else {
-        return;
-    };
-    let Some(cfg) = app.config().app.windows.first() else {
+    if let Some(window) = app.get_webview_window("main") {
+        fit_window(&window, start);
+    }
+}
+
+/// Fit `window` to its screen. The size it asks for and its minimum come
+/// from the first window in the config. Errors are logged: a window that
+/// couldn't be fitted is still a window.
+pub fn fit_window<R: Runtime>(window: &WebviewWindow<R>, start: Start) {
+    let Some(cfg) = window.app_handle().config().app.windows.first() else {
         return;
     };
     let want = (cfg.width, cfg.height);
     let min = (cfg.min_width.unwrap_or(0.0), cfg.min_height.unwrap_or(0.0));
-    if let Err(e) = fit(&window, want, min, start) {
-        log::warn!("fitting the window to the screen: {e}");
+    if let Err(e) = fit(window, want, min, start) {
+        log::warn!("fitting window {} to the screen: {e}", window.label());
     }
 }
 
@@ -258,7 +265,7 @@ fn fit<R: Runtime>(window: &WebviewWindow<R>, want: (f64, f64), min: (f64, f64),
     let px = |v: f64| (v * scale).round().max(0.0) as u32;
     let want = (px(want.0) + frame.0, px(want.1) + frame.1);
     let min = (px(min.0) + frame.0, px(min.1) + frame.1);
-    // A second window that isn't configured yet is at the config's size,
+    // A window placed by the OS that isn't configured yet is at the config's size,
     // where the window manager will put it: only its size is changed.
     let placed_by_wm = !known && start == Start::Placed;
     if placed_by_wm {

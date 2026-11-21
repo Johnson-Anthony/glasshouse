@@ -52,7 +52,9 @@ import type { MenuAnchor } from "./menuNav";
 import { isModalOpen, useModal } from "./dialogs/modal";
 import { useAutoUpdateCheck } from "./updates";
 import { makeTab } from "./tabs";
-import { DEFAULT_SORT, loadSession, restoreSession, type Session } from "./session";
+import { DEFAULT_SORT, loadSession, restoreSession, sessionFrom, type Session } from "./session";
+import { listenHere } from "./events";
+import { useSharedSetting } from "./useSharedSetting";
 import { closeSplit, isSplit, layoutFromSession, setDir, setRatio, splitWithNew, swapPanes, tabCount, type SplitDir } from "./tabLayout";
 import { useTabLayout } from "./useTabLayout";
 import { useTabMoves } from "./tabMoves";
@@ -81,8 +83,7 @@ import {
   writeRemotes,
   findInFiles,
   cancelOp,
-  sessionOwner,
-  launchRequest,
+  windowStart,
   type FileEntry,
   type BlameLine,
   type FindMatch,
@@ -90,7 +91,7 @@ import {
   type UpdateAvailable,
 } from "./api";
 import { runTransfer, planTransfer, type TransferOp } from "./transfer";
-import { loadTags, movePath, renamePath, setTags, trashPath, useTags } from "./tags";
+import { loadTags, movePath, reloadTags, renamePath, setTags, trashPath, useTags } from "./tags";
 import { transferDeps, reportTransfer, pushTransferUndo, asItems, listNames } from "./transferUi";
 import { errText } from "./errors";
 import { logWarn } from "./log";
@@ -118,6 +119,21 @@ const TWEAK_DEFAULTS: TweakState = {
   tagSet: "standard",
   autoUpdate: false,
 };
+
+/** The settings as saved under `glasshouse.tweaks`, with defaults for what
+ *  they don't say. Throws on a value that isn't JSON. */
+function readTweaks(raw: string | null): TweakState {
+  const saved = JSON.parse(raw || "null");
+  return saved ? {
+    ...TWEAK_DEFAULTS, ...saved, ...migrateLook(saved), zoom: validZoom(saved.zoom),
+    // Only a saved false hides a panel.
+    showSidebar: saved.showSidebar !== false,
+    showInspector: saved.showInspector !== false,
+    showStatusBar: saved.showStatusBar !== false,
+    statusItems: loadStatusItems(saved),
+    tagSet: loadTagSet(saved),
+  } : TWEAK_DEFAULTS;
+}
 
 type PanelKey = "showSidebar" | "showInspector" | "showStatusBar";
 
@@ -318,18 +334,7 @@ export function App() {
     try { return localStorage.getItem("glasshouse.tweaks") === null; } catch { return false; }
   });
   const [state, setState] = useState<TweakState>(() => {
-    try {
-      const saved = JSON.parse(localStorage.getItem("glasshouse.tweaks") || "null");
-      return saved ? {
-        ...TWEAK_DEFAULTS, ...saved, ...migrateLook(saved), zoom: validZoom(saved.zoom),
-        // Only a saved false hides a panel.
-        showSidebar: saved.showSidebar !== false,
-        showInspector: saved.showInspector !== false,
-        showStatusBar: saved.showStatusBar !== false,
-        statusItems: loadStatusItems(saved),
-        tagSet: loadTagSet(saved),
-      } : TWEAK_DEFAULTS;
-    } catch { return TWEAK_DEFAULTS; }
+    try { return readTweaks(localStorage.getItem("glasshouse.tweaks")); } catch { return TWEAK_DEFAULTS; }
   });
 
   const [palOpen, setPalOpen] = useState(false);
@@ -485,13 +490,14 @@ export function App() {
 
   useEffect(() => {
     void (async () => {
-      const [home, owner, launch] = await Promise.all([homeDir(), sessionOwner(), launchRequest()]);
+      const [home, { owner, start: opened }] = await Promise.all([homeDir(), windowStart()]);
       const p = home ?? FALLBACK_PATH;
       setHomePath(home);
-      // A window started with paths opens them, and the window that owns
-      // the session reopens its tabs (session.ts); only a plain start owns it.
-      const plan = launch ? await launchPlan(launch) : null;
-      const saved = owner && !plan ? loadSession() : null;
+      // A window opened with paths opens them; a restored one (or one whose
+      // page loaded again) its tabs; the first one before there's a session
+      // file the v1 key's (session.ts); any other, home.
+      const plan = opened.kind === "launch" ? await launchPlan(opened.launch) : null;
+      const saved = opened.kind === "restore" ? sessionFrom(opened.session) : opened.kind === "legacy" ? loadSession() : null;
       const start: Session = plan?.tabs.length
         ? { tabs: plan.tabs.map(t => ({ path: t.path, sort: DEFAULT_SORT })), active: 0 }
         : saved ? await restoreSession(saved, p) : { tabs: [{ path: p, sort: DEFAULT_SORT }], active: 0 };
@@ -502,16 +508,32 @@ export function App() {
         if (plan.problems.length > 0) dialogs.showToast({ message: `couldn't open ${plan.problems.join("; ")}`, variant: "warning" });
       }
       tabLayout.start(layoutFromSession(start, (_, i) => records[i]), owner);
-      try {
-        const valid = (await readRemotes()).filter((r): r is SavedRemote =>
-          !!r && typeof r === "object" &&
-          typeof (r as SavedRemote).label === "string" &&
-          typeof (r as SavedRemote).host === "string" &&
-          typeof (r as SavedRemote).path === "string",
-        );
-        setSavedRemotes(valid);
-      } catch { /* unreadable or malformed: start empty */ }
+      await loadRemotes();
     })();
+  }, []);
+
+  const loadRemotes = async () => {
+    try {
+      const valid = (await readRemotes()).filter((r): r is SavedRemote =>
+        !!r && typeof r === "object" &&
+        typeof (r as SavedRemote).label === "string" &&
+        typeof (r as SavedRemote).host === "string" &&
+        typeof (r as SavedRemote).path === "string",
+      );
+      setSavedRemotes(valid);
+    } catch { /* unreadable or malformed: start empty */ }
+  };
+
+  // Another window saved its pins, tags or remotes: read them again.
+  useEffect(() => {
+    let live = true;
+    let off: (() => void) | undefined;
+    void listenHere<string>("config-changed", e => {
+      if (e.payload === "pins") void readSavedPins().then(saved => { if (saved) setPins(saved); });
+      else if (e.payload === "tags") void reloadTags();
+      else if (e.payload === "remotes") void loadRemotes();
+    }).then(u => { if (live) off = u; else u(); }, () => { /* no Tauri */ });
+    return () => { live = false; off?.(); };
   }, []);
 
   const persistRemotes = (next: SavedRemote[]) => {
@@ -525,8 +547,9 @@ export function App() {
   useLook(state);
   useEffect(() => {
     applyZoom(state.zoom);
-    localStorage.setItem("glasshouse.tweaks", JSON.stringify(state));
-  }, [state]);
+  }, [state.zoom]);
+  // Saved, and the same in every window.
+  useSharedSetting("glasshouse.tweaks", state, setState, readTweaks);
 
   // Preferences → Updates: off unless the user turned it on.
   useAutoUpdateCheck(state.autoUpdate, found => {

@@ -804,8 +804,15 @@ export function logDir(): Promise<string | null> {
   return mustInvoke<string | null>("log_dir");
 }
 
-export function spawnNewWindow(): Promise<void> {
-  return safe(() => invoke<void>("spawn_new_window"), undefined);
+/** A new window in this process (src-tauri/src/app_windows.rs): one tab at
+ *  home, or `paths` opened as another app's "Show in folder" would. */
+export function newWindow(paths?: string[]): Promise<void> {
+  return safe(() => invoke<void>("new_window", { paths: paths ?? null }), undefined);
+}
+
+/** Quit: every window closes, and all of them come back at the next start. */
+export function quitApp(): Promise<void> {
+  return safe(() => invoke<void>("quit_app"), undefined);
 }
 
 export interface ShellProfile {
@@ -859,8 +866,8 @@ export function ptyKill(sessionId: string): Promise<void> {
   return safe(() => invoke<void>("pty_kill", { sessionId }), undefined);
 }
 
-/** Whether this window restores and saves the tabs: only the first
- *  glasshouse process running does (src-tauri/src/session.rs). */
+/** Whether this window's process saves the session: the one started
+ *  plainly does, and every window in it (src-tauri/src/session.rs). */
 export function sessionOwner(): Promise<boolean> {
   return safe(() => invoke<boolean>("session_owner"), true);
 }
@@ -878,10 +885,30 @@ export interface LaunchRequest {
   skipped: string[];
 }
 
-/** The paths another app (or the command line) started this window with,
- *  or null for a plain start. */
-export function launchRequest(): Promise<LaunchRequest | null> {
-  return safe(() => invoke<LaunchRequest | null>("launch_request"), null);
+/** What a window opens with (src-tauri/src/app_windows.rs): one tab at
+ *  home; the paths another app or the command line handed over; its tabs,
+ *  saved or as this page last reported them (a reload); or, for the first
+ *  window before there's a session file, the tabs in the v1 key. */
+export type WindowStartKind =
+  | { kind: "plain" }
+  | { kind: "launch"; launch: LaunchRequest }
+  | { kind: "restore"; session: unknown }
+  | { kind: "legacy" };
+
+export interface WindowStart {
+  /** This process saves the session; only then is the v1 key written. */
+  owner: boolean;
+  start: WindowStartKind;
+}
+
+export function windowStart(): Promise<WindowStart> {
+  return safe(() => invoke<WindowStart>("window_start"), { owner: true, start: { kind: "legacy" } });
+}
+
+/** This window's tabs, as saved (session.ts `sessionOf`): the backend keeps
+ *  every window's and writes the session file. */
+export function sessionReport(session: unknown): Promise<void> {
+  return safe(() => invoke<void>("session_report", { session }), undefined);
 }
 
 export interface IntegrationFeature {

@@ -23,7 +23,8 @@ glasshouse [--select | --properties] [--] PATH|URI…
 - A folder opens in a tab. A file opens its folder with the file selected. Items in one folder share a tab.
 - `--select` selects every item in its folder, folders too. `--properties` does that, then shows Properties for the first item.
 - `file://` URIs work (a desktop entry's `%U`), and relative paths are taken from the current folder.
-- A window opened this way doesn't restore or save your tabs, so your next plain start opens the tabs you left.
+- With glasshouse already running, the window opens in the running app, and the command exits once it's open (a plain `glasshouse` opens a new window there too). If the running app doesn't answer within 1.5 s, or there's no session bus (Linux), the command opens a window of its own instead.
+- Started this way with no glasshouse running, it doesn't restore or save your tabs, so your next plain start opens the tabs you left. If you then start glasshouse plainly, your saved windows open next to it.
 - Anything that can't be opened (a missing file, a non-local URI) is listed in a notice, and the rest opens.
 
 ## Linux
@@ -52,7 +53,7 @@ Turning it on:
 - writes `~/.local/share/dbus-1/services/org.freedesktop.FileManager1.service`, which the bus prefers to the system's files in `/usr/share`;
 - asks the bus to reload, and starts glasshouse's background process (`glasshouse --dbus file-manager`, no window) if no other file manager has the name.
 
-The background process stays running and opens a window for each request. It passes on the requesting app's startup ID, so the new window is allowed to take focus: as an xdg-activation token on Wayland, or a startup-notification ID on X11.
+The background process stays running and opens a window for each request: in the glasshouse that's running, if one is, and otherwise in a new one. It passes on the requesting app's startup ID, so the new window is allowed to take focus: as an xdg-activation token on Wayland, or a startup-notification ID on X11.
 
 **A file manager that's already running keeps the name.** glasshouse doesn't take the name from a running file manager that hasn't offered it. Preferences then says which program holds it. glasshouse answers once that program isn't running: quit it, or log out and back in.
 
@@ -152,6 +153,8 @@ Uninstalling turns the setting off: the setup.exe uninstaller in its own script,
 ## What was tested
 
 On Linux, on a private D-Bus with scratch home and XDG folders (never a real session): the X11 path under Xvfb, and the Wayland path in a nested niri. On both, turning the settings on, `ShowItems` with the item selected, the startup ID reaching the window, `xdg-open` in generic mode and through `gio open`, and turning them off. The other desktops in the table follow from the standards and from what each one's `xdg-open` runs; they haven't been run. The Windows registry code is unit-tested and type-checked; CI's `installers` job installs, turns the setting on, uninstalls and checks the registry on a Windows runner.
+
+Opening in the running app (2026-11-21, Linux, under Xvfb on a private bus): a second plain launch and a launch with paths each opened their window in the running app and exited in about 70 ms, and the startup ID reached the new window; `ShowItems` through the background process did the same, and started a window process when no glasshouse was running. A stopped (hung) app held a launch up for about 1.7 s, then it opened its own window; with no session bus, glasshouse ran on its own. The Wayland focus and Windows (a named pipe) are hand checks in `docs/testing/`.
 
 The open and save dialogs were tested the same way, with a private xdg-desktop-portal 1.20.3 (and xdg-desktop-portal-gtk as the desktop's dialog), on Debian 13:
 - the portal's `OpenFile`, `SaveFile` and `SaveFiles` with every option: several files, folders, file types and the current one, extra options, a suggested name, folder and file, an existing file (the replace prompt), Cancel, Esc, and the app closing its request (the dialog's process is gone);

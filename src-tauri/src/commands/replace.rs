@@ -14,7 +14,7 @@ use grep_regex::{RegexMatcher, RegexMatcherBuilder};
 use grep_searcher::{BinaryDetection, Searcher, SearcherBuilder, Sink, SinkMatch};
 use regex::bytes::{NoExpand, Regex, RegexBuilder};
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, State};
+use tauri::State;
 
 use super::fs_ops::ensure_regular;
 use crate::ops::{Op, OpRegistry};
@@ -85,12 +85,12 @@ pub struct ReplaceOutcome {
 /// `op_id` it reports files searched and can be cancelled.
 #[tauri::command(async)]
 pub fn replace_preview(
-    app: AppHandle,
+    window: tauri::WebviewWindow,
     ops: State<'_, OpRegistry>,
     request: ReplaceRequest,
     op_id: Option<String>,
 ) -> Result<ReplacePlan, String> {
-    plan_replace(&request, &ops.start(op_id, &app))
+    plan_replace(&request, &ops.start(op_id, &window))
 }
 
 /// Replace in `paths`, the files a preview listed and the user confirmed.
@@ -99,14 +99,14 @@ pub fn replace_preview(
 /// still returns what was changed.
 #[tauri::command(async)]
 pub fn replace_apply(
-    app: AppHandle,
+    window: tauri::WebviewWindow,
     ops: State<'_, OpRegistry>,
     request: ReplaceRequest,
     paths: Vec<String>,
     keep_content: bool,
     op_id: Option<String>,
 ) -> Result<ReplaceOutcome, String> {
-    apply_replace(&request, &paths, keep_content, &ops.start(op_id, &app))
+    apply_replace(&request, &paths, keep_content, &ops.start(op_id, &window))
 }
 
 /// Replace an existing file's text with `content`, as `replace_apply`

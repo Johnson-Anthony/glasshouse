@@ -1,7 +1,8 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Terminal, type ITheme } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
-import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import type { UnlistenFn } from "@tauri-apps/api/event";
+import { listenHere } from "./events";
 import "@xterm/xterm/css/xterm.css";
 import {
   listShellProfiles,
@@ -208,7 +209,7 @@ function TermPane({ profile, cwd, visible, open, follow, height, onExit }: TermP
 
     void (async () => {
       const [ud, ue] = await Promise.all([
-        listen<PtyDataEvent>("pty-data", evt => {
+        listenHere<PtyDataEvent>("pty-data", evt => {
           const p = evt.payload;
           if (disposed) return;
           if (myId === null) {
@@ -218,7 +219,7 @@ function TermPane({ profile, cwd, visible, open, follow, height, onExit }: TermP
           if (p.session_id !== myId) return;
           term.write(p.data);
         }),
-        listen<PtyExitEvent>("pty-exit", evt => {
+        listenHere<PtyExitEvent>("pty-exit", evt => {
           const p = evt.payload;
           if (disposed) return;
           if (myId === null) { pendingExits.push(p); return; }
