@@ -35,6 +35,7 @@ mod win32;
 
 /// The drag's one target on Linux. No folder URI goes with it: a drop on a
 /// file manager or a terminal would copy the folder or paste its path.
+#[cfg(target_os = "linux")]
 pub const TARGET: &str = "application/x-glasshouse-tab";
 
 /// A record bigger than this isn't a tab (history is the bulk of one).
