@@ -4,12 +4,38 @@ fn main() {
     check_command_permissions();
     // The app manifest reads permissions/*.toml. Once it defines any
     // permission, Tauri ACL-checks app commands too, not just plugin ones.
-    let attributes =
+    let mut attributes =
         tauri_build::Attributes::new().app_manifest(tauri_build::AppManifest::new());
+    if windows_msvc() {
+        attributes = attributes
+            .windows_attributes(tauri_build::WindowsAttributes::new_without_app_manifest());
+        embed_windows_manifest();
+    }
     if let Err(error) = tauri_build::try_build(attributes) {
         println!("{error:#}");
         std::process::exit(1);
     }
+}
+
+fn windows_msvc() -> bool {
+    std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows")
+        && std::env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("msvc")
+}
+
+/// Embed the Common Controls v6 manifest through the linker, so every exe
+/// gets it, the unit-test exe included. tauri-build's own manifest is a
+/// resource linked into the app's binary alone, and a test exe that imports
+/// a comctl32 v6 function fails to load without it
+/// (STATUS_ENTRYPOINT_NOT_FOUND; Windows CI's first run of one process with
+/// many windows, 14fbcec).
+fn embed_windows_manifest() {
+    let manifest = std::env::current_dir()
+        .expect("build.rs: current dir")
+        .join("windows")
+        .join("app-manifest.xml");
+    println!("cargo:rerun-if-changed={}", manifest.display());
+    println!("cargo:rustc-link-arg=/MANIFEST:EMBED");
+    println!("cargo:rustc-link-arg=/MANIFESTINPUT:{}", manifest.display());
 }
 
 /// Fail the build unless the commands registered in `generate_handler!` in
