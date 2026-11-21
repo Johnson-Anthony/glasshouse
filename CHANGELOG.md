@@ -10,6 +10,8 @@ What changed in each release, for people using glasshouse. Downloads are on the 
 - **All your windows come back.** Quit (Ctrl+Q) closes every window, and the next start reopens all of them with their tabs, splits and sizes (and positions on Windows and X11). Closing one window of several forgets it; closing the last one keeps it. Private tabs are never saved.
 - **Split view:** View → Split → Split Side by Side (Ctrl+\\) or Split Top and Bottom shows two panes in one window, each with its own tabs. Ctrl+F6 moves between them, the divider can be dragged (a double-click centers it), and Swap Panes and Close Split are in the same menu. The toolbar, path bar and search follow the pane you're in.
 - **Copy to Other Pane and Move to Other Pane** in the Edit menu and the file context menu, with undo and the usual questions before anything is replaced. A tab's context menu has Move to Other Pane too.
+- **Tabs can be dragged out of a window:** drop one on another glasshouse window to move it there, onto its tabs or its file list (the edge splits), or anywhere else to open it in a new window. It keeps its folder, sort, history and filters. Esc cancels.
+- **Move to New Window** on a tab's context menu.
 - **Tabs can be dragged:** to reorder them, into the other pane's tabs or file list, or to the edge of the file list to split with that tab. Esc cancels. Dragging a window's only tab moves the window.
 - **A split is remembered** with the rest of the window's tabs.
 - **Update checks, off until you ask.** Help → Check for Updates checks once, and Preferences → Updates → "check for updates automatically" checks at most once a day. A check is one request to github.com for the latest release's latest.json: nothing about you or your computer is sent.

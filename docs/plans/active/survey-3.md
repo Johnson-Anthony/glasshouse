@@ -34,7 +34,7 @@ The scan for the user's own paths and names found none in app code. The gaps are
 | 45 | e2e-nightly-matrix | CI | S–M | after 32 |
 | 46 | release-smoke | CI + docs | M | after 32 and task 30 |
 | 49 | appimage-menu-entry | both | M | queued (split from 35 on 11-20) |
-| 50 | split-and-tear-off | both | L | running: phase 1 (split view) merged 11-20, phase 2 (one process) merged 11-21; phase 3 (tear-off) next (user request 11-20: "split view for tabs" and dragging tabs into their own window "like you can with browsers"; one process with many windows, in three phases) |
+| 50 | split-and-tear-off | both | L | merged 11-21: phase 1 split view (11-20), phase 2 one process with many windows, phase 3 tear-off (user request 11-20: "split view for tabs" and dragging tabs into their own window "like you can with browsers"; one process with many windows, in three phases) |
 
 Run at most two Rust tasks at once (RAM). Tasks 33, 34, 36 and 37 all touch `src-tauri/src/commands/`, so keep diffs narrow.
 
@@ -289,3 +289,6 @@ The owner asked for "split view for tabs and also to be able to drag drop tabs i
 - *(from split-and-tear-off phase 1, for 38)* Ctrl+\\ for Split Side by Side may be out of reach on AltGr layouts (German, Nordic) where `\` needs AltGr; View → Split works everywhere.
 - *(from split-and-tear-off phase 2)* Not built on Windows: the pipe handoff and every `cfg(windows)` path first compile in CI (hand checks W15.1–W15.11). Wayland focus of a handed-off window wasn't checked (L13.2); a launch from a terminal on Wayland has no activation token, so the window may only ask for attention (L13.3). A real update restart with several windows open wasn't run (W15.11, L12.3).
 - *(from split-and-tear-off phase 2)* Accepted edge cases: `update-progress` still goes to every window (only the one with the Updates dialog shows it); a launch that gives up on a slow, not frozen, app can end with two windows; windows a path-started process had before it took over the session don't get their size and position saved.
+- *(from split-and-tear-off phase 3)* Not built on Windows: `tab_drag.rs`'s Windows half (WindowFromPoint) and the full app; hand checks W8.9–W8.15, W15.12. Wayland not confirmed: nested niri with a virtual pointer can't finish any drag between two apps, plain GTK3 file drags included, so the drag-failed mapping (NO_TARGET and Wayland's ERROR open a window; USER_CANCELLED, GRAB_BROKEN, TIMEOUT leave the tab) comes from GTK3's source; real-mouse checks L9.11–L9.16 on GNOME and KDE. `docs/decisions/2026-11-21-split-and-tear-off-tear-off.md`.
+- *(from split-and-tear-off phase 3, new task)* Dragging files out to other apps (`commands/drag_out.rs`) starts its OS drag the same way as the tab drag, so it likely leaves WebKit without the button release too: the next drag in that window doesn't start. Phase 3's fix is `tab_drag/gtk_dnd.rs`'s `release()`; drag_out probably needs the same.
+- *(from split-and-tear-off phase 3, new task)* A long path makes the page wider than a narrow window, pushing the Inspector, search box and window buttons off screen (there before task 50).
