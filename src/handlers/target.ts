@@ -61,6 +61,9 @@ export const targetHandler: Handler = (label, ctx) => {
         case "Move Tab to Other Pane":
           cmdState.contextTarget = null;
           ctx.app.panes.moveTabToOtherPane(ctxT.tabIndex, ctxT.pane); return true;
+        case "Move Tab to New Window":
+          cmdState.contextTarget = null;
+          ctx.app.panes.moveTabToNewWindow(ctxT.tabIndex, ctxT.pane); return true;
       }
     } else if (ctxT.kind === "sidebar" && ctxT.rowKind === "remote" && ctxT.path) {
       const host = ctxT.path;

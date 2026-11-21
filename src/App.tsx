@@ -55,7 +55,8 @@ import { makeTab } from "./tabs";
 import { DEFAULT_SORT, loadSession, restoreSession, sessionFrom, type Session } from "./session";
 import { listenHere } from "./events";
 import { useSharedSetting } from "./useSharedSetting";
-import { closeSplit, isSplit, layoutFromSession, setDir, setRatio, splitWithNew, swapPanes, tabCount, type SplitDir } from "./tabLayout";
+import { closeSplit, isSplit, layoutFromSession, setDir, setRatio, single, splitWithNew, swapPanes, tabCount, type SplitDir } from "./tabLayout";
+import { parseTransfer, recordFromTransfer } from "./tabTransfer";
 import { useTabLayout } from "./useTabLayout";
 import { useTabMoves } from "./tabMoves";
 import { launchPlan } from "./launch";
@@ -493,6 +494,14 @@ export function App() {
       const [home, { owner, start: opened }] = await Promise.all([homeDir(), windowStart()]);
       const p = home ?? FALLBACK_PATH;
       setHomePath(home);
+      // A tab moved out of another window (tabMoves.ts): it, with its
+      // history and filters.
+      const moved = opened.kind === "transfer" ? parseTransfer(opened.tab) : null;
+      if (moved) {
+        tabLayout.start(single([recordFromTransfer(moved)]), owner);
+        await loadRemotes();
+        return;
+      }
       // A window opened with paths opens them; a restored one (or one whose
       // page loaded again) its tabs; the first one before there's a session
       // file the v1 key's (session.ts); any other, home.
@@ -977,8 +986,10 @@ export function App() {
 
   const onTabContext = (pane: number) => (e: React.MouseEvent, tabIndex: number) => {
     cmdState.contextTarget = { kind: "tab", tabIndex, pane };
-    // Unsplit, a window's only tab can't split off.
-    const menu = CONTEXT_TAB.filter(it => !(it.kind === "item" && it.action === "Move Tab to Other Pane" && !split && tabCount(layout) < 2));
+    // A window's only tab can't leave it (dragging it moves the window),
+    // nor, unsplit, split off.
+    const only = tabCount(layout) < 2;
+    const menu = CONTEXT_TAB.filter(it => !(it.kind === "item" && only && (it.action === "Move Tab to New Window" || (it.action === "Move Tab to Other Pane" && !split))));
     openCtxMenu(e, menu);
   };
 
@@ -1085,6 +1096,7 @@ export function App() {
       if (moving.length > 0) performDrop(moving, dst, copy, refreshShown);
     },
     moveTabToOtherPane: (index, pane) => tabMoves.moveToOtherPane(pane ?? layout.focus, index),
+    moveTabToNewWindow: (index, pane) => tabMoves.moveToNewWindow(pane ?? layout.focus, index),
   };
 
   const renderPane = (p: number) => {

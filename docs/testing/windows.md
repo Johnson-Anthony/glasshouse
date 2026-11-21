@@ -88,7 +88,13 @@ These use Windows' own dialogs.
 - [ ] **W8.6** Drag a download from the browser's downloads list into glasshouse → copied.
 - [ ] **W8.7** Inside glasshouse: a plain drag moves, Ctrl+drag copies, and the label at the pointer changes as you press Ctrl.
 - [ ] **W8.8** **Tabs and split view:** View → Split → Split Side by Side, then drag a tab within its tab bar, onto the other pane's tab bar, and onto the other pane's files → it reorders or moves there, and a line or a shaded pane shows where it will go. Unsplit with two tabs, drag one to the left, right, top or bottom quarter of the file list → the view splits that way with the tab in the new pane. Escape during a drag cancels it.
-- [ ] **W8.9** With one tab open, drag the tab → the window moves, as dragging the title bar does. Let go of a tab outside the window → nothing happens; the tab stays.
+- [ ] **W8.9** With one tab open, drag the tab → the window moves, as dragging the title bar does.
+- [ ] **W8.10** **Tab to another window:** two windows, each with a few tabs. Sort a tab's folder by size, go into a subfolder and type a filter, then drag that tab out of its window over the other window's tab bar → a line shows where it will go, and that window draws the tab's name at the pointer. Let go → the tab is there with its folder, sort, filter and Back history, that window has the focus, and the tab is gone from the first one. Over the other window's file list, the outer quarter splits the view and the middle adds the tab to it (a shaded half or pane shows which). Over its sidebar or toolbar → a new window.
+- [ ] **W8.11** **Tab to a new window:** drag a tab out and let go over the desktop, then over another app's window → each time a new window opens with that tab, the size of the first, with the pointer over its tab. Over the desktop no name follows the pointer (expected). Let go near a screen edge and over the taskbar → the window is inside the work area. With two monitors, let go on the other one → it opens there. Drag the only tab of a split view's pane out → the view unsplits.
+- [ ] **W8.12** Another app's window lying over part of a glasshouse window: let go of a tab over the app, where it covers glasshouse → a new window, not the covered one.
+- [ ] **W8.13** **Escape:** drag a tab out of the window and press Escape while it's outside → the name and the mark go, and the tab stays where it was. Drag it out and back into its own window before letting go → it's a move inside the window, as in W8.8, never a new window.
+- [ ] **W8.14** Two monitors at different scales (100% and 150%), a window on each: drag a tab from one onto the other's tab bar and file list → the line and the shaded pane are under the pointer, and the tab lands where they showed.
+- [ ] **W8.15** **Move to New Window** on a tab's right-click menu → a new window opens in front with that tab, and the tab leaves the first window. The item isn't there for a window's only tab. A private tab (File → New Private Session) moved by the menu or by a drag stays private.
 
 ## W9. Terminal
 
@@ -159,3 +165,4 @@ Every glasshouse window is in one process, as a browser's are. In Task Manager �
 - [ ] **W15.9** A terminal open in each of two windows. Close one window → its shell's process ends (Task Manager), and the other window's terminal keeps working. A long copy with the progress tray in one window → the other window's tray doesn't show it.
 - [ ] **W15.10** Two users signed in at once (Switch user), glasshouse running for both → a launch in each account opens in that account's own glasshouse.
 - [ ] **W15.11** A setup.exe update (W14.3) with three windows open → after the restart, all three come back with their tabs.
+- [ ] **W15.12** Move tabs between three windows (W8.10, W8.11), then Ctrl+Q and start → every tab comes back in the window it was moved to, once, and the private ones don't come back.

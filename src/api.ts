@@ -5,6 +5,8 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
 import { errKind, errText, fromBackend } from "./errors";
 import { joinPath } from "./paths";
+import type { DropZones } from "./tabDrag";
+import type { TabTransfer } from "./tabTransfer";
 
 export async function winClose(): Promise<void> {
   if (!TAURI_AVAILABLE) return;
@@ -477,6 +479,45 @@ export function startDragOut(paths: string[]): Promise<void> {
   return mustInvoke<void>("start_drag_out", { paths });
 }
 
+// A tab moved to another window or a new one (src-tauri/src/tab_drag.rs,
+// tabMoves.ts). The tab's record goes to the backend, which holds it in
+// memory until the drag ends.
+
+/** Where this window takes a tab from another window. */
+export function tabDropZones(zones: DropZones): Promise<void> {
+  return safe(() => invoke<void>("tab_drop_zones", { zones }), undefined);
+}
+
+/** Tab `tab` is dragged out of this window. Linux: it becomes the OS's
+ *  drag, and the window hears `tab-drag-end`. Windows: the page keeps the
+ *  pointer and asks `tabDragHover` and `tabDragRelease`. `anchor`: where a
+ *  new window's first tab is from its top-left, in the window's pixels. */
+export function tabDragStart(tab: number, record: TabTransfer, title: string, anchor: [number, number]): Promise<void> {
+  return mustInvoke<void>("tab_drag_start", { tab, record, title, anchor });
+}
+
+/** Windows: the pointer moved outside the window; the window under it
+ *  shows where the tab would go. */
+export function tabDragHover(): Promise<void> {
+  return safe(() => invoke<void>("tab_drag_hover"), undefined);
+}
+
+/** How a tab let go outside its window ended (Windows): `moved` (another
+ *  window has it, or a new one), else it stays. */
+export function tabDragRelease(): Promise<"moved" | "home" | "cancelled"> {
+  return mustInvoke<"moved" | "home" | "cancelled">("tab_drag_release");
+}
+
+/** Windows: the drag came back in, or Escape; nothing moves. */
+export function tabDragCancel(): Promise<void> {
+  return safe(() => invoke<void>("tab_drag_cancel"), undefined);
+}
+
+/** Move to New Window: resolves once the window with the tab is made. */
+export function tabToNewWindow(record: TabTransfer): Promise<void> {
+  return mustInvoke<void>("tab_to_new_window", { record });
+}
+
 export function spawnTerminal(path: string): Promise<void> {
   return safe(() => invoke<void>("spawn_terminal", { path }), undefined);
 }
@@ -893,7 +934,10 @@ export type WindowStartKind =
   | { kind: "plain" }
   | { kind: "launch"; launch: LaunchRequest }
   | { kind: "restore"; session: unknown }
-  | { kind: "legacy" };
+  | { kind: "legacy" }
+  /** A tab moved out of another window: its record (tabTransfer.ts), to
+   *  check with `parseTransfer`. */
+  | { kind: "transfer"; tab: unknown };
 
 export interface WindowStart {
   /** This process saves the session; only then is the v1 key written. */

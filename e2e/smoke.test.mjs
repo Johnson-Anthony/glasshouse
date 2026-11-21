@@ -2,7 +2,7 @@
 // lists a folder typed into Go to Path, and shows drives and known folders
 // in the sidebar (on Linux, also the pins a first run starts with), with no
 // uncaught errors. Flow 2: split view. Flow 3: a second window in the same
-// process. Linux: `pnpm e2e` (Xvfb and a private bus). Windows: run
+// process. Flow 4: a tab moved to a new window. Linux: `pnpm e2e` (Xvfb and a private bus). Windows: run
 // this file directly with `node --test` in an interactive session, with a
 // msedgedriver that matches the WebView2 Runtime (e2e/edgedriver.ps1).
 // Artifacts go to e2e/artifacts/ whatever the outcome.
@@ -356,6 +356,63 @@ test("new window", { timeout: 120_000 }, async () => {
   await waitFor("one window again", async () => (await session.windowHandles()).length === 1, { timeoutMs: 30_000 });
   await session.switchToWindow(first);
   assert.equal(await label(), "main");
+});
+
+// Tear-off without a drag (src/tabMoves.ts, src-tauri/src/tab_drag.rs): the
+// tab menu's Move to New Window. The tab leaves the first window, and a
+// second window opens with it, listing its folder, with its Back history.
+test("move to new window", { timeout: 120_000 }, async () => {
+  const first = await session.windowHandle();
+  assert.deepEqual(await session.windowHandles(), [first]);
+  const titleTabs = () => session.execute(() =>
+    [...document.querySelectorAll(".titlebar [data-tab-bar] [data-tab-index] .label")].map(l => l.textContent));
+  const before = await titleTabs();
+  assert.equal(before.length, 3, `split view left three tabs: ${JSON.stringify(before)}`);
+  const index = before.findIndex(l => samePath(l, fixture.path));
+  assert.ok(index >= 0, `a tab on the fixture: ${JSON.stringify(before)}`);
+  // Give it a Back history: alpha opened in it, so Back goes to the fixture.
+  await session.execute(i => document.querySelectorAll(".titlebar [data-tab-index]")[i].click(), index);
+  await session.click(await waitFor("alpha in the fixture tab", () => session.execute(() =>
+    [...document.querySelectorAll(".pane .row")].find(r => r.querySelector(".name")?.textContent.trim() === "alpha") ?? null)));
+  await session.chord([Keys.ENTER]);
+  await waitFor("the tab in alpha", async () => (await titleTabs())[index]?.endsWith("alpha"));
+  const staying = (await titleTabs()).filter((_, i) => i !== index);
+
+  await session.execute(i => {
+    const tab = document.querySelectorAll(".titlebar [data-tab-index]")[i];
+    const b = tab.getBoundingClientRect();
+    tab.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: b.left + 5, clientY: b.top + 5 }));
+  }, index);
+  await session.click(await waitFor("Move to New Window in the tab menu", () => session.execute(() =>
+    [...document.querySelectorAll(".mi")].find(m => m.textContent.includes("Move to New Window")) ?? null)));
+
+  const second = await waitFor("a window for the tab", async () => (await session.windowHandles()).find(h => h !== first), { timeoutMs: 30_000 });
+  // It left the first window.
+  const left = await waitFor("the tab gone from the first window", async () => {
+    const now = await titleTabs();
+    return now.length === 2 ? now : null;
+  });
+  assert.deepEqual(left, staying, "the other two tabs stay");
+
+  await session.switchToWindow(second);
+  await waitFor("the new window's page to run scripts", () => session.execute(installErrorListeners), { timeoutMs: 30_000 });
+  const listed = await waitFor("the new window's listing of alpha", () => session.execute(() => {
+    const names = [...document.querySelectorAll(".pane .row .name")].map(n => n.textContent.trim());
+    const tabs = [...document.querySelectorAll(".titlebar [data-tab-bar] [data-tab-index] .label")].map(l => l.textContent);
+    return names.includes("beta.txt") ? { names, tabs } : null;
+  }), { timeoutMs: 45_000 });
+  assert.equal(listed.tabs.length, 1, "the new window has the one tab");
+  assert.ok(listed.tabs[0].endsWith("alpha"), `its tab: ${listed.tabs[0]}`);
+  // Its history came with it: Back goes to the fixture.
+  await session.chord([Keys.ALT, Keys.ARROW_LEFT]);
+  await waitFor("Back in the new window to the fixture", () => session.execute(name =>
+    [...document.querySelectorAll(".pane .row .name")].some(n => n.textContent.trim() === name), "Gamma notes.md"));
+
+  const seen = await session.execute(() => window.__e2e ?? null);
+  assert.deepEqual(seen?.errors ?? [], [], "uncaught errors in the new window");
+  await session.execute(() => document.querySelector(".wc.close").click());
+  await waitFor("one window again", async () => (await session.windowHandles()).length === 1, { timeoutMs: 30_000 });
+  await session.switchToWindow(first);
 });
 
 test("no uncaught errors", { timeout: 30_000 }, async () => {

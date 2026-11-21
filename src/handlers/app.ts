@@ -72,6 +72,8 @@ export const appHandler: Handler = (label, ctx) => {
       panes.transferToOther(false); return true;
     case "Move Tab to Other Pane":
       panes.moveTabToOtherPane(activeTab); return true;
+    case "Move Tab to New Window":
+      panes.moveTabToNewWindow(activeTab); return true;
     case "Home":
       void (async () => {
         const h = await homeDir();

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  addTab, allTabs, clampRatio, closeOthersIn, closeSplit, closeTabIn, DEFAULT_RATIO, findTab, isSplit, layoutFromSession,
+  addTab, allTabs, clampRatio, closeOthersIn, closeSplit, closeTabIn, DEFAULT_RATIO, findTab, isSplit, landTab, layoutFromSession,
   moveTabTo, relabel, removeTab, setActive, setDir, setFocus, setRatio, shownIds, single, splitWithNew, splitWithTab,
   swapPanes, tabCount, type Layout,
 } from "./tabLayout";
@@ -176,6 +176,42 @@ describe("splitting", () => {
   it("the pane's only tab can't split off", () => {
     const l = of([["/a"]]);
     expect(splitWithTab(l, { pane: 0, index: 0 }, "right")).toBe(l);
+  });
+});
+
+describe("landTab", () => {
+  it("a tab from another window goes into a tab bar at the gap, shown and focused", () => {
+    const l = of([["/a", "/b"], ["/c"]], 0, [1, 0]);
+    const t = makeTab("/x");
+    const got = landTab(l, t, { kind: "bar", pane: 1, gap: 0 });
+    expect(paths(got)).toEqual([["/a", "/b"], ["/x", "/c"]]);
+    expect(got.focus).toBe(1);
+    expect(shown(got)).toEqual(["/b", "/x"]);
+    expect(findTab(got, t.id)).toEqual({ pane: 1, index: 0 });
+  });
+
+  it("the outer quarter of an unsplit window splits with it on that side", () => {
+    const l = of([["/a"]]);
+    const right = landTab(l, makeTab("/x"), { kind: "split", side: "right" });
+    expect(paths(right)).toEqual([["/a"], ["/x"]]);
+    expect([right.dir, right.focus]).toEqual(["row", 1]);
+    const top = landTab(l, makeTab("/x"), { kind: "split", side: "top" });
+    expect(paths(top)).toEqual([["/x"], ["/a"]]);
+    expect([top.dir, top.focus]).toEqual(["column", 0]);
+  });
+
+  it("the middle of a pane, or nowhere, puts it after that pane's tabs", () => {
+    const l = of([["/a"], ["/b"]], 0);
+    expect(paths(landTab(l, makeTab("/x"), { kind: "pane", pane: 1 }))).toEqual([["/a"], ["/b", "/x"]]);
+    expect(paths(landTab(l, makeTab("/x"), null))).toEqual([["/a", "/x"], ["/b"]]);
+  });
+
+  it("where the window changed meanwhile, after the focused pane's tabs", () => {
+    // Split since the backend answered: it splits no further.
+    const l = of([["/a"], ["/b"]], 1);
+    expect(paths(landTab(l, makeTab("/x"), { kind: "split", side: "left" }))).toEqual([["/a"], ["/b", "/x"]]);
+    // Unsplit since: the second pane is gone.
+    expect(paths(landTab(of([["/a"]]), makeTab("/x"), { kind: "bar", pane: 1, gap: 0 }))).toEqual([["/a", "/x"]]);
   });
 });
 

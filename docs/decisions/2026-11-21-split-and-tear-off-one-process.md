@@ -1,6 +1,6 @@
 # split-and-tear-off: every window in one process
 
-Date: 2026-11-21. Task: `split-and-tear-off` (survey-3 task 50, phase 2). Plan: `docs/plans/active/split-and-tear-off.md`. Code: `src-tauri/src/app_windows.rs`, the run loop in `lib.rs`, `src/events.ts`. Goes with `2026-11-21-split-and-tear-off-session.md` (what's saved) and `2026-11-21-split-and-tear-off-handoff.md` (a second launch).
+Date: 2026-11-21. Task: `split-and-tear-off` (survey-3 task 50, phase 2). Plan: `docs/plans/completed/split-and-tear-off.md`. Code: `src-tauri/src/app_windows.rs`, the run loop in `lib.rs`, `src/events.ts`. Goes with `2026-11-21-split-and-tear-off-session.md` (what's saved) and `2026-11-21-split-and-tear-off-handoff.md` (a second launch).
 
 ## Context
 File → New Window started another glasshouse process (`spawn_new_window`). Each process had its own backend: its own folder watches, terminals, op registry and update state, and only the first one saved the session. Phase 3 (tearing a tab off into a window, and dropping one into another window) needs the windows to share one backend, as a browser's do; the cross-process WIP (`claude/split-and-tear-off-xproc-wip`) showed how much a handoff between processes costs for each thing that has to move.

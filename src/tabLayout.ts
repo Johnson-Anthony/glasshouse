@@ -187,6 +187,24 @@ export function splitWithTab(l: Layout, from: TabAt, side: Side): Layout {
   return splitInto(l, closeTab(p, from.index, "/"), tab, side);
 }
 
+/** Where a tab from another window lands (the backend's hit test,
+ *  `zone_at` in src-tauri/src/tab_drag.rs): in a tab bar at a gap, in a new
+ *  pane on a side of an unsplit window, or after a pane's tabs. */
+export type Landing =
+  | { kind: "bar"; pane: number; gap: number }
+  | { kind: "split"; side: Side }
+  | { kind: "pane"; pane: number };
+
+/** `tab` (a new record, from another window) where it landed, shown and
+ *  its pane focused. Where that no longer fits (the window was split
+ *  meanwhile), or nowhere, after the focused pane's tabs. */
+export function landTab(l: Layout, tab: TabRecord, at: Landing | null): Layout {
+  if (at?.kind === "bar" && validPane(l, at.pane)) return addTab(l, at.pane, tab, at.gap);
+  if (at?.kind === "split" && !isSplit(l) && l.panes[0].tabs.length > 0) return splitInto(l, l.panes[0], tab, at.side);
+  if (at?.kind === "pane" && validPane(l, at.pane)) return addTab(l, at.pane, tab);
+  return addTab(l, l.focus, tab);
+}
+
 /** Close Split: the second pane's tabs go after the first's, and the
  *  focused pane's shown tab stays shown. */
 export function closeSplit(l: Layout): Layout {

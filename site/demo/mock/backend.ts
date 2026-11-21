@@ -633,6 +633,14 @@ export function createBackend(hooks: BackendHooks) {
       return DEMO_INTEGRATION;
     },
     start_drag_out: notInDemo("Dragging files into other apps"),
+    // A tab dragged out of its window, or Move to New Window (src/tabMoves.ts):
+    // the demo has one window. The tab stays where it was.
+    tab_drop_zones: () => null,
+    tab_drag_start: notInDemo("Moving a tab to another window"),
+    tab_drag_hover: () => null,
+    tab_drag_release: () => "cancelled",
+    tab_drag_cancel: () => null,
+    tab_to_new_window: () => { throw "Moving a tab to a new window isn't available in the browser demo."; },
     // Preferences → Updates and Help → Check for Updates: the demo contacts
     // nothing. With no info, Preferences shows the switch and what a check
     // would send; a check says it's the app's.
