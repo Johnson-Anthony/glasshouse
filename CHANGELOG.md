@@ -6,6 +6,8 @@ What changed in each release, for people using glasshouse. Downloads are on the 
 
 ### New
 
+- **Every window in one app, as in a browser.** File → New Window (Ctrl+N), Open in New Window and starting glasshouse again open a window in the glasshouse that's running, in front, instead of starting a second copy. Folders opened from other apps, and on Linux "Show in folder", do the same.
+- **All your windows come back.** Quit (Ctrl+Q) closes every window, and the next start reopens all of them with their tabs, splits and sizes (and positions on Windows and X11). Closing one window of several forgets it; closing the last one keeps it. Private tabs are never saved.
 - **Split view:** View → Split → Split Side by Side (Ctrl+\\) or Split Top and Bottom shows two panes in one window, each with its own tabs. Ctrl+F6 moves between them, the divider can be dragged (a double-click centers it), and Swap Panes and Close Split are in the same menu. The toolbar, path bar and search follow the pane you're in.
 - **Copy to Other Pane and Move to Other Pane** in the Edit menu and the file context menu, with undo and the usual questions before anything is replaced. A tab's context menu has Move to Other Pane too.
 - **Tabs can be dragged:** to reorder them, into the other pane's tabs or file list, or to the edge of the file list to split with that tab. Esc cancels. Dragging a window's only tab moves the window.
@@ -40,7 +42,7 @@ What changed in each release, for people using glasshouse. Downloads are on the 
   Turning either off puts back the app that was there before. `glasshouse --integration-on folders file-manager` and `glasshouse --integration-off` do the same from a terminal. On Windows, Explorer's own "Show in folder" and Win+E still open Explorer. See [docs/INTEGRATION.md](docs/INTEGRATION.md).
 - **`glasshouse PATH…` opens folders,** or a file's folder with the file selected. It also takes `file://` URIs, `--select` and `--properties`. Windows opened this way don't restore or overwrite your saved tabs.
 - **Reveal in File Manager selects the item in the current window** when glasshouse is the desktop's file manager.
-- **glasshouse remembers where you left off.** The window's size and position (and whether it was maximized), the open tabs with their folders and sort, the tab you were on, and whether the sidebar, Inspector and status bar are shown all come back after a restart. A folder that's gone opens its nearest parent instead, or your home folder. Private tabs aren't remembered. With several windows open (File → New Window), the first one is the one remembered; the others start at home and leave it alone.
+- **glasshouse remembers where you left off.** The window's size and position (and whether it was maximized), the open tabs with their folders and sort, the tab you were on, and whether the sidebar, Inspector and status bar are shown all come back after a restart. A folder that's gone opens its nearest parent instead, or your home folder. Private tabs aren't remembered.
 - **Preferences… (Ctrl+, or Edit → Preferences…) is a proper settings dialog** with Appearance (theme, font, density, scanlines, zoom), Files (hidden files, file extensions, folders first, git gutters) and Terminal (follow folder). Changes apply as you make them. It replaces the floating Tweaks panel and its ◉ button, and your settings carry over.
 - **Drag files out into other apps.** Drag files past the edge of the window and drop them into a browser's upload field, a terminal (which types the path) or another file manager. They're always copied.
 - **Drop files in from other apps.** Files dragged from a file manager or a browser's downloads onto a folder, the file list, a tab, a breadcrumb or a sidebar folder are copied there. You're asked before anything is replaced, and Ctrl+Z undoes it.
@@ -63,6 +65,10 @@ What changed in each release, for people using glasshouse. Downloads are on the 
 
 ### Changed
 
+- **Settings change in every window at once:** a theme, the zoom or any other setting changed in one window applies in the others, and pins, tags and saved remotes show up in every window.
+- **Quit (Ctrl+Q) quits glasshouse,** every window, not just the one it was chosen in.
+- Started with a folder or file (another app's "Show in folder", `glasshouse PATH`) while glasshouse isn't running, it doesn't open your saved windows; starting glasshouse normally afterwards opens them beside it.
+- Going back to 0.2 opens the tabs of the window you used last.
 - **Duplicate Tab keeps the tab's back and forward history and its filter.**
 - **Error messages are sentences:** "Couldn't move “notes.txt” to the trash because it isn't there anymore." instead of text like `move_to_trash(…): …`. The raw error is under Show details. Alerts are titled with the command, not "error". This covers opening folders, new folder, rename, copy, move, delete, trash, permissions, links, archives, the terminal, VS Code and links.
 - **If glasshouse crashes or can't start, a box says so** and shows where the log is, instead of the window just vanishing. On Windows without the WebView2 Runtime, the box links to Microsoft's download.
@@ -93,6 +99,8 @@ What changed in each release, for people using glasshouse. Downloads are on the 
 
 ### Fixed
 
+- **Open in New Window** on a sidebar or path-bar folder opened a tab; it now opens a new window on that folder.
+- Closing a window ends its terminals, and reloading a window (Import Layout) no longer leaves its folder watches and terminals running.
 - On Windows, 7-Zip is found in its install folder even when it isn't on PATH.
 - **The window fits the screen:** the first window opens centered at a size that fits small and scaled screens (it was 1400×900 whatever the screen), and a saved window too big for the current screen shrinks to fit.
 - **Moving from the setup.exe to the MSI** no longer puts the MSI's per-machine install in your user folder: uninstalling the setup.exe version now forgets its install folder.

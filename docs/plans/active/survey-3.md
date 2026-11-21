@@ -34,7 +34,7 @@ The scan for the user's own paths and names found none in app code. The gaps are
 | 45 | e2e-nightly-matrix | CI | S–M | after 32 |
 | 46 | release-smoke | CI + docs | M | after 32 and task 30 |
 | 49 | appimage-menu-entry | both | M | queued (split from 35 on 11-20) |
-| 50 | split-and-tear-off | both | L | running: phase 1 (split view) merged 11-20; phases 2 and 3 next (user request 11-20: "split view for tabs" and dragging tabs into their own window "like you can with browsers"; one process with many windows, in three phases) |
+| 50 | split-and-tear-off | both | L | running: phase 1 (split view) merged 11-20, phase 2 (one process) merged 11-21; phase 3 (tear-off) next (user request 11-20: "split view for tabs" and dragging tabs into their own window "like you can with browsers"; one process with many windows, in three phases) |
 
 Run at most two Rust tasks at once (RAM). Tasks 33, 34, 36 and 37 all touch `src-tauri/src/commands/`, so keep diffs narrow.
 
@@ -287,3 +287,5 @@ The owner asked for "split view for tabs and also to be able to drag drop tabs i
 - *(from updater, for 45/46)* Not run: anything on Windows (NSIS and MSI updates, UAC and cancelling it, Restart Manager closing other windows, `/R` restarting), a real GitHub release with release.yml's new publish step, and the x64 Linux packages. `docs/testing` has W14 and L12 for them. `includeUpdaterJson` stays off: the publish job verifies every .sig and writes latest.json itself (`scripts/updater-json.mjs`), because tauri-action's parallel jobs race on it.
 - *(from split-and-tear-off phase 1)* On Windows only CI's e2e has run it: "split view" passed on windows-latest at 3d78f89, including a WebDriver pointer drag of a tab into the other pane and Ctrl+F6. A real mouse drag (WebView2's pointer capture) is still the hand check, W8.8 and W8.9. Not run under a real window manager: dragging a window's only tab moves the window (L9.10).
 - *(from split-and-tear-off phase 1, for 38)* Ctrl+\\ for Split Side by Side may be out of reach on AltGr layouts (German, Nordic) where `\` needs AltGr; View → Split works everywhere.
+- *(from split-and-tear-off phase 2)* Not built on Windows: the pipe handoff and every `cfg(windows)` path first compile in CI (hand checks W15.1–W15.11). Wayland focus of a handed-off window wasn't checked (L13.2); a launch from a terminal on Wayland has no activation token, so the window may only ask for attention (L13.3). A real update restart with several windows open wasn't run (W15.11, L12.3).
+- *(from split-and-tear-off phase 2)* Accepted edge cases: `update-progress` still goes to every window (only the one with the Updates dialog shows it); a launch that gives up on a slow, not frozen, app can end with two windows; windows a path-started process had before it took over the session don't get their size and position saved.
