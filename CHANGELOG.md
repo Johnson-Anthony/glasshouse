@@ -101,6 +101,9 @@ What changed in each release, for people using glasshouse. Downloads are on the 
 
 ### Fixed
 
+- **Dragging files from one glasshouse window to another moves them**, as a drag inside one window does; they used to be copied. Hold Ctrl as the drag leaves the window to copy instead, and Ctrl+Z in the window you dropped on undoes the move. Files dragged in from other apps are still copied.
+- After dragging files out of a window, the next drag in that window works the first time. It used to do nothing, or never let go of the files, until you clicked.
+- Holding Ctrl as a file drag leaves the window now makes a copy when it's dropped back into glasshouse.
 - **Open in New Window** on a sidebar or path-bar folder opened a tab; it now opens a new window on that folder.
 - Closing a window ends its terminals, and reloading a window (Import Layout) no longer leaves its folder watches and terminals running.
 - On Windows, 7-Zip is found in its install folder even when it isn't on PATH.
