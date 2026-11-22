@@ -98,7 +98,7 @@ import { errText } from "./errors";
 import { logWarn } from "./log";
 import { showError } from "./errorDialog";
 import { findStatusText } from "./findStatus";
-import { clearHandOff, dropPaths, dropTargetAt, recordHandOff } from "./dragDrop";
+import { dropPaths, dropTargetAt, swallowHandOffClicks } from "./dragDrop";
 import { OsDrop } from "./OsDrop";
 
 // xterm is most of the terminal's weight, so the drawer is its own chunk,
@@ -1178,9 +1178,9 @@ export function App() {
           const paths = sourceOrigIndices
             .map(i => rows[i]?.entry.path)
             .filter((p): p is string => !!p);
-          recordHandOff(paths, copy);
-          startDragOut(paths).catch(e => {
-            clearHandOff();
+          const stopSwallowing = swallowHandOffClicks();
+          startDragOut(paths, copy).catch(e => {
+            stopSwallowing();
             dialogs.showToast({ message: `couldn't drag out: ${errText(e)}`, variant: "error" });
           });
         }}

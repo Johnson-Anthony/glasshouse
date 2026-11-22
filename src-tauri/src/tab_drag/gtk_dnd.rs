@@ -144,14 +144,15 @@ fn icon(title: &str) -> Option<gtk::Widget> {
     Some(label.upcast())
 }
 
-/// Hands `view` the release of button 1. WebKit saw the press the drag
-/// began with, but not its release, which went to the drag. It would count
-/// the button as still down, and by the rule for chorded buttons fire no
-/// `pointerdown` for the next press: the next drag in that window (a tab,
-/// files, a selection) wouldn't start, only the one after it. The release
+/// Hands `view` the release of button 1, when a drag that began with a
+/// press in it ends: a tab's here, files' in `commands/drag_out.rs`. WebKit
+/// saw the press the drag began with, but not its release, which went to
+/// the drag. It would count the button as still down, and by the rule for
+/// chorded buttons fire no `pointerdown` for the next press: the next drag
+/// in that window (a tab, files, a selection) wouldn't start. The release
 /// is where the pointer is, kept inside the view; the page swallows the
-/// click it may make (`tabMoves.ts`).
-fn release(view: &gtk::Widget) {
+/// click it may make (`tabMoves.ts`, `dragDrop.ts`).
+pub(crate) fn release(view: &gtk::Widget) {
     let Some(win) = view.window() else { return };
     let Some(pointer) = WidgetExt::display(view).default_seat().and_then(|s| s.pointer()) else { return };
     let (_, x, y, _) = win.device_position_double(&pointer);

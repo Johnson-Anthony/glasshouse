@@ -474,9 +474,20 @@ export function revealInExplorer(path: string): Promise<"shown" | "inApp"> {
 
 /** Hands `paths` to the OS as a drag (copies), to drop into another app.
  *  Call it while the mouse button is still down: under Wayland a drag can
- *  only start then. Rejects when the drag couldn't start. */
-export function startDragOut(paths: string[]): Promise<void> {
-  return mustInvoke<void>("start_drag_out", { paths });
+ *  only start then. `copy`: Ctrl was held as the drag left the window, for
+ *  a drop back on a glasshouse window (dragOutOwn). Rejects when the drag
+ *  couldn't start. This window hears `drag-out-end` when it ends. */
+export function startDragOut(paths: string[], copy: boolean): Promise<void> {
+  return mustInvoke<void>("start_drag_out", { paths, copy });
+}
+
+/** Whether an OS drag of `paths` over this window is a pane's drag handed
+ *  to the OS (startDragOut) by a glasshouse window, this one included:
+ *  true if it copies, false if it moves, null when it comes from another
+ *  app. `drop`: asked for the drop itself, on every drop, which takes what
+ *  the backend kept for this window's drop. */
+export function dragOutOwn(paths: string[], drop: boolean): Promise<boolean | null> {
+  return safe(() => invoke<boolean | null>("drag_out_own", { paths, drop }), null);
 }
 
 // A tab moved to another window or a new one (src-tauri/src/tab_drag.rs,

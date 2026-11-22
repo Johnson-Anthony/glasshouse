@@ -470,9 +470,13 @@ pub fn handed_off(app: &AppHandle, launch: Option<LaunchRequest>, token: Option<
 pub fn on_window_event(app: &AppHandle, label: &str, event: &tauri::WindowEvent) {
     match event {
         tauri::WindowEvent::Focused(true) => lock(&app.state::<Windows>().0).focus(label),
+        // Before the page hears of it: a drag out of a glasshouse window
+        // has ended by then (`commands/drag_out.rs`).
+        tauri::WindowEvent::DragDrop(tauri::DragDropEvent::Drop { paths, .. }) => crate::commands::drag_out::dropped(app, label, paths),
         tauri::WindowEvent::Destroyed => {
             forget_backend(app, label);
             crate::tab_drag::forget(app, label);
+            crate::commands::drag_out::forget(app, label);
             let changed = lock(&app.state::<Windows>().0).close(label);
             if changed {
                 session::schedule(app);
@@ -487,6 +491,7 @@ pub fn on_window_event(app: &AppHandle, label: &str, event: &tauri::WindowEvent)
 pub fn on_page_load(app: &AppHandle, label: &str) {
     forget_backend(app, label);
     crate::tab_drag::forget(app, label);
+    crate::commands::drag_out::forget(app, label);
 }
 
 fn forget_backend(app: &AppHandle, label: &str) {

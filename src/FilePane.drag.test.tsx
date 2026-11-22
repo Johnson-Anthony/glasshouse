@@ -181,6 +181,53 @@ describe("dragging rows out of the window", () => {
     expect(onDragOut).toHaveBeenCalledWith([3], true);
   });
 
+  it("goes by Ctrl as the ghost last showed it: WebKit's event at the edge carries no keys", () => {
+    over(rowEl(0));
+    press(3);
+    move(140, 140, { ctrlKey: true });
+    expect(ghost()).toContain("copy");
+    move(1205, 140);
+    expect(onDragOut).toHaveBeenLastCalledWith([3], true);
+
+    press(3);
+    move(140, 140);
+    key("keydown", true);
+    act(() => { window.dispatchEvent(new MouseEvent("mouseout", { relatedTarget: null })); });
+    expect(onDragOut).toHaveBeenLastCalledWith([3], true);
+
+    press(3);
+    move(140, 140, { ctrlKey: true });
+    key("keyup", false);
+    move(-4, 140);
+    expect(onDragOut).toHaveBeenLastCalledWith([3], false);
+  });
+
+  it("starts no text selection, and drops one the drag made, until the press ends", () => {
+    // Left behind by a drag out of the window, WebKit's selection took the
+    // next drag's release (WebKit dragged the text instead).
+    document.body.insertAdjacentHTML("beforeend", '<p id="text">no selection</p>');
+    const text = document.getElementById("text")!;
+    const selectStart = () => {
+      const e = new Event("selectstart", { bubbles: true, cancelable: true });
+      text.dispatchEvent(e);
+      return e.defaultPrevented;
+    };
+    over(rowEl(0));
+    press(3);
+    move(140, 140);
+    move(1205, 140);
+    expect(onDragOut).toHaveBeenCalled();
+    expect(selectStart()).toBe(true);
+    const r = document.createRange();
+    r.selectNodeContents(text);
+    window.getSelection()!.addRange(r);
+    // The release the backend hands the webview when the OS drag ends.
+    release();
+    expect(window.getSelection()!.isCollapsed).toBe(true);
+    expect(selectStart()).toBe(false);
+    text.remove();
+  });
+
   it("doesn't hand over a press that never became a drag", () => {
     press(3);
     act(() => { window.dispatchEvent(new MouseEvent("mouseout", { relatedTarget: null })); });

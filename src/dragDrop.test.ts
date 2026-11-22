@@ -1,9 +1,6 @@
 // @vitest-environment happy-dom
-import { afterEach, describe, expect, it, vi } from "vitest";
-import {
-  DropHighlight, HANDOFF_GRACE_MS, clearHandOff, dragCopies, dropPaths, dropTargetOf, handOffCopies, leftWindow, notAlreadyIn,
-  recordHandOff,
-} from "./dragDrop";
+import { describe, expect, it } from "vitest";
+import { DropHighlight, dragCopies, dropPaths, dropTargetOf, leftWindow, notAlreadyIn } from "./dragDrop";
 import { osDropPlan } from "./OsDrop";
 import { pathOps } from "./paths";
 
@@ -95,54 +92,5 @@ describe("drop targets", () => {
     expect(b.classList.contains("drop-target")).toBe(true);
     h.set(null);
     expect(document.querySelectorAll(".drop-target").length).toBe(0);
-  });
-});
-
-describe("a drag handed to the OS", () => {
-  afterEach(() => { clearHandOff(); vi.useRealTimers(); });
-  const move = (buttons: number) => window.dispatchEvent(new PointerEvent("pointermove", { buttons }));
-
-  it("is recognised by exactly its paths, in any order, with the Ctrl state at the handoff", () => {
-    recordHandOff(["/w/a.txt", "/w/b.txt"], false);
-    expect(handOffCopies(["/w/b.txt", "/w/a.txt"])).toBe(false);
-    expect(handOffCopies(["/w/a.txt"])).toBeNull();
-    expect(handOffCopies(["/w/a.txt", "/w/b.txt", "/w/c.txt"])).toBeNull();
-    expect(handOffCopies(["/w/a.txt", "/x/b.txt"])).toBeNull();
-    recordHandOff(["/w/a.txt"], true);
-    expect(handOffCopies(["/w/a.txt"])).toBe(true);
-    clearHandOff();
-    expect(handOffCopies(["/w/a.txt"])).toBeNull();
-  });
-
-  it("is forgotten at a press in the window or when the window loses focus", () => {
-    recordHandOff(["/w/a.txt"], false);
-    window.dispatchEvent(new PointerEvent("pointerdown"));
-    expect(handOffCopies(["/w/a.txt"])).toBeNull();
-    recordHandOff(["/w/a.txt"], false);
-    window.dispatchEvent(new Event("blur"));
-    expect(handOffCopies(["/w/a.txt"])).toBeNull();
-  });
-
-  it("outlasts the pointer's return on release by a moment, then is forgotten", () => {
-    vi.useFakeTimers();
-    recordHandOff(["/w/a.txt"], false);
-    move(1);
-    vi.advanceTimersByTime(HANDOFF_GRACE_MS * 2);
-    expect(handOffCopies(["/w/a.txt"])).toBe(false);
-    move(0);
-    vi.advanceTimersByTime(HANDOFF_GRACE_MS - 1);
-    move(0);
-    expect(handOffCopies(["/w/a.txt"])).toBe(false);
-    vi.advanceTimersByTime(1);
-    expect(handOffCopies(["/w/a.txt"])).toBeNull();
-  });
-
-  it("isn't forgotten by the grace period of a handoff it replaced", () => {
-    vi.useFakeTimers();
-    recordHandOff(["/w/a.txt"], false);
-    move(0);
-    recordHandOff(["/w/b.txt"], true);
-    vi.advanceTimersByTime(HANDOFF_GRACE_MS);
-    expect(handOffCopies(["/w/b.txt"])).toBe(true);
   });
 });
