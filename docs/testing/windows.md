@@ -95,6 +95,8 @@ These use Windows' own dialogs.
 - [ ] **W8.13** **Escape:** drag a tab out of the window and press Escape while it's outside → the name and the mark go, and the tab stays where it was. Drag it out and back into its own window before letting go → it's a move inside the window, as in W8.8, never a new window.
 - [ ] **W8.14** Two monitors at different scales (100% and 150%), a window on each: drag a tab from one onto the other's tab bar and file list → the line and the shaded pane are under the pointer, and the tab lands where they showed.
 - [ ] **W8.15** **Move to New Window** on a tab's right-click menu → a new window opens in front with that tab, and the tab leaves the first window. The item isn't there for a window's only tab. A private tab (File → New Private Session) moved by the menu or by a drag stays private.
+- [ ] **W8.16** **Files to another window:** two windows. Drag a file from one window's list onto a folder in the other's, then another file onto the empty part of its list → the label at the pointer says "move …", the files move, and the first window's list drops them by itself. Ctrl+Z in the second window puts the last one back. Hold Ctrl as the drag leaves the first window → "copy …", and the original stays. Drag a folder to a window showing another drive → it moves. Drag a file out of a window and back into it → a move, as in W8.7. A file from Explorer still copies (W8.4).
+- [ ] **W8.17** Right after a drag of files out of a window (into Explorer or another glasshouse window), drag a file in that window → the drag starts the first time, and nothing is clicked or selected where the drag ended.
 
 ## W9. Terminal
 
