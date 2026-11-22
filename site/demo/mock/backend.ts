@@ -633,6 +633,8 @@ export function createBackend(hooks: BackendHooks) {
       return DEMO_INTEGRATION;
     },
     start_drag_out: notInDemo("Dragging files into other apps"),
+    // Nor does any drag come back from the OS as the app's own.
+    drag_out_own: () => null,
     // A tab dragged out of its window, or Move to New Window (src/tabMoves.ts):
     // the demo has one window. The tab stays where it was.
     tab_drop_zones: () => null,

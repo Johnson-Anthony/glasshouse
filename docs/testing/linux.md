@@ -113,6 +113,8 @@ Run on GNOME Wayland (Nautilus), KDE Wayland (Dolphin) and the X11 desktop (its 
 - [ ] **L9.14** **On GNOME Wayland and on KDE Wayland,** run L9.11–L9.13 with the mouse. Be sure that a drop on the desktop opens a window and that Escape doesn't. If either goes the other way, attach the lines with `tab_drag` from the log (Help → Open Log Folder): they say what the desktop reported.
 - [ ] **L9.15** After any tab drag out of a window, drag a file in that window at once → the drag starts the first time. No text is selected by the drag (in the preview pane or a field), and files from Nautilus or Dolphin still drop into every window (L9.5).
 - [ ] **L9.16** **Move to New Window** on a tab's right-click menu → a new window opens in front with that tab, and the tab leaves the first window. The item isn't there for a window's only tab. A private tab (File → New Private Session) moved by the menu or by a drag stays private.
+- [ ] **L9.17** **Files to another window:** two windows. Drag a file from one window's list onto a folder in the other's, then another file onto the empty part of its list → the label at the pointer says "move …", the files move, and the first window's list drops them by itself. Ctrl+Z in the second window puts the last one back. Hold Ctrl as the drag leaves the first window → "copy …", and the original stays. Drag a folder to a window showing another drive or filesystem → it moves. A file from Nautilus or Dolphin still copies (L9.5).
+- [ ] **L9.18** Right after a drag of files out of a window (into Nautilus, Dolphin or another glasshouse window), drag a file in that window → the drag starts the first time, and nothing is clicked where the drag ended.
 
 ## L10. Reveal, default apps and the trash
 

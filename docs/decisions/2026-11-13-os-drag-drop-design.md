@@ -2,6 +2,8 @@
 
 Date: 2026-11-13. Task: `os-drag-drop` (survey-2 task 22). Status: reviewed by the lead. The user confirmed the drag out on niri; drag in, Ctrl inside the app and the overshoot return aren't hand-tested yet.
 
+*Superseded in part by `2026-11-22-cross-window-file-drag.md`: the handoff record is in the backend now, held for exactly as long as the OS drag and shared by every window, so a drag from one window to another moves. What other apps get, and drops from them, are unchanged.*
+
 ## Drag out: which code starts the native drag
 **Chosen: on Linux, a GTK drag source of our own (`commands/drag_out.rs`); on Windows, the `drag` crate.**
 - The `drag` crate (CrabNebula, behind `tauri-plugin-drag`) does the right thing on Windows: OLE `DoDragDrop` with `CF_HDROP`, the data Explorer offers.

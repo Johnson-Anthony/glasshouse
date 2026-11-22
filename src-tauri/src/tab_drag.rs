@@ -30,6 +30,8 @@ use crate::window_fit::{self, Rect};
 
 #[cfg(target_os = "linux")]
 mod gtk_dnd;
+#[cfg(target_os = "linux")]
+pub(crate) use gtk_dnd::release;
 #[cfg(windows)]
 mod win32;
 

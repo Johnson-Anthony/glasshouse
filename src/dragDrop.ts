@@ -1,12 +1,14 @@
 // Drag and drop between the pane, the rest of the window and other apps.
 // Inside the window the drag is the pane's own (pointer events, see
 // FilePane). When it leaves the window it's handed to the OS
-// (commands/drag_out.rs), so it can be dropped into another app; drops from
-// other apps arrive through Tauri's drag-drop event (OsDrop.tsx).
+// (commands/drag_out.rs), so it can be dropped into another app or another
+// glasshouse window; drops from outside the window arrive through Tauri's
+// drag-drop event (OsDrop.tsx).
 //
 // Anything that takes a drop carries `data-drop-path`, the folder a drop
 // there goes into: folder rows, the pane itself (its current folder), tabs,
 // breadcrumb segments and sidebar rows.
+import { listenHere } from "./events";
 import { normalizePath, parentPath, type PathOps } from "./paths";
 
 /** True once the pointer is at or past the window's edge. The edge pixel
@@ -70,6 +72,30 @@ export function dropPaths(
   return paths.filter(p => ops.normalizePath(p) !== d);
 }
 
+/** WebKit lets a selection begin with a press in text that can't be
+ *  selected, and grows it as the pointer moves with the button down: a tab
+ *  or files dragged out of the window selected the inspector's text. A
+ *  press on that selection then starts WebKit's own drag of it, which takes
+ *  the release, so the next file drag never ended. From the press of a drag
+ *  (a tab, files) until it ends, no selection starts, and one the drag made
+ *  anyway is dropped. The press ends with its release; after a handoff to
+ *  the OS, with the release the backend hands the webview when the OS drag
+ *  ends (src-tauri/src/tab_drag/gtk_dnd.rs). */
+export function keepSelection(): void {
+  const had = !(window.getSelection()?.isCollapsed ?? true);
+  const block = (e: Event) => e.preventDefault();
+  const end = () => {
+    window.removeEventListener("selectstart", block, true);
+    window.removeEventListener("pointerup", end, true);
+    window.removeEventListener("pointercancel", end, true);
+    const s = window.getSelection();
+    if (!had && s && !s.isCollapsed) s.removeAllRanges();
+  };
+  window.addEventListener("selectstart", block, true);
+  window.addEventListener("pointerup", end, true);
+  window.addEventListener("pointercancel", end, true);
+}
+
 /** The one element showing "a drop goes here", during a drag. */
 export class DropHighlight {
   private el: HTMLElement | null = null;
@@ -81,50 +107,43 @@ export class DropHighlight {
   }
 }
 
-// A drag handed to the OS can come straight back: aimed at a tab, it
-// overshoots the window's top edge and returns. Its drop then arrives as one
-// from another app, so the handoff is remembered, and a drop of exactly
-// those paths is the pane's own drag again: a move, or a copy with Ctrl held
-// at the handoff (the OS drop carries no keys). The record goes with that
-// drop, the next press in the window, the window losing focus (a drag in
-// another app starts with a press there), or shortly after the pointer is
-// back with no button down. The webview sees no pointer events while the OS
-// has the drag, and on release the pointer's return can reach the page just
-// before the drop does, hence the grace.
-export const HANDOFF_GRACE_MS = 1000;
-let handOff: { paths: Set<string>; copy: boolean; stop: () => void } | null = null;
+// A drag handed to the OS (App's onDragOut, commands/drag_out.rs) can come
+// back: to another glasshouse window, or to this one when a drag aimed at a
+// tab overshoots the window's top edge. The backend holds it while the OS
+// drag lasts, for every window, and OsDrop asks it (dragOutOwn) whether a
+// drop is that drag: a move, or a copy if Ctrl was held at the handoff.
+//
+// When the OS drag ends, the backend hands this webview the button release
+// it missed (Linux, gtk_dnd.rs), and the click that may make isn't one.
+// Clicks are swallowed from the handoff until `drag-out-end`, or the next
+// press.
+let unswallow: (() => void) | null = null;
 
-export function clearHandOff(): void {
-  handOff?.stop();
-  handOff = null;
-}
-
-export function recordHandOff(paths: string[], copy: boolean): void {
-  clearHandOff();
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const onMove = (ev: PointerEvent) => {
-    if (ev.buttons === 0 && timer === undefined) timer = setTimeout(clearHandOff, HANDOFF_GRACE_MS);
+/** Swallows clicks from a handoff to the OS until its drag ends. Returns
+ *  what stops it sooner, for a drag that didn't start. */
+export function swallowHandOffClicks(): () => void {
+  unswallow?.();
+  let stopped = false;
+  let off: (() => void) | null = null;
+  const swallow = (c: MouseEvent) => {
+    c.stopPropagation();
+    c.preventDefault();
   };
-  const onEnd = () => clearHandOff();
-  window.addEventListener("pointermove", onMove, true);
-  window.addEventListener("pointerdown", onEnd, true);
-  window.addEventListener("blur", onEnd);
-  handOff = {
-    paths: new Set(paths.map(p => normalizePath(p))),
-    copy,
-    stop: () => {
-      clearTimeout(timer);
-      window.removeEventListener("pointermove", onMove, true);
-      window.removeEventListener("pointerdown", onEnd, true);
-      window.removeEventListener("blur", onEnd);
-    },
+  const stop = () => {
+    if (stopped) return;
+    stopped = true;
+    window.removeEventListener("click", swallow, true);
+    window.removeEventListener("mousedown", stop, true);
+    off?.();
+    if (unswallow === stop) unswallow = null;
   };
-}
-
-/** For a drop arriving from the OS: whether it's the handed-off drag, and if
- *  so whether it copies (null when it came from another app). */
-export function handOffCopies(paths: string[]): boolean | null {
-  if (!handOff || paths.length !== handOff.paths.size) return null;
-  const own = handOff.paths;
-  return paths.every(p => own.has(normalizePath(p))) ? handOff.copy : null;
+  window.addEventListener("click", swallow, true);
+  window.addEventListener("mousedown", stop, true);
+  unswallow = stop;
+  // A moment after the end: the release's click reaches the page first.
+  listenHere<null>("drag-out-end", () => { setTimeout(stop, 0); }).then(
+    fn => { if (stopped) fn(); else off = fn; },
+    () => { /* no Tauri window */ },
+  );
+  return stop;
 }

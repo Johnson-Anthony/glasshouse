@@ -7,7 +7,7 @@
 // What takes a tab is marked in the DOM: a tab bar has `data-tab-bar` (its
 // pane) and its tabs `data-tab-index`; a pane's file area has
 // `data-tab-pane`.
-import { leftWindow } from "./dragDrop";
+import { keepSelection, leftWindow } from "./dragDrop";
 import type { Landing, Side } from "./tabLayout";
 
 export type TabDropTarget =
@@ -151,28 +151,6 @@ export interface TabDragHooks {
   onOutsideMove?: () => void;
   onReturn?: () => void;
   onReleaseOutside?: () => void;
-}
-
-/** WebKit lets a selection begin with a press in text that can't be
- *  selected, and grows it as the pointer moves with the button down: a tab
- *  dragged out of the window below selected the inspector's text. From a
- *  press on a tab until it ends, no selection starts, and one the drag made
- *  anyway is dropped. The press ends with its release; after a hand-off to
- *  the OS, with the release the backend hands the webview when the OS drag
- *  ends (src-tauri/src/tab_drag/gtk_dnd.rs). */
-function keepSelection(): void {
-  const had = !(window.getSelection()?.isCollapsed ?? true);
-  const block = (e: Event) => e.preventDefault();
-  const end = () => {
-    window.removeEventListener("selectstart", block, true);
-    window.removeEventListener("pointerup", end, true);
-    window.removeEventListener("pointercancel", end, true);
-    const s = window.getSelection();
-    if (!had && s && !s.isCollapsed) s.removeAllRanges();
-  };
-  window.addEventListener("selectstart", block, true);
-  window.addEventListener("pointerup", end, true);
-  window.addEventListener("pointercancel", end, true);
 }
 
 /** Starts watching a press on a tab; nothing happens unless it moves past

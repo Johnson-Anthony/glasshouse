@@ -7,7 +7,7 @@ import { viewRows } from "./viewRows";
 import { fileType } from "./fileTypes";
 import { remapIndexes } from "./listing";
 import { rowWindow, rowsInSpan, scrollToRow } from "./paneWindow";
-import { DropHighlight, dragCopies, dropPaths, dropTargetOf, leftWindow, type DropTarget } from "./dragDrop";
+import { DropHighlight, dragCopies, dropPaths, dropTargetOf, keepSelection, leftWindow, type DropTarget } from "./dragDrop";
 import { splitBreadcrumb } from "./paths";
 import { kbKeys, searchPalette } from "./palette";
 import { IS_WINDOWS } from "./platform";
@@ -866,6 +866,7 @@ export function FilePane({
   const rowHandlers = useMemo<RowHandlers>(() => ({
     pointerDown: (i, isSel, e) => {
       if (e.button !== 0) return;
+      keepSelection();
       const startX = e.clientX;
       const startY = e.clientY;
       const startFiles = latest.current.files;
@@ -884,6 +885,10 @@ export function FilePane({
         highlight.set(over && dropPaths(sourcePaths, over.path, copy).length > 0 ? over.el : null);
       let dragging = false;
       let moved = false;
+      // Ctrl as the ghost last showed it. The handoff counts it: in WebKit
+      // the event that crosses the window's edge comes from the pointer
+      // leaving, and carries no keys.
+      let copying = dragCopies(e);
       const stop = () => {
         window.removeEventListener("pointermove", onMove);
         window.removeEventListener("pointerup", onPointerUp);
@@ -899,15 +904,16 @@ export function FilePane({
       // the ghost says so before the pointer moves again.
       const onKey = (ev: KeyboardEvent) => {
         if (!dragging) return;
-        setGhost(g => g && { ...g, copy: dragCopies(ev) });
-        light(dragCopies(ev));
+        copying = dragCopies(ev);
+        setGhost(g => g && { ...g, copy: copying });
+        light(copying);
       };
       // Out of the window with the button still down: the OS takes the drag
       // from here, so it can be dropped into another app.
       const handOff = (ev: MouseEvent) => {
         stop();
         const dropped = sourcesNow();
-        if (dropped.length > 0) latest.current.onDragOut?.(dropped, dragCopies(ev));
+        if (dropped.length > 0) latest.current.onDragOut?.(dropped, copying || dragCopies(ev));
       };
       const onOut = (ev: MouseEvent) => {
         if (dragging && ev.relatedTarget === null && latest.current.onDragOut) handOff(ev);
@@ -922,11 +928,12 @@ export function FilePane({
           handOff(ev);
           return;
         }
+        copying = dragCopies(ev);
         setGhost({
           x: ev.clientX,
           y: ev.clientY,
           count: sources.length,
-          copy: dragCopies(ev),
+          copy: copying,
         });
         // Locate the row under the cursor and decide whether it's a valid drop target.
         const hit = document.elementFromPoint(ev.clientX, ev.clientY);
@@ -937,7 +944,7 @@ export function FilePane({
         const validTarget = hoverFile && hoverFile.kind === "folder" && !sources.includes(origIdx);
         setDragOverIndex(validTarget ? origIdx : null);
         over = validTarget ? null : dropTargetOf(hit);
-        light(dragCopies(ev));
+        light(copying);
       };
       const onPointerUp = (ev: PointerEvent) => {
         stop();

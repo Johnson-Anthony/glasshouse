@@ -85,6 +85,7 @@ fn builder() -> tauri::Builder<tauri::Wry> {
         .manage(update::UpdateState::default())
         .manage(app_windows::Windows::default())
         .manage(tab_drag::TabDrags::default())
+        .manage(commands::drag_out::DragOuts::default())
         // A page that loads again (Import Layout reloads it) forgets its
         // folder watches and terminals; the backend drops them too.
         .on_page_load(|webview, payload| {
@@ -164,6 +165,7 @@ fn builder() -> tauri::Builder<tauri::Wry> {
             pty::profiles::list_shell_profiles,
             commands::launch::spawn_terminal_profile,
             commands::drag_out::start_drag_out,
+            commands::drag_out::drag_out_own,
             tab_drag::tab_drop_zones,
             tab_drag::tab_drag_start,
             tab_drag::tab_drag_hover,
