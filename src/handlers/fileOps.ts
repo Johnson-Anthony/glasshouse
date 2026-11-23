@@ -261,16 +261,14 @@ export const fileOpsHandler: Handler = async (label, ctx) => {
     // nothing yet: its rows dim (useCutPaths) until it's pasted.
     case "Copy": {
       if (selectedPaths.length === 0) return true;
-      if (await copyFiles(selectedPaths, false)) {
-        dialogs.showToast({ message: `copied ${selectedPaths.length} item(s)`, variant: "info" });
-      }
+      const offered = await copyFiles(selectedPaths, false);
+      if (offered) dialogs.showToast({ message: `copied ${selectedPaths.length} item(s)`, variant: "info" });
       return true;
     }
     case "Cut": {
       if (selectedPaths.length === 0) return true;
-      if (await copyFiles(selectedPaths, true)) {
-        dialogs.showToast({ message: `cut ${selectedPaths.length} item(s)`, variant: "info" });
-      }
+      const offered = await copyFiles(selectedPaths, true);
+      if (offered) dialogs.showToast({ message: `cut ${selectedPaths.length} item(s)`, variant: "info" });
       return true;
     }
     // Paste takes whatever files the OS clipboard holds now, whoever put
