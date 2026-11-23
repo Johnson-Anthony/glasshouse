@@ -6,6 +6,7 @@ What changed in each release, for people using glasshouse. Downloads are on the 
 
 ### New
 
+- **Windows: Command Prompt is a terminal profile,** and PowerShell comes first. The bash profile is Git for Windows' bash, found even when it isn't on PATH, and never WSL's launcher.
 - **Copy, Cut and Paste work with other apps:** files copied or cut in glasshouse paste in Explorer, Nautilus, Dolphin and other file managers, and into mail and chat apps that take files; files copied or cut there paste in glasshouse.
 - **Copy or Cut in one glasshouse window, Paste in another.**
 - **Every window in one app, as in a browser.** File → New Window (Ctrl+N), Open in New Window and starting glasshouse again open a window in the glasshouse that's running, in front, instead of starting a second copy. Folders opened from other apps, and on Linux "Show in folder", do the same.
@@ -69,6 +70,9 @@ What changed in each release, for people using glasshouse. Downloads are on the 
 
 ### Changed
 
+- **A folder opened through a link stays under the link.** Opening a subfolder of a symlinked folder (on Windows also a mapped drive, a `subst` drive or a junction) used to jump to where the folder really is. The path bar, the tree, tabs, recents and pins now keep the path you came by. Tags you put on files inside a linked folder before this update show when the folder is opened by its real path.
+- **Windows: network and long paths look like paths.** `\\?\UNC\server\share\…` and `\\?\C:\…` no longer show up in the path bar; a mapped drive stays `Z:\…`. Pins, tags, recents and tabs saved the old way are converted at the first start.
+- **Windows: names starting with a dot are shown,** as in Explorer. Hidden means the Hidden attribute.
 - **A cut file stays dimmed only while it can still be pasted:** copying anything else, in any app, ends the cut.
 - Paste says why when there is nothing to paste (no files on the clipboard, files no longer there, or files not on this computer).
 - On Linux, pasting copied files into a terminal or an editor gives their paths.
@@ -106,6 +110,12 @@ What changed in each release, for people using glasshouse. Downloads are on the 
 
 ### Fixed
 
+- **Linux: opening a subfolder could close glasshouse** (a crash in the folder watcher, rare).
+- **Windows: rename, copy, move and Find & Replace work in folders deeper than 260 characters,** without the system's long-path setting.
+- **Names Windows can't keep are refused with a reason** when you create or rename: `a:b` (which made a hidden stream), a trailing dot or space, `CON`, `NUL` and the other device names, and `* ? " < > |`. On Linux the same goes for FAT, exFAT and SMB drives.
+- **Windows: Reveal in Explorer selects the file when its path has a comma.**
+- **Dropping or pasting a file into the folder it's already in, reached by another path** (a link and its target, a mapped drive and its share), says it's already there. Choosing Replace used to send the file itself to the trash.
+- **Redo of Move to Trash in a linked folder** takes the item's tags with it again.
 - Copy Path and the other copy commands (Copy as Command, Copy as UNC, checksums, the preview's copy button) no longer fail silently: they use the system clipboard directly and show an error if the copy fails.
 - **Dragging files from one glasshouse window to another moves them**, as a drag inside one window does; they used to be copied. Hold Ctrl as the drag leaves the window to copy instead, and Ctrl+Z in the window you dropped on undoes the move. Files dragged in from other apps are still copied.
 - After dragging files out of a window, the next drag in that window works the first time. It used to do nothing, or never let go of the files, until you clicked.
