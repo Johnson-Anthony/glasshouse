@@ -6,6 +6,9 @@ What changed in each release, for people using glasshouse. Downloads are on the 
 
 ### New
 
+- **Screen readers can read glasshouse.** The file list is announced row by row with each file's kind, name, size and date; tabs, dialogs, the command palette and notifications are announced too. Checked against the accessibility tree the web view builds; NVDA, Narrator and Orca themselves are hand checks still to run.
+- **Column headers can be reached from the keyboard:** press Up from the first row, move with Left and Right, and press Enter to sort.
+- **Tabs can be switched with Left, Right, Home and End** when a tab has the focus.
 - **Windows: Command Prompt is a terminal profile,** and PowerShell comes first. The bash profile is Git for Windows' bash, found even when it isn't on PATH, and never WSL's launcher.
 - **Copy, Cut and Paste work with other apps:** files copied or cut in glasshouse paste in Explorer, Nautilus, Dolphin and other file managers, and into mail and chat apps that take files; files copied or cut there paste in glasshouse.
 - **Copy or Cut in one glasshouse window, Paste in another.**
@@ -30,7 +33,7 @@ What changed in each release, for people using glasshouse. Downloads are on the 
 - **glasshouse can be the open and save dialog other apps show** (Linux). One switch, off by default, makes glasshouse's window the Open, Save As, attach and upload dialog of every app it can reach, with no per-app setup: Edit → Preferences → Integration → "Use glasshouse for open and save dialogs", or `glasshouse --integration-on dialogs`. Flatpak and Snap apps, Chromium, Chrome and Electron apps, GTK 4.18 and recent Firefox-based browsers switch at once; GTK 3, Qt and other Firefox releases from the next login. Turning it off puts the desktop's dialog back. Windows' own dialogs can't be replaced. See [docs/INTEGRATION.md](docs/INTEGRATION.md).
 - **The dialog** is glasshouse's file pane, sidebar and search, with the app's file types and options. A typed path goes there, the extension follows the file type, saving over a file asks first, and it opens where you last picked for that app.
 - **`glasshouse --integration-off dialogs`** turns one setting off; with no names it still turns them all off.
-- **39 themes, up from 8:** 12 new light themes, 16 new dark ones, a high-contrast pair and Amber CRT, each checked for readable contrast (WCAG AA). The original eight look as they did.
+- **39 themes, up from 8:** 12 new light themes, 16 new dark ones, a high-contrast pair and Amber CRT, each checked for readable contrast (WCAG AA).
 - **The theme can follow the system** (the default for new installs): pick a light and a dark theme, and glasshouse switches with the OS's light or dark setting, and to the high-contrast pair when the OS asks for more contrast. The window's own title bar and menus follow too.
 - **Make your own themes:** an editor under Preferences → Appearance with a live preview and a contrast report. Custom themes are saved with your settings and can be shared as small JSON files; an imported file can only set colors.
 - **Much more of the look is yours to set** in Preferences → Appearance:
@@ -70,6 +73,10 @@ What changed in each release, for people using glasshouse. Downloads are on the 
 
 ### Changed
 
+- **Secondary and muted text is easier to read in every theme,** meeting the WCAG AA contrast of 4.5:1. The original eight themes look slightly different for it: their dimmer text is lighter, and Solarized Dark's accent is a shade lighter. Custom themes you saved still load.
+- The theme editor's contrast report now checks muted text as well.
+- The file list has the keyboard focus as soon as a window opens.
+- Clicking a tab or a toolbar button no longer takes the arrow keys away from the file list.
 - **A folder opened through a link stays under the link.** Opening a subfolder of a symlinked folder (on Windows also a mapped drive, a `subst` drive or a junction) used to jump to where the folder really is. The path bar, the tree, tabs, recents and pins now keep the path you came by. Tags you put on files inside a linked folder before this update show when the folder is opened by its real path.
 - **Windows: network and long paths look like paths.** `\\?\UNC\server\share\…` and `\\?\C:\…` no longer show up in the path bar; a mapped drive stays `Z:\…`. Pins, tags, recents and tabs saved the old way are converted at the first start.
 - **Windows: names starting with a dot are shown,** as in Explorer. Hidden means the Hidden attribute.
@@ -110,6 +117,10 @@ What changed in each release, for people using glasshouse. Downloads are on the 
 
 ### Fixed
 
+- After closing the command palette or splitting the view, the arrow keys work in the file list at once, without a click.
+- Tab no longer leaves an open dialog for the window behind it.
+- Ctrl+\\ (split view) now works on keyboard layouts that type \\ with AltGr, such as German and Nordic ones: use the key that has \\ on a US keyboard.
+- The maximize button says Restore when the window is maximized.
 - **Linux: opening a subfolder could close glasshouse** (a crash in the folder watcher, rare).
 - **Windows: rename, copy, move and Find & Replace work in folders deeper than 260 characters,** without the system's long-path setting.
 - **Names Windows can't keep are refused with a reason** when you create or rename: `a:b` (which made a hidden stream), a trailing dot or space, `CON`, `NUL` and the other device names, and `* ? " < > |`. On Linux the same goes for FAT, exFAT and SMB drives.

@@ -20,14 +20,14 @@ The scan for the user's own paths and names found none in app code. The gaps are
 | **Wave 7b: works like other file managers** |||||
 | 36 | os-clipboard | both | M–L | merged 11-23 (`claude/os-clipboard`; plan in `docs/plans/completed/os-clipboard.md`) |
 | 37 | linux-launch-env | Rust + CI | M | queued (coordinate with task 30's activation token) |
-| 38 | a11y | frontend | M–L | running (11-23, release push) |
-| 39 | locale-and-names | frontend (+ a little Rust) | S–M | queued |
+| 38 | a11y | frontend | M–L | merged 11-23 (`claude/a11y`; plan in `docs/plans/completed/a11y.md`; the rest is task 53) |
+| 39 | locale-and-names | frontend (+ a little Rust) | S–M | running (11-23, release push) |
 | 40 | first-run-defaults | frontend | S–M | merged 11-20 (`claude/nice-ishizaka-1d4fec`; plan in `docs/plans/completed/first-run-defaults.md`) |
 | 47 | themes-and-cosmetics | frontend | L | merged 11-20 (`claude/elegant-euler-fb95a5`; plan in `docs/plans/completed/themes-and-cosmetics.md`) |
 | 48 | updater | both + CI | M | merged 11-20 (`claude/eloquent-chebyshev-4e12bf`; plan in `docs/plans/completed/updater.md`; releases wait for the two signing secrets) |
 | **Wave 7c: devices, transfers, docs** |||||
 | 41 | devices | both | M–L | running (11-23, release push) |
-| 42 | transfers-and-cloud | both | M | queued (tell task 25 folder-size about the cloud flag) |
+| 42 | transfers-and-cloud | both | M | running (11-23, release push; tell task 25 folder-size about the cloud flag) |
 | 43 | docs-and-community | docs + repo files | S–M | merged 11-20 (`claude/elegant-jemison-47aa69`; plan in `docs/plans/completed/docs-and-community.md`) |
 | **Wave 7d: more testing** |||||
 | 44 | e2e-core-flows | test code | M | after 32 |
@@ -37,6 +37,7 @@ The scan for the user's own paths and names found none in app code. The gaps are
 | 50 | split-and-tear-off | both | L | merged 11-21: phase 1 split view (11-20), phase 2 one process with many windows, phase 3 tear-off (user request 11-20: "split view for tabs" and dragging tabs into their own window "like you can with browsers"; one process with many windows, in three phases) |
 | 51 | thumbnails | both | M | queued (split from survey-2 task 16 on 11-23) |
 | 52 | small-fixes | both | S | queued (11-23: the long-path overflow and the screen-edge drag handoff from Found by tasks) |
+| 53 | a11y-rest | frontend | M | queued (11-23: what task 38 left; after 16 and 39) |
 
 Run at most two Rust tasks at once (RAM). Tasks 33, 34, 36 and 37 all touch `src-tauri/src/commands/`, so keep diffs narrow.
 
@@ -267,6 +268,17 @@ The owner asked for "split view for tabs and also to be able to drag drop tabs i
 - A long path makes the page wider than a narrow window, pushing the Inspector, search box and window buttons off screen: the path bar should shrink or scroll, never widen the page.
 - A file or tab drag from a window whose edge touches the screen's edge (a maximized window's top) may never hand off to the OS, because the pointer can't cross the edge (seen under Xvfb). Check on a virtual display with a maximized window, and hand off at the edge when the pointer is pinned there and still moving outward, if that can be told apart from resting at the edge.
 
+## 53. a11y-rest (frontend, M; 2026-11-23, what task 38 left)
+- **Sidebar:** rows are plain `div`s. Make it a tree (roles, levels, expanded state, the active row) that arrow keys walk. Group headers are read as glyphs ("▾ PINNED +") and hold their + and ⋯ actions inside the header button: name them in words and make the actions buttons of their own. The ⋯ menu's rows are `div`s.
+- **Tab stops:** Tab and F6 move between the sidebar, the file lists and the terminal only. Decide and record how the toolbar, tab bar, Inspector and status bar are reached from the keyboard (F6 between regions and Tab inside one is the usual desktop pattern), and build it without taking the arrow keys from the file list.
+- **Miller Columns:** the parent and preview columns (`src/Miller.tsx`) have no roles or names.
+- **Menubar:** the palette button sits inside `role="menubar"`; review the menus' roles, names and keys.
+- **Terminal:** xterm's screen-reader mode is off. Turn it on when it costs nothing, or add a setting.
+- **WebKitGTK differences:** a cell's text includes the placeholder dash, and a card-mode item's name lacks ", folder".
+- **Colored text** (error red, git letters) is held to 3:1 only, and the danger item's red on hover is unchecked: hold text to 4.5:1 in every theme.
+- **`chooser/`** (glasshouse as the open and save dialog) inherits the file list's and toolbar's roles; review its own controls.
+- After the release: a WebKitGTK tree check as a repo script and CI step (needs `gir1.2-webkit2-4.1`, `gir1.2-atspi-2.0`, `at-spi2-core`); the recipe is in `docs/decisions/2026-11-23-a11y-roles-and-focus.md`.
+
 ## Found by tasks
 - *(from e2e-smoke, for 44)* Reuse `e2e/harness.mjs` and its `waitFor`, not sleeps. Fixtures are made per run in a scratch dir, but on Windows the run uses the runner's real profile, so use unique names. Put the Trash fixture under the scratch `XDG_DATA_HOME`. A task that needs a D-Bus service in the test drops its `.service` file into the scratch `$XDG_DATA_HOME/dbus-1/services`.
 - *(from e2e-smoke, for 45)* ubuntu-22.04 retires on 2027-04-17, with brownouts before that (runner-images#14254). release.yml builds Linux there too, so move both together. The windows-latest D: drive becomes ReFS from 2026-11-30 (#15315); the checkout and build are on D:, the fixture on C:. Add the release exe (the debug exe is a console program). Make e2e blocking after about two green weeks.
@@ -316,3 +328,6 @@ The owner asked for "split view for tabs and also to be able to drag drop tabs i
 - *(from windows-paths, for 52)* Tags saved under a link's target don't show through the link (not migrated, `docs/decisions/2026-11-23-windows-paths-forms.md`). On a Linux FAT/exFAT/SMB folder a taken name is still matched case-sensitively. Name rules are enforced in the page only, not the backend. Find and Find & Replace still skip dot-names on Windows unless hidden items are on.
 - *(from windows-paths, for 28)* notify-debouncer-full 0.4.0 panics on a path-less inotify event while holding its lock (`watcher.rs`'s `PathEvents` now drops those); check whether a newer version fixes it upstream.
 - *(from windows-paths, after the release)* With long paths off system-wide, programs started in a long folder, the Recycle Bin and the watcher still stop at MAX_PATH. An elevated glasshouse can't see mapped drives, so it migrates share paths to `\\server\share\…`.
+- *(from a11y)* Not run: any real screen reader (NVDA, Narrator, Orca: hand checks W17 and L16), and anything in WebView2 itself; CI reads Chromium's tree for the demo, and WebKitGTK's tree was read by a scratch script once.
+- *(from a11y, for the release prep)* `docs/media` images and clips show the old muted colors: re-record them.
+- *(from a11y, for 53)* Everything in section 53 above.

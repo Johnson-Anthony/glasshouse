@@ -10,7 +10,7 @@ Up to three agents at a time. Tasks that share files run one after the other.
 | 1 | 34 windows-paths, 36 os-clipboard, 38 a11y | the first of each area; 38 is frontend only |
 | 2 | 39 locale-and-names, 41 devices, 42 transfers-and-cloud | as step 1's finish |
 | 3 | 16 menu-honesty (after 38: both change the file list), 37 linux-launch-env, 25 folder-size (after 42) | |
-| 4 | 51 thumbnails (after 16), 49 appimage-menu-entry (after 37), 26 test-gaps, 52 small-fixes | |
+| 4 | 51 thumbnails (after 16), 49 appimage-menu-entry (after 37), 26 test-gaps, 52 small-fixes, 53 a11y-rest (after 16 and 39) | |
 | 5 | 44 e2e-core-flows (after 16, 36 and 38: it drives their UI), 45 e2e-nightly-matrix, 46 release-smoke | CI work is checked by the lead's pushes |
 | 6 | 28 deps-bump, alone | it changes both lockfiles |
 | 7 | release prep: version, CHANGELOG section, a last full check | the tag and the signing secrets wait for the owner's OK |
