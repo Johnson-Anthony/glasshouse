@@ -206,21 +206,11 @@ mod platform {
         static SOURCE: RefCell<Option<(gtk::ApplicationWindow, Vec<SignalHandlerId>)>> = const { RefCell::new(None) };
     }
 
-    /// What the drag offers: `file://` URIs, percent-encoded (a space, `#`
-    /// or `%` in a name would otherwise break them), and the plain paths, one
-    /// per line, for targets that only take text.
+    /// What the drag offers: `file://` URIs, percent-encoded, and the plain
+    /// paths, one per line, for targets that only take text. The same as
+    /// a Copy puts on the clipboard.
     pub(super) fn payload(paths: &[PathBuf]) -> (Vec<String>, String) {
-        let uris = paths
-            .iter()
-            .filter_map(|p| url::Url::from_file_path(p).ok())
-            .map(String::from)
-            .collect();
-        let text = paths
-            .iter()
-            .map(|p| p.to_string_lossy())
-            .collect::<Vec<_>>()
-            .join("\n");
-        (uris, text)
+        crate::commands::clipboard::formats::uris_and_text(paths)
     }
 
     pub(super) fn start(window: tauri::WebviewWindow, paths: Vec<PathBuf>, id: u64) -> Result<(), String> {

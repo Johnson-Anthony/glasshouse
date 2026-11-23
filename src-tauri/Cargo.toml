@@ -93,6 +93,13 @@ windows = { version = "0.58", features = [
     "Win32_System_Pipes",
     "Win32_System_IO",
     "Win32_System_Threading",
+    # The clipboard (commands/clipboard/win32.rs): CF_HDROP and text, and
+    # OLE's data object to tell a cut's source its paste succeeded.
+    "Win32_System_DataExchange",
+    "Win32_System_Memory",
+    "Win32_System_Ole",
+    "Win32_System_Com_StructuredStorage",
+    "Win32_Graphics_Gdi",
 ] }
 
 # Dragging files out on Windows: OLE DoDragDrop with CF_HDROP

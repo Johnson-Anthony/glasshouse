@@ -10,6 +10,7 @@ import { IS_WINDOWS } from "../platform";
 import { checksumsFor, type Checksums } from "./checksums";
 import { AUDIO_EXTS, FilePreview } from "./FilePreview";
 import { errText } from "../errors";
+import { copyText } from "../clipboard";
 import { showError } from "../errorDialog";
 import { pushUndo } from "../state";
 import { permissionsUndo } from "../undoActions";
@@ -342,7 +343,7 @@ export function Inspector({ file, onQuickAction, onExpand }: InspectorProps) {
         <h4>CHECKSUMS {sha256 && (
           <span
             style={{color:"var(--accent)", cursor:"pointer"}}
-            onClick={() => { try { void navigator.clipboard.writeText(sha256); } catch { /* clipboard unavailable */ } }}
+            onClick={() => { void copyText(sha256); }}
           >copy</span>
         )}</h4>
         <dl className="kv">

@@ -2,6 +2,7 @@
 //! by path; shell profiles (`ShellProfile`) live with the pty code.
 
 pub mod archive;
+pub mod clipboard;
 pub mod config;
 pub mod drag_out;
 #[cfg(windows)]

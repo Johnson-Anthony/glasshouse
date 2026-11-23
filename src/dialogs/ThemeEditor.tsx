@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { TAURI_AVAILABLE, pickSavePath, writeText } from "../api";
 import { normalizeHex } from "../contrast";
 import { errText } from "../errors";
+import { writeText as writeClipboardText } from "../clipboard";
 import { THEME_TOKENS, TOKEN_HELP, type ThemeScheme, type ThemeToken } from "../themes";
 import {
   contrastReport, exportFileName, exportTheme, newThemeId, saveUserTheme, setDraft, type UserTheme,
@@ -27,7 +28,7 @@ export async function exportThemeFile(t: Pick<UserTheme, "name" | "scheme" | "co
     await writeText(path, json);
     return `saved ${path}`;
   }
-  await navigator.clipboard.writeText(json);
+  await writeClipboardText(json);
   return "copied the theme file's text to the clipboard";
 }
 

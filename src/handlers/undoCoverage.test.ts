@@ -136,7 +136,6 @@ beforeEach(() => {
   undoStack.length = 0;
   redoStack.length = 0;
   cmdState.contextTarget = null;
-  cmdState.clipboard = null;
   vi.spyOn(console, "log").mockImplementation(() => {});
   vi.spyOn(console, "error").mockImplementation(() => {});
 });
@@ -160,10 +159,97 @@ function olderEntry() {
   return inverse;
 }
 
+// Copy, Cut and Paste go through the OS clipboard (clipboard.ts): the
+// backend's read is whatever any app put there.
+describe("Copy, Cut and Paste use the OS clipboard", () => {
+  const clip = (cut: boolean, paths: string[], extra: Partial<api.ClipboardFiles> = {}): api.ClipboardFiles =>
+    ({ cut, items: paths.map(path => ({ path, folder: false })), gone: 0, other: 0, stamp: 7, ...extra });
+
+  it("Copy and Cut put the selection on it and say so", async () => {
+    await run("Copy", makeCtx([entry("a.txt"), entry("b.txt")], [0, 1]));
+    expect(api.clipboardWriteFiles).toHaveBeenLastCalledWith(["/w/a.txt", "/w/b.txt"], false);
+    expect(dialogs.showToast).toHaveBeenLastCalledWith(expect.objectContaining({ message: "copied 2 item(s)" }));
+    await run("Cut", makeCtx([entry("a.txt")], [0]));
+    expect(api.clipboardWriteFiles).toHaveBeenLastCalledWith(["/w/a.txt"], true);
+    expect(dialogs.showToast).toHaveBeenLastCalledWith(expect.objectContaining({ message: "cut 1 item(s)" }));
+    expect(undoStack).toHaveLength(0);
+  });
+
+  it("a Copy the clipboard refuses is reported, not announced", async () => {
+    vi.mocked(api.clipboardWriteFiles).mockRejectedValueOnce(new Error("the clipboard refused the files"));
+    await run("Copy", makeCtx([entry("a.txt")], [0]));
+    expect(dialogs.showAlert).toHaveBeenCalledWith(expect.objectContaining({ title: "copy failed", message: "the clipboard refused the files" }));
+    expect(dialogs.showToast).not.toHaveBeenCalled();
+  });
+
+  it("Paste moves a cut, with undo, and tells the backend it was pasted", async () => {
+    const disk = useDisk({ "/src": null, "/src/a.txt": "A", "/src/b.txt": "B" });
+    vi.mocked(api.clipboardReadFiles).mockResolvedValue(clip(true, ["/src/a.txt", "/src/b.txt"]));
+    await run("Paste", makeCtx([], []));
+    expect(disk.paths()).toEqual(["/src", "/w", "/w/a.txt", "/w/b.txt"]);
+    expect(api.clipboardCutPasted).toHaveBeenCalledWith(7, true);
+    expect(await undoLast()).toEqual({ status: "done", label: "paste move 2 item(s)" });
+    expect(disk.paths()).toEqual(["/src", "/src/a.txt", "/src/b.txt", "/w"]);
+  });
+
+  it("Paste copies a copy and leaves the clipboard as it is", async () => {
+    useDisk({ "/src": null, "/src/a.txt": "A" });
+    vi.mocked(api.clipboardReadFiles).mockResolvedValue(clip(false, ["/src/a.txt"]));
+    await run("Paste", makeCtx([], []));
+    expect(api.copyEntry).toHaveBeenCalledWith("/src/a.txt", "/w/a.txt", expect.anything());
+    expect(api.clipboardCutPasted).not.toHaveBeenCalled();
+    expect(top()).toBe("paste copy 1 item(s)");
+  });
+
+  it("a cut pasted onto a taken name asks, and what's skipped stays cut", async () => {
+    const disk = useDisk({ "/src": null, "/src/a.txt": "A", "/src/b.txt": "B", "/w/a.txt": "old" });
+    vi.mocked(api.clipboardReadFiles).mockResolvedValue(clip(true, ["/src/a.txt", "/src/b.txt"]));
+    dialogs.showChoice.mockResolvedValueOnce("skip");
+    await run("Paste", makeCtx([], []));
+    expect(disk.content("/w/a.txt")).toBe("old");
+    expect(disk.paths()).toEqual(["/src", "/src/a.txt", "/w", "/w/a.txt", "/w/b.txt"]);
+    // Not every item moved: the backend keeps the cut while a file of it is there.
+    expect(api.clipboardCutPasted).toHaveBeenCalledWith(7, false);
+  });
+
+  it("a cut pasted where it already is moves nothing and stays cut", async () => {
+    useDisk({ "/w/a.txt": "A" });
+    vi.mocked(api.clipboardReadFiles).mockResolvedValue(clip(true, ["/w/a.txt"]));
+    await run("Paste", makeCtx([], []));
+    expect(api.clipboardCutPasted).not.toHaveBeenCalled();
+    expect(undoStack).toHaveLength(0);
+  });
+
+  it("with no files on the clipboard, Paste says so and touches nothing", async () => {
+    useDisk({});
+    vi.mocked(api.clipboardReadFiles).mockResolvedValue(null);
+    await run("Paste", makeCtx([], []));
+    expect(dialogs.showToast).toHaveBeenCalledWith(expect.objectContaining({ message: "nothing to paste: the clipboard holds no files" }));
+    expect(api.readDir).not.toHaveBeenCalled();
+    // A cut another app already pasted: nothing left to move, and the
+    // backend hears, so it can end the cut.
+    vi.mocked(api.clipboardReadFiles).mockResolvedValue(clip(true, [], { gone: 2 }));
+    await run("Paste", makeCtx([], []));
+    expect(dialogs.showToast).toHaveBeenLastCalledWith(expect.objectContaining({ message: "nothing to paste: 2 items no longer there" }));
+    expect(api.clipboardCutPasted).toHaveBeenCalledWith(7, false);
+    expect(api.readDir).not.toHaveBeenCalled();
+  });
+
+  it("Paste Special… opens on the clipboard's files, folders marked", async () => {
+    vi.mocked(api.clipboardReadFiles).mockResolvedValue({ ...clip(true, ["/src/a.txt"]), items: [{ path: "/src/a.txt", folder: false }, { path: "/src/d", folder: true }] });
+    const ctx = makeCtx([], []);
+    await run("Paste Special…", ctx);
+    expect(ctx.app!.setPasteSpecial).toHaveBeenCalledWith({
+      items: [{ path: "/src/a.txt", kind: "file" }, { path: "/src/d", kind: "folder" }],
+      dstDir: "/w", clipboardMode: "cut", stamp: 7,
+    });
+  });
+});
+
 describe("commands that now push an undo entry", () => {
   it("Paste Text into Filename: undo renames it back", async () => {
     const disk = useDisk({ "/w/a.txt": "A" });
-    vi.stubGlobal("navigator", { clipboard: { readText: async () => "b.txt" } });
+    vi.mocked(api.clipboardReadText).mockResolvedValueOnce("b.txt");
     await run("Paste Text into Filename", makeCtx([entry("a.txt")], [0]));
     expect(disk.paths()).toEqual(["/w", "/w/b.txt"]);
     expect(await undoLast()).toEqual({ status: "done", label: "rename a.txt → b.txt" });
@@ -202,7 +288,7 @@ describe("commands that now push an undo entry", () => {
 
   it("Paste as Symlink: undo deletes the links it made, and redo makes them again", async () => {
     const disk = useDisk({});
-    const ctx = makeCtx([], [], { clipboardPaths: () => ["/t/a", "/t/b"] });
+    const ctx = makeCtx([], [], { clipboardPaths: async () => ["/t/a", "/t/b"] });
     await run("Paste as Symlink", ctx);
     expect(disk.paths()).toEqual(["/w", "/w/a", "/w/b"]);
     expect(await undoLast()).toEqual({ status: "done", label: "paste 2 symlink(s)" });
@@ -213,7 +299,7 @@ describe("commands that now push an undo entry", () => {
 
   it("Paste as Hard Link: undo keeps a link whose original is gone", async () => {
     const disk = useDisk({ "/src": null, "/src/f.txt": "F" });
-    await run("Paste as Hard Link", makeCtx([], [], { clipboardPaths: () => ["/src/f.txt"] }));
+    await run("Paste as Hard Link", makeCtx([], [], { clipboardPaths: async () => ["/src/f.txt"] }));
     disk.remove("/src/f.txt");
     const r = await undoLast();
     expect(r.status).toBe("failed");

@@ -2,17 +2,19 @@
 // lists a folder typed into Go to Path, and shows drives and known folders
 // in the sidebar (on Linux, also the pins a first run starts with), with no
 // uncaught errors. Flow 2: split view. Flow 3: a second window in the same
-// process. Flow 4: a tab moved to a new window. Linux: `pnpm e2e` (Xvfb and a private bus). Windows: run
+// process. Flow 4: a tab moved to a new window. Flow 5: Copy, Cut and Paste
+// through the OS clipboard, with another app on the other side (xclip on
+// Linux, PowerShell on Windows). Linux: `pnpm e2e` (Xvfb and a private bus). Windows: run
 // this file directly with `node --test` in an interactive session, with a
 // msedgedriver that matches the WebView2 Runtime (e2e/edgedriver.ps1).
 // Artifacts go to e2e/artifacts/ whatever the outcome.
 import assert from "node:assert/strict";
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { basename as posixBasename, join, win32 } from "node:path";
 import { pathToFileURL } from "node:url";
 import { after, afterEach, before, test } from "node:test";
 
-import { ARTIFACTS, IS_WINDOWS, SESSION_DEADLINE_MS, appEnv, appPath, capabilities, captureDesktop, makeFixture, makeScratch, startDriver } from "./harness.mjs";
+import { ARTIFACTS, IS_WINDOWS, SESSION_DEADLINE_MS, appEnv, appPath, capabilities, captureDesktop, makeFixture, makeScratch, osClipboard, startDriver } from "./harness.mjs";
 import { Keys, Session, WebDriverError, waitFor } from "./webdriver.mjs";
 
 const basename = IS_WINDOWS ? win32.basename : posixBasename;
@@ -410,6 +412,116 @@ test("move to new window", { timeout: 120_000 }, async () => {
 
   const seen = await session.execute(() => window.__e2e ?? null);
   assert.deepEqual(seen?.errors ?? [], [], "uncaught errors in the new window");
+  await session.execute(() => document.querySelector(".wc.close").click());
+  await waitFor("one window again", async () => (await session.windowHandles()).length === 1, { timeoutMs: 30_000 });
+  await session.switchToWindow(first);
+});
+
+// The OS clipboard (src/clipboard.ts, src-tauri/src/commands/clipboard.rs).
+// Another app reads what glasshouse copied and fills what glasshouse pastes.
+// A cut shows as cut only while it's what the clipboard holds: another
+// app's copy ends it, and so does its paste, here in a second window.
+test("the OS clipboard", { timeout: 180_000 }, async () => {
+  const first = await session.windowHandle();
+  assert.deepEqual(await session.windowHandles(), [first]);
+  // Its own folder, so what earlier flows left behind doesn't matter.
+  const dir = join(scratch, "clipboard flow");
+  const to = join(dir, "to");
+  mkdirSync(to, { recursive: true });
+  const [one, two, three] = ["one.txt", "naïve two.txt", "three.txt"];
+  for (const name of [one, two, three]) writeFileSync(join(dir, name), `${name}\n`);
+
+  const names = () => session.execute(() => [...document.querySelectorAll(".pane .row .name")].map(n => n.textContent.trim()));
+  const cutRows = () => session.execute(() => [...document.querySelectorAll(".pane .row.clip-cut .name")].map(n => n.textContent.trim()));
+  const goTo = async (path, want) => {
+    await session.chord([Keys.CONTROL, "l"]);
+    const input = await waitFor("the Go to Path prompt", () => session.execute(() => {
+      const message = [...document.querySelectorAll("div")].find(d => d.textContent === "path to navigate to:");
+      return message?.parentElement?.querySelector("input") ?? null;
+    }));
+    await session.sendKeys(input, `${Keys.CONTROL}a${Keys.CONTROL}${path}${Keys.ENTER}`);
+    await waitFor(`a listing of ${path}`, async () => {
+      const crumb = await session.execute(() => document.querySelector(".breadcrumb .crumb.last")?.textContent ?? null);
+      const listed = await names();
+      return crumb === basename(path) && want.every(w => listed.includes(w));
+    }, { timeoutMs: 45_000 });
+  };
+  const select = async name => session.click(await waitFor(`${name} in the list`, () => session.execute(n =>
+    [...document.querySelectorAll(".pane .row")].find(r => r.querySelector(".name")?.textContent.trim() === n) ?? null, name)));
+  const sameFiles = (clip, cut, paths) =>
+    clip !== null && clip.cut === cut && clip.paths.length === paths.length && clip.paths.every((p, i) => samePath(p, paths[i]));
+  // Windows hears of another app's copy when a window next gets the focus.
+  const refocus = () => (IS_WINDOWS ? session.execute(() => { window.dispatchEvent(new Event("focus")); }) : null);
+
+  // Copy: every app can paste it.
+  await goTo(dir, [one, two, three]);
+  await select(two);
+  await session.chord([Keys.CONTROL, "c"]);
+  await waitFor("the copied file on the OS clipboard", () => sameFiles(osClipboard.files(), false, [join(dir, two)]));
+  if (!IS_WINDOWS) {
+    const uri = pathToFileURL(join(dir, two)).href;
+    assert.match(uri, /na%C3%AFve%20two\.txt$/);
+    const targets = (osClipboard.target("TARGETS") ?? "").split("\n");
+    for (const t of ["text/uri-list", "x-special/gnome-copied-files", "application/x-kde-cutselection", "UTF8_STRING", "text/plain;charset=utf-8"]) {
+      assert.ok(targets.includes(t), `${t} offered: ${JSON.stringify(targets)}`);
+    }
+    assert.equal(osClipboard.target("text/uri-list"), `${uri}\r\n`);
+    assert.equal(osClipboard.target("x-special/gnome-copied-files"), `copy\n${uri}`);
+    assert.equal(osClipboard.target("application/x-kde-cutselection"), "0");
+    assert.equal(osClipboard.target("UTF8_STRING"), join(dir, two));
+  }
+  assert.deepEqual(await cutRows(), []);
+
+  // Copy Path: text, in place of the files.
+  await session.chord([Keys.CONTROL, Keys.SHIFT, "c"]);
+  await waitFor("the path on the OS clipboard", () => osClipboard.text() === join(dir, two) && osClipboard.files() === null);
+
+  // Cut: the row dims, and other apps see a cut. Another app's copy ends
+  // it: the row is no longer shown as cut, and the file stays.
+  await select(one);
+  await session.chord([Keys.CONTROL, "x"]);
+  await waitFor("the cut file on the OS clipboard", () => sameFiles(osClipboard.files(), true, [join(dir, one)]));
+  await waitFor("the cut row dimmed", async () => (await cutRows()).join() === one);
+  if (!IS_WINDOWS) assert.equal(osClipboard.target("application/x-kde-cutselection"), "1");
+  osClipboard.putText("copied in another app");
+  await refocus();
+  await waitFor("the cut ended by another app's copy", async () => (await cutRows()).length === 0);
+  assert.ok(existsSync(join(dir, one)));
+
+  // Cut here, Paste in a second window: the file moves, and the cut is over
+  // in both windows and on the clipboard.
+  await session.chord([Keys.CONTROL, "x"]);
+  await waitFor("the cut row dimmed again", async () => (await cutRows()).join() === one);
+  await session.chord([Keys.CONTROL, "n"]);
+  const second = await waitFor("a second window", async () => (await session.windowHandles()).find(h => h !== first), { timeoutMs: 30_000 });
+  await session.switchToWindow(second);
+  await waitFor("the second window's page to run scripts", () => session.execute(installErrorListeners), { timeoutMs: 30_000 });
+  await waitFor("the second window's listing of home", async () => (await names()).includes("Documents"), { timeoutMs: 45_000 });
+  await goTo(to, []);
+  await session.chord([Keys.CONTROL, "v"]);
+  await waitFor("the cut file pasted in the second window", async () => (await names()).includes(one));
+  assert.ok(existsSync(join(to, one)), "the file is in the folder it was pasted into");
+  assert.ok(!existsSync(join(dir, one)), "a cut moves: the file left its folder");
+  await waitFor("the clipboard emptied of the pasted cut", () => osClipboard.files() === null);
+  await session.switchToWindow(first);
+  await waitFor("the first window without the moved file or a cut row", async () =>
+    (await cutRows()).length === 0 && !(await names()).includes(one));
+
+  // Another app's Copy pastes here as a copy, and its Cut as a move.
+  await session.switchToWindow(second);
+  osClipboard.putFiles([join(dir, three)], { as: "text/uri-list" });
+  await session.chord([Keys.CONTROL, "v"]);
+  await waitFor("another app's copied file pasted", async () => (await names()).includes(three));
+  assert.ok(existsSync(join(dir, three)), "a copy leaves the file where it was");
+  osClipboard.putFiles([join(dir, two)], { cut: true });
+  await session.chord([Keys.CONTROL, "v"]);
+  await waitFor("another app's cut file pasted", async () => (await names()).includes(two));
+  assert.ok(existsSync(join(to, two)));
+  assert.ok(!existsSync(join(dir, two)), "another app's cut moves");
+  assert.deepEqual(await cutRows(), [], "another app's cut isn't shown as glasshouse's");
+
+  const seen = await session.execute(() => window.__e2e ?? null);
+  assert.deepEqual(seen?.errors ?? [], [], "uncaught errors in the second window");
   await session.execute(() => document.querySelector(".wc.close").click());
   await waitFor("one window again", async () => (await session.windowHandles()).length === 1, { timeoutMs: 30_000 });
   await session.switchToWindow(first);

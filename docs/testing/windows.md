@@ -168,3 +168,20 @@ Every glasshouse window is in one process, as a browser's are. In Task Manager �
 - [ ] **W15.10** Two users signed in at once (Switch user), glasshouse running for both → a launch in each account opens in that account's own glasshouse.
 - [ ] **W15.11** A setup.exe update (W14.3) with three windows open → after the restart, all three come back with their tabs.
 - [ ] **W15.12** Move tabs between three windows (W8.10, W8.11), then Ctrl+Q and start → every tab comes back in the window it was moved to, once, and the private ones don't come back.
+
+## W16. Copy, Cut and Paste with other apps
+
+Copy, Cut and Paste use the Windows clipboard, so they work with Explorer, with other apps and between glasshouse windows. None of this has run on Windows before the first release that has it: note anything that differs.
+
+- [ ] **W16.1** **Out:** select two files and a folder in glasshouse, Ctrl+C, then Ctrl+V in an Explorer window → all three are copied; the originals stay.
+- [ ] **W16.2** Ctrl+X on a file in glasshouse → its row dims. Ctrl+V in Explorer → the file moves there. Back in glasshouse the file is gone from the list; Ctrl+V in another folder says "nothing to paste: 1 item no longer there".
+- [ ] **W16.3** Copy a file in glasshouse, then paste into a mail or a chat app (Outlook, Teams, Slack, Discord) → it's attached.
+- [ ] **W16.4** **In:** Ctrl+C on files in Explorer, Ctrl+V in glasshouse → copied. A name that exists → asked whether to replace, keep both or skip. Ctrl+Z undoes the paste.
+- [ ] **W16.5** Ctrl+X on a file in Explorer (its icon fades), Ctrl+V in glasshouse → the file moves, and Explorer's icon is no longer faded or is gone. Ctrl+V again in Explorer → nothing is pasted, and no file is deleted.
+- [ ] **W16.6** **Honest cut:** Ctrl+X on a file in glasshouse, then copy some text in Notepad and click back on glasshouse → the row is no longer dimmed, and the file is where it was. Ctrl+V in glasshouse says the clipboard holds no files.
+- [ ] **W16.7** **Between windows:** two glasshouse windows. Ctrl+X in one (the row dims in both, when both show the folder), Ctrl+V in the other → the file moves, no row is dimmed, and Ctrl+Z in the window that pasted moves it back. The same with Ctrl+C → a copy.
+- [ ] **W16.8** Cut two files and paste where one of the names exists, then choose Skip → one moves; the skipped one is still dimmed and can be pasted elsewhere.
+- [ ] **W16.9** **Text:** Copy Path (Ctrl+Shift+C), then Ctrl+V in Notepad → the path. The same for the right-click menu's Copy as Command, a checksum from Properties, and the preview pane's copy button.
+- [ ] **W16.10** A file with a long path (over 260 characters), one with accents and one on a network share (`\\server\share`) → each copies out to Explorer and back in.
+- [ ] **W16.11** With a clipboard manager open (Win+V history on) → copies and cuts work as above, and nothing is pasted twice.
+- [ ] **W16.12** Copy files in glasshouse, close every glasshouse window, then Ctrl+V in Explorer → the files are still pasted.

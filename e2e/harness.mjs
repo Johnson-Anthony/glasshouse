@@ -14,7 +14,7 @@ import { closeSync, existsSync, mkdirSync, mkdtempSync, openSync, realpathSync, 
 import { createServer } from "node:net";
 import { homedir, tmpdir } from "node:os";
 import { delimiter, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 export const IS_WINDOWS = process.platform === "win32";
 export const ROOT = resolve(fileURLToPath(new URL("..", import.meta.url)));
@@ -142,6 +142,77 @@ export function makeFixture(scratch) {
   writeFileSync(join(dir, "naïve café.json"), "{}\n");
   return { path: dir, names: ["alpha", "beta.txt", "Gamma notes.md", "naïve café.json"] };
 }
+
+const xclip = (args, options) => execFileSync("xclip", ["-selection", "clipboard", ...args], { timeout: 10_000, ...options });
+
+/** Runs e2e/windows-clipboard.ps1, which reads and fills the clipboard as
+ *  Explorer and Notepad do, and returns what it printed. */
+function winClipboard(args) {
+  const script = join(ROOT, "e2e", "windows-clipboard.ps1");
+  const out = execFileSync("powershell.exe", ["-NoProfile", "-STA", "-ExecutionPolicy", "Bypass", "-File", script, ...args],
+    { encoding: "utf8", timeout: 60_000, stdio: ["ignore", "pipe", "inherit"] });
+  return out.replace(/^\uFEFF/, "").trim();
+}
+
+/** The OS clipboard as another app sees it and fills it: xclip on this
+ *  run's X display, PowerShell on Windows. */
+export const osClipboard = {
+  /** The files a file manager would paste and whether it would move them;
+   *  null when the clipboard holds no files. */
+  files() {
+    if (IS_WINDOWS) {
+      const { cut, paths } = JSON.parse(winClipboard(["-Read"]));
+      return paths.length > 0 ? { cut, paths } : null;
+    }
+    const lines = (this.target("x-special/gnome-copied-files") ?? "").split("\n").filter(Boolean);
+    if (lines.length < 2 || !["cut", "copy"].includes(lines[0])) return null;
+    return { cut: lines[0] === "cut", paths: lines.slice(1).map(uri => fileURLToPath(uri)) };
+  },
+
+  /** Its text; null when it holds none. */
+  text() {
+    return IS_WINDOWS ? JSON.parse(winClipboard(["-Read"])).text : this.target("UTF8_STRING");
+  },
+
+  /** Linux: what one target holds, as text; null when it isn't offered. */
+  target(name) {
+    try {
+      return xclip(["-o", "-t", name], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
+    } catch (e) {
+      if (e.code === "ENOENT") throw new Error("xclip isn't installed: the clipboard flow needs it (apt install xclip)");
+      return null;
+    }
+  },
+
+  /** Another app's Copy (or Cut) of files. Linux: `as` is the one target
+   *  offered (xclip offers one): GNOME's, which says cut or copy, or
+   *  text/uri-list, which is always a copy. */
+  putFiles(paths, { cut = false, as = "x-special/gnome-copied-files" } = {}) {
+    if (IS_WINDOWS) {
+      const list = join(ARTIFACTS, "clipboard-files.txt");
+      writeFileSync(list, paths.join("\n") + "\n");
+      winClipboard(["-FilesFrom", list, ...(cut ? ["-Cut"] : [])]);
+      return;
+    }
+    const uris = paths.map(p => pathToFileURL(p).href);
+    if (as === "text/uri-list" && cut) throw new Error("text/uri-list alone can't say cut");
+    const data = as === "text/uri-list" ? uris.map(u => `${u}\r\n`).join("") : [cut ? "cut" : "copy", ...uris].join("\n");
+    this.put(as, data);
+  },
+
+  /** Another app's copy of text. */
+  putText(text) {
+    if (IS_WINDOWS) winClipboard(["-Text", text]);
+    else this.put("UTF8_STRING", text);
+  },
+
+  /** Linux: offers `data` as the one target `name`. xclip stays behind to
+   *  answer for it; with its output not a pipe, this returns once it has
+   *  the data. */
+  put(name, data) {
+    xclip(["-i", "-t", name], { input: data, stdio: ["pipe", "ignore", "ignore"] });
+  },
+};
 
 function freePort() {
   return new Promise((ok, fail) => {

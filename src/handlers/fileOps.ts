@@ -16,18 +16,11 @@ import type { PasteSpecialItem } from "../dialogs/PasteSpecial";
 import type { Handler } from "./types";
 import { clearAllTags, copyWslPath, removeTagPrompt, revealInFileManager, runGitAction, selectedOrFirst, showBlame } from "./helpers";
 import { showLeftOut } from "./archive";
-import { cmdState } from "../commandState";
+import { afterPaste, copyFiles, copyText, filesToPaste } from "../clipboard";
 import { errDetail, errKind, errText } from "../errors";
 import { showError } from "../errorDialog";
 import { logWarn } from "../log";
 import { deletePath, renamePath, trashPath } from "../tags";
-
-/** The kinds of the selected entries, parallel to ctx.selectedPaths. */
-function selectedKinds(st: TabState): string[] {
-  return st.selected
-    .map(i => st.entries[i]?.kind ?? "file")
-    .filter((_, idx) => Boolean(st.entries[st.selected[idx]]?.path));
-}
 
 function bulkRenameItems(st: TabState): BulkRenameItem[] {
   return st.selected
@@ -148,7 +141,6 @@ export const fileOpsHandler: Handler = async (label, ctx) => {
     savePins,
     setBlame,
     setBulkRenameItems,
-    setCutPaths,
     setFolderPicker,
     setPasteSpecial,
     setPropsEntry,
@@ -264,51 +256,41 @@ export const fileOpsHandler: Handler = async (label, ctx) => {
       await trashPaths(selectedPaths, refresh);
       return true;
     }
+    // Copy and Cut put the files on the OS clipboard, for a Paste in this
+    // window, another glasshouse window or another app. A cut moves
+    // nothing yet: its rows dim (useCutPaths) until it's pasted.
     case "Copy": {
       if (selectedPaths.length === 0) return true;
-      const kinds = selectedKinds(st);
-      cmdState.clipboard = { op: "copy", paths: selectedPaths, kinds };
-      setCutPaths([]);
-      dialogs.showToast({ message: `copied ${selectedPaths.length} item(s)`, variant: "info" });
+      const offered = await copyFiles(selectedPaths, false);
+      if (offered) dialogs.showToast({ message: `copied ${selectedPaths.length} item(s)`, variant: "info" });
       return true;
     }
     case "Cut": {
       if (selectedPaths.length === 0) return true;
-      const kinds = selectedKinds(st);
-      cmdState.clipboard = { op: "cut", paths: selectedPaths, kinds };
-      setCutPaths(selectedPaths);
-      dialogs.showToast({ message: `cut ${selectedPaths.length} item(s)`, variant: "info" });
+      const offered = await copyFiles(selectedPaths, true);
+      if (offered) dialogs.showToast({ message: `cut ${selectedPaths.length} item(s)`, variant: "info" });
       return true;
     }
+    // Paste takes whatever files the OS clipboard holds now, whoever put
+    // them there, through the same transfer as a drop: the conflict
+    // question, undo, and tags that follow a move.
     case "Paste": {
-      if (!cmdState.clipboard || cmdState.clipboard.paths.length === 0) {
-        dialogs.showToast({ message: "clipboard is empty", variant: "info" });
-        return true;
-      }
-      const { op, paths, kinds } = cmdState.clipboard;
-      const xop: TransferOp = op === "copy" ? "copy" : "move";
-      const res = await runTransfer(asItems(paths, kinds), cwd, xop, transferDeps);
+      const pasting = await filesToPaste();
+      if (!pasting) return true;
+      const xop: TransferOp = pasting.cut ? "move" : "copy";
+      const res = await runTransfer(pasting.items, cwd, xop, transferDeps);
       if (!res) return true;
-      pushTransferUndo(res, xop, `${op === "copy" ? "paste copy" : "paste move"} ${res.done.length} item(s)`);
-      if (op === "cut" && res.done.length > 0 && res.failed.length === 0) {
-        cmdState.clipboard = null;
-        setCutPaths([]);
-      }
+      pushTransferUndo(res, xop, `${pasting.cut ? "paste move" : "paste copy"} ${res.done.length} item(s)`);
+      await afterPaste(pasting, res);
       refresh();
       reportTransfer(res, xop);
       return true;
     }
     case "Paste Special…": {
-      if (!cmdState.clipboard || cmdState.clipboard.paths.length === 0) {
-        console.warn("[paste-special] clipboard is empty");
-        return true;
-      }
-      const { op, paths, kinds } = cmdState.clipboard;
-      const items: PasteSpecialItem[] = paths.map((p, i) => ({
-        path: p,
-        kind: kinds[i] ?? "file",
-      }));
-      setPasteSpecial({ items, dstDir: cwd, clipboardMode: op });
+      const pasting = await filesToPaste();
+      if (!pasting) return true;
+      const items: PasteSpecialItem[] = pasting.items.map(i => ({ path: i.path, kind: i.isDir ? "folder" : "file" }));
+      setPasteSpecial({ items, dstDir: cwd, clipboardMode: pasting.cut ? "cut" : "copy", stamp: pasting.stamp });
       return true;
     }
     case "Folder":
@@ -378,7 +360,7 @@ export const fileOpsHandler: Handler = async (label, ctx) => {
       return true;
     }
     case "Copy Path": {
-      if (firstPath) await navigator.clipboard.writeText(firstPath);
+      if (firstPath) await copyText(firstPath);
       return true;
     }
     case "Copy as WSL Path":
@@ -440,8 +422,7 @@ export const fileOpsHandler: Handler = async (label, ctx) => {
       if (!firstPath) return true;
       try {
         const hex = await runOp(`hashing ${basename(firstPath)}`, track => hashSha256(firstPath, track()));
-        try { await navigator.clipboard.writeText(hex); } catch { /* clipboard unavailable */ }
-        dialogs.showToast({ message: `sha256 copied: ${hex.slice(0, 16)}…`, variant: "success" });
+        if (await copyText(hex)) dialogs.showToast({ message: `sha256 copied: ${hex.slice(0, 16)}…`, variant: "success" });
       } catch (err) {
         if (isCancelled(err)) return true;
         console.error("hash_sha256 failed:", errText(err));
