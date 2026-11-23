@@ -407,6 +407,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("gh-clipboard-sort-{}", std::process::id()));
         std::fs::create_dir_all(dir.join("folder")).unwrap();
         std::fs::write(dir.join("file.txt"), "x").unwrap();
+        #[cfg_attr(not(unix), allow(unused_mut))]
         let mut paths = vec![dir.join("file.txt"), dir.join("folder"), dir.join("gone.txt")];
         #[cfg(unix)]
         {
