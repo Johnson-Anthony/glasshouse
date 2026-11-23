@@ -4,7 +4,7 @@ For a release package on a real login, not a nested or headless session. [README
 
 **Where to run it.** Cover at least:
 - **Packages (L1–L2, L12):** Ubuntu 22.04 and Debian 12, the oldest releases the packages support, on x86-64 and, if you can, arm64.
-- **Desktops (L3–L11, L13):** GNOME on Wayland, KDE Plasma on Wayland, and one X11 session (Xfce, Cinnamon or MATE, or GNOME's or Plasma's X11 session where the release still has one).
+- **Desktops (L3–L11, L13, L14):** GNOME on Wayland, KDE Plasma on Wayland, and one X11 session (Xfce, Cinnamon or MATE, or GNOME's or Plasma's X11 session where the release still has one).
 - **Open and save dialogs (L7):** a release with xdg-desktop-portal 1.17 or newer, such as Ubuntu 24.04, Debian 13 or a current Fedora, plus Debian 12 or Ubuntu 22.04 to check that the switch stays off there.
 
 Note before you start: the distribution and release, the processor (`uname -m`), the desktop and session (`echo $XDG_CURRENT_DESKTOP $XDG_SESSION_TYPE`), the display scale, the portal's version (`/usr/libexec/xdg-desktop-portal --version`; the path varies), and for the .deb the WebKitGTK version (`dpkg -s libwebkit2gtk-4.1-0 | grep Version`).
@@ -157,3 +157,20 @@ Every glasshouse window is in one process, as a browser's are. `pgrep -a glassho
 - [ ] **L13.8** **Shared settings:** two windows. Change the theme and the zoom in one → the other follows at once. Pin a folder, tag a file and add a remote in one → the other's sidebar shows them.
 - [ ] **L13.9** A terminal open in each of two windows. Close one window → its shell ends (`pgrep -a bash` or your shell), and the other window's terminal keeps working. A long copy with the progress tray in one window → the other window's tray doesn't show it.
 - [ ] **L13.10** Move tabs between three windows (L9.11, L9.12), then Ctrl+Q and start → every tab comes back in the window it was moved to, once, and the private ones don't come back.
+
+## L14. Copy, Cut and Paste with other apps
+
+Copy, Cut and Paste use the desktop's clipboard, so they work with the file manager, with other apps and between glasshouse windows. Run on each desktop: the automated run covers X11 only (xclip under Xvfb), so **on Wayland every line is a first check**.
+
+- [ ] **L14.1** **Out:** select two files and a folder (one name with spaces and accents), Ctrl+C, then Ctrl+V in Nautilus (GNOME 43 or later), Dolphin, and one of Thunar, Nemo or Caja → all copied, names intact; the originals stay.
+- [ ] **L14.2** Ctrl+X on a file → its row dims. Ctrl+V in the file manager → the file moves. Back in glasshouse the file is gone from the list; Ctrl+V in another folder says "nothing to paste: 1 item no longer there".
+- [ ] **L14.3** Copy a file in glasshouse and paste into a terminal and a text editor → its path. Into a mail or a chat app (Thunderbird, a browser's upload field with Ctrl+V) → it's attached where the app takes files.
+- [ ] **L14.4** **In:** Ctrl+C on files in the file manager, Ctrl+V in glasshouse → copied. A name that exists → asked whether to replace, keep both or skip. Ctrl+Z undoes the paste.
+- [ ] **L14.5** Ctrl+X in the file manager, Ctrl+V in glasshouse → the files move. Ctrl+V a second time → "nothing to paste: … no longer there".
+- [ ] **L14.6** **Honest cut:** Ctrl+X on a file in glasshouse, then copy some text in another app → the row is no longer dimmed (on Wayland: at the latest when glasshouse has the focus again), and the file is where it was.
+- [ ] **L14.7** **Between windows:** two glasshouse windows. Ctrl+X in one (the row dims in both, when both show the folder), Ctrl+V in the other → the file moves, no row is dimmed, and Ctrl+Z in the window that pasted moves it back. The same with Ctrl+C → a copy.
+- [ ] **L14.8** Cut two files and paste where one of the names exists, then choose Skip → one moves; the skipped one is still dimmed and can be pasted elsewhere.
+- [ ] **L14.9** **Text:** Copy Path (Ctrl+Shift+C), then paste in an editor → the path. The same for the right-click menu's Copy as Command, a checksum from Properties, and the preview pane's copy button.
+- [ ] **L14.10** Copy files in a remote folder of the file manager (`sftp://`, `smb://`) or in its Trash, Ctrl+V in glasshouse → a note that the items aren't on this computer; nothing is pasted.
+- [ ] **L14.11** **After closing:** copy files in glasshouse, close every glasshouse window, then Ctrl+V in the file manager. With a clipboard manager running (GNOME and KDE have one built in; on X11 xfce4-clipman, Klipper, clipit) the files should still paste: note the desktop where they don't.
+- [ ] **L14.12** **Nautilus 42 or earlier** (Ubuntu 22.04): files copied there paste in glasshouse. Files copied in glasshouse don't paste there (a known limit: that Nautilus reads only its own text form); dragging works.
