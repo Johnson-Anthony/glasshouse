@@ -15,6 +15,8 @@ Up to three agents at a time. Tasks that share files run one after the other.
 | 6 | 28 deps-bump, alone | it changes both lockfiles |
 | 7 | release prep: version, CHANGELOG section, a last full check | the tag and the signing secrets wait for the owner's OK |
 
+Follow-ups the agents find go under "Found by tasks" in `survey-3.md`. A bug in something this release ships is fixed before the release (in task 52 or its own task); a new feature or a wider rework is marked "after the release" and waits.
+
 Tasks 16–28 are in `survey-2.md`, the rest in `survey-3.md`. Each backlog's Status table is the record of what's running and merged.
 
 ## Worker rules

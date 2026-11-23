@@ -6,6 +6,8 @@ What changed in each release, for people using glasshouse. Downloads are on the 
 
 ### New
 
+- **Copy, Cut and Paste work with other apps:** files copied or cut in glasshouse paste in Explorer, Nautilus, Dolphin and other file managers, and into mail and chat apps that take files; files copied or cut there paste in glasshouse.
+- **Copy or Cut in one glasshouse window, Paste in another.**
 - **Every window in one app, as in a browser.** File → New Window (Ctrl+N), Open in New Window and starting glasshouse again open a window in the glasshouse that's running, in front, instead of starting a second copy. Folders opened from other apps, and on Linux "Show in folder", do the same.
 - **All your windows come back.** Quit (Ctrl+Q) closes every window, and the next start reopens all of them with their tabs, splits and sizes (and positions on Windows and X11). Closing one window of several forgets it; closing the last one keeps it. Private tabs are never saved.
 - **Split view:** View → Split → Split Side by Side (Ctrl+\\) or Split Top and Bottom shows two panes in one window, each with its own tabs. Ctrl+F6 moves between them, the divider can be dragged (a double-click centers it), and Swap Panes and Close Split are in the same menu. The toolbar, path bar and search follow the pane you're in.
@@ -67,6 +69,9 @@ What changed in each release, for people using glasshouse. Downloads are on the 
 
 ### Changed
 
+- **A cut file stays dimmed only while it can still be pasted:** copying anything else, in any app, ends the cut.
+- Paste says why when there is nothing to paste (no files on the clipboard, files no longer there, or files not on this computer).
+- On Linux, pasting copied files into a terminal or an editor gives their paths.
 - **Settings change in every window at once:** a theme, the zoom or any other setting changed in one window applies in the others, and pins, tags and saved remotes show up in every window.
 - **Quit (Ctrl+Q) quits glasshouse,** every window, not just the one it was chosen in.
 - Started with a folder or file (another app's "Show in folder", `glasshouse PATH`) while glasshouse isn't running, it doesn't open your saved windows; starting glasshouse normally afterwards opens them beside it.
@@ -101,6 +106,7 @@ What changed in each release, for people using glasshouse. Downloads are on the 
 
 ### Fixed
 
+- Copy Path and the other copy commands (Copy as Command, Copy as UNC, checksums, the preview's copy button) no longer fail silently: they use the system clipboard directly and show an error if the copy fails.
 - **Dragging files from one glasshouse window to another moves them**, as a drag inside one window does; they used to be copied. Hold Ctrl as the drag leaves the window to copy instead, and Ctrl+Z in the window you dropped on undoes the move. Files dragged in from other apps are still copied.
 - After dragging files out of a window, the next drag in that window works the first time. It used to do nothing, or never let go of the files, until you clicked.
 - Holding Ctrl as a file drag leaves the window now makes a copy when it's dropped back into glasshouse.

@@ -18,7 +18,7 @@ The scan for the user's own paths and names found none in app code. The gaps are
 | 34 | windows-paths | Rust + a little frontend | M | running (11-23, release push) |
 | 35 | release-identity | Rust + config + CI | M | merged 11-20 (`claude/stoic-hermann-165fd0`; Tauri rejects `_`, so the id is `io.github.johnson-anthony.glasshouse`, with `johnson_anthony` only in D-Bus interface names and paths; `docs/decisions/2026-11-20-release-identity-id-form.md`) |
 | **Wave 7b: works like other file managers** |||||
-| 36 | os-clipboard | both | M–L | running (11-23, release push) |
+| 36 | os-clipboard | both | M–L | merged 11-23 (`claude/os-clipboard`; plan in `docs/plans/completed/os-clipboard.md`) |
 | 37 | linux-launch-env | Rust + CI | M | queued (coordinate with task 30's activation token) |
 | 38 | a11y | frontend | M–L | running (11-23, release push) |
 | 39 | locale-and-names | frontend (+ a little Rust) | S–M | queued |
@@ -26,7 +26,7 @@ The scan for the user's own paths and names found none in app code. The gaps are
 | 47 | themes-and-cosmetics | frontend | L | merged 11-20 (`claude/elegant-euler-fb95a5`; plan in `docs/plans/completed/themes-and-cosmetics.md`) |
 | 48 | updater | both + CI | M | merged 11-20 (`claude/eloquent-chebyshev-4e12bf`; plan in `docs/plans/completed/updater.md`; releases wait for the two signing secrets) |
 | **Wave 7c: devices, transfers, docs** |||||
-| 41 | devices | both | M–L | queued |
+| 41 | devices | both | M–L | running (11-23, release push) |
 | 42 | transfers-and-cloud | both | M | queued (tell task 25 folder-size about the cloud flag) |
 | 43 | docs-and-community | docs + repo files | S–M | merged 11-20 (`claude/elegant-jemison-47aa69`; plan in `docs/plans/completed/docs-and-community.md`) |
 | **Wave 7d: more testing** |||||
@@ -308,3 +308,7 @@ The owner asked for "split view for tabs and also to be able to drag drop tabs i
 - *(from split-and-tear-off phase 3, new task)* A long path makes the page wider than a narrow window, pushing the Inspector, search box and window buttons off screen (there before task 50).
 - *(from cross-window-file-drag)* Not built on Windows: drag_out's Windows end (DoDragDrop returning) and the record's clear there. Hand checks W8.16 (WebView2's Ctrl state at the window edge) and W8.17 (a stuck button after a drag-out on Windows), L9.17–L9.18 on Linux. Wayland not run.
 - *(from cross-window-file-drag, existed before)* Under Xvfb, a window touching the screen's edge never hands a file drag off past that edge; a maximized window's top edge on a real desktop may do the same.
+- *(from os-clipboard)* Not run: anything on Windows (`clipboard/win32.rs` is type-checked only; e2e flow 5's Windows side first runs in CI; hand checks W16), Wayland (L14, every line a first check), a real file manager on the other side (xclip stood in), and `gtk_clipboard_store` with a clipboard manager running (L14.11).
+- *(from os-clipboard, for 45)* A Wayland leg for `pnpm e2e` (headless sway with wl-clipboard as the other app) would cover the clipboard and the drag tasks' "Wayland not run".
+- *(from os-clipboard, for 52)* Copy Path with several files selected copies one path.
+- *(from os-clipboard, after the release)* No menu, palette or context-menu item can be shown disabled today, so Paste stays enabled and says "nothing to paste" on use. Nautilus 3.30–42 (Ubuntu 20.04 and 22.04) can't paste glasshouse's copies, because it reads only its own text form; glasshouse pastes theirs. Explorer pasting glasshouse's cut isn't signalled back (the cut ends at the next Paste or copy); offering the files as an OLE data object would fix that.
