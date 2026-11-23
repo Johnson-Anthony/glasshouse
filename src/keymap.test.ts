@@ -137,6 +137,43 @@ describe("focus and targets", () => {
   });
 });
 
+describe("a focused control", () => {
+  it("keeps Enter and Space: they don't also open or Quick Look the selection", () => {
+    expect(sends("Enter", { selected: 1 })).toBe("Open");
+    expect(sends("Enter", { selected: 1, control: true })).toBeUndefined();
+    expect(sends("Space", { selected: 1, control: true })).toBeUndefined();
+  });
+
+  it("leaves every other key as it was", () => {
+    expect(sends("Delete", { selected: 1, control: true })).toBe("Move to Trash");
+    expect(sends("Ctrl+T", { control: true })).toBe("New Tab");
+    expect(sends("Alt+Enter", { selected: 1, control: true })).toBe("Properties");
+  });
+});
+
+describe("Ctrl+\\ on layouts that type \\ with AltGr", () => {
+  it("splits on Ctrl with the key in the US backslash's place, whatever it types", () => {
+    expect(sends("Ctrl+\\")).toBe("Split Side by Side");
+    // German: that key types #.
+    expect(sends("Ctrl+#", {}, { code: "Backslash" })).toBe("Split Side by Side");
+    // Nordic: '.
+    expect(sends("Ctrl+'", {}, { code: "Backslash" })).toBe("Split Side by Side");
+  });
+
+  it("isn't set off by typing \\ itself: AltGr is Ctrl+Alt to the page", () => {
+    // German AltGr+ß, as Windows reports it.
+    expect(sends("Ctrl+Alt+\\", { inText: true }, { code: "Minus" })).toBeUndefined();
+    expect(sends("Ctrl+Alt+#", {}, { code: "Backslash" })).toBeUndefined();
+  });
+
+  it("leaves that key alone without Ctrl, and other bindings on their keys", () => {
+    expect(sends("#", {}, { code: "Backslash" })).toBeUndefined();
+    // AZERTY's * is on that key: still Select by Pattern.
+    expect(sends("*", {}, { code: "Backslash" })).toBe("Select by Pattern…");
+    expect(sends("Ctrl+]", {}, { code: "BracketRight" })).toBe("Next Location");
+  });
+});
+
 describe("menu shortcut hints", () => {
   // The command a `run` action stands for, when a menu item advertises its key.
   const RUN_FOR: Record<string, KeyAction> = {

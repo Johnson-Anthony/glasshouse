@@ -7,7 +7,8 @@
 //
 // Matching: modifiers named in `combo` must be down, the others must be up
 // unless listed in `any`. "Ctrl" means Ctrl or ⌘. Keys compare
-// case-insensitively; `alsoKeys` are other e.key values for the same binding.
+// case-insensitively; `alsoKeys` are other e.key values for the same binding,
+// and `code` is a physical key that fires it whatever the layout types there.
 // Order matters: the first match wins. Nothing matches while a modal dialog
 // is open: the dialog owns the keyboard.
 
@@ -20,6 +21,9 @@ type Mod = "Ctrl" | "Shift" | "Alt";
 export interface KeyBinding {
   combo: string;
   alsoKeys?: string[];
+  /** Also this physical key (KeyboardEvent.code), for a character some
+   *  layouts only type with AltGr, which is Ctrl+Alt to the page. */
+  code?: string;
   /** Modifiers whose state doesn't matter. */
   any?: Mod[];
   /** Also fires while a text field has focus. */
@@ -71,7 +75,10 @@ export const KEYMAP: KeyBinding[] = [
   { combo: "Ctrl+6", inText: true, send: "Tree Flat" },
   { combo: "Ctrl+7", inText: true, send: "Miller Columns (ranger)" },
   // Split view: VS Code's Split Editor key, and Windows apps' "next pane".
-  { combo: "Ctrl+\\", inText: true, send: "Split Side by Side" },
+  // German, Nordic and other layouts type \ with AltGr, so Ctrl+\ can't be
+  // pressed there: Ctrl with the key in the US backslash's place (# or ')
+  // splits too.
+  { combo: "Ctrl+\\", code: "Backslash", inText: true, send: "Split Side by Side" },
   { combo: "Ctrl+F6", any: ["Shift"], inText: true, send: "Focus Other Pane" },
   { combo: "/", any: ["Shift"], run: "focusSearch", cheat: { label: "Focus search", group: "Navigate" } },
 
@@ -186,7 +193,7 @@ export function parseCombo(combo: string): ParsedCombo {
   };
 }
 
-export type KeyEventLike = Pick<KeyboardEvent, "key" | "ctrlKey" | "metaKey" | "shiftKey" | "altKey" | "defaultPrevented">;
+export type KeyEventLike = Pick<KeyboardEvent, "key" | "ctrlKey" | "metaKey" | "shiftKey" | "altKey" | "defaultPrevented"> & { code?: string };
 
 const PARSED = new Map<KeyBinding, ParsedCombo>();
 const parsed = (b: KeyBinding): ParsedCombo => {
@@ -198,7 +205,7 @@ const parsed = (b: KeyBinding): ParsedCombo => {
 export function matches(b: KeyBinding, e: KeyEventLike): boolean {
   const p = parsed(b);
   const key = e.key.toLowerCase();
-  if (key !== p.key && !b.alsoKeys?.some(k => k.toLowerCase() === key)) return false;
+  if (key !== p.key && !b.alsoKeys?.some(k => k.toLowerCase() === key) && !(b.code && e.code === b.code)) return false;
   const any = new Set(b.any ?? []);
   const ok = (mod: Mod, want: boolean, down: boolean) => any.has(mod) || want === down;
   return ok("Ctrl", p.ctrl, e.ctrlKey || e.metaKey) && ok("Shift", p.shift, e.shiftKey) && ok("Alt", p.alt, e.altKey);
@@ -215,7 +222,14 @@ export interface KeyState {
   sidebar?: boolean;
   /** The page has a text selection. */
   textSelected?: boolean;
+  /** The focus is on a button, link, tab or column header: Enter and Space
+   *  work that control, and nothing else. */
+  control?: boolean;
 }
+
+/** What `KeyState.control` is for an event's target. */
+export const CONTROL_SELECTOR =
+  'button, a[href], select, summary, [role="button"], [role="link"], [role="tab"], [role="columnheader"], [role="switch"], [role="checkbox"], [role="radio"]';
 
 /** The binding `e` triggers, if any. */
 export function findBinding(e: KeyEventLike, state: KeyState): KeyBinding | undefined {
@@ -223,7 +237,7 @@ export function findBinding(e: KeyEventLike, state: KeyState): KeyBinding | unde
   for (const b of KEYMAP) {
     if (state.inText && !b.inText) continue;
     if (!matches(b, e)) continue;
-    if (b.unlessHandled && e.defaultPrevented) continue;
+    if (b.unlessHandled && (e.defaultPrevented || state.control)) continue;
     if (b.pane && state.sidebar) continue;
     if (b.unlessText && state.textSelected) continue;
     if (b.when === "selection" && state.selected < 1) continue;

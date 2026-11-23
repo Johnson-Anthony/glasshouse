@@ -3,6 +3,7 @@ import type { SavedRemote } from "../Sidebar";
 import { dialogs } from "./DialogHost";
 import { useEscapeClose } from "./useEscapeClose";
 import { useModal } from "./modal";
+import { useDialogPanel } from "./dialogPanel";
 
 // ============= ManageRemotesDialog =============
 export interface ManageRemotesDialogProps {
@@ -19,6 +20,7 @@ export function ManageRemotesDialog({ remotes, onClose, onRemove, onEdit, onAdd 
 
   useEscapeClose(onClose);
   useModal();
+  const dlg = useDialogPanel("Manage remotes");
 
   const beginEdit = (i: number) => {
     const r = remotes[i];
@@ -67,7 +69,7 @@ export function ManageRemotesDialog({ remotes, onClose, onRemove, onEdit, onAdd 
       position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)",
       zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center",
     }}>
-      <div onClick={(e) => e.stopPropagation()} style={{
+      <div {...dlg} onClick={(e) => e.stopPropagation()} style={{
         width: "68ch", maxWidth: "95vw", maxHeight: "80vh",
         background: "var(--bg-1, #1a1b26)", border: "1px solid var(--fg-3)",
         borderRadius: 4, display: "flex", flexDirection: "column",

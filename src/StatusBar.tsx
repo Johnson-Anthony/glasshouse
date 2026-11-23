@@ -149,7 +149,7 @@ export function StatusBar({ items, selectedCount, totalCount, folderSize, select
       case "net":
         return <div className="sb-seg"><span className="lbl">net</span><span className="val" style={numStyle(13)}>{net ? `↓${formatBytesRate(net.down_bps)} ↑${formatBytesRate(net.up_bps)}` : "—"}</span></div>;
       case "term":
-        return <div className="sb-seg" style={{ cursor: "pointer" }} onClick={onToggleTerm}><span className="val" style={{ color: "var(--accent)" }}>⌨ term</span></div>;
+        return <button type="button" className="sb-seg plain-btn" aria-label="Terminal" onClick={onToggleTerm}><span className="val" style={{ color: "var(--accent)" }}>⌨ term</span></button>;
       case "uptime":
         return <div className="sb-seg"><span className="lbl">up</span><span className="val" style={numStyle(8)}>{sys ? formatUptime(sys.uptime_s) : "—"}</span></div>;
       case "clock": {

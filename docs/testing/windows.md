@@ -191,3 +191,28 @@ Copy, Cut and Paste use the Windows clipboard, so they work with Explorer, with 
 - [ ] **W16.10** A file with a long path (over 260 characters), one with accents and one on a network share (`\\server\share`) → each copies out to Explorer and back in.
 - [ ] **W16.11** With a clipboard manager open (Win+V history on) → copies and cuts work as above, and nothing is pasted twice.
 - [ ] **W16.12** Copy files in glasshouse, close every glasshouse window, then Ctrl+V in Explorer → the files are still pasted.
+
+## W17. Screen readers (NVDA and Narrator) and keyboard only
+
+Run it once with NVDA (current release) and once with Narrator (Ctrl+Win+Enter); note which, its version and WebView2's (Settings → Apps → "Microsoft Edge WebView2 Runtime"). CI checks the accessibility tree Chromium builds for these pages (`pnpm site:capture a11y`), and WebView2 is Chromium, but no automated check runs a screen reader. NVDA should be in focus mode in the file list (it switches by itself; NVDA+Space toggles). Use a folder of a few thousand files for W17.3.
+
+- [ ] **W17.1** Start glasshouse with the screen reader running → it says the window, then the file list ("Files in <folder>", a grid or table) and the first row. No click is needed first.
+- [ ] **W17.2** ↓ and ↑ in the file list → each row is read: its kind for a folder, name, size and date, and "selected". Shift+↓ → the added row is read as selected. Ctrl+A → no long silence or freeze in a folder of a few thousand files.
+- [ ] **W17.3** A folder of a few thousand files: End, Home, Page Down → the row landed on is read each time, with its place ("row 3,000 of 3,001" or the like), not a wrong row or nothing.
+- [ ] **W17.4** Enter on a folder → "<folder>: N items" is said, then rows read as before. Backspace or Alt+↑ → the parent is said the same way.
+- [ ] **W17.5** Home, then ↑ → the focus goes to a column header, read with its sort ("name, sorted ascending"). ← and → read the other headers. Enter → "sorted by …, descending" and the header's sort changes. ↓ → back in the rows.
+- [ ] **W17.6** Ctrl+3 (Icons), Ctrl+4 (Tiles), Ctrl+5 (Grid) → the list is read as a list of items; each item's name, ", folder" for a folder, and "selected". Ctrl+1 goes back.
+- [ ] **W17.7** Ctrl+T twice, then Ctrl+Tab → the tab shown is said. Ctrl+\\ (split) → the focus is still in a file list, named "…, pane 1" or "pane 2"; Ctrl+F6 moves to the other and says its name.
+- [ ] **W17.8** F2 → "rename" dialog, its question and the field are read; typing works; Esc closes it and the focus is back on the same row. An empty name and Enter → the error is read at once.
+- [ ] **W17.9** Shift+Delete → the question is read without moving ("Permanently delete 1 item?"), the focus is on a button, Tab stays inside the dialog (it never reaches the file list behind), Esc cancels.
+- [ ] **W17.10** Ctrl+P → "Command palette", an edit field; ↓ reads each command with its shortcut; typing filters and the number of results is said; Esc gives the focus back to the file list.
+- [ ] **W17.11** Ctrl+, → "preferences" dialog. Tab reaches the filter, the categories and the settings; a category reads as current; a filter with no match says "No settings match …". Help → About and Help → Keybindings Cheatsheet read as dialogs with names.
+- [ ] **W17.12** Copy a file (Ctrl+C, Ctrl+V in another folder), then delete it → each toast (what was copied, what went to the trash) is read once, without the focus moving.
+- [ ] **W17.13** With the screen reader's own navigation (NVDA's browse mode, Narrator's scan mode): the tab bar reads as tabs with "Close tab <name>" buttons and a "New tab" button; the window buttons read "Minimize", "Maximize" or "Restore", "Close"; the toolbar's buttons and the breadcrumb ("Folder path") have names in words; no control is read as a lone symbol. Note any that is.
+- [ ] **W17.14** The same way, in the Inspector (View → Inspector, a file selected): "edit permissions" is a button; after it, each permission is a checkbox that Space toggles; "apply" and "cancel" are buttons.
+- [ ] **W17.15** Keyboard only, no screen reader: after any dialog, the palette, a menu (Alt, Esc) or a split, ↓ moves in the file list at once. Note any step after which the arrow keys do nothing until a click.
+- [ ] **W17.16** Known gaps, to note but not report: Tab moves between the sidebar, the file lists and the terminal, so the toolbar, the Inspector and the status bar are reached with the screen reader's own navigation, not Tab; the sidebar's rows have no tree roles yet; Miller Columns' side columns and the terminal's text aren't read.
+- [ ] **W17.17** A German or Nordic keyboard layout (Settings → Time & language): Ctrl+# (German: the key left of Enter) or Ctrl+' (Nordic) → the view splits, as Ctrl+\\ does on a US layout. Ctrl+AltGr+ß may or may not; the menu item always does.
+- [ ] **W17.18** Settings → Accessibility → Contrast themes → pick one (Windows High Contrast) → the app takes the system's colors; the focused row, the selected rows, the focused tab and its close button, and a focused column header are each clearly marked, and no text disappears.
+- [ ] **W17.19** Settings → Accessibility → Visual effects → Animation effects off, with Preferences → effects → motion on "system" → menus and dialogs appear at once.
+- [ ] **W17.20** Maximize the window, then read the window buttons → the middle one says "Restore"; restore it → "Maximize".

@@ -571,9 +571,9 @@ export function Menubar({ onOpenPalette, onCommand, onPayload, toggles }: Menuba
           </div>
         ))}
         <div className="menubar-right">
-          <span onClick={onOpenPalette} style={{cursor:"pointer"}}>
+          <button type="button" className="plain-btn" onClick={onOpenPalette} aria-label="Command palette (Ctrl+P)">
             <span className="kbd">Ctrl</span>&nbsp;<span className="kbd">P</span>&nbsp;palette
-          </span>
+          </button>
           {version && <span>· glasshouse v{version}</span>}
         </div>
       </div>

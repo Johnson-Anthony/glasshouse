@@ -1,5 +1,5 @@
 // glasshouse file manager — components
-import React, { useState, useEffect, useLayoutEffect, useRef, useMemo } from "react";
+import React, { useState, useEffect, useId, useLayoutEffect, useRef, useMemo } from "react";
 import { createPortal } from "react-dom";
 import type { FileRow, FileKind } from "./data";
 import { winClose, winMinimize, winToggleMaximize, type GitInfo } from "./api";
@@ -18,6 +18,8 @@ import { BOUND_CHARS, chordPending } from "./keymap";
 import { isContextMenuKey, TypeAhead, typeAheadMatch, type MenuAnchor } from "./menuNav";
 import { LOOK_APPLIED, type Density, type LookState } from "./look";
 import type { StatusItem } from "./statusItems";
+import { announce } from "./announce";
+import { useDialogPanel } from "./dialogs/dialogPanel";
 
 // ============= Titlebar =============
 export interface TabDef {
@@ -58,17 +60,41 @@ export interface TabStripProps {
 }
 
 /** A row of tabs: the title bar's, or a split pane's. `data-tab-bar` and
- *  `data-tab-index` are where a dragged tab can go (tabDrag.ts). */
+ *  `data-tab-index` are where a dragged tab can go (tabDrag.ts).
+ *
+ *  To a screen reader it's a tablist. The tab is the label, and the close
+ *  button sits beside it, not inside: a tab's contents aren't exposed
+ *  (WebKit drops them). The shown tab is the one in the Tab order; Left,
+ *  Right, Home and End move along the tabs and show the one reached. A
+ *  mouse press leaves the focus where it was, usually on the file list. */
 export function TabStrip({ tabs, activeTab, onSelectTab, onCloseTab, onNewTab, onTabContext, tabPaths, pane = 0, onTabPointerDown, dragRegion }: TabStripProps) {
+  const onTabKey = (e: React.KeyboardEvent<HTMLElement>, i: number) => {
+    if (e.ctrlKey || e.altKey || e.metaKey || e.shiftKey || tabs.length === 0) return;
+    const n = tabs.length;
+    const to = e.key === "ArrowRight" ? (i + 1) % n
+      : e.key === "ArrowLeft" ? (i - 1 + n) % n
+      : e.key === "Home" ? 0
+      : e.key === "End" ? n - 1
+      // Prevented, so the keymap's Open and Quick Look leave them alone.
+      : e.key === "Enter" || e.key === " " ? i
+      : -1;
+    if (to < 0) return;
+    e.preventDefault();
+    if (to !== activeTab) onSelectTab(to);
+    e.currentTarget.closest("[role=tablist]")?.querySelectorAll<HTMLElement>("[role=tab]")[to]?.focus();
+  };
   return (
     <div className="tabs" data-tauri-drag-region={dragRegion || undefined} data-tab-bar={pane}>
+      <div className="tab-list" role="tablist" aria-label={dragRegion ? "Tabs" : `Tabs, pane ${pane + 1}`}>
       {tabs.map((t, i) => (
         <div
           key={i}
+          role="presentation"
           className={"tab" + (i === activeTab ? " active" : "")}
           data-drop-path={tabPaths?.[i]}
           data-tab-index={i}
           onPointerDown={onTabPointerDown && (e => onTabPointerDown(e, i))}
+          onMouseDown={(e) => { if (e.button === 0) e.preventDefault(); }}
           onClick={() => onSelectTab(i)}
           onContextMenu={(e) => {
             if (!onTabContext) return;
@@ -77,13 +103,14 @@ export function TabStrip({ tabs, activeTab, onSelectTab, onCloseTab, onNewTab, o
             onTabContext(e, i);
           }}
         >
-          <span className="ico" style={{color: t.color}}>{t.ic}</span>
-          <span className="label">{t.label}</span>
-          <span className="close" onClick={(e) => { e.stopPropagation(); onCloseTab(i); }}></span>
+          <span className="ico" aria-hidden="true" style={{color: t.color}}>{t.ic}</span>
+          <span className="label" role="tab" aria-selected={i === activeTab} tabIndex={i === activeTab ? 0 : -1} onKeyDown={(e) => onTabKey(e, i)}>{t.label}</span>
+          <button type="button" className="close" tabIndex={-1} title="Close tab" aria-label={`Close tab ${t.label}`} onClick={(e) => { e.stopPropagation(); onCloseTab(i); }}></button>
         </div>
       ))}
+      </div>
       <div className="tab-actions">
-        <button className="tab-btn" title="New tab" onClick={onNewTab}>+</button>
+        <button type="button" className="tab-btn" title="New tab" aria-label="New tab" onClick={onNewTab}>+</button>
       </div>
     </div>
   );
@@ -94,12 +121,25 @@ export function TabStrip({ tabs, activeTab, onSelectTab, onCloseTab, onNewTab, o
  *  dots, or hidden) and on its side; out of the Tab order, like a native
  *  title bar's. */
 function WindowControls() {
+  // useLook keeps html[data-maximized] in step with the window; the middle
+  // button says what it will do.
+  const [maximized, setMaximized] = useState(false);
+  useEffect(() => {
+    const root = document.documentElement;
+    const read = () => setMaximized(root.getAttribute("data-maximized") === "on");
+    read();
+    if (typeof MutationObserver === "undefined") return;
+    const mo = new MutationObserver(read);
+    mo.observe(root, { attributes: true, attributeFilter: ["data-maximized"] });
+    return () => mo.disconnect();
+  }, []);
+  const maxLabel = maximized ? "Restore" : "Maximize";
   return (
     <div className="winctl">
       <button type="button" tabIndex={-1} className="wc min" title="Minimize" aria-label="Minimize" onClick={() => { void winMinimize(); }}>
         <svg viewBox="0 0 10 10" aria-hidden="true"><path d="M0 5.5h10" /></svg>
       </button>
-      <button type="button" tabIndex={-1} className="wc max" title="Maximize" aria-label="Maximize" onClick={() => { void winToggleMaximize(); }}>
+      <button type="button" tabIndex={-1} className="wc max" title={maxLabel} aria-label={maxLabel} onClick={() => { void winToggleMaximize(); }}>
         <svg viewBox="0 0 10 10" aria-hidden="true">
           <rect className="i-max" x="0.5" y="0.5" width="9" height="9" />
           <path className="i-restore" d="M2.5 2.5V0.5h7v7h-2M0.5 2.5h7v7h-7z" />
@@ -136,21 +176,38 @@ export interface ToolbarProps {
   onClearTagFilter?: () => void;
 }
 
+/** The toolbar's git line in words: its arrows and dot are glyphs. */
+function gitWords(g: GitInfo): string {
+  return [
+    `git branch ${g.branch}`,
+    g.ahead > 0 ? `${g.ahead} ahead` : "",
+    g.behind > 0 ? `${g.behind} behind` : "",
+    g.dirty > 0 ? `${g.dirty} changed` : "",
+  ].filter(Boolean).join(", ");
+}
+
 export function Toolbar({ path, gitInfo, canBack, canForward, onBack, onForward, onUp, onRefresh, onGoTo, searchQuery, onSearchChange, searchInputRef, showHidden, onToggleHidden, showInspector, onToggleInspector, onCrumbContext, tagFilter, onClearTagFilter }: ToolbarProps) {
   const parts = splitBreadcrumb(path);
+  // A mouse press on a toolbar button leaves the focus where it was, usually
+  // on the file list, so the arrow keys still move there after a click.
+  const keepFocus = (e: React.MouseEvent) => {
+    if (e.button === 0 && (e.target as HTMLElement).closest("button")) e.preventDefault();
+  };
   return (
-    <div className="toolbar">
+    <div className="toolbar" onMouseDown={keepFocus}>
       <div className="nav-btns">
-        <button className="nav-btn" title="Back (Alt+←)" onClick={onBack} disabled={!canBack}>←</button>
-        <button className="nav-btn" title="Forward (Alt+→)" onClick={onForward} disabled={!canForward}>→</button>
-        <button className="nav-btn" title="Up (Alt+↑)" onClick={onUp}>↑</button>
-        <button className="nav-btn" title="Refresh (F5)" onClick={onRefresh}>↻</button>
+        <button type="button" className="nav-btn" title="Back (Alt+←)" aria-label="Back" onClick={onBack} disabled={!canBack}>←</button>
+        <button type="button" className="nav-btn" title="Forward (Alt+→)" aria-label="Forward" onClick={onForward} disabled={!canForward}>→</button>
+        <button type="button" className="nav-btn" title="Up (Alt+↑)" aria-label="Up to the parent folder" onClick={onUp}>↑</button>
+        <button type="button" className="nav-btn" title="Refresh (F5)" aria-label="Refresh" onClick={onRefresh}>↻</button>
       </div>
-      <div className="breadcrumb">
+      <nav className="breadcrumb" aria-label="Folder path">
         {parts.map((p, i) => (
           <React.Fragment key={i}>
-            <span
+            <button
+              type="button"
               className={"crumb" + (i === parts.length - 1 ? " last" : "")}
+              aria-current={i === parts.length - 1 ? "location" : undefined}
               data-drop-path={p.path}
               onClick={() => onGoTo(p.path)}
               onContextMenu={(e) => {
@@ -160,12 +217,12 @@ export function Toolbar({ path, gitInfo, canBack, canForward, onBack, onForward,
                 onCrumbContext(e, p.path);
               }}
               style={{cursor:"pointer"}}
-            >{p.label}</span>
-            {i < parts.length - 1 && <span className="sep">/</span>}
+            >{p.label}</button>
+            {i < parts.length - 1 && <span className="sep" aria-hidden="true">/</span>}
           </React.Fragment>
         ))}
         {gitInfo && (
-          <span className="git-branch">
+          <span className="git-branch" role="img" aria-label={gitWords(gitInfo)}>
             ⎇ {gitInfo.branch}
             {gitInfo.ahead > 0 && <> ↑{gitInfo.ahead}</>}
             {gitInfo.behind > 0 && <> ↓{gitInfo.behind}</>}
@@ -173,11 +230,14 @@ export function Toolbar({ path, gitInfo, canBack, canForward, onBack, onForward,
           </span>
         )}
         {tagFilter && (
-          <span
+          <button
+            type="button"
             className="tag-chip"
             onClick={onClearTagFilter}
             title="clear tag filter"
+            aria-label={`Showing tag ${tagFilter}; clear the tag filter`}
             style={{
+              font: "inherit",
               marginLeft: 8,
               padding: "2px 8px",
               borderRadius: 10,
@@ -188,13 +248,14 @@ export function Toolbar({ path, gitInfo, canBack, canForward, onBack, onForward,
               fontSize: 11,
               whiteSpace: "nowrap",
             }}
-          >Tag: {tagFilter} <span style={{color:"var(--fg-3)", marginLeft:4}}>✕</span></span>
+          >Tag: {tagFilter} <span style={{color:"var(--fg-3)", marginLeft:4}}>✕</span></button>
         )}
-      </div>
+      </nav>
       <div className="search">
-        <span style={{color: "var(--fg-3)"}}>⌕</span>
+        <span aria-hidden="true" style={{color: "var(--fg-3)"}}>⌕</span>
         <input
           ref={searchInputRef}
+          aria-label="Find in this folder"
           placeholder="find in current dir…  (fuzzy)"
           value={searchQuery}
           onChange={(e) => onSearchChange(e.target.value)}
@@ -206,18 +267,22 @@ export function Toolbar({ path, gitInfo, canBack, canForward, onBack, onForward,
             }
           }}
         />
-        <span className="kb">/</span>
+        <span className="kb" aria-hidden="true">/</span>
       </div>
       <div className="tool-group">
         <button
+          type="button"
           className={"nav-btn" + (showHidden ? " active" : "")}
           title="Toggle hidden (Ctrl+H)"
+          aria-label="Show hidden files"
           onClick={onToggleHidden}
           aria-pressed={showHidden}
         >·h</button>
         {onToggleInspector && <button
+          type="button"
           className={"nav-btn" + (showInspector ? " active" : "")}
           title="Toggle inspector"
+          aria-label="Inspector"
           onClick={onToggleInspector}
           aria-pressed={showInspector}
         >◨</button>}
@@ -301,6 +366,8 @@ export interface FilePaneProps {
    *  dropping into another app. `copy`: Ctrl was held as it left. */
   onDragOut?: (sourceOrigIndices: number[], copy: boolean) => void;
   paneRootRef?: React.Ref<HTMLElement>;
+  /** In split view, which pane this is ("pane 2"): the end of the list's name. */
+  paneName?: string;
   /** The pane's folder: a drop on the pane outside a folder row goes here. */
   dropPath?: string;
   onActivate?: () => void;
@@ -356,17 +423,31 @@ export function paneContextKind(target: Pick<Element, "closest"> | null): "file"
 
 /** Marks a symlink row; its kind, size and date describe the target. */
 export function LinkMark() {
-  return <span className="link" title="symbolic link" aria-label="symbolic link">↪</span>;
+  return <span className="link" role="img" title="symbolic link" aria-label="symbolic link">↪</span>;
 }
+
+/** What a git status letter means, for a screen reader. */
+const GIT_WORDS: Record<string, string> = { M: "modified", A: "added", D: "deleted", U: "conflicted", "?": "untracked" };
 
 /** One file row. Memoized: with thousands of entries, re-rendering every row
  *  on each selection/focus change is what made large directories crawl —
- *  only rows whose flags flip re-render now. */
+ *  only rows whose flags flip re-render now.
+ *
+ *  To a screen reader it's a grid row of cells in the list modes, and one
+ *  option of a listbox in the card modes (`card`), where the rows wrap into
+ *  columns. Its id is what the pane's aria-activedescendant names. */
 const PaneRow = React.memo(function PaneRow({
-  f, i, isSel, isFocus, isDragOver, isCut, showGitGutters, showExtensions, h,
+  f, i, idp, rowIndex, card, isSel, isFocus, isDragOver, isCut, showGitGutters, showExtensions, h,
 }: {
   f: FileRow;
   i: number;
+  /** The pane's prefix for row ids. */
+  idp: string;
+  /** The row's aria-rowindex in the windowed list; unset where every row
+   *  is rendered and the browser can count. */
+  rowIndex?: number;
+  /** A card mode: the row is a listbox option, not a grid row. */
+  card: boolean;
   isSel: boolean;
   isFocus: boolean;
   isDragOver: boolean;
@@ -376,8 +457,13 @@ const PaneRow = React.memo(function PaneRow({
   h: RowHandlers;
 }) {
   const ki = kindIcon(f.kind);
+  const cell = card ? undefined : "gridcell";
   return (
     <div data-orig={i}
+         id={idp + i}
+         role={card ? "option" : "row"}
+         aria-selected={isSel}
+         aria-rowindex={rowIndex}
          data-ft={fileType(f.kind, f.ext, rowName(f))}
          data-drop-path={f.kind === "folder" ? rowPath(f) : undefined}
          data-git={showGitGutters && f.git ? f.git : undefined}
@@ -387,26 +473,28 @@ const PaneRow = React.memo(function PaneRow({
          onClick={(e) => h.click(i, e)}
          onDoubleClick={() => h.dblClick(i)}
          onContextMenu={(e) => h.ctxMenu(i, isSel, e)}>
-      <span className={"ic " + ki.cls}><i>{ki.ic}</i></span>
-      <span className="name">
+      {/* The icon is a picture of the kind; only "folder" is said. */}
+      <span className={"ic " + ki.cls} role={cell} aria-label={!card && f.kind === "folder" ? "folder" : undefined} aria-hidden={card || undefined}><i aria-hidden="true">{ki.ic}</i></span>
+      <span className="name" role={cell}>
         {showGitGutters && f.git && <span className={"git-dot " + gitDotClass(f.git)}></span>}
-        <span style={{color: f.hidden ? "var(--fg-3)" : "inherit"}}>{f.name}</span>
+        <span className={f.hidden ? "hid" : undefined}>{f.name}</span>
         {showExtensions && f.ext && !f.hidden && f.kind !== "folder" && <span className="ext">.{f.ext}</span>}
         {f.link && <LinkMark />}
+        {card && f.kind === "folder" && <span className="sr-only">, folder</span>}
       </span>
-      <span className="tag c-tag">
-        {f.tag ? <><span className="dot" style={{background: tagColor(f.tag)}}></span>{f.tag}</> : <span style={{color:"var(--fg-3)"}}>—</span>}
+      <span className="tag c-tag" role={cell}>
+        {f.tag ? <><span className="dot" style={{background: tagColor(f.tag)}}></span>{f.tag}</> : <span aria-hidden="true" style={{color:"var(--fg-4)"}}>—</span>}
       </span>
-      <span className="size c-size">{f.size}</span>
-      <span className="date c-date">{f.date}</span>
-      <span className="tag c-git" style={{textAlign:"right"}}>
-        {!showGitGutters ? <span style={{color:"var(--fg-3)"}}>—</span>
+      <span className="size c-size" role={cell}>{f.size === "—" ? <span aria-hidden="true">—</span> : f.size}</span>
+      <span className="date c-date" role={cell}>{f.date}</span>
+      <span className="tag c-git" role={cell} aria-label={showGitGutters && f.git ? GIT_WORDS[f.git] : undefined} style={{textAlign:"right"}}>
+        {!showGitGutters ? <span aria-hidden="true" style={{color:"var(--fg-4)"}}>—</span>
          : f.git === "M" ? <span style={{color:"var(--yellow)"}}>M</span>
          : f.git === "A" ? <span style={{color:"var(--green)"}}>A</span>
          : f.git === "D" ? <span style={{color:"var(--red)"}}>D</span>
          : f.git === "U" ? <span style={{color:"var(--red)"}}>U</span>
          : f.git === "?" ? <span style={{color:"var(--fg-2)"}}>?</span>
-         : <span style={{color:"var(--fg-3)"}}>—</span>}
+         : <span aria-hidden="true" style={{color:"var(--fg-4)"}}>—</span>}
       </span>
     </div>
   );
@@ -441,6 +529,7 @@ export function FilePane({
   onExternalDrag,
   onDragOut,
   paneRootRef,
+  paneName,
   dropPath,
   onActivate,
   cutPaths,
@@ -455,6 +544,37 @@ export function FilePane({
     if (typeof paneRootRef === "function") paneRootRef(paneRef.current);
     else (paneRootRef as React.MutableRefObject<HTMLElement | null>).current = paneRef.current;
   });
+  // Row ids, for aria-activedescendant: this pane's own, and new ones when
+  // another folder's listing arrives, so a screen reader says the focused
+  // row again though its index is the same. The path changes before the
+  // rows do; a re-list of the same folder keeps the ids.
+  const uid = useId();
+  const listed = useRef({ files, path: dropPath, gen: 0, said: 0 });
+  if (listed.current.files !== files) {
+    const moved = listed.current.path !== dropPath;
+    listed.current = { ...listed.current, files, path: dropPath, gen: listed.current.gen + (moved ? 1 : 0) };
+  }
+  const gen = listed.current.gen;
+  const idp = `fp${uid.replace(/:/g, "")}g${gen}-`;
+  const folder = useMemo(() => (dropPath ? splitBreadcrumb(dropPath).pop()?.label : undefined), [dropPath]);
+  // Said once per folder, when its rows are in: the focus doesn't move on a
+  // navigation, so nothing else would tell a screen reader. A folder that
+  // can't be read says so itself (the notice is an alert).
+  useEffect(() => {
+    const l = listed.current;
+    if (l.said === gen || loading || error) return;
+    l.said = gen;
+    announce(`${folder ?? "folder"}: ${files.length === 0 ? "empty" : files.length === 1 ? "1 item" : `${files.length} items`}`);
+  }, [gen, loading, error, folder, files]);
+  const sorted = useRef({ gen, sortKey, sortDir });
+  useEffect(() => {
+    const was = sorted.current;
+    sorted.current = { gen, sortKey, sortDir };
+    // Another folder (or tab) brings its own order; that isn't a re-sort.
+    if (was.gen !== gen || (was.sortKey === sortKey && was.sortDir === sortDir)) return;
+    announce(`sorted by ${sortKey}, ${sortDir === "asc" ? "ascending" : "descending"}`);
+  }, [gen, sortKey, sortDir]);
+
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
   // Marquee (box-select) state. Rectangle is in pane-relative coords.
   const [marquee, setMarquee] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
@@ -484,17 +604,20 @@ export function FilePane({
   // honest; see paneWindow.ts. The card modes (Grid, Icons, Tiles) lay rows
   // out in wrapping columns and render every row, as before. Which kind of
   // layout `.rows` has, the row height (it follows density and display
-  // mode) and the viewport height are read from the DOM.
+  // mode) and the viewport height are read from the DOM. So is whether the
+  // column header shows (not in Miller's column), which is a row of the
+  // grid a screen reader counts.
   const rowsRef = useRef<HTMLDivElement>(null);
-  const [view, setView] = useState({ windowed: true, rowH: 26, viewH: 0, top: 0 });
+  const [view, setView] = useState({ windowed: true, rowH: 26, viewH: 0, top: 0, head: true });
   useLayoutEffect(() => {
     const el = rowsRef.current;
     if (!el) return;
     const windowed = getComputedStyle(el).display === "block";
     const rowH = el.querySelector<HTMLElement>(".row")?.offsetHeight || view.rowH;
     const viewH = el.clientHeight;
-    if (windowed !== view.windowed || rowH !== view.rowH || viewH !== view.viewH) {
-      setView(v => ({ ...v, windowed, rowH, viewH, top: el.scrollTop }));
+    const head = !!el.previousElementSibling && getComputedStyle(el.previousElementSibling).display !== "none";
+    if (windowed !== view.windowed || rowH !== view.rowH || viewH !== view.viewH || head !== view.head) {
+      setView(v => ({ ...v, windowed, rowH, viewH, head, top: el.scrollTop }));
     }
   });
   useEffect(() => {
@@ -517,6 +640,14 @@ export function FilePane({
   const win = view.windowed
     ? rowWindow(displayFiles.length, view.rowH, view.top, view.viewH)
     : { start: 0, end: displayFiles.length };
+  // To a screen reader the list modes are a grid (a header row, then a row
+  // of cells per file) and the card modes, whose rows wrap into columns, a
+  // listbox. The windowed grid says how many rows it has and which each one
+  // is; the pane names its focused row only while that row is rendered.
+  const card = !view.windowed;
+  const headRows = view.head ? 1 : 0;
+  const focusPos = visiblePos.get(focusIndex);
+  const activeId = focusPos !== undefined && focusPos >= win.start && focusPos < win.end ? idp + focusIndex : undefined;
   // A scroll only re-renders when it moves the window.
   const onRowsScroll = (e: React.UIEvent<HTMLDivElement>) => {
     const top = e.currentTarget.scrollTop;
@@ -588,6 +719,43 @@ export function FilePane({
     onContext(at, selected.length > 0 ? "file" : "empty");
   };
 
+  // The column headers take the focus from the keys: Up from the first row
+  // reaches them, Left and Right move along them, Enter or Space sorts, and
+  // Down or Escape goes back to the rows.
+  const headCols = () =>
+    [...(paneRef.current?.querySelectorAll<HTMLElement>(".pane-head [data-sort]") ?? [])]
+      .filter(c => getComputedStyle(c).display !== "none");
+  /** False when no header shows (the card modes, Miller's column). */
+  const focusHead = (): boolean => {
+    const head = paneRef.current?.querySelector<HTMLElement>(".pane-head");
+    if (!head || getComputedStyle(head).display === "none") return false;
+    const cols = headCols();
+    const to = cols.find(c => c.dataset.sort === sortKey) ?? cols[0];
+    to?.focus();
+    return !!to;
+  };
+  const onHeadKey = (e: React.KeyboardEvent, at: HTMLElement) => {
+    if (e.ctrlKey || e.altKey || e.metaKey) return;
+    const cols = headCols();
+    const i = cols.indexOf(at);
+    const go = (to: HTMLElement | null | undefined) => { e.preventDefault(); to?.focus(); };
+    switch (e.key) {
+      case "ArrowLeft": go(cols[Math.max(0, i - 1)]); return;
+      case "ArrowRight": go(cols[Math.min(cols.length - 1, i + 1)]); return;
+      case "Home": go(cols[0]); return;
+      case "End": go(cols[cols.length - 1]); return;
+      case "ArrowUp": e.preventDefault(); return;
+      case "ArrowDown":
+      case "Escape": go(paneRef.current); return;
+      case "Enter":
+      case " ":
+        // Prevented, so the keymap's Open and Quick Look leave it alone.
+        e.preventDefault();
+        onSortChange(at.dataset.sort as SortKey);
+        return;
+    }
+  };
+
   // Letters typed into the list, for type-ahead.
   const typeAhead = useRef<TypeAhead | null>(null);
 
@@ -597,6 +765,8 @@ export function FilePane({
   const onKeyDown = (e: React.KeyboardEvent) => {
     // The second key of a Ctrl+G chord is App's, whatever it is.
     if (isModalOpen() || chordPending()) return;
+    const headEl = (e.target as HTMLElement).closest<HTMLElement>(".pane-head [data-sort]");
+    if (headEl) { onHeadKey(e, headEl); return; }
     if (isContextMenuKey(e)) {
       e.preventDefault();
       openMenuFromKeys();
@@ -660,6 +830,9 @@ export function FilePane({
         return;
       case "ArrowUp":
         e.preventDefault();
+        // A new press on the first row goes up to the column headers; a
+        // held key stops at the row.
+        if (currentPos === 0 && !e.shiftKey && !e.repeat && focusHead()) return;
         move(safePos - 1, e.shiftKey);
         return;
       case "Home":
@@ -735,6 +908,13 @@ export function FilePane({
   }, [focusIndex, paneFocused, visiblePos]);
 
   const sortArrow = (col: SortKey) => (sortKey === col ? (sortDir === "asc" ? "↑" : "↓") : "");
+  /** A column header: says how its column is sorted, and can take focus. */
+  const headCol = (col: SortKey) => ({
+    role: "columnheader",
+    tabIndex: -1,
+    "data-sort": col,
+    "aria-sort": sortKey === col ? (sortDir === "asc" ? "ascending" : "descending") : undefined,
+  } as const);
 
   // Cancel marquee on Esc while one is active.
   useEffect(() => {
@@ -752,10 +932,13 @@ export function FilePane({
       paneRef.current.focus();
     }
     if (onActivate) onActivate();
-    if (e.button !== 0) return;
     const target = e.target as HTMLElement;
-    // Don't start a marquee if the mousedown hit a row, pane-head, or sort header.
-    if (target.closest("[data-orig]") || target.closest(".pane-head")) return;
+    // A press on a column header sorts on its click; the focus stays on
+    // the pane, where the arrow keys move through the rows.
+    if (target.closest(".pane-head")) { e.preventDefault(); return; }
+    if (e.button !== 0) return;
+    // Don't start a marquee if the mousedown hit a row.
+    if (target.closest("[data-orig]")) return;
     const root = paneRef.current;
     if (!root) return;
     // Prevent default so text selection doesn't interfere with marquee drag.
@@ -1001,6 +1184,11 @@ export function FilePane({
     <section
       ref={paneRef}
       className={"pane" + (paneFocused ? " pane-focused" : "")}
+      role={card ? "listbox" : "grid"}
+      aria-label={(folder ? `Files in ${folder}` : "Files") + (paneName ? `, ${paneName}` : "")}
+      aria-multiselectable="true"
+      aria-rowcount={card ? undefined : displayFiles.length + headRows}
+      aria-activedescendant={activeId}
       data-drop-path={dropPath || undefined}
       tabIndex={0}
       onFocus={() => { setPaneFocused(true); if (onActivate) onActivate(); }}
@@ -1012,22 +1200,25 @@ export function FilePane({
       onMouseDown={onPaneMouseDown}
       onContextMenu={(e) => { e.preventDefault(); onContext(e, paneContextKind(e.target as Element)); }}
     >
-      <div className="pane-head">
-        <div className="col"></div>
-        <div className="col" onClick={() => onSortChange("name")}>name <span className="sort">{sortArrow("name")}</span></div>
-        <div className="col c-tag" onClick={() => onSortChange("tag")}>tag <span className="sort">{sortArrow("tag")}</span></div>
-        <div className="col c-size" style={{justifyContent:"flex-end"}} onClick={() => onSortChange("size")}>size <span className="sort">{sortArrow("size")}</span></div>
-        <div className="col c-date" onClick={() => onSortChange("modified")}>modified <span className="sort">{sortArrow("modified")}</span></div>
-        <div className="col c-git" style={{justifyContent:"flex-end"}} onClick={() => onSortChange("git")}>git <span className="sort">{sortArrow("git")}</span></div>
+      <div className="pane-head" role="row" aria-rowindex={card ? undefined : 1}>
+        <div className="col" role="columnheader" aria-label="kind"></div>
+        <div className="col" {...headCol("name")} onClick={() => onSortChange("name")}>name <span className="sort" aria-hidden="true">{sortArrow("name")}</span></div>
+        <div className="col c-tag" {...headCol("tag")} onClick={() => onSortChange("tag")}>tag <span className="sort" aria-hidden="true">{sortArrow("tag")}</span></div>
+        <div className="col c-size" {...headCol("size")} style={{justifyContent:"flex-end"}} onClick={() => onSortChange("size")}>size <span className="sort" aria-hidden="true">{sortArrow("size")}</span></div>
+        <div className="col c-date" {...headCol("modified")} onClick={() => onSortChange("modified")}>modified <span className="sort" aria-hidden="true">{sortArrow("modified")}</span></div>
+        <div className="col c-git" {...headCol("git")} style={{justifyContent:"flex-end"}} onClick={() => onSortChange("git")}>git <span className="sort" aria-hidden="true">{sortArrow("git")}</span></div>
       </div>
-      <div className="rows" ref={rowsRef} onScroll={onRowsScroll}>
+      <div className="rows" ref={rowsRef} role={!card && displayFiles.length > 0 ? "rowgroup" : "presentation"} onScroll={onRowsScroll}>
         {win.start > 0 && <div className="rows-spacer" aria-hidden="true" style={{ height: win.start * view.rowH }} />}
-        {displayFiles.slice(win.start, win.end).map(({ file: f, origIndex: i }) => {
+        {displayFiles.slice(win.start, win.end).map(({ file: f, origIndex: i }, k) => {
           const fPath = rowPath(f);
           return (
             <PaneRow key={i}
                      f={f}
                      i={i}
+                     idp={idp}
+                     rowIndex={card ? undefined : win.start + k + 1 + headRows}
+                     card={card}
                      isSel={selectedSet.has(i)}
                      isFocus={paneFocused && focusIndex === i}
                      isDragOver={dragOverIndex === i && f.kind === "folder"}
@@ -1051,6 +1242,7 @@ export function FilePane({
       {marquee && (
         <div
           className="marquee"
+          aria-hidden="true"
           style={{
             position: "absolute",
             pointerEvents: "none",
@@ -1101,6 +1293,9 @@ export function Palette({ onClose, onCommand }: PaletteProps) {
   const rows = useMemo(() => searchPalette(q), [q]);
   const browsing = !q.trim();
 
+  // A dialog to a screen reader, and the focus goes back to what had it
+  // (the file list) when the palette closes.
+  const dlg = useDialogPanel("Command palette");
   useEffect(() => { inputRef.current?.focus(); }, []);
   useEffect(() => { setIdx(0); }, [q]);
   useEffect(() => {
@@ -1128,24 +1323,27 @@ export function Palette({ onClose, onCommand }: PaletteProps) {
 
   return (
     <div className="palette-overlay" onClick={onClose}>
-      <div className="palette" onClick={(e) => e.stopPropagation()} onKeyDown={onKey}>
+      <div className="palette" {...dlg} onClick={(e) => e.stopPropagation()} onKeyDown={onKey}>
         <div className="palette-head">
-          <span className="prefix">❯</span>
-          <input ref={inputRef} value={q} onChange={(e) => setQ(e.target.value)} placeholder={PALETTE_PLACEHOLDER} />
-          <span className="hint">{rows.length} results · <span className="kbd">↑↓</span> navigate</span>
+          <span className="prefix" aria-hidden="true">❯</span>
+          <input ref={inputRef} value={q} onChange={(e) => setQ(e.target.value)} placeholder={PALETTE_PLACEHOLDER}
+            role="combobox" aria-label="Command or path" aria-expanded="true" aria-autocomplete="list"
+            aria-controls="palette-list" aria-activedescendant={rows[idx] ? `palette-opt-${idx}` : undefined} />
+          <span className="hint"><span role="status">{rows.length} results</span> · <span className="kbd">↑↓</span> navigate</span>
         </div>
-        <div className="palette-body" ref={bodyRef}>
+        <div className="palette-body" ref={bodyRef} id="palette-list" role="listbox" aria-label="Commands">
           {rows.map((r, i) => {
             // Under a group header, the menu's name would only repeat it.
             const where = browsing && r.where[0] === r.group ? r.where.slice(1) : r.where;
             return (
               <React.Fragment key={i}>
-                {browsing && r.group !== rows[i - 1]?.group && <div className="pal-group">{r.group}</div>}
+                {browsing && r.group !== rows[i - 1]?.group && <div className="pal-group" aria-hidden="true">{r.group}</div>}
                 {/* Mouse move, not enter: rows scrolled under a still pointer
                     would otherwise take the highlight from the arrow keys. */}
                 <div className={"pal-row" + (r.danger ? " danger" : "") + (i === idx ? " active" : "")}
+                  id={`palette-opt-${i}`} role="option" aria-selected={i === idx}
                   onMouseMove={() => { if (i !== idx) setIdx(i); }} onClick={() => run(r.send)}>
-                  <span className="ic">{r.ic}</span>
+                  <span className="ic" aria-hidden="true">{r.ic}</span>
                   <span className="name">
                     <span>{r.label}</span>
                     {where.length > 0 && <span className="where">{where.join(" › ")}</span>}

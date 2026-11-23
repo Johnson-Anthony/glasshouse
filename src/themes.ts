@@ -78,7 +78,7 @@ export const CONTRAST_DARK = "high-contrast-dark";
 /** The color tokens a theme sets, in the theme editor's order. */
 export const THEME_TOKENS = [
   "bg-0", "bg-1", "bg-2", "bg-3", "bg-4", "bg-sel",
-  "fg-0", "fg-1", "fg-2", "fg-3",
+  "fg-0", "fg-1", "fg-2", "fg-3", "fg-4",
   "border", "border-strong",
   "accent", "accent-2", "on-accent",
   "red", "orange", "yellow", "green", "cyan", "blue", "magenta",
@@ -97,6 +97,7 @@ export const TOKEN_HELP: Record<ThemeToken, string> = {
   "fg-1": "body text",
   "fg-2": "secondary text",
   "fg-3": "hints, muted text",
+  "fg-4": "separators, placeholders",
   "border": "lines between panels",
   "border-strong": "outlines, inputs",
   "accent": "highlights, focus",
@@ -112,32 +113,42 @@ export const TOKEN_HELP: Record<ThemeToken, string> = {
 };
 
 /** The contrast checks a theme must pass: [text token, background token,
- *  minimum ratio, what it is]. Body text is WCAG AA (4.5:1); muted text and
- *  colors used as icons or badges are held to 3:1. The original eight
- *  themes are only held to the body-text ones (task 38 owns the rest). */
-export const CONTRAST_CHECKS: ReadonlyArray<[ThemeToken, ThemeToken, number, string, "body" | "all"]> = [
-  ["fg-0", "bg-0", 4.5, "main text", "body"],
-  ["fg-0", "bg-1", 4.5, "text on panels", "body"],
-  ["fg-0", "bg-2", 4.5, "text on hover", "body"],
-  ["fg-0", "bg-3", 4.5, "text on the active tab", "body"],
-  ["fg-0", "bg-sel", 4.5, "selected row", "body"],
-  ["fg-1", "bg-0", 4.5, "body text", "body"],
-  ["fg-1", "bg-1", 4.5, "body text on panels", "body"],
-  ["fg-1", "bg-2", 4.5, "body text on hover", "body"],
-  ["fg-2", "bg-0", 4.5, "secondary text", "all"],
-  ["fg-2", "bg-1", 4.5, "secondary text on panels", "all"],
-  ["fg-3", "bg-0", 3, "muted text", "all"],
-  ["fg-3", "bg-1", 3, "muted text on panels", "all"],
-  ["accent", "bg-0", 3, "accent", "all"],
-  ["accent", "bg-1", 3, "accent on panels", "all"],
-  ["on-accent", "accent", 4.5, "text on the accent", "all"],
-  ["red", "bg-0", 3, "red", "all"],
-  ["orange", "bg-0", 3, "orange", "all"],
-  ["yellow", "bg-0", 3, "yellow", "all"],
-  ["green", "bg-0", 3, "green", "all"],
-  ["cyan", "bg-0", 3, "cyan", "all"],
-  ["blue", "bg-0", 3, "blue", "all"],
-  ["magenta", "bg-0", 3, "magenta", "all"],
+ *  minimum ratio, what it is]. Every built-in theme passes all of them
+ *  (themes.test.ts), and the theme editor reports them for a custom one.
+ *  - Text is WCAG AA (4.5:1) on the surfaces it's read on: the list, the
+ *    panels and a hovered row. That includes muted text (--fg-3: dates,
+ *    hints, shortcut keys), which is still text.
+ *  - The accent draws the focus ring, a UI part (3:1), on those surfaces;
+ *    a selected row's ring is its text color.
+ *  - Colors used as icons and badges are held to 3:1.
+ *  - --fg-4 has no check: it's for what isn't read (separators,
+ *    placeholders, default icons), which WCAG leaves out. */
+export const CONTRAST_CHECKS: ReadonlyArray<[ThemeToken, ThemeToken, number, string]> = [
+  ["fg-0", "bg-0", 4.5, "main text"],
+  ["fg-0", "bg-1", 4.5, "text on panels"],
+  ["fg-0", "bg-2", 4.5, "text on hover"],
+  ["fg-0", "bg-3", 4.5, "text on the active tab"],
+  ["fg-0", "bg-sel", 4.5, "selected row, and its focus ring"],
+  ["fg-1", "bg-0", 4.5, "body text"],
+  ["fg-1", "bg-1", 4.5, "body text on panels"],
+  ["fg-1", "bg-2", 4.5, "body text on hover"],
+  ["fg-2", "bg-0", 4.5, "secondary text"],
+  ["fg-2", "bg-1", 4.5, "secondary text on panels"],
+  ["fg-2", "bg-2", 4.5, "secondary text on hover"],
+  ["fg-3", "bg-0", 4.5, "muted text"],
+  ["fg-3", "bg-1", 4.5, "muted text on panels"],
+  ["fg-3", "bg-2", 4.5, "muted text on hover"],
+  ["accent", "bg-0", 3, "accent, focus ring"],
+  ["accent", "bg-1", 3, "accent and focus ring on panels"],
+  ["accent", "bg-2", 3, "focus ring on hover"],
+  ["on-accent", "accent", 4.5, "text on the accent"],
+  ["red", "bg-0", 3, "red"],
+  ["orange", "bg-0", 3, "orange"],
+  ["yellow", "bg-0", 3, "yellow"],
+  ["green", "bg-0", 3, "green"],
+  ["cyan", "bg-0", 3, "cyan"],
+  ["blue", "bg-0", 3, "blue"],
+  ["magenta", "bg-0", 3, "magenta"],
 ];
 
 /** The eight themes the app shipped with before task 47. */

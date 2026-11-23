@@ -1,6 +1,7 @@
 import { basename } from "../paths";
 import { useEscapeClose } from "./useEscapeClose";
 import { useModal } from "./modal";
+import { useDialogPanel } from "./dialogPanel";
 
 // ============= DiffDialog =============
 export interface DiffDialogProps {
@@ -13,6 +14,7 @@ export interface DiffDialogProps {
 export function DiffDialog({ a, b, diff, onClose }: DiffDialogProps) {
   useEscapeClose(onClose);
   useModal();
+  const dlg = useDialogPanel("Diff");
 
   const lines = diff.split("\n");
 
@@ -29,7 +31,7 @@ export function DiffDialog({ a, b, diff, onClose }: DiffDialogProps) {
       position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)",
       zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center",
     }}>
-      <div onClick={(e) => e.stopPropagation()} style={{
+      <div {...dlg} onClick={(e) => e.stopPropagation()} style={{
         width: "120ch", maxWidth: "95vw", maxHeight: "90vh",
         background: "var(--bg-1, #1a1b26)", border: "1px solid var(--fg-3)",
         borderRadius: 4, display: "flex", flexDirection: "column",

@@ -4,6 +4,7 @@ import { isCancelled, runOp } from "../ops";
 import { errText } from "../errors";
 import { useEscapeClose } from "./useEscapeClose";
 import { useModal } from "./modal";
+import { useDialogPanel } from "./dialogPanel";
 
 // ============= PropertiesDialog =============
 export interface PropertiesDialogProps {
@@ -34,6 +35,7 @@ export function PropertiesDialog({ entry, onClose }: PropertiesDialogProps) {
 
   useEscapeClose(onClose, !!entry);
   useModal(!!entry);
+  const dlg = useDialogPanel("Properties");
 
   if (!entry) return null;
 
@@ -89,7 +91,7 @@ export function PropertiesDialog({ entry, onClose }: PropertiesDialogProps) {
       position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)",
       zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center",
     }}>
-      <div onClick={(e) => e.stopPropagation()} style={{
+      <div {...dlg} onClick={(e) => e.stopPropagation()} style={{
         width: "64ch", maxWidth: "95vw", maxHeight: "85vh",
         background: "var(--bg-1, #1a1b26)", border: "1px solid var(--fg-3)",
         borderRadius: 4, display: "flex", flexDirection: "column",

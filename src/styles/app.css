@@ -303,8 +303,11 @@ html, body {
   background: var(--bg-sel);
   opacity: 0;
   transition: opacity .12s;
+  /* a <button>: no chrome of its own, and a press area bigger than the dot */
+  appearance: none; border: 0; padding: 0; flex: none; cursor: pointer; position: relative;
 }
-.tab:hover .close, .tab.active .close { opacity: 1; }
+.tab .close::after { content: ""; position: absolute; inset: -7px; }
+.tab:hover .close, .tab.active .close, .tab .close:focus-visible { opacity: 1; }
 .tab:hover .close { background: var(--accent); }
 .tab .close:hover { background: var(--red) !important; }
 
@@ -400,7 +403,7 @@ html, body {
   position: relative;
 }
 .dropdown .mi.hover { background: var(--bg-sel); color: var(--fg-0); }
-.dropdown .mi .ic { color: var(--fg-3); font-size: calc(11px * var(--fs-k, 1)); }
+.dropdown .mi .ic { color: var(--fg-4); font-size: calc(11px * var(--fs-k, 1)); }
 .dropdown .mi .kb { font-size: calc(10.5px * var(--fs-k, 1)); color: var(--fg-3); letter-spacing: 0.03em; }
 .dropdown .mi .chev { color: var(--fg-3); }
 .dropdown .mi.danger.hover { background: color-mix(in oklch, var(--red) 30%, var(--bg-sel)); color: var(--red); }
@@ -457,7 +460,7 @@ html, body {
   white-space: nowrap;
 }
 .breadcrumb .crumb:hover { background: var(--bg-3); color: var(--accent); }
-.breadcrumb .sep { color: var(--fg-3); }
+.breadcrumb .sep { color: var(--fg-4); }
 .breadcrumb .crumb.last { color: var(--fg-0); }
 .breadcrumb .git-branch {
   margin-left: auto;
@@ -578,7 +581,7 @@ html, body {
   color: var(--fg-2);
   padding: 0 5px; border-radius: calc(8px * var(--rk, 1));
 }
-.sb-item .ic { color: var(--fg-3); font-size: calc(var(--sb-ic, 11px) * var(--fs-k, 1)); width: calc(var(--sb-ic, 11px) * var(--fs-k, 1) + 3px); }
+.sb-item .ic { color: var(--fg-4); font-size: calc(var(--sb-ic, 11px) * var(--fs-k, 1)); width: calc(var(--sb-ic, 11px) * var(--fs-k, 1) + 3px); }
 .sb-item.active .ic { color: var(--accent); }
 
 .tree-row {
@@ -686,8 +689,10 @@ html, body {
   outline-offset: -1px;
   z-index: 1;
 }
+/* On the selection the ring is the row's text color, which every theme
+   keeps at 4.5:1 there; the accent isn't checked against --bg-sel. */
 .row.focused.selected {
-  outline-color: color-mix(in oklch, var(--accent) 80%, white 20%);
+  outline-color: var(--fg-0);
 }
 .row.clip-cut { opacity: 0.5; }
 .row.drop-target {
@@ -695,7 +700,7 @@ html, body {
   outline: 1px dashed var(--accent);
   outline-offset: -2px;
 }
-.row .ic { color: var(--fg-3); }
+.row .ic { color: var(--fg-4); }
 .row .name {
   overflow: hidden;
   display: flex;
@@ -722,8 +727,9 @@ html, body {
 .row .git-dot.gd { background: var(--red); }
 .row .git-dot.gu { background: var(--red); }
 .row .git-dot.gq { background: var(--fg-2); }
-.row .git-dot.gb { background: var(--fg-3); }
+.row .git-dot.gb { background: var(--fg-4); }
 .row .ext { color: var(--fg-3); font-size: calc(11px * var(--fs-k, 1)); }
+.row .name .hid { color: var(--fg-3); }
 .row .link, .miller .link { color: var(--cyan); font-size: calc(11px * var(--fs-k, 1)); flex: none; }
 .row .size {
   text-align: right;
@@ -1094,7 +1100,7 @@ html, body {
   color: var(--green);
   font-family: var(--font-mono);
 }
-.perm-cell.off { color: var(--fg-3); }
+.perm-cell.off { color: var(--fg-4); }
 
 .chip {
   display: inline-block;
@@ -1201,8 +1207,8 @@ html.no-status .statusbar { display: none; }
 .term-head .ttab.plus { position: relative; color: var(--fg-3); }
 .term-head .ttab.plus:hover { background: var(--bg-3); color: var(--fg-0); }
 .term-head .right { margin-left: auto; display: flex; gap: 6px; color: var(--fg-3); }
-.term-head .right span { cursor: pointer; padding: 2px 6px; border-radius: calc(3px * var(--rk, 1)); }
-.term-head .right span:hover { background: var(--bg-3); color: var(--fg-0); }
+.term-head .right button { cursor: pointer; padding: 2px 6px; border-radius: calc(3px * var(--rk, 1)); }
+.term-head .right button:hover { background: var(--bg-3); color: var(--fg-0); }
 
 /* Profile picker under the "+" tab. Mirrors .dropdown styling. */
 .term-plus-menu {
@@ -1374,7 +1380,7 @@ html.no-status .statusbar { display: none; }
   position: relative;
 }
 .ctx-menu .mi.hover { background: var(--bg-sel); color: var(--fg-0); }
-.ctx-menu .mi .ic { color: var(--fg-3); font-size: calc(11px * var(--fs-k, 1)); }
+.ctx-menu .mi .ic { color: var(--fg-4); font-size: calc(11px * var(--fs-k, 1)); }
 .ctx-menu .mi .kb { font-size: calc(10.5px * var(--fs-k, 1)); color: var(--fg-3); letter-spacing: 0.03em; }
 .ctx-menu .mi .chev { color: var(--fg-3); }
 .ctx-menu .mi.danger.hover { background: color-mix(in oklch, var(--red) 30%, var(--bg-sel)); color: var(--red); }
@@ -1609,7 +1615,7 @@ select option { background: var(--bg-2); color: var(--fg-0); }
 .upd-notes h4 { margin: 10px 0 4px; color: var(--accent); font-weight: normal; }
 .upd-notes p { margin: 3px 0; }
 .upd-item { text-indent: -2ch; }
-.upd-item::before { content: "• "; color: var(--fg-3); }
+.upd-item::before { content: "• "; color: var(--fg-4); }
 .upd-progress { display: flex; flex-direction: column; gap: 4px; }
 .upd-bar { height: 6px; background: var(--bg-3); border-radius: 3px; overflow: hidden; }
 .upd-bar > div { height: 100%; background: var(--accent); transition: width 0.2s; }
@@ -2012,7 +2018,7 @@ html[data-display-mode="tiles"] .pane .pane-head {
   outline: 1px solid var(--accent);
   outline-offset: -1px;
 }
-.miller .mic { color: var(--fg-3); width: 12px; flex: none; }
+.miller .mic { color: var(--fg-4); width: 12px; flex: none; }
 .miller .mname { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .miller .mpreview { padding: 14px; font-size: calc(12px * var(--fs-k, 1)); }
 .miller .mp-name {
@@ -2468,6 +2474,11 @@ html[data-focused-pane="terminal"] .term-drawer {
   .winctl .wc svg { display: block !important; }
   .winctl .wc:hover { background: Highlight !important; color: HighlightText !important; }
   .tab.active::after { background: HighlightText; }
+  /* Drawn with a background, which forced colors would blank. */
+  .tab .close { forced-color-adjust: none; background: ButtonText !important; opacity: 1; }
+  .tab.active .close { background: HighlightText !important; }
+  .row.focused.selected { outline-color: HighlightText; }
+  .pane-head .col:focus-visible, .tab:has(.label:focus-visible) { outline: 2px solid CanvasText; }
   .scanlines, .app::after { display: none !important; }
   .app { border: 1px solid CanvasText; }
 }
@@ -2558,7 +2569,7 @@ html[data-focused-pane="terminal"] .term-drawer {
   border-bottom: 1px solid var(--line);
 }
 /* The pane without the focus: its shown tab is marked, but not lit. */
-.split-pane:not(.focused) > .tabs .tab.active::after { background: var(--fg-3); box-shadow: none; }
+.split-pane:not(.focused) > .tabs .tab.active::after { background: var(--fg-4); box-shadow: none; }
 
 /* A tab being dragged (tabDrag.ts): where it goes in a tab bar, and the
    part of the file area a drop there takes. */
@@ -2579,3 +2590,51 @@ html[data-focused-pane="terminal"] .term-drawer {
   border-radius: calc(4px * var(--rk, 1));
 }
 html.tab-dragging, html.tab-dragging * { cursor: grabbing !important; }
+
+/* ------- Accessibility (task 38) ------- */
+/* In the page for screen readers, not on screen: the announcer
+   (announce.ts) and words that only a reader needs. */
+.sr-only {
+  position: absolute !important;
+  width: 1px; height: 1px;
+  margin: -1px; padding: 0; border: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* The tablist wraps the tabs without a box of its own, so the tab bar's
+   layout (and a dragged tab's hit test) is as it was. */
+.tab-list { display: contents; }
+/* The tab is its label; the ring goes round the whole tab. */
+@supports selector(:has(a)) {
+  .tab .label:focus-visible { outline: none; }
+  .tab:has(.label:focus-visible) { outline: 1px solid var(--accent); outline-offset: 1px; }
+}
+
+/* A column header with the focus (Up from the first row). */
+.pane-head .col:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; color: var(--fg-0); }
+
+/* Controls that look like text or chips but are real buttons: the button's
+   own chrome off, the look left to the class it carries. */
+.plain-btn, button.crumb, button.tag-chip, button.chip, button.link-btn {
+  appearance: none;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  text-align: inherit;
+}
+.plain-btn { background: none; border: 0; padding: 0; margin: 0; color: inherit; cursor: pointer; }
+button.crumb { background: none; border: 0; margin: 0; }
+button.chip { border: 0; cursor: pointer; font-size: calc(10.5px * var(--fs-k, 1)); }
+button.link-btn { background: none; border: 0; padding: 0; margin: 0; color: var(--accent); cursor: pointer; }
+button.link-btn.quiet { color: var(--fg-3); }
+/* A dialog's panel takes the focus as it opens; the ring is for controls. */
+[role="dialog"]:focus, [role="alertdialog"]:focus { outline: none; }
+
+/* Highlighted rows sit on --bg-sel, where the muted colors aren't checked:
+   their hints and marks take the row's own text color. */
+.row.selected :is(.ext, .size, .date, .tag, .hid),
+:is(.dropdown, .ctx-menu) .mi.hover:not(.danger) :is(.kb, .ic, .chev),
+.pal-row.active :is(.where, .kb, .ic),
+.tree-row.active :is(.chev, .git) { color: inherit; }

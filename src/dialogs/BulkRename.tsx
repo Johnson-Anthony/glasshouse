@@ -8,6 +8,7 @@ import { renameStepsUndo } from "../undoActions";
 import { winNamesIn } from "../transferUi";
 import { useEscapeClose } from "./useEscapeClose";
 import { useModal } from "./modal";
+import { useDialogPanel } from "./dialogPanel";
 
 // ============= Bulk rename dialog =============
 
@@ -168,6 +169,7 @@ export function BulkRenameDialog({ items, onClose, renameOne, listNames, onDone 
 
   useEscapeClose(onClose, !running);
   useModal();
+  const dlg = useDialogPanel("Bulk rename");
 
   const preview = useMemo(
     () => bulkRenamePreview(items, { find, replace, prefix, suffix, numberEnabled, numberStart, numberDigits, caseMode }),
@@ -254,6 +256,7 @@ export function BulkRenameDialog({ items, onClose, renameOne, listNames, onDone 
       }}
     >
       <div
+        {...dlg}
         onClick={(e) => e.stopPropagation()}
         style={{
           width: "90ch", maxWidth: "95vw", maxHeight: "90vh",

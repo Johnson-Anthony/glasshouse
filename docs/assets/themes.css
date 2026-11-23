@@ -4,7 +4,9 @@
    do). Each theme names its color-scheme (dark or light), which native
    controls follow and App passes on to the window. src/themes.ts lists them
    with their names and groups; themes.test.ts checks every one meets WCAG AA
-   for body text. Custom themes are added at run time (src/userThemes.ts). */
+   (4.5:1) for all its text, --fg-3 included. --fg-4 is for what isn't read:
+   separators, placeholders, default icons. Custom themes are added at run
+   time (src/userThemes.ts). */
 
 :root {
   /* default to tokyo-night */
@@ -17,8 +19,8 @@
   --bg-sel: #3d59a1;
   --fg-0: #c0caf5;
   --fg-1: #a9b1d6;
-  --fg-2: #737aa2;
-  --fg-3: #565f89;
+  --fg-2: #8e94b4;
+  --fg-3: #8089af;
   --border: #2a2e46;
   --border-strong: #3b4261;
   --accent: #bb9af7;
@@ -35,13 +37,19 @@
 
 /* Tokens a theme may leave out. --on-accent is text on an accent fill
    (active buttons); here, on every themed element, so a swatch's own
-   background is used rather than the page's. */
+   background is used rather than the page's. --fg-4 (decoration) falls
+   back to the muted text color, as custom themes saved before it had it. */
 :root, [data-theme] {
   --on-accent: var(--bg-0);
+  --fg-4: var(--fg-3);
   --glow: 0 0 0 transparent;
 }
 
-/* ---- The original eight, unchanged ---- */
+/* ---- The original eight. Their colors are as they shipped, except that
+   secondary and muted text (--fg-2, --fg-3) were lightened, hue and
+   saturation kept, as far as 4.5:1 on the list, panels and hover needs;
+   the old muted color is --fg-4. Solarized's accent moved a shade for its
+   focus ring. ---- */
 
 [data-theme="tokyo-night"] {
   color-scheme: dark;
@@ -53,8 +61,9 @@
   --bg-sel: #283457;
   --fg-0: #c0caf5;
   --fg-1: #a9b1d6;
-  --fg-2: #737aa2;
-  --fg-3: #565f89;
+  --fg-2: #8e94b4;
+  --fg-3: #8089af;
+  --fg-4: #565f89;
   --border: #2a2e46;
   --border-strong: #3b4261;
   --accent: #bb9af7;
@@ -78,8 +87,9 @@
   --bg-sel: #414263;
   --fg-0: #cdd6f4;
   --fg-1: #bac2de;
-  --fg-2: #7f849c;
-  --fg-3: #6c7086;
+  --fg-2: #9398ac;
+  --fg-3: #898ca0;
+  --fg-4: #6c7086;
   --border: #313244;
   --border-strong: #45475a;
   --accent: #cba6f7;
@@ -103,8 +113,9 @@
   --bg-sel: #45403d;
   --fg-0: #ebdbb2;
   --fg-1: #d5c4a1;
-  --fg-2: #a89984;
-  --fg-3: #7c6f64;
+  --fg-2: #afa28e;
+  --fg-3: #a2968b;
+  --fg-4: #7c6f64;
   --border: #3c3836;
   --border-strong: #504945;
   --accent: #d3869b;
@@ -128,8 +139,9 @@
   --bg-sel: #2a283e;
   --fg-0: #e0def4;
   --fg-1: #c4c0d8;
-  --fg-2: #908caa;
-  --fg-3: #6e6a86;
+  --fg-2: #928eab;
+  --fg-3: #86839d;
+  --fg-4: #6e6a86;
   --border: #26233a;
   --border-strong: #403d52;
   --accent: #c4a7e7;
@@ -153,8 +165,9 @@
   --bg-sel: #425047;
   --fg-0: #d3c6aa;
   --fg-1: #beb79c;
-  --fg-2: #859289;
-  --fg-3: #6d7a77;
+  --fg-2: #a6b0a9;
+  --fg-3: #9faaa7;
+  --fg-4: #6d7a77;
   --border: #3d484d;
   --border-strong: #475258;
   --accent: #d699b6;
@@ -178,12 +191,14 @@
   --bg-sel: #0d4a5a;
   --fg-0: #eee8d5;
   --fg-1: #93a1a1;
-  --fg-2: #839496;
-  --fg-3: #586e75;
+  --fg-2: #8c9b9d;
+  --fg-3: #859ca3;
+  --fg-4: #586e75;
   --border: #0a4150;
   --border-strong: #11596b;
-  --accent: #d33682;
+  --accent: #d53e87;
   --accent-2: #268bd2;
+  --on-accent: #000f13;
   --red: #dc322f;
   --orange: #cb4b16;
   --yellow: #b58900;
@@ -204,7 +219,8 @@
   --fg-0: #7aff7a;
   --fg-1: #55dd55;
   --fg-2: #3ba03b;
-  --fg-3: #266426;
+  --fg-3: #368d36;
+  --fg-4: #266426;
   --border: #143014;
   --border-strong: #1e4a1e;
   --accent: #9cff9c;
@@ -229,8 +245,9 @@
   --bg-sel: #392466;
   --fg-0: #f5d1ff;
   --fg-1: #d8a8f0;
-  --fg-2: #9777c4;
-  --fg-3: #6b4e94;
+  --fg-2: #a286ca;
+  --fg-3: #967cba;
+  --fg-4: #6b4e94;
   --border: #2e1d5a;
   --border-strong: #3d2a7a;
   --accent: #ff71ce;

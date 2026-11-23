@@ -40,6 +40,15 @@ describe("theme files", () => {
     expect("theme" in r && r.theme.colors["bg-0"]).toBe("#fafafa");
   });
 
+  it("load a theme saved before --fg-4, which takes its --fg-3", () => {
+    const c: Record<string, string> = { ...colors() };
+    delete c["fg-4"];
+    const r = checkTheme({ name: "Old", colors: c });
+    expect("theme" in r && r.warnings).toEqual([]);
+    expect("theme" in r && r.theme.colors["fg-4"]).toBe(c["fg-3"]);
+    expect("theme" in r && r.theme.colors["fg-3"]).toBe(c["fg-3"]);
+  });
+
   it("warn about unknown keys, which are dropped", () => {
     const r = checkTheme({ name: "X", colors: { ...colors(), "font-size": "99px" } });
     expect("theme" in r && r.warnings).toEqual(["ignored: font-size"]);

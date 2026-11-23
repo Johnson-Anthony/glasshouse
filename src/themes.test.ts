@@ -4,7 +4,7 @@ import { contrast } from "./contrast";
 import { CONTRAST_CHECKS, LEGACY_THEMES, THEME_IDS, THEME_LIST, THEME_TOKENS, builtinTheme } from "./themes";
 
 // Every built-in theme, read from themes.css as the app applies it: each
-// sets every token, says its color-scheme, and meets WCAG AA for body text.
+// sets every token, says its color-scheme, and meets WCAG AA for its text.
 // Read from disk: vitest stubs CSS imports.
 const css = readFileSync(new URL("./styles/themes.css", import.meta.url), "utf8");
 const blocks = new Map([...css.matchAll(/\[data-theme="([^"]+)"\]\s*{([^}]*)}/g)].map(m => [m[1], m[2]]));
@@ -42,13 +42,36 @@ describe("built-in themes", () => {
 
   it.each(THEME_IDS)("%s meets the contrast checks", id => {
     const vars = tokens(id);
-    const legacy = LEGACY_THEMES.includes(id);
     const fails = CONTRAST_CHECKS
-      .filter(([, , , , level]) => !legacy || level === "body")
       .map(([fg, bg, min, what]) => ({ what, ratio: contrast(vars[fg], vars[bg]), min }))
       .filter(c => c.ratio < c.min)
       .map(c => `${c.what}: ${c.ratio.toFixed(2)} < ${c.min}`);
     expect(fails).toEqual([]);
+  });
+
+  it("holds muted text to 4.5:1 and the focus ring to 3:1, on the list, panels and hover", () => {
+    const has = (fg: string, bg: string, min: number) => CONTRAST_CHECKS.some(c => c[0] === fg && c[1] === bg && c[2] >= min);
+    for (const bg of ["bg-0", "bg-1", "bg-2"]) {
+      expect(has("fg-2", bg, 4.5), `fg-2 on ${bg}`).toBe(true);
+      expect(has("fg-3", bg, 4.5), `fg-3 on ${bg}`).toBe(true);
+      expect(has("accent", bg, 3), `accent on ${bg}`).toBe(true);
+    }
+    // A selected row's ring is its text color (app.css).
+    expect(has("fg-0", "bg-sel", 4.5)).toBe(true);
+  });
+
+  it("keeps the order of the text colors: body, secondary, muted, then decoration", () => {
+    for (const id of THEME_IDS) {
+      const v = tokens(id);
+      for (const bg of ["bg-0", "bg-1", "bg-2"]) {
+        const on = (fg: string) => contrast(v[fg], v[bg]);
+        // Some light themes' body text is itself just over 4.5:1, so the
+        // three sit close together; none may read fainter than the next.
+        expect(on("fg-1"), `${id} fg-1 over fg-2 on ${bg}`).toBeGreaterThanOrEqual(on("fg-2") - 0.05);
+        expect(on("fg-2"), `${id} fg-2 over fg-3 on ${bg}`).toBeGreaterThanOrEqual(on("fg-3"));
+        expect(on("fg-3"), `${id} fg-3 over fg-4 on ${bg}`).toBeGreaterThanOrEqual(on("fg-4"));
+      }
+    }
   });
 
   it("the high-contrast themes are AAA (7:1) for every text color", () => {

@@ -145,6 +145,8 @@ jobs:
       # (actions/runner-images#12096). Lift it on this throwaway runner.
       - run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
       - run: pnpm site:capture check
+      # The app's accessibility tree, as Chromium builds it for the demo.
+      - run: pnpm site:capture a11y
 
   # RustSec advisories for src-tauri/Cargo.lock. They're reported (job summary
   # and a warning) but don't fail CI: bumping dependencies is its own task.
