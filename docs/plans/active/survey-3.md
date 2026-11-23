@@ -15,12 +15,12 @@ The scan for the user's own paths and names found none in app code. The gaps are
 | **Wave 7a: see it run, and make failures reportable** |||||
 | 32 | e2e-smoke | CI + test code | S–M | merged (`gifted-bun-817ccd`, 11-20) |
 | 33 | diagnostics-and-errors | both | M | merged 11-20 (`claude/unruffled-pascal-d0c30d`; plan in `docs/plans/completed/diagnostics-and-errors.md`, with the errors left as plain text) |
-| 34 | windows-paths | Rust + a little frontend | M | queued |
+| 34 | windows-paths | Rust + a little frontend | M | running (11-23, release push) |
 | 35 | release-identity | Rust + config + CI | M | merged 11-20 (`claude/stoic-hermann-165fd0`; Tauri rejects `_`, so the id is `io.github.johnson-anthony.glasshouse`, with `johnson_anthony` only in D-Bus interface names and paths; `docs/decisions/2026-11-20-release-identity-id-form.md`) |
 | **Wave 7b: works like other file managers** |||||
-| 36 | os-clipboard | both | M–L | queued |
+| 36 | os-clipboard | both | M–L | running (11-23, release push) |
 | 37 | linux-launch-env | Rust + CI | M | queued (coordinate with task 30's activation token) |
-| 38 | a11y | frontend | M–L | queued |
+| 38 | a11y | frontend | M–L | running (11-23, release push) |
 | 39 | locale-and-names | frontend (+ a little Rust) | S–M | queued |
 | 40 | first-run-defaults | frontend | S–M | merged 11-20 (`claude/nice-ishizaka-1d4fec`; plan in `docs/plans/completed/first-run-defaults.md`) |
 | 47 | themes-and-cosmetics | frontend | L | merged 11-20 (`claude/elegant-euler-fb95a5`; plan in `docs/plans/completed/themes-and-cosmetics.md`) |
@@ -35,6 +35,8 @@ The scan for the user's own paths and names found none in app code. The gaps are
 | 46 | release-smoke | CI + docs | M | after 32 and task 30 |
 | 49 | appimage-menu-entry | both | M | queued (split from 35 on 11-20) |
 | 50 | split-and-tear-off | both | L | merged 11-21: phase 1 split view (11-20), phase 2 one process with many windows, phase 3 tear-off (user request 11-20: "split view for tabs" and dragging tabs into their own window "like you can with browsers"; one process with many windows, in three phases) |
+| 51 | thumbnails | both | M | queued (split from survey-2 task 16 on 11-23) |
+| 52 | small-fixes | both | S | queued (11-23: the long-path overflow and the screen-edge drag handoff from Found by tasks) |
 
 Run at most two Rust tasks at once (RAM). Tasks 33, 34, 36 and 37 all touch `src-tauri/src/commands/`, so keep diffs narrow.
 
@@ -253,6 +255,17 @@ The owner asked for "split view for tabs and also to be able to drag drop tabs i
 - **Tear off:** drag a tab out of the window and drop it where no glasshouse tab bar takes it, and it opens in a new window there (a new process, as File → New Window is), keeping its folder, sort, view and history, and closes in the old window. Drop it on another glasshouse window's tab bar and it moves there. A tab bar context menu gets "Move to New Window". Windows are separate processes (`spawn_new_window` in `commands/launch.rs`, `session.rs`), so the move between windows needs a way across processes: the OS drag (`commands/drag_out.rs` already starts native drags) or a local channel. The plan should choose one and say why.
 - **Where it applies:** Linux (X11 and Wayland, where windows can't place themselves) and Windows. Private tabs stay private when they move.
 - **Changed 11-20, on the owner's question "why do we do it that way if browsers dont":** glasshouse moves to one process with many windows, as browsers do, so tabs move between windows in memory. Three phases, each merged on its own: (1) split view; (2) one process, many windows: New Window, the command line, a second launch and the FileManager1 resident open windows in the running app; backend events scoped per window; the session saves every window; (3) tear-off. The file-chooser dialog may stay a process per dialog. Trade-off: a Rust panic closes every window (web content still runs in separate WebKit/WebView2 processes).
+
+## 51. thumbnails (both, M; split from survey-2 task 16 on 2026-11-23)
+- The Grid mode shows file-type icons only. Show real thumbnails for images (at least png, jpeg, gif, webp, bmp, svg; say what's left out), in Grid and wherever a large icon is drawn (Icons, Tiles, the Inspector's preview if it has none).
+- Made in the backend, off the UI thread, cancellable when the folder changes, capped in source size and pixel count, never following a link out of the folder, and cached on disk under the app's cache folder keyed by path, size and modified time (follow the freedesktop thumbnail spec's ideas, but keep our own cache). A broken or huge image gets the icon, not an error.
+- Only what's on screen is requested (the list is windowed since task 13); scrolling a 10,000-image folder stays smooth. Benchmark it.
+- A setting to turn thumbnails off, and off by default on network drives.
+- New crates need `pnpm notices`; prefer one well-kept decoder over many.
+
+## 52. small-fixes (both, S; 2026-11-23)
+- A long path makes the page wider than a narrow window, pushing the Inspector, search box and window buttons off screen: the path bar should shrink or scroll, never widen the page.
+- A file or tab drag from a window whose edge touches the screen's edge (a maximized window's top) may never hand off to the OS, because the pointer can't cross the edge (seen under Xvfb). Check on a virtual display with a maximized window, and hand off at the edge when the pointer is pinned there and still moving outward, if that can be told apart from resting at the edge.
 
 ## Found by tasks
 - *(from e2e-smoke, for 44)* Reuse `e2e/harness.mjs` and its `waitFor`, not sleeps. Fixtures are made per run in a scratch dir, but on Windows the run uses the runner's real profile, so use unique names. Put the Trash fixture under the scratch `XDG_DATA_HOME`. A task that needs a D-Bus service in the test drops its `.service` file into the scratch `$XDG_DATA_HOME/dbus-1/services`.

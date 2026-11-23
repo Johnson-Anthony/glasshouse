@@ -26,7 +26,7 @@ On 2026-11-11, four read-only agents surveyed the app (at `45ea31b`): frontend b
 | 14 | refresh-cost | both | M | merged (`cool-gauss-d234ca`, 11-13; includes the user-reported stale sidebar tree) |
 | **Wave 5: promises and UX** (README and site claims first) |||||
 | 15 | palette-commands | frontend | M | merged (`laughing-shirley-d547ce`, 11-13) |
-| 16 | menu-honesty | frontend | S–M | queued (needs user decisions) |
+| 16 | menu-honesty | frontend (+ a little Rust) | S–M | queued (decided by the lead on 11-23, see its section; thumbnails are survey-3 task 51) |
 | 17 | paths-and-search | frontend | S–M | merged (`blissful-pare-68a0fc`, 11-13) |
 | 18 | session-persistence | both | S–M | merged (`nervous-borg-61c97d`, 11-15) |
 | 19 | keyboard-menus | frontend | M | merged (`peaceful-shamir-c528aa`, 11-13) |
@@ -210,6 +210,13 @@ These items do nothing, or something else. Make each work, or remove it. For the
   - Copy as UNC gives `\\localhost\C$\…`, wrong for mapped drives (needs `WNetGetConnection`).
 
   Strip them the way `stripWinOnly` does in the other direction.
+- **Decided by the lead on 2026-11-23** (the owner asked for every task to be done for a release, without more questions; the rule used: build what people expect of a file manager, cut what only pretends):
+  - Zoom Pane: in split view it shows only the focused pane until toggled back; unsplit, the item is hidden.
+  - Full Screen / F11: real full screen.
+  - Terminal → Open in New Window: a new window on the tab's folder with the terminal shown (windows share one process since task 50). The sidebar's Open in New Window was fixed by task 50.
+  - Clipboard Stack and File Queue: remove (task 36 reworks the clipboard). Expand Selection to Folder: remove.
+  - Windows: strip the Unix-only items. Copy as UNC is offered only on a network drive, from `WNetGetConnection`.
+  - Display modes: "Tree Flat" is cut. Icons, Tiles and Grid get 2-D arrow keys. "Grid (thumbs)" gets real thumbnails, built as survey-3 task 51 `thumbnails`; until that merges the mode is named "Grid".
 - **Fake display modes (decide):** "Grid (thumbs)" has no thumbnails and "Tree Flat" is just denser rows (`styles/app.css`). In Icons, Tiles and Grid, Left/Right do nothing. Build real thumbnails, a flat recursive list and 2-D arrow keys, or cut the modes.
 
 ## 17. paths-and-search (frontend, S–M)
