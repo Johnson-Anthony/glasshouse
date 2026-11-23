@@ -493,12 +493,12 @@ fn swap_in(tmp: &Path, target: &Path) -> io::Result<()> {
 /// Merge errors are ignored, as on a share that won't take the ACLs.
 #[cfg(windows)]
 fn swap_in(tmp: &Path, target: &Path) -> io::Result<()> {
-    use std::os::windows::ffi::OsStrExt;
+    use crate::winpath::to_verbatim;
     use windows::core::PCWSTR;
     use windows::Win32::Foundation::ERROR_UNABLE_TO_MOVE_REPLACEMENT;
     use windows::Win32::Storage::FileSystem::{ReplaceFileW, REPLACEFILE_IGNORE_MERGE_ERRORS};
-    let wide = |p: &Path| -> Vec<u16> { p.as_os_str().encode_wide().chain(Some(0)).collect() };
-    let (t, r) = (wide(target), wide(tmp));
+    // Verbatim when long: a raw Win32 call stops at MAX_PATH otherwise.
+    let (t, r) = (to_verbatim(target), to_verbatim(tmp));
     // SAFETY: both strings are NUL-terminated and outlive the call; there's
     // no backup name, and the reserved pointers are null.
     let replaced = unsafe {

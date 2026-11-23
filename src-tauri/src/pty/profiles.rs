@@ -150,14 +150,17 @@ pub fn list_shell_profiles() -> Vec<ShellProfile> {
 pub(crate) fn detect_shells() -> Vec<ShellProfile> {
     let mut out: Vec<ShellProfile> = Vec::new();
 
-    // Shell probes, in preferred order.
+    // Shell probes, in preferred order. On Windows that's PowerShell (the
+    // terminal opens the first profile), then Command Prompt, then the
+    // unix shells a user may have added.
     #[cfg(windows)]
-    let shell_probes: [(&str, &str, &str); 5] = [
+    let shell_probes: [(&str, &str, &str); 6] = [
+        ("pwsh.exe", "PowerShell", "shell:pwsh"),
+        ("powershell.exe", "PowerShell", "shell:powershell"),
+        ("cmd.exe", "Command Prompt", "shell:cmd"),
         ("bash.exe", "bash", "shell:bash"),
         ("zsh.exe", "zsh", "shell:zsh"),
         ("fish.exe", "fish", "shell:fish"),
-        ("pwsh.exe", "PowerShell", "shell:pwsh"),
-        ("powershell.exe", "PowerShell", "shell:powershell"),
     ];
     #[cfg(not(windows))]
     let shell_probes: [(&str, &str, &str); 5] = [
@@ -168,11 +171,38 @@ pub(crate) fn detect_shells() -> Vec<ShellProfile> {
         ("powershell", "PowerShell", "shell:powershell"),
     ];
     #[cfg(windows)]
-    let login = None;
+    let (login, resolve) = (None, windows_shell);
     #[cfg(not(windows))]
-    let login = login_shell(std::env::var("SHELL").ok());
-    out.extend(shell_profiles(login, &shell_probes, |exe| which::which(exe).ok()));
+    let (login, resolve) = (login_shell(std::env::var("SHELL").ok()), |exe: &str| which::which(exe).ok());
+    out.extend(shell_profiles(login, &shell_probes, resolve));
     out
+}
+
+/// Where a Windows shell is. `bash.exe` is looked for past PATH's first
+/// match, which is usually WSL's launcher in System32, and then where Git
+/// for Windows installs its own (it puts only `git` on PATH).
+#[cfg(windows)]
+fn windows_shell(exe: &str) -> Option<PathBuf> {
+    if exe != "bash.exe" {
+        return which::which(exe).ok();
+    }
+    let on_path = which::which_all(exe).into_iter().flatten();
+    let git = ["ProgramFiles", "ProgramW6432", "ProgramFiles(x86)"]
+        .iter()
+        .filter_map(std::env::var_os)
+        .map(|dir| PathBuf::from(dir).join("Git"))
+        .chain(std::env::var_os("LOCALAPPDATA").map(|dir| PathBuf::from(dir).join("Programs").join("Git")))
+        .map(|git| git.join("bin").join("bash.exe"))
+        .filter(|p| p.is_file());
+    real_bash(on_path.chain(git))
+}
+
+/// The first `bash.exe` that is a shell of its own, not WSL's launcher:
+/// each WSL distro already has its own profile, and without WSL the
+/// launcher only prints how to install it.
+#[cfg_attr(not(windows), allow(dead_code))]
+fn real_bash(mut found: impl Iterator<Item = PathBuf>) -> Option<PathBuf> {
+    found.find(|p| !crate::winpath::is_wsl_bash(&p.to_string_lossy()))
 }
 
 /// Check a terminal profile from the frontend before `pty_spawn` or
@@ -293,6 +323,47 @@ mod tests {
         assert_eq!(ids(&got), ["shell:bash", "shell:pwsh"]);
         let got = shell_profiles(Some(PathBuf::from("/bin/pwsh")), PROBES, some);
         assert_eq!(ids(&got), ["shell:pwsh", "shell:bash"]);
+    }
+
+    #[test]
+    fn real_bash_skips_wsl_launchers() {
+        let paths = |items: &[&str]| items.iter().map(PathBuf::from).collect::<Vec<_>>().into_iter();
+        // PATH order on a PC with WSL and Git for Windows' bash added.
+        let found = paths(&[
+            r"C:\Windows\System32\bash.exe",
+            r"C:\Users\me\AppData\Local\Microsoft\WindowsApps\bash.exe",
+            r"C:\Program Files\Git\bin\bash.exe",
+            r"C:\msys64\usr\bin\bash.exe",
+        ]);
+        assert_eq!(real_bash(found), Some(PathBuf::from(r"C:\Program Files\Git\bin\bash.exe")));
+        // Only the launcher: no bash profile (the WSL distros have their own).
+        assert_eq!(real_bash(paths(&[r"C:\Windows\System32\bash.exe"])), None);
+        assert_eq!(real_bash(paths(&[])), None);
+    }
+
+    /// Windows' order: PowerShell opens first (one entry for both), then
+    /// Command Prompt, then a bash that isn't WSL's launcher.
+    #[test]
+    fn shell_profiles_on_windows_start_with_powershell() {
+        const WINDOWS: &[(&str, &str, &str)] = &[
+            ("pwsh.exe", "PowerShell", "shell:pwsh"),
+            ("powershell.exe", "PowerShell", "shell:powershell"),
+            ("cmd.exe", "Command Prompt", "shell:cmd"),
+            ("bash.exe", "bash", "shell:bash"),
+        ];
+        let stock = |exe: &str| match exe {
+            "powershell.exe" => Some(PathBuf::from(r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe")),
+            "cmd.exe" => Some(PathBuf::from(r"C:\Windows\System32\cmd.exe")),
+            // What `windows_shell` gives when System32's is the only bash.exe.
+            _ => None,
+        };
+        let got = shell_profiles(None, WINDOWS, stock);
+        assert_eq!(ids(&got), ["shell:powershell", "shell:cmd"]);
+        assert_eq!(got[1].label, "Command Prompt");
+
+        let with_more = |exe: &str| Some(PathBuf::from(format!(r"C:\tools\{exe}")));
+        let got = shell_profiles(None, WINDOWS, with_more);
+        assert_eq!(ids(&got), ["shell:pwsh", "shell:cmd", "shell:bash"]);
     }
 
     #[cfg(not(windows))]

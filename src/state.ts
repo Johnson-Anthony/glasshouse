@@ -205,7 +205,7 @@ export function useTabState(initialPath: string, isPrivate: boolean = false, act
   // Path and history live in one value. navRef is the source of truth for the
   // actions and is updated synchronously, so two navigations in the same tick
   // build on each other; the state copy is what renders.
-  const navRef = useRef<NavState>(seed ? { path: initialPath, back: [...seed.back], forward: [...seed.forward] } : navInit(initialPath));
+  const navRef = useRef<NavState>(seed ? { ...navInit(initialPath), back: [...seed.back], forward: [...seed.forward] } : navInit(initialPath));
   const [nav, setNavState] = useState<NavState>(navRef.current);
   const { path, back: historyBack, forward: historyForward } = nav;
   // Entries, selection, focus and anchor change together; see listing.ts.
@@ -335,7 +335,7 @@ export function useTabState(initialPath: string, isPrivate: boolean = false, act
   }, [path, showHidden, refreshTick, fetchAll]);
 
   useEffect(() => {
-    if (!isPrivate && initialPath) appendRecent(initialPath);
+    if (!isPrivate && initialPath) appendRecent(navInit(initialPath).path);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -400,7 +400,7 @@ export function useTabState(initialPath: string, isPrivate: boolean = false, act
     // Fire-and-forget: keep the recent list warm for File > Open Recent
     // and Bookmarks > RECENT without blocking navigation. Private tabs
     // opt out so the recent list stays clean.
-    if (!isPrivate) void appendRecent(next);
+    if (!isPrivate) void appendRecent(navRef.current.path);
   }, [isPrivate]);
 
   const back = useCallback(() => {

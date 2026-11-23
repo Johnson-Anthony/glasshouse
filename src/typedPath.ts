@@ -62,5 +62,7 @@ export function parseTyped(input: string, cwd: string, home: string | null, win:
     if (!cwd) return { kind: "error", message: `no folder open to find ${t} in` };
     t = ops.joinPath(cwd, t);
   }
-  return { kind: "path", path: ops.collapsePath(t) };
+  // A verbatim path (`\\?\C:\…`, pasted from a tool that prints them)
+  // opens in its plain form.
+  return { kind: "path", path: ops.plainPath(ops.collapsePath(t)) };
 }

@@ -25,6 +25,18 @@ impl Drop for Scratch {
     }
 }
 
+/// `found`, for a test that needs `tool` (tar, git, 7-Zip) and skips itself
+/// without it. A developer's machine may lack the tool; on CI (GitHub sets
+/// `CI`) a missing one fails the test, so a feature never counts as tested
+/// by a test that didn't run.
+pub(crate) fn have_tool(tool: &str, found: bool) -> bool {
+    assert!(
+        found || std::env::var_os("CI").is_none(),
+        "{tool} isn't installed on this CI runner, so this test can't run: add it to the workflow"
+    );
+    found
+}
+
 /// A path as the `String` the commands take.
 pub(crate) fn s(p: &Path) -> String {
     p.to_string_lossy().into_owned()

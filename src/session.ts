@@ -15,7 +15,7 @@
 // them all unsplit. See docs/decisions/2026-11-21-split-and-tear-off-session.md.
 
 import { pathKind } from "./api";
-import { parentPath } from "./paths";
+import { parentPath, plainPath } from "./paths";
 import type { SortDir, SortKey } from "./state";
 import { clampRatio, type SplitDir } from "./tabLayout";
 
@@ -84,7 +84,10 @@ function parseTab(v: unknown): SavedTab | null {
   if (!v || typeof v !== "object") return null;
   const { path, sort, pane } = v as { path?: unknown; sort?: unknown; pane?: unknown };
   if (typeof path !== "string" || !isAbsolute(path)) return null;
-  return pane === 1 ? { path, sort: parseSort(sort), pane: 1 } : { path, sort: parseSort(sort) };
+  // A tab saved at a Windows verbatim path (older builds listed canonical
+  // paths) reopens at the plain one.
+  const at = plainPath(path);
+  return pane === 1 ? { path: at, sort: parseSort(sort), pane: 1 } : { path: at, sort: parseSort(sort) };
 }
 
 function index(v: unknown): number {

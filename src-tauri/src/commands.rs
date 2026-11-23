@@ -27,6 +27,8 @@ pub mod system;
 pub mod trash;
 #[cfg(windows)]
 mod win_open_with;
+#[cfg(windows)]
+mod win_reveal;
 pub mod wsl;
 pub(crate) mod xdg_apps;
 

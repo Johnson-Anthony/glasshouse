@@ -111,6 +111,7 @@ export function resetTagStoreForTests(map: TagMap | null): void {
   loading = map === null ? null : Promise.resolve();
   early = [];
   trashed.length = 0;
+  trashedAs.clear();
   pruning = null;
   emit();
 }
@@ -175,11 +176,21 @@ const trashed: Array<{ item: Trashed; tags: TagMap }> = [];
 const sameItem = (t: Trashed, k: TrashKey) =>
   normalizePath(t.original) === normalizePath(k.original) && t.from <= k.to && k.from <= t.to;
 
+/** The path each trashed item was trashed by, when it isn't the one the
+ *  trash recorded: in a folder reached through a link (or a mapped drive),
+ *  the pane's path for an item goes through the link, and the trash records
+ *  the real folder. The tags are keyed by the pane's path, while a redo of
+ *  Move to Trash and an undo of a restore trash the recorded one. */
+const trashedAs = new Map<string, string>();
+
 /** `op`, a move to the trash, then the item's tags go, kept for a restore. */
 export function trashingTags(op: (path: string) => Promise<Trashed>): (path: string) => Promise<Trashed> {
   return path => tracked(async () => {
     const item = await op(path);
-    const tags = dropTags([path]);
+    const recorded = normalizePath(item.original);
+    if (recorded !== normalizePath(path)) trashedAs.set(recorded, path);
+    const asked = trashedAs.get(normalizePath(path));
+    const tags = dropTags(asked === undefined ? [path] : [path, asked]);
     if (Object.keys(tags).length > 0) trashed.push({ item, tags });
     return item;
   });

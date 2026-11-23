@@ -17,7 +17,7 @@ use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
 use windows::core::{PCWSTR, PWSTR};
-use windows::Win32::Foundation::{ERROR_CONNECTION_UNAVAIL, ERROR_NO_NETWORK};
+use windows::Win32::Foundation::{ERROR_CONNECTION_UNAVAIL, ERROR_NO_NETWORK, NO_ERROR};
 use windows::Win32::NetworkManagement::WNet::WNetGetConnectionW;
 use windows::Win32::Storage::FileSystem::{
     GetDiskFreeSpaceExW, GetDriveTypeW, GetLogicalDrives, GetVolumeInformationW,
@@ -110,6 +110,37 @@ fn worth_asking(root: &str) -> bool {
         }
         _ => true,
     }
+}
+
+/// The mapped network drives that are connected now: each letter (`Z:`) with
+/// the share it stands for (`\\server\share`). The lookup is local, with no
+/// network access. For `winpath::saved_form`.
+pub(crate) fn mapped_shares() -> Vec<(String, String)> {
+    let mask = unsafe { GetLogicalDrives() };
+    let mut out = Vec::new();
+    for i in 0..26u8 {
+        if (mask >> i) & 1 == 0 {
+            continue;
+        }
+        let letter = format!("{}:", (b'A' + i) as char);
+        let root_w = wide(&format!("{letter}\\"));
+        if unsafe { GetDriveTypeW(PCWSTR(root_w.as_ptr())) } != DRIVE_REMOTE {
+            continue;
+        }
+        let local = wide(&letter);
+        let mut remote = [0u16; 1024];
+        let mut len = remote.len() as u32;
+        let r = unsafe { WNetGetConnectionW(PCWSTR(local.as_ptr()), PWSTR(remote.as_mut_ptr()), &mut len) };
+        if r != NO_ERROR {
+            continue;
+        }
+        let end = remote.iter().position(|&c| c == 0).unwrap_or(0);
+        let share = String::from_utf16_lossy(&remote[..end]);
+        if share.starts_with(r"\\") {
+            out.push((letter, share));
+        }
+    }
+    out
 }
 
 /// A drive's size, label and file system; `None` when its size can't be read

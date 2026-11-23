@@ -19,6 +19,7 @@ mod tab_drag;
 mod update;
 mod watcher;
 mod window_fit;
+mod winpath;
 
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
