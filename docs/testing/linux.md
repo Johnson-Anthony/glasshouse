@@ -4,7 +4,7 @@ For a release package on a real login, not a nested or headless session. [README
 
 **Where to run it.** Cover at least:
 - **Packages (L1–L2, L12):** Ubuntu 22.04 and Debian 12, the oldest releases the packages support, on x86-64 and, if you can, arm64.
-- **Desktops (L3–L11, L13):** GNOME on Wayland, KDE Plasma on Wayland, and one X11 session (Xfce, Cinnamon or MATE, or GNOME's or Plasma's X11 session where the release still has one).
+- **Desktops (L3–L11, L13, L14):** GNOME on Wayland, KDE Plasma on Wayland, and one X11 session (Xfce, Cinnamon or MATE, or GNOME's or Plasma's X11 session where the release still has one).
 - **Open and save dialogs (L7):** a release with xdg-desktop-portal 1.17 or newer, such as Ubuntu 24.04, Debian 13 or a current Fedora, plus Debian 12 or Ubuntu 22.04 to check that the switch stays off there.
 
 Note before you start: the distribution and release, the processor (`uname -m`), the desktop and session (`echo $XDG_CURRENT_DESKTOP $XDG_SESSION_TYPE`), the display scale, the portal's version (`/usr/libexec/xdg-desktop-portal --version`; the path varies), and for the .deb the WebKitGTK version (`dpkg -s libwebkit2gtk-4.1-0 | grep Version`).
@@ -157,3 +157,27 @@ Every glasshouse window is in one process, as a browser's are. `pgrep -a glassho
 - [ ] **L13.8** **Shared settings:** two windows. Change the theme and the zoom in one → the other follows at once. Pin a folder, tag a file and add a remote in one → the other's sidebar shows them.
 - [ ] **L13.9** A terminal open in each of two windows. Close one window → its shell ends (`pgrep -a bash` or your shell), and the other window's terminal keeps working. A long copy with the progress tray in one window → the other window's tray doesn't show it.
 - [ ] **L13.10** Move tabs between three windows (L9.11, L9.12), then Ctrl+Q and start → every tab comes back in the window it was moved to, once, and the private ones don't come back.
+
+## L14. Screen reader (Orca) and keyboard only
+
+Orca on GNOME (Super+Alt+S turns it on and off) or `orca` in a terminal elsewhere; note Orca's and WebKitGTK's versions. WebKitGTK builds its own accessibility tree, and no automated check reads it: CI checks Chromium's tree for the same pages (`pnpm site:capture a11y`), so what's read here is the first real test on Linux. Use a folder of a few thousand files for L14.3.
+
+- [ ] **L14.1** Start glasshouse with the screen reader running → it says the window, then the file list ("Files in <folder>", a grid or table) and the first row. No click is needed first.
+- [ ] **L14.2** ↓ and ↑ in the file list → each row is read: its kind for a folder, name, size and date, and "selected". Shift+↓ → the added row is read as selected. Ctrl+A → no long silence or freeze in a folder of a few thousand files.
+- [ ] **L14.3** A folder of a few thousand files: End, Home, Page Down → the row landed on is read each time, with its place ("row 3,000 of 3,001" or the like), not a wrong row or nothing.
+- [ ] **L14.4** Enter on a folder → "<folder>: N items" is said, then rows read as before. Backspace or Alt+↑ → the parent is said the same way.
+- [ ] **L14.5** Home, then ↑ → the focus goes to a column header, read with its sort ("name, sorted ascending"). ← and → read the other headers. Enter → "sorted by …, descending" and the header's sort changes. ↓ → back in the rows.
+- [ ] **L14.6** Ctrl+3 (Icons), Ctrl+4 (Tiles), Ctrl+5 (Grid) → the list is read as a list of items; each item's name, ", folder" for a folder, and "selected". Ctrl+1 goes back.
+- [ ] **L14.7** Ctrl+T twice, then Ctrl+Tab → the tab shown is said. Ctrl+\\ (split) → the focus is still in a file list, named "…, pane 1" or "pane 2"; Ctrl+F6 moves to the other and says its name.
+- [ ] **L14.8** F2 → "rename" dialog, its question and the field are read; typing works; Esc closes it and the focus is back on the same row. An empty name and Enter → the error is read at once.
+- [ ] **L14.9** Shift+Delete → the question is read without moving ("Permanently delete 1 item?"), the focus is on a button, Tab stays inside the dialog (it never reaches the file list behind), Esc cancels.
+- [ ] **L14.10** Ctrl+P → "Command palette", an edit field; ↓ reads each command with its shortcut; typing filters and the number of results is said; Esc gives the focus back to the file list.
+- [ ] **L14.11** Ctrl+, → "preferences" dialog. Tab reaches the filter, the categories and the settings; a category reads as current; a filter with no match says "No settings match …". Help → About and Help → Keybindings Cheatsheet read as dialogs with names.
+- [ ] **L14.12** Copy a file (Ctrl+C, Ctrl+V in another folder), then delete it → each toast (what was copied, what went to the trash) is read once, without the focus moving.
+- [ ] **L14.13** With the screen reader's own navigation (Orca's flat review, or structural navigation where it's on): the tab bar reads as tabs with "Close tab <name>" buttons and a "New tab" button; the window buttons read "Minimize", "Maximize" or "Restore", "Close"; the toolbar's buttons and the breadcrumb ("Folder path") have names in words; no control is read as a lone symbol. Note any that is.
+- [ ] **L14.14** The same way, in the Inspector (View → Inspector, a file selected): "edit permissions" is a button; after it, each permission is a checkbox that Space toggles; "apply" and "cancel" are buttons.
+- [ ] **L14.15** Keyboard only, no screen reader: after any dialog, the palette, a menu (Alt, Esc) or a split, ↓ moves in the file list at once. Note any step after which the arrow keys do nothing until a click.
+- [ ] **L14.16** Known gaps, to note but not report: Tab moves between the sidebar, the file lists and the terminal, so the toolbar, the Inspector and the status bar are reached with the screen reader's own navigation, not Tab; the sidebar's rows have no tree roles yet; Miller Columns' side columns and the terminal's text aren't read.
+- [ ] **L14.17** A German or Nordic keyboard layout (Settings → Keyboard): Ctrl+# (German: the key left of Enter) or Ctrl+' (Nordic) → the view splits, as Ctrl+\\ does on a US layout. Ctrl+AltGr+ß or Ctrl+AltGr++ may or may not; the menu item always does.
+- [ ] **L14.18** Settings → Accessibility → High Contrast, with glasshouse's theme on System → a high-contrast theme is used; the focused row, the selected rows and the focused tab are each clearly marked.
+- [ ] **L14.19** Settings → Accessibility → Reduce Animation, with Preferences → effects → motion on "system" → menus and dialogs appear at once, with no fade or slide.

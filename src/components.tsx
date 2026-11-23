@@ -19,6 +19,7 @@ import { isContextMenuKey, TypeAhead, typeAheadMatch, type MenuAnchor } from "./
 import { LOOK_APPLIED, type Density, type LookState } from "./look";
 import type { StatusItem } from "./statusItems";
 import { announce } from "./announce";
+import { useDialogPanel } from "./dialogs/dialogPanel";
 
 // ============= Titlebar =============
 export interface TabDef {
@@ -365,6 +366,8 @@ export interface FilePaneProps {
    *  dropping into another app. `copy`: Ctrl was held as it left. */
   onDragOut?: (sourceOrigIndices: number[], copy: boolean) => void;
   paneRootRef?: React.Ref<HTMLElement>;
+  /** In split view, which pane this is ("pane 2"): the end of the list's name. */
+  paneName?: string;
   /** The pane's folder: a drop on the pane outside a folder row goes here. */
   dropPath?: string;
   onActivate?: () => void;
@@ -482,7 +485,7 @@ const PaneRow = React.memo(function PaneRow({
       <span className="tag c-tag" role={cell}>
         {f.tag ? <><span className="dot" style={{background: tagColor(f.tag)}}></span>{f.tag}</> : <span aria-hidden="true" style={{color:"var(--fg-4)"}}>—</span>}
       </span>
-      <span className="size c-size" role={cell}>{f.size}</span>
+      <span className="size c-size" role={cell}>{f.size === "—" ? <span aria-hidden="true">—</span> : f.size}</span>
       <span className="date c-date" role={cell}>{f.date}</span>
       <span className="tag c-git" role={cell} aria-label={showGitGutters && f.git ? GIT_WORDS[f.git] : undefined} style={{textAlign:"right"}}>
         {!showGitGutters ? <span aria-hidden="true" style={{color:"var(--fg-4)"}}>—</span>
@@ -526,6 +529,7 @@ export function FilePane({
   onExternalDrag,
   onDragOut,
   paneRootRef,
+  paneName,
   dropPath,
   onActivate,
   cutPaths,
@@ -1181,7 +1185,7 @@ export function FilePane({
       ref={paneRef}
       className={"pane" + (paneFocused ? " pane-focused" : "")}
       role={card ? "listbox" : "grid"}
-      aria-label={folder ? `Files in ${folder}` : "Files"}
+      aria-label={(folder ? `Files in ${folder}` : "Files") + (paneName ? `, ${paneName}` : "")}
       aria-multiselectable="true"
       aria-rowcount={card ? undefined : displayFiles.length + headRows}
       aria-activedescendant={activeId}
@@ -1289,6 +1293,9 @@ export function Palette({ onClose, onCommand }: PaletteProps) {
   const rows = useMemo(() => searchPalette(q), [q]);
   const browsing = !q.trim();
 
+  // A dialog to a screen reader, and the focus goes back to what had it
+  // (the file list) when the palette closes.
+  const dlg = useDialogPanel("Command palette");
   useEffect(() => { inputRef.current?.focus(); }, []);
   useEffect(() => { setIdx(0); }, [q]);
   useEffect(() => {
@@ -1316,7 +1323,7 @@ export function Palette({ onClose, onCommand }: PaletteProps) {
 
   return (
     <div className="palette-overlay" onClick={onClose}>
-      <div className="palette" role="dialog" aria-modal="true" aria-label="Command palette" onClick={(e) => e.stopPropagation()} onKeyDown={onKey}>
+      <div className="palette" {...dlg} onClick={(e) => e.stopPropagation()} onKeyDown={onKey}>
         <div className="palette-head">
           <span className="prefix" aria-hidden="true">❯</span>
           <input ref={inputRef} value={q} onChange={(e) => setQ(e.target.value)} placeholder={PALETTE_PLACEHOLDER}

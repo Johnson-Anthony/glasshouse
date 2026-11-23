@@ -404,6 +404,14 @@ export function App() {
   } = tabLayout;
   const tabMoves = useTabMoves(tabLayout);
   const split = isSplit(layout);
+  // The file list has the focus when the window opens, and gets it back when
+  // splitting (or closing the split) rebuilds the panes' elements: the arrow
+  // keys, and a screen reader, start in the list and stay in it.
+  useEffect(() => {
+    const at = document.activeElement;
+    if (focusedPane === "files" && (!at || at === document.body)) paneRootRefs[layout.focus]?.current?.focus({ preventScroll: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [split]);
   const [folderPicker, setFolderPicker] = useState<{
     initialPath?: string;
     title?: string;
@@ -1116,6 +1124,7 @@ export function App() {
         error={handle?.state.error ?? null}
         loading={handle?.state.loading ?? false}
         paneRootRef={paneRootRefs[p]}
+        paneName={split ? `pane ${p + 1}` : undefined}
         dropPath={handle?.state.path}
         onActivate={() => { setFocusedPane("files"); tabLayout.focusPane(p); }}
         millerKeys={miller}

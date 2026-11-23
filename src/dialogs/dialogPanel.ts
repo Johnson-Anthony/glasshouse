@@ -23,8 +23,15 @@ export function tabStops(root: HTMLElement): HTMLElement[] {
     el.tabIndex >= 0 && !el.closest("[hidden], [inert]") && (typeof el.checkVisibility !== "function" || el.checkVisibility()));
 }
 
+interface Held {
+  el: HTMLElement;
+  /** What had the focus when the panel opened. */
+  prev: HTMLElement | null;
+  off: () => void;
+}
+
 // Open panels, the topmost last.
-const stack: HTMLElement[] = [];
+const stack: Held[] = [];
 
 /** Keeps a Tab press inside `panel`; true when it moved the focus itself. */
 export function trapTab(panel: HTMLElement, e: Pick<KeyboardEvent, "key" | "shiftKey" | "ctrlKey" | "altKey" | "metaKey" | "preventDefault">, active: Element | null = document.activeElement): boolean {
@@ -43,44 +50,51 @@ export function trapTab(panel: HTMLElement, e: Pick<KeyboardEvent, "key" | "shif
   return true;
 }
 
-interface Held {
-  el: HTMLElement;
-  prev: HTMLElement | null;
-  off: () => void;
-}
-
 function open(el: HTMLElement): Held {
   const prev = document.activeElement instanceof HTMLElement && document.activeElement !== document.body ? document.activeElement : null;
-  stack.push(el);
-  const top = () => stack[stack.length - 1] === el;
+  const top = () => stack[stack.length - 1]?.el === el;
   const onKey = (e: KeyboardEvent) => {
     if (top() && !e.defaultPrevented) trapTab(el, e);
   };
-  // The net under the trap: focus that still lands outside (a click on the
-  // backdrop's far side, a radio group's own Tab order) comes back.
+  // The net under the trap: focus that still lands outside (the app putting
+  // it back on the file list, a radio group's own Tab order) comes back to
+  // the control that had it.
+  let last: HTMLElement | null = null;
   const onFocusIn = (e: FocusEvent) => {
-    if (!top() || !(e.target instanceof Node) || el.contains(e.target)) return;
-    (tabStops(el)[0] ?? el).focus();
+    if (!top() || !(e.target instanceof HTMLElement)) return;
+    if (el.contains(e.target)) {
+      last = e.target;
+      return;
+    }
+    (last && last !== el && el.contains(last) ? last : tabStops(el)[0] ?? el).focus();
   };
   window.addEventListener("keydown", onKey);
   document.addEventListener("focusin", onFocusIn);
-  if (!el.contains(document.activeElement)) el.focus({ preventScroll: true });
-  return {
+  const held: Held = {
     el,
     prev,
     off: () => {
       window.removeEventListener("keydown", onKey);
       document.removeEventListener("focusin", onFocusIn);
-      const i = stack.lastIndexOf(el);
-      if (i >= 0) stack.splice(i, 1);
     },
   };
+  stack.push(held);
+  if (!el.contains(document.activeElement)) el.focus({ preventScroll: true });
+  return held;
 }
 
 function close(h: Held): void {
   h.off();
-  // Back to what had the focus, unless the dialog's own action already
-  // moved it somewhere outside.
+  const i = stack.lastIndexOf(h);
+  if (i >= 0) stack.splice(i, 1);
+  // A dialog opened from this one, and still open, would give the focus back
+  // to a control that is leaving with this panel: it takes this one's place
+  // in line instead.
+  for (const above of stack.slice(Math.max(i, 0))) {
+    if (above.prev && h.el.contains(above.prev)) above.prev = h.prev;
+  }
+  // Back to what had the focus, unless it's already somewhere else (in that
+  // dialog on top).
   const at = document.activeElement;
   if (h.prev?.isConnected && (!at || at === document.body || h.el.contains(at))) h.prev.focus({ preventScroll: true });
 }

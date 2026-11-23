@@ -137,7 +137,7 @@ export function PreferencesDialog({ open, state, setState, onClose, onCheckUpdat
         onClick={e => e.stopPropagation()}
       >
         <div className="prefs-head">
-          <span id="prefs-title">⚙ preferences</span>
+          <span id="prefs-title"><span aria-hidden="true">⚙ </span>preferences</span>
           <input
             type="search"
             className="prefs-filter"

@@ -260,7 +260,7 @@ export function Inspector({ file, onQuickAction, onExpand }: InspectorProps) {
 
   if (!file) {
     return (
-      <aside className="inspector">
+      <aside className="inspector" aria-label="Inspector">
         <div className="insp-hero">
           <div className="insp-preview"><div className="ghost">no selection</div></div>
           <div className="insp-title">—</div>
@@ -292,7 +292,7 @@ export function Inspector({ file, onQuickAction, onExpand }: InspectorProps) {
         : "—";
 
   return (
-    <aside className="inspector">
+    <aside className="inspector" aria-label="Inspector">
       <div className="insp-hero">
         <div className="insp-preview">
           <FilePreview file={f} onExpand={onExpand} />

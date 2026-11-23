@@ -2,14 +2,15 @@
 
 CI checks a lot, but not everything. These lists are the rest: what needs a real desktop, a real installer, another app or a person looking.
 
-- [windows.md](windows.md): both installers, the native pickers, drag and drop with Explorer, tabs dragged between windows, keyboard menus, Snap at 150%, terminal profiles including WSL, Reveal, the Recycle Bin, the folder setting, several windows and a second launch.
-- [linux.md](linux.md): the .deb and the AppImage on Ubuntu 22.04 and Debian 12, GNOME and KDE on Wayland and one X11 desktop, the portal and GTK pickers, the open and save dialog switch, drag and drop with Nautilus and Dolphin, tabs dragged between windows, fractional scaling, Reveal, default apps, the trash, several windows and a second launch.
+- [windows.md](windows.md): both installers, the native pickers, drag and drop with Explorer, tabs dragged between windows, keyboard menus, Snap at 150%, terminal profiles including WSL, Reveal, the Recycle Bin, the folder setting, several windows and a second launch, NVDA and Narrator.
+- [linux.md](linux.md): the .deb and the AppImage on Ubuntu 22.04 and Debian 12, GNOME and KDE on Wayland and one X11 desktop, the portal and GTK pickers, the open and save dialog switch, drag and drop with Nautilus and Dolphin, tabs dragged between windows, fractional scaling, Reveal, default apps, the trash, several windows and a second launch, Orca.
 
 ## What CI already covers
 
 - **Unit tests:** `pnpm test` (the frontend) and `cargo test` (the backend) on Linux, Windows x64 and Windows on Arm.
 - **End-to-end smoke test** (`e2e/`, on ubuntu-22.04 under Xvfb and on windows-latest, with debug builds): the window opens with no error and fits the screen, a path typed into Go to Path lists, the sidebar shows the drives and known folders, a first run pins the known folders (Linux only), split view, a second window in the same process and Move to New Window work, and nothing throws.
 - **Installers job** (windows-latest, debug builds): installs the setup.exe and the MSI silently, turns "Open folders with glasshouse" on, uninstalls, and checks that the registry is clean.
+- **Accessibility:** the unit tests check roles, names and key paths, and the site job reads the accessibility tree headless Chromium builds for the demo (`pnpm site:capture a11y`). No screen reader runs in CI, and nothing reads WebKitGTK's tree.
 - **Integration and dialogs** were run on a private D-Bus with scratch home folders, never in a real login ([docs/INTEGRATION.md](../INTEGRATION.md#what-was-tested)).
 
 So nothing in CI uses a real desktop session, a display scale other than 100%, another app's drag and drop, an interactive installer, an upgrade from an older release or a release build on Windows.

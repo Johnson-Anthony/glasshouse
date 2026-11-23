@@ -581,12 +581,12 @@ export function FilePreview({ file: f, large = false, onExpand }: FilePreviewPro
       {badge && <div className="pv-badge">{badge}</div>}
       <div className="pv-tools">
         {showTextTools && (
-          <button className={wrap ? "on" : ""} title="toggle line wrap" onClick={toggleWrap}>↩</button>
+          <button className={wrap ? "on" : ""} title="toggle line wrap" aria-label="Wrap lines" aria-pressed={wrap} onClick={toggleWrap}>↩</button>
         )}
         {showTextTools && (
-          <button title="copy preview text" onClick={copyText}>{copied ? "✓" : "⧉"}</button>
+          <button title="copy preview text" aria-label={copied ? "Copied" : "Copy the preview text"} onClick={copyText}>{copied ? "✓" : "⧉"}</button>
         )}
-        {onExpand && <button title="quick look (Space)" onClick={onExpand}>⛶</button>}
+        {onExpand && <button title="quick look (Space)" aria-label="Quick Look" onClick={onExpand}>⛶</button>}
       </div>
     </div>
   );
@@ -604,7 +604,7 @@ export function QuickLook({ file, onClose }: { file: InspectableFile; onClose: (
           <span className={"ql-ic " + ki.cls}>{ki.ic}</span>
           <span className="ql-name" title={file.entry.path}>{displayName}</span>
           <span className="ql-meta">{file.size}{file.date ? ` · ${file.date}` : ""}</span>
-          <button className="ql-close" title="close (Esc)" onClick={onClose}>✕</button>
+          <button className="ql-close" title="close (Esc)" aria-label="Close Quick Look" onClick={onClose}>✕</button>
         </div>
         <div className="ql-body">
           <FilePreview file={file} large />

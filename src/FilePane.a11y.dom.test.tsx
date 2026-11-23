@@ -50,12 +50,12 @@ interface S {
 }
 let set: (f: (s: S) => S) => void;
 let current: () => S;
-function Host({ files, path }: { files: Row[]; path: string }) {
+function Host({ files, path, paneName }: { files: Row[]; path: string; paneName?: string }) {
   const [s, setS] = useState<S>({ files, path, selected: [], focus: 0, anchor: 0, sortKey: "name", sortDir: "asc", loading: false, error: null });
   set = setS;
   current = () => s;
   return (
-    <FilePane files={s.files} dropPath={s.path} loading={s.loading} error={s.error}
+    <FilePane files={s.files} dropPath={s.path} paneName={paneName} loading={s.loading} error={s.error}
       selected={s.selected} setSelected={sel => setS(p => ({ ...p, selected: sel }))}
       focusIndex={s.focus} setFocusIndex={i => setS(p => ({ ...p, focus: i }))}
       anchorIndex={s.anchor} setAnchorIndex={i => setS(p => ({ ...p, anchor: i }))}
@@ -215,10 +215,11 @@ describe("the list modes: a grid", () => {
     expect(active()).toBe(rows()[0]);
   });
 
-  it("keeps ids apart between two panes", () => {
-    act(() => root.render(<><Host files={make(2)} path="/a" /><Host files={make(2)} path="/b" /></>));
+  it("keeps ids apart between two panes, and names each", () => {
+    act(() => root.render(<><Host files={make(2)} path="/a" paneName="pane 1" /><Host files={make(2)} path="/a" paneName="pane 2" /></>));
     const ids = [...host.querySelectorAll(".row")].map(r => r.id);
     expect(new Set(ids).size).toBe(4);
+    expect([...host.querySelectorAll(".pane")].map(p => p.getAttribute("aria-label"))).toEqual(["Files in a, pane 1", "Files in a, pane 2"]);
   });
 });
 

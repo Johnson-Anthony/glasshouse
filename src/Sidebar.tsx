@@ -1035,6 +1035,7 @@ export function Sidebar({ activePath, onGoTo, onOpenFile, onRowContext, pins, on
     <aside
       ref={sidebarRef}
       className="sidebar"
+      aria-label="Sidebar"
       tabIndex={-1}
       onMouseDown={() => { if (onActivate) onActivate(); }}
       onFocus={() => { if (onActivate) onActivate(); }}

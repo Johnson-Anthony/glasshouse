@@ -9,6 +9,9 @@
 //   pnpm site:capture page <dir> screenshots of the landing page itself, for
 //                                review (desktop and phone), saved to <dir>
 //   pnpm site:capture check      behavior checks of the landing page
+//   pnpm site:capture a11y       checks of the demo's accessibility tree (what
+//                                a screen reader is given); `a11y dump [keys]`
+//                                prints the tree, after pressing the keys
 //   pnpm site:capture themes <dir> the demo in some of the themes and looks
 //                                (Preferences → presets), for review, saved
 //                                to <dir>
@@ -501,6 +504,242 @@ async function checkPage(cdp, base) {
   if (results.some(r => !r.pass)) process.exitCode = 1;
 }
 
+// ---- the app's accessibility tree ----
+// What a screen reader is given, which the DOM tests can't see: the roles and
+// names the browser computes, and the node the focus names. Read from the
+// built demo over the DevTools protocol. Chromium's tree is also WebView2's
+// (the app on Windows); WebKitGTK builds its own, which this doesn't check.
+async function axTree(cdp) {
+  const { nodes } = await cdp.send("Accessibility.getFullAXTree");
+  const byId = new Map(nodes.map(n => [n.nodeId, n]));
+  const prop = (n, name) => n.properties?.find(p => p.name === name)?.value;
+  const wrap = n => ({
+    role: n.role?.value ?? "",
+    name: n.name?.value ?? "",
+    description: n.description?.value ?? "",
+    dom: n.backendDOMNodeId,
+    is: name => String(prop(n, name)?.value) === "true",
+    value: name => prop(n, name)?.value,
+    /** The DOM nodes a relation (activedescendant, controls) points at. */
+    points: name => (prop(n, name)?.relatedNodes ?? []).map(r => r.backendDOMNodeId),
+    /** Descendants with one of these roles, through the nodes the tree leaves out. */
+    find: (...roles) => {
+      const out = [];
+      const walk = id => {
+        for (const c of byId.get(id)?.childIds ?? []) {
+          const kid = byId.get(c);
+          if (!kid) continue;
+          if (!kid.ignored && roles.includes(kid.role?.value)) out.push(wrap(kid));
+          walk(c);
+        }
+      };
+      walk(n.nodeId);
+      return out;
+    },
+  });
+  const all = nodes.filter(n => !n.ignored).map(wrap);
+  const outline = () => {
+    const lines = [];
+    const SKIP = new Set(["generic", "none", "StaticText", "InlineTextBox", "LineBreak"]);
+    const walk = (id, depth) => {
+      const n = byId.get(id);
+      if (!n) return;
+      const shown = !n.ignored && !SKIP.has(n.role?.value);
+      if (shown) {
+        const w = wrap(n);
+        const flags = ["focused", "selected", "modal", "multiselectable", "expanded", "disabled"].filter(f => w.is(f));
+        for (const rel of ["activedescendant", "controls"]) if (w.points(rel).length) flags.push(`${rel}→${w.points(rel).join(",")}`);
+        if (w.value("live")) flags.push(`live=${w.value("live")}`);
+        lines.push(`${"  ".repeat(depth)}${w.role} ${JSON.stringify(w.name)}${w.description ? ` (${w.description})` : ""}${flags.length ? ` [${flags.join(" ")}]` : ""} #${w.dom}`);
+      }
+      for (const c of n.childIds ?? []) walk(c, depth + (shown ? 1 : 0));
+    };
+    walk(nodes[0].nodeId, 0);
+    return lines.join("\n");
+  };
+  return {
+    all,
+    role: (...roles) => all.filter(n => roles.includes(n.role)),
+    focused: all.find(n => n.is("focused") && n.role !== "RootWebArea"),
+    byDom: id => all.find(n => n.dom === id),
+    outline,
+  };
+}
+
+const VK = { ArrowDown: 40, ArrowUp: 38, ArrowLeft: 37, ArrowRight: 39, Escape: 27, Enter: 13, Delete: 46, Home: 36, End: 35, F2: 113, " ": 32, ",": 188, "\\": 220 };
+const CODE = { " ": "Space", ",": "Comma", "\\": "Backslash" };
+async function press(cdp, key, { ctrl = false, shift = false } = {}) {
+  const letter = key.length === 1 && !(key in VK);
+  const ev = {
+    key,
+    code: CODE[key] ?? (letter ? (/[0-9]/.test(key) ? `Digit${key}` : `Key${key.toUpperCase()}`) : key),
+    windowsVirtualKeyCode: letter ? key.toUpperCase().charCodeAt(0) : VK[key],
+    modifiers: (ctrl ? 2 : 0) | (shift ? 8 : 0),
+  };
+  await cdp.send("Input.dispatchKeyEvent", { type: "rawKeyDown", ...ev });
+  await cdp.send("Input.dispatchKeyEvent", { type: "keyUp", ...ev });
+  await sleep(150);
+}
+
+/** "ctrl+shift+P" as a key and its modifiers. */
+function combo(text) {
+  const parts = text.split("+");
+  const key = parts.pop() || "+";
+  const mods = parts.map(p => p.toLowerCase());
+  return [key === "Space" ? " " : key, { ctrl: mods.includes("ctrl"), shift: mods.includes("shift") }];
+}
+
+/** `pnpm site:capture a11y`: checks of the tree. `a11y dump [keys…]` prints
+ *  it instead, after pressing the keys (`a11y dump F2`, `a11y dump ctrl+p`). */
+async function checkA11y(cdp, base, dump) {
+  const results = [];
+  const ok = (name, pass, detail = "") => { results.push({ name, pass: !!pass, detail }); };
+  await cdp.send("Emulation.setDeviceMetricsOverride", { width: W, height: H, deviceScaleFactor: 1, mobile: false });
+  await load(cdp, `${base}demo/`);
+  await cdp.send("Accessibility.enable");
+  await press(cdp, "ArrowDown");
+  if (dump) {
+    for (const k of dump) await press(cdp, ...combo(k));
+    console.log((await axTree(cdp)).outline());
+    return;
+  }
+
+  // The tree once `pass` holds for it: what a key starts takes a moment.
+  const when = async pass => {
+    let tree = await axTree(cdp);
+    for (let i = 0; i < 20 && !pass(tree); i++) {
+      await sleep(150);
+      tree = await axTree(cdp);
+    }
+    return tree;
+  };
+  const fileRows = list => (list?.find("row") ?? []).filter(r => r.find("gridcell").length > 0);
+  const active = (tree, of) => tree.byDom(of?.points("activedescendant")[0]);
+  const onList = tree => tree.focused?.role === "grid";
+
+  // The file list. No click and no focus() came first: the list has the
+  // focus from the start, or the first Down wouldn't have selected a row.
+  let t = await when(tree => active(tree, tree.role("grid")[0]));
+  let list = t.role("grid")[0];
+  ok("the file list is a multi-select grid named for its folder", list && /^Files in \S/.test(list.name) && list.is("multiselectable"), list?.name);
+  const heads = list?.find("columnheader") ?? [];
+  ok("its header is a row of named column headers", heads.length >= 4 && heads.every(h => h.name), heads.map(h => h.name).join(", "));
+  let rows = fileRows(list);
+  ok("each file is a row of cells, named from them, with no placeholder dash read out",
+    rows.length > 0 && rows.every(r => r.find("gridcell").length >= 4 && /\w/.test(r.name) && !r.name.includes("—")), rows[0]?.name);
+  const first = active(t, list);
+  ok("the focus is on the grid from the start, and the grid names the focused row", t.focused?.dom === list?.dom && first?.role === "row" && first.is("selected"), first?.name);
+  await press(cdp, "ArrowDown");
+  t = await when(tree => active(tree, tree.role("grid")[0])?.dom !== first?.dom);
+  list = t.role("grid")[0];
+  rows = fileRows(list);
+  ok("Down names the next row, the only one selected",
+    active(t, list)?.role === "row" && active(t, list).dom !== first?.dom && active(t, list).is("selected") && rows.filter(r => r.is("selected")).length === 1, active(t, list)?.name);
+
+  // Column headers.
+  await press(cdp, "Home");
+  await press(cdp, "ArrowUp");
+  t = await when(tree => tree.focused?.role === "columnheader");
+  ok("Up from the first row puts the focus on a column header", t.focused?.role === "columnheader", `${t.focused?.role} ${JSON.stringify(t.focused?.name)}`);
+  const sort = () => evaluate(cdp, `document.activeElement?.getAttribute("aria-sort") ?? ""`);
+  const sortWas = await sort();
+  await press(cdp, "Enter");
+  const sortNow = await sort();
+  ok("Enter on it sorts the other way, and the header says which", ["ascending", "descending"].includes(sortWas) && ["ascending", "descending"].includes(sortNow) && sortWas !== sortNow, `${sortWas} → ${sortNow}`);
+  await press(cdp, "Enter");
+  await press(cdp, "ArrowDown");
+  t = await when(onList);
+  list = t.role("grid")[0];
+  ok("Down goes back to the rows", t.focused?.dom === list?.dom && active(t, list)?.role === "row", t.focused?.role);
+
+  // Another folder.
+  const nameWas = list?.name;
+  await press(cdp, "Enter");
+  t = await when(tree => tree.role("grid")[0] && tree.role("grid")[0].name !== nameWas);
+  list = t.role("grid")[0];
+  await sleep(200);
+  const said = await evaluate(cdp, `document.querySelector("[data-announce]")?.textContent ?? ""`);
+  ok("opening a folder renames the grid and says what's listed", /^Files in \S/.test(list?.name ?? "") && list.name !== nameWas && /: (\d+ items|1 item|empty)$/.test(said), `${list?.name}; said ${JSON.stringify(said)}`);
+  ok("the grid names no row that isn't in the page",
+    await evaluate(cdp, `(() => { const id = document.querySelector(".pane").getAttribute("aria-activedescendant"); return !id || !!document.getElementById(id); })()`));
+  const live = t.role("status").filter(s => s.value("live") === "polite");
+  ok("toasts and announcements each have a polite live region", live.length >= 2, `${live.length}`);
+
+  // Dialogs.
+  await press(cdp, "ArrowDown");
+  await press(cdp, "F2");
+  t = await when(tree => tree.role("dialog").length > 0 && tree.focused?.role === "textbox");
+  let dlg = t.role("dialog")[0];
+  ok("Rename is a modal dialog with a name, its message read, the focus in its named field",
+    dlg?.is("modal") && dlg.name && dlg.description && t.focused?.role === "textbox" && t.focused.name && dlg.find("textbox").some(x => x.dom === t.focused.dom),
+    `${dlg?.name}: ${dlg?.description}`);
+  ok("its close button has a name", dlg?.find("button").some(b => b.name === "Close"));
+  await press(cdp, "Escape");
+  t = await when(onList);
+  ok("Escape closes the dialog and the focus goes back to the file list", t.role("dialog").length === 0 && onList(t), t.focused?.role);
+  await press(cdp, "Delete", { shift: true });
+  t = await when(tree => tree.role("alertdialog").length > 0 && tree.focused?.role === "button");
+  dlg = t.role("alertdialog")[0];
+  ok("Delete Permanently asks in an alert dialog that reads its question", dlg?.is("modal") && dlg.name && dlg.description && dlg.find("button").some(b => b.dom === t.focused?.dom), `${dlg?.name}: ${dlg?.description}`);
+  await press(cdp, "Escape");
+  await when(onList);
+  await press(cdp, ",", { ctrl: true });
+  t = await when(tree => tree.role("dialog").length > 0);
+  dlg = t.role("dialog")[0];
+  ok("Preferences is a modal dialog named in words", dlg?.is("modal") && dlg.name === "preferences" && dlg.find("navigation").length === 1, dlg?.name);
+  await press(cdp, "Escape");
+  await when(onList);
+
+  // The palette.
+  await press(cdp, "p", { ctrl: true });
+  t = await when(tree => tree.focused?.role === "combobox");
+  const box = t.focused;
+  const option = active(t, box);
+  ok("the palette is a combobox over a listbox, the highlighted command its active option",
+    box?.role === "combobox" && box.name && t.byDom(box.points("controls")[0])?.role === "listbox" && option?.role === "option" && option.is("selected"), option?.name);
+  await press(cdp, "Escape");
+  t = await when(onList);
+  ok("Escape closes the palette and the focus goes back to the file list", t.role("combobox").length === 0 && onList(t), t.focused?.role);
+
+  // A card mode.
+  await press(cdp, "3", { ctrl: true });
+  const cardList = tree => tree.role("listbox").find(l => l.name.startsWith("Files in "));
+  t = await when(cardList);
+  const cards = cardList(t);
+  ok("Icons is a listbox of options, the focused one named by the list",
+    cards && t.role("grid").length === 0 && t.focused?.dom === cards.dom && cards.find("option").length > 1 && active(t, cards)?.role === "option" && active(t, cards).is("selected"), active(t, cards)?.name);
+  await press(cdp, "1", { ctrl: true });
+  await when(onList);
+
+  // Tabs, the toolbar and the window buttons. A click from a script moves no
+  // focus, so the list still has it afterwards.
+  await evaluate(cdp, `document.querySelector(".tab-btn").click(), true`);
+  t = await when(tree => (tree.role("tablist")[0]?.find("tab").length ?? 0) === 2);
+  const bar = t.role("tablist")[0];
+  const tabs = bar?.find("tab") ?? [];
+  ok("the tab bar is a tablist with one selected tab", bar?.name === "Tabs" && tabs.length === 2 && tabs.filter(x => x.is("selected")).length === 1, tabs.map(x => x.name).join(" | "));
+  ok("each tab has a named close button beside it", bar?.find("button").length === 2 && bar.find("button").every(b => b.name.startsWith("Close tab ")));
+  const buttons = t.role("button").map(b => b.name);
+  const missing = ["Minimize", "Maximize", "Close", "New tab", "Back", "Forward", "Up to the parent folder", "Refresh", "Show hidden files", "Inspector"].filter(n => !buttons.includes(n));
+  ok("the window, tab bar and toolbar buttons have names in words", missing.length === 0, missing.join(", "));
+  const crumbs = t.role("navigation").find(n => n.name === "Folder path");
+  ok("the breadcrumb is a named nav of buttons", (crumbs?.find("button").length ?? 0) >= 2, crumbs?.find("button").map(b => b.name).join(" / "));
+  const glyphs = buttons.filter(n => n && !/[\p{L}\p{N}]/u.test(n));
+  ok("no button is named by a glyph alone", glyphs.length === 0, glyphs.join(" "));
+
+  // Split view.
+  await press(cdp, "\\", { ctrl: true });
+  t = await when(tree => tree.role("grid").length === 2 && tree.role("grid").some(l => l.is("focused")));
+  const bars = t.role("tablist").map(b => b.name), lists = t.role("grid");
+  ok("split view has a tablist and a grid for each pane, each with its own name",
+    bars.length === 2 && new Set(bars).size === 2 && lists.length === 2 && new Set(lists.map(l => l.name)).size === 2,
+    [...bars, ...lists.map(l => l.name)].join(" | "));
+  ok("splitting leaves the focus on one of the two grids", lists.filter(l => l.is("focused")).length === 1, t.focused?.role);
+
+  for (const r of results) console.log(`${r.pass ? "PASS" : "FAIL"}  ${r.name}${r.detail ? `  (${r.detail})` : ""}`);
+  if (results.some(r => !r.pass)) process.exitCode = 1;
+}
+
 async function main() {
   const only = process.argv[2];
   if (only === "check") {
@@ -510,6 +749,19 @@ async function main() {
       await cdp.send("Page.enable");
       await cdp.send("Runtime.enable");
       await checkPage(cdp, `http://127.0.0.1:${server.address().port}/glasshouse/`);
+    } finally {
+      cdp.close();
+      server.close();
+    }
+    return;
+  }
+  if (only === "a11y") {
+    const server = await serve();
+    const cdp = await launchChromium();
+    try {
+      await cdp.send("Page.enable");
+      await cdp.send("Runtime.enable");
+      await checkA11y(cdp, `http://127.0.0.1:${server.address().port}/glasshouse/`, process.argv[3] === "dump" ? process.argv.slice(4) : null);
     } finally {
       cdp.close();
       server.close();
