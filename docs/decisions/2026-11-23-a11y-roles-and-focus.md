@@ -41,4 +41,9 @@ The file list kept the focus on its `<section>` and drew its own focused row, wi
 
 ## Checked with
 - happy-dom tests: `src/FilePane.a11y.dom.test.tsx`, `src/a11y.dom.test.tsx`, `src/keymap.test.ts`.
-- `pnpm site:capture a11y`: the accessibility tree headless Chromium (156) builds for the demo, read over the DevTools protocol. It's the engine WebView2 uses, so it stands in for Windows' tree; WebKitGTK's own tree and real screen readers are hand checks (`docs/testing/linux.md` L14, `windows.md` W16).
+- `pnpm site:capture a11y`: the accessibility tree headless Chromium (156) builds for the demo, read over the DevTools protocol. It's the engine WebView2 uses, so it stands in for Windows' tree.
+- WebKitGTK's AT-SPI tree, read once by hand (the plan's Checks has what it showed). The recipe, for whoever turns it into a script in the repo:
+  - a viewer process: a `WebKit2` 4.1 web view (PyGObject) on the demo served from `docs/` at `/glasshouse/`, which sends keys as `keydown` events on the focused element once the page has loaded;
+  - a reader process: `gi.repository.Atspi`, walking from the desktop to the viewer's frame (a client can't read its own tree), printing each node's role, name, description, states, attributes and Text-interface text, since WebKitGTK gives a cell's content as text, not as a name;
+  - around both: `dbus-run-session --config-file=…` with a bus config whose only service is a copy of `org.a11y.Bus.service` (so no portal, gvfs or keyring starts), `org.a11y.Status`'s `IsEnabled` and `ScreenReaderEnabled` set to true before the viewer starts, `xvfb-run`, `GSETTINGS_BACKEND=memory`, and scratch `HOME` and `XDG_*` folders. `XDG_RUNTIME_DIR` needs a short path, because the accessibility bus's socket lives under it and socket paths are capped near 108 bytes.
+- Real screen readers are hand checks (`docs/testing/linux.md` L14, `windows.md` W16).

@@ -160,7 +160,7 @@ Every glasshouse window is in one process, as a browser's are. `pgrep -a glassho
 
 ## L14. Screen reader (Orca) and keyboard only
 
-Orca on GNOME (Super+Alt+S turns it on and off) or `orca` in a terminal elsewhere; note Orca's and WebKitGTK's versions. WebKitGTK builds its own accessibility tree, and no automated check reads it: CI checks Chromium's tree for the same pages (`pnpm site:capture a11y`), so what's read here is the first real test on Linux. Use a folder of a few thousand files for L14.3.
+Orca on GNOME (Super+Alt+S turns it on and off) or `orca` in a terminal elsewhere; note Orca's and WebKitGTK's versions. WebKitGTK builds its own accessibility tree, and no automated check reads it: CI checks Chromium's tree for the same pages (`pnpm site:capture a11y`), and WebKitGTK's was read once by a script (`docs/plans/completed/a11y.md`), with no screen reader. So what's read here is the first real test on Linux. Use a folder of a few thousand files for L14.3.
 
 - [ ] **L14.1** Start glasshouse with the screen reader running → it says the window, then the file list ("Files in <folder>", a grid or table) and the first row. No click is needed first.
 - [ ] **L14.2** ↓ and ↑ in the file list → each row is read: its kind for a folder, name, size and date, and "selected". Shift+↓ → the added row is read as selected. Ctrl+A → no long silence or freeze in a folder of a few thousand files.
