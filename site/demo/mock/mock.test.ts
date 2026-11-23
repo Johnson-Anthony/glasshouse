@@ -20,6 +20,41 @@ const quietHooks = () => {
   };
 };
 
+describe("the demo's clipboard", () => {
+  it("pastes what was copied or cut here, and ends a cut once its files moved", async () => {
+    const { hooks, events } = quietHooks();
+    const { invoke } = createBackend(hooks);
+    const cuts = () => events.filter(([e]) => e === "clipboard-cut").map(([, paths]) => paths);
+    const file = `${HOME}/Downloads/aurora.jpg`;
+    expect(await invoke("clipboard_read_files")).toBeNull();
+    await invoke("clipboard_write_files", { paths: [file, `${HOME}/Pictures`], cut: false });
+    expect(await invoke("clipboard_read_files")).toEqual({
+      cut: false, items: [{ path: file, folder: false }, { path: `${HOME}/Pictures`, folder: true }], gone: 0, other: 0, stamp: 0,
+    });
+    expect(await invoke("clipboard_cut_paths")).toEqual([]);
+    expect(cuts()).toEqual([]);
+
+    await invoke("clipboard_write_files", { paths: [file], cut: true });
+    expect(await invoke("clipboard_cut_paths")).toEqual([file]);
+    expect(cuts()).toEqual([[file]]);
+    // Pasted where it stays: still cut. Moved away: the cut is over.
+    await invoke("clipboard_cut_pasted", { stamp: 0, done: false });
+    expect(await invoke("clipboard_cut_paths")).toEqual([file]);
+    await invoke("move_entry", { from: file, to: `${HOME}/Pictures/aurora-moved.jpg` });
+    expect(await invoke("clipboard_read_files")).toMatchObject({ cut: true, items: [], gone: 1 });
+    await invoke("clipboard_cut_pasted", { stamp: 0, done: true });
+    expect(await invoke("clipboard_read_files")).toBeNull();
+    expect(cuts()).toEqual([[file], []]);
+
+    // Text replaces files, and reads back.
+    await invoke("clipboard_write_files", { paths: [`${HOME}/Pictures`], cut: true });
+    await invoke("clipboard_write_text", { text: "/home/u/a b" });
+    expect(await invoke("clipboard_read_text")).toBe("/home/u/a b");
+    expect(await invoke("clipboard_read_files")).toBeNull();
+    expect(cuts()).toEqual([[file], [], [`${HOME}/Pictures`], []]);
+  });
+});
+
 describe("vfs paths", () => {
   it("joins, splits and takes parents", () => {
     expect(join("/a/", "b", "/c")).toBe("/a/b/c");

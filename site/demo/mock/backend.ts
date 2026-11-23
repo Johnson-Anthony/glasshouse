@@ -180,6 +180,15 @@ export function createBackend(hooks: BackendHooks) {
   let recent = [...RECENT];
   let remotes: unknown[] = structuredClone(REMOTES);
   const shells = new Map<string, FakeShell>();
+  // The demo's clipboard is its own, like the app's before it used the
+  // OS's: files copied here paste here.
+  let clipFiles: { cut: boolean; paths: string[] } | null = null;
+  let clipText: string | null = null;
+  const setClipFiles = (next: typeof clipFiles) => {
+    const cutBefore = clipFiles?.cut ?? false;
+    clipFiles = next;
+    if (cutBefore || next?.cut) hooks.emit("clipboard-cut", next?.cut ? next.paths : []);
+  };
   // Modes set from the Inspector; everything else is 0644, or 0755 for a folder.
   const modes = new Map<string, number>();
   let nextSession = 1;
@@ -635,6 +644,34 @@ export function createBackend(hooks: BackendHooks) {
     start_drag_out: notInDemo("Dragging files into other apps"),
     // Nor does any drag come back from the OS as the app's own.
     drag_out_own: () => null,
+    // Copy, Cut and Paste (src/clipboard.ts), on the demo's own clipboard.
+    clipboard_write_files: a => {
+      clipText = null;
+      setClipFiles({ cut: Boolean(a.cut), paths: [...((a.paths as string[]) ?? [])] });
+      return null;
+    },
+    clipboard_read_files: () => clipFiles && {
+      cut: clipFiles.cut,
+      items: clipFiles.paths.filter(p => vfs.exists(p)).map(p => ({ path: p, folder: vfs.get(p)?.dir === true })),
+      gone: clipFiles.paths.filter(p => !vfs.exists(p)).length,
+      other: 0,
+      stamp: 0,
+    },
+    clipboard_cut_paths: () => (clipFiles?.cut ? clipFiles.paths : []),
+    // A cut whose files have all moved is over, as in the app.
+    clipboard_cut_pasted: () => {
+      if (clipFiles?.cut && clipFiles.paths.every(p => !vfs.exists(p))) setClipFiles(null);
+      return null;
+    },
+    // Text is kept here, and offered to the browser's clipboard, which may
+    // refuse a page that isn't focused.
+    clipboard_write_text: a => {
+      clipText = str(a.text);
+      setClipFiles(null);
+      try { void navigator.clipboard?.writeText(clipText).catch(() => {}); } catch { /* no clipboard */ }
+      return null;
+    },
+    clipboard_read_text: () => clipText,
     // A tab dragged out of its window, or Move to New Window (src/tabMoves.ts):
     // the demo has one window. The tab stays where it was.
     tab_drop_zones: () => null,
