@@ -13,6 +13,7 @@ import type { Handler } from "./types";
 import { clearAllTags, copyWslPath, removeTagPrompt, revealInFileManager } from "./helpers";
 import { trashPaths } from "./fileOps";
 import { cmdState } from "../commandState";
+import { copyText } from "../clipboard";
 import { sshProfileFor } from "../remotes";
 import { showError } from "../errorDialog";
 import { cdCommand } from "../shellCd";
@@ -133,7 +134,7 @@ export const targetHandler: Handler = (label, ctx) => {
           return true;
         case "Copy Path":
           cmdState.contextTarget = null;
-          void navigator.clipboard.writeText(target); return true;
+          void copyText(target); return true;
         case "Copy as WSL Path":
         case "Copy Path (WSL)":
           cmdState.contextTarget = null;
@@ -146,7 +147,7 @@ export const targetHandler: Handler = (label, ctx) => {
           if (cmd === null) {
             void dialogs.showToast({ message: "can't copy as a command: the path has control characters", variant: "info" });
           } else {
-            void navigator.clipboard.writeText(cmd);
+            void copyText(cmd);
           }
           return true;
         }

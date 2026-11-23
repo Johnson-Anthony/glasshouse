@@ -85,7 +85,6 @@ beforeEach(() => {
   vi.mocked(api.moveToTrash).mockImplementation(async p => ({ original: p, from: 1, to: 1 }));
   undoStack.length = 0;
   cmdState.contextTarget = null;
-  cmdState.clipboard = null;
   vi.spyOn(console, "log").mockImplementation(() => {});
   vi.spyOn(console, "warn").mockImplementation(() => {});
   vi.spyOn(console, "error").mockImplementation(() => {});

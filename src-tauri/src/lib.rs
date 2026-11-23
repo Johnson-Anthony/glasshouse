@@ -86,6 +86,7 @@ fn builder() -> tauri::Builder<tauri::Wry> {
         .manage(app_windows::Windows::default())
         .manage(tab_drag::TabDrags::default())
         .manage(commands::drag_out::DragOuts::default())
+        .manage(commands::clipboard::Clipboard::default())
         // A page that loads again (Import Layout reloads it) forgets its
         // folder watches and terminals; the backend drops them too.
         .on_page_load(|webview, payload| {
@@ -166,6 +167,12 @@ fn builder() -> tauri::Builder<tauri::Wry> {
             commands::launch::spawn_terminal_profile,
             commands::drag_out::start_drag_out,
             commands::drag_out::drag_out_own,
+            commands::clipboard::clipboard_write_files,
+            commands::clipboard::clipboard_read_files,
+            commands::clipboard::clipboard_cut_paths,
+            commands::clipboard::clipboard_cut_pasted,
+            commands::clipboard::clipboard_write_text,
+            commands::clipboard::clipboard_read_text,
             tab_drag::tab_drop_zones,
             tab_drag::tab_drag_start,
             tab_drag::tab_drag_hover,
@@ -276,6 +283,8 @@ fn run_window(launch: Option<startup::LaunchRequest>, migrated: &[(log::Level, S
             }
             session::flush(handle);
             handle.state::<session::Session>().release();
+            // Last: the clipboard manager may take a moment to answer.
+            commands::clipboard::at_exit();
         }
         _ => {}
     });

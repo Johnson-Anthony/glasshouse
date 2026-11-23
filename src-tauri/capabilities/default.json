@@ -22,6 +22,7 @@
     "git",
     "settings",
     "launch",
+    "clipboard",
     "exec",
     "update"
   ]

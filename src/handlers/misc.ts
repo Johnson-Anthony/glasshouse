@@ -26,6 +26,7 @@ import {
   readDir,
 } from "../api";
 import { errText } from "../errors";
+import { pastedText } from "../clipboard";
 import { markIrreversible, pushUndo } from "../state";
 import { contentUndo, createUndo, madeUndo, moveUndo } from "../undoActions";
 import { droppingTags, renamePath } from "../tags";
@@ -142,9 +143,9 @@ async function pasteAsLinks(
   create: (target: string, linkPath: string) => Promise<void>,
   hard = false,
 ): Promise<void> {
-  const paths = ctx.clipboardPaths?.() ?? [];
+  const paths = await ctx.clipboardPaths?.() ?? [];
   if (paths.length === 0) {
-    dialogs.showToast({ message: "clipboard is empty", variant: "info" });
+    dialogs.showToast({ message: "the clipboard holds no files", variant: "info" });
     return;
   }
   const made: Array<{ target: string; link: string }> = [];
@@ -403,9 +404,9 @@ export const miscHandler: Handler = async (label, ctx) => {
       return true;
 
     case "Paste as Copy (verify SHA256)": {
-      const paths = ctx.clipboardPaths?.() ?? [];
+      const paths = await ctx.clipboardPaths?.() ?? [];
       if (paths.length === 0) {
-        dialogs.showToast({ message: "clipboard is empty", variant: "info" });
+        dialogs.showToast({ message: "the clipboard holds no files", variant: "info" });
         return true;
       }
       const res = await runTransfer(asItems(paths), ctx.cwd, "copy", transferDeps);
@@ -441,17 +442,8 @@ export const miscHandler: Handler = async (label, ctx) => {
         dialogs.showToast({ message: "no selection to rename", variant: "info" });
         return true;
       }
-      let text = "";
-      try {
-        text = await navigator.clipboard.readText();
-      } catch (e) {
-        await dialogs.showAlert({
-          title: "clipboard read failed",
-          message: errText(e),
-          variant: "error",
-        });
-        return true;
-      }
+      const text = await pastedText();
+      if (text === undefined) return true;
       const name = text.trim();
       if (!name) {
         dialogs.showToast({ message: "clipboard text is empty", variant: "info" });

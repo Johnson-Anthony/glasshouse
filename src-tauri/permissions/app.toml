@@ -138,6 +138,18 @@ commands.allow = [
 ]
 
 [[permission]]
+identifier = "clipboard"
+description = "Read and write the OS clipboard: the files Copy and Cut put there for Paste here or in another app (and the files another app put there), which paths are cut, and text (Copy Path, a checksum; the text Paste Text into Filename reads)."
+commands.allow = [
+  "clipboard_write_files",
+  "clipboard_read_files",
+  "clipboard_cut_paths",
+  "clipboard_cut_pasted",
+  "clipboard_write_text",
+  "clipboard_read_text",
+]
+
+[[permission]]
 identifier = "exec"
 description = "Run programs: user scripts and commands, a program picked to open a file with, and the built-in terminal. Equivalent to full access to the user's account."
 commands.allow = [

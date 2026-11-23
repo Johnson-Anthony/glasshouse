@@ -4,6 +4,7 @@ import { listDir, readHexDump, readImageB64, readText, type FileEntry } from "..
 import { fullName, kindIcon } from "../components";
 import type { InspectableFile } from "./Inspector";
 import { errText } from "../errors";
+import { copyText as copyToClipboard } from "../clipboard";
 
 // Heuristic: text-like if kind is text/code OR extension matches a plain-text
 // family. Used so the preview can attempt to render small config files that
@@ -504,11 +505,11 @@ export function FilePreview({ file: f, large = false, onExpand }: FilePreviewPro
     });
   };
   const copyText = () => {
-    try {
-      void navigator.clipboard.writeText(text);
+    void copyToClipboard(text).then(ok => {
+      if (!ok) return;
       setCopied(true);
       window.setTimeout(() => setCopied(false), 1200);
-    } catch { /* clipboard unavailable */ }
+    });
   };
 
   let body: React.ReactNode;

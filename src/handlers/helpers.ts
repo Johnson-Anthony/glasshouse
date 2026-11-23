@@ -2,6 +2,7 @@ import { gitBlame, gitDiscard, gitStage, gitUnstage, homeDir, openUrl, pathKind,
 import { dialogs } from "../dialogs/DialogHost";
 import { isModalOpen } from "../dialogs/modal";
 import { errText } from "../errors";
+import { copyText } from "../clipboard";
 import { showError } from "../errorDialog";
 import { discardReport, gitTargets, type GitAction } from "../gitTargets";
 import { basename } from "../paths";
@@ -154,7 +155,7 @@ export async function copyWslPath(path: string): Promise<void> {
   let wsl = "";
   try { wsl = await winToWsl(path); } catch { wsl = ""; }
   if (!wsl) wsl = winPathToWsl(path);
-  await navigator.clipboard.writeText(wsl);
+  await copyText(wsl);
 }
 
 /** Asks which of `path`'s tags to remove, then removes it. */

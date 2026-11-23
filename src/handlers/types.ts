@@ -53,11 +53,10 @@ export interface AppCommands {
   setBulkRenameItems: React.Dispatch<React.SetStateAction<BulkRenameItem[] | null>>;
   setCheatsheetOpen: React.Dispatch<React.SetStateAction<boolean>>;
   setConnectOpen: React.Dispatch<React.SetStateAction<boolean>>;
-  setCutPaths: React.Dispatch<React.SetStateAction<string[]>>;
   setFolderPicker: React.Dispatch<React.SetStateAction<{ initialPath?: string | undefined; title?: string | undefined; onPick: (p: string) => void; } | null>>;
   setManageRemotesOpen: React.Dispatch<React.SetStateAction<boolean>>;
   setPalOpen: React.Dispatch<React.SetStateAction<boolean>>;
-  setPasteSpecial: React.Dispatch<React.SetStateAction<{ items: PasteSpecialItem[]; dstDir: string; clipboardMode: "copy" | "cut"; } | null>>;
+  setPasteSpecial: React.Dispatch<React.SetStateAction<{ items: PasteSpecialItem[]; dstDir: string; clipboardMode: "copy" | "cut"; stamp: number; } | null>>;
   setPropsEntry: React.Dispatch<React.SetStateAction<FileEntry | null>>;
   setShowFindModal: React.Dispatch<React.SetStateAction<boolean>>;
   setShowInspector: React.Dispatch<React.SetStateAction<boolean>>;
@@ -95,7 +94,8 @@ export interface HandlerCtx {
   setBlame: (b: { path: string; lines: BlameLine[] } | null) => void;
   setDiffView?: (v: { a: string; b: string; diff: string } | null) => void;
   setGitOutput?: (v: GitOutputState | null) => void;
-  clipboardPaths?: () => string[];
+  /** The files on the OS clipboard that are still there (clipboard.ts). */
+  clipboardPaths?: () => Promise<string[]>;
   refresh: () => void;
   // Optional — wired up by App.tsx in a later pass. Handlers use `ctx.undo?.()` etc.
   undo?: () => void;

@@ -490,6 +490,53 @@ export function dragOutOwn(paths: string[], drop: boolean): Promise<boolean | nu
   return safe(() => invoke<boolean | null>("drag_out_own", { paths, drop }), null);
 }
 
+/** Files on the OS clipboard, from any app (clipboard_read_files). */
+export interface ClipboardFiles {
+  /** A paste moves them. */
+  cut: boolean;
+  /** The files that are there to paste. */
+  items: { path: string; folder: boolean }[];
+  /** How many are no longer where they were. */
+  gone: number;
+  /** How many aren't files on this computer. */
+  other: number;
+  /** Which clipboard contents this was, for clipboardCutPasted. */
+  stamp: number;
+}
+
+/** Copy or Cut: puts `paths` on the OS clipboard, for Paste in any
+ *  glasshouse window or another app. A cut moves nothing until pasted. */
+export function clipboardWriteFiles(paths: string[], cut: boolean): Promise<void> {
+  return mustInvoke<void>("clipboard_write_files", { paths, cut });
+}
+
+/** The files on the OS clipboard, or null when it holds none. */
+export function clipboardReadFiles(): Promise<ClipboardFiles | null> {
+  return mustInvoke<ClipboardFiles | null>("clipboard_read_files");
+}
+
+/** The paths of glasshouse's own cut while the clipboard still holds it;
+ *  every window hears `clipboard-cut` when they change. */
+export function clipboardCutPaths(): Promise<string[]> {
+  return safe(() => invoke<string[]>("clipboard_cut_paths"), []);
+}
+
+/** A cut read with `stamp` was pasted here; `done`: every item moved. The
+ *  backend ends glasshouse's own cut once its files are gone, and tells
+ *  another app's the way the platform has. */
+export function clipboardCutPasted(stamp: number, done: boolean): Promise<void> {
+  return safe(() => invoke<void>("clipboard_cut_pasted", { stamp, done }), undefined);
+}
+
+export function clipboardWriteText(text: string): Promise<void> {
+  return mustInvoke<void>("clipboard_write_text", { text });
+}
+
+/** The text on the OS clipboard, or null when it holds none. */
+export function clipboardReadText(): Promise<string | null> {
+  return mustInvoke<string | null>("clipboard_read_text");
+}
+
 // A tab moved to another window or a new one (src-tauri/src/tab_drag.rs,
 // tabMoves.ts). The tab's record goes to the backend, which holds it in
 // memory until the drag ends.

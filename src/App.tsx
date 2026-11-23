@@ -46,6 +46,7 @@ import {
 import { COMMAND_CHAIN, type HandlerCtx } from "./handlers";
 import type { PaneCommands } from "./handlers/types";
 import { cmdState } from "./commandState";
+import { clipboardPaths, copyText, useCutPaths } from "./clipboard";
 import { sshProfileFor } from "./remotes";
 import { findBinding, gitChord, GIT_CHORD_MS, type KeyAction } from "./keymap";
 import type { MenuAnchor } from "./menuNav";
@@ -84,6 +85,7 @@ import {
   writeRemotes,
   findInFiles,
   cancelOp,
+  clipboardCutPasted,
   windowStart,
   type FileEntry,
   type BlameLine,
@@ -362,10 +364,10 @@ export function App() {
   const paneRootRefs = [pane0RootRef, pane1RootRef];
   const sidebarRootRef = useRef<HTMLElement | null>(null);
 
-  // Mirror of appClipboard's "cut" paths — React state so FilePane re-renders
-  // the dimmed `.clip-cut` rows. Cleared after Paste or when Copy replaces the
-  // clipboard contents.
-  const [cutPaths, setCutPaths] = useState<string[]>([]);
+  // The paths that are cut, for the dimmed `.clip-cut` rows: glasshouse's
+  // cut while the OS clipboard still holds it, the same in every window
+  // (clipboard.ts).
+  const cutPaths = useCutPaths();
   const [pins, setPins] = useState<string[]>([]);
   // The tag store (tags.ts): renames, moves and the trash keep it current.
   const tagStore = useTags();
@@ -379,6 +381,8 @@ export function App() {
     items: PasteSpecialItem[];
     dstDir: string;
     clipboardMode: "copy" | "cut";
+    /** Which clipboard contents the items were read from. */
+    stamp: number;
   } | null>(null);
   const [savedRemotes, setSavedRemotes] = useState<SavedRemote[]>([]);
   const [connectOpen, setConnectOpen] = useState(false);
@@ -774,7 +778,7 @@ export function App() {
       setBlame,
       setDiffView,
       setGitOutput,
-      clipboardPaths: () => cmdState.clipboard?.paths ?? [],
+      clipboardPaths,
       undo: () => { void runUndoStep("undo"); },
       redo: () => { void runUndoStep("redo"); },
       newTab: stateNewTab,
@@ -798,7 +802,6 @@ export function App() {
         setBulkRenameItems,
         setCheatsheetOpen,
         setConnectOpen,
-        setCutPaths,
         setFolderPicker,
         setManageRemotesOpen,
         setPalOpen,
@@ -1373,7 +1376,7 @@ export function App() {
               if (!path) return;
               switch (action) {
                 case "copy-path":
-                  try { void navigator.clipboard.writeText(path); } catch { /* clipboard unavailable */ }
+                  void copyText(path);
                   return;
                 case "run":
                   void openFile(path);
@@ -1455,8 +1458,9 @@ export function App() {
           trashEntry={async p => { await trashPath(p); }}
           planTransfer={(items, dstDir, op) => planTransfer(items, dstDir, op, transferDeps)}
           onClose={() => setPasteSpecial(null)}
-          onDone={(clear) => {
-            if (clear) cmdState.clipboard = null;
+          onDone={(done) => {
+            // A cut that was moved is over (clipboard.ts's afterPaste).
+            if (pasteSpecial.clipboardMode === "cut") void clipboardCutPasted(pasteSpecial.stamp, done);
             activeHandle?.actions.refresh();
           }}
         />

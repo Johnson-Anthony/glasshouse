@@ -24,6 +24,7 @@ import { runTransfer, type TransferItem } from "../transfer";
 import { namesIn, transferDeps } from "../transferUi";
 import { isCancelled, runOp } from "../ops";
 import { errText } from "../errors";
+import { copyText } from "../clipboard";
 import { showError } from "../errorDialog";
 import { markIrreversible, pushUndo, type UndoEntry } from "../state";
 import {
@@ -32,18 +33,6 @@ import {
 import { nothingMessage, outcomeReport, previewMessage, replaceUndo } from "../findReplace";
 
 const clipboardStack: string[][] = [];
-
-async function copyToClipboard(text: string): Promise<void> {
-  try {
-    if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
-      await navigator.clipboard.writeText(text);
-      return;
-    }
-  } catch {
-    // fall through to log
-  }
-  console.log("[tools] clipboard unavailable, would copy:", text);
-}
 
 export function winToUnc(path: string): string {
   // C:\foo\bar → \\wsl$\... is not a clean mapping; give the common
@@ -162,9 +151,7 @@ export const toolsHandler: Handler = async (label, ctx) => {
         console.log("[tools] Copy as UNC: no selection");
         return true;
       }
-      const unc = winToUnc(p);
-      await copyToClipboard(unc);
-      console.log(`[tools] copied: ${unc}`);
+      await copyText(winToUnc(p));
       return true;
     }
 
@@ -186,7 +173,7 @@ export const toolsHandler: Handler = async (label, ctx) => {
 
     case "Diff with Clipboard": {
       const b = ctx.firstPath;
-      const cb = ctx.clipboardPaths?.() ?? [];
+      const cb = await ctx.clipboardPaths?.() ?? [];
       if (!b) {
         void dialogs.showAlert({ title: "diff with clipboard", message: "Select a file first.", variant: "info" });
         return true;
@@ -401,7 +388,7 @@ export const toolsHandler: Handler = async (label, ctx) => {
     }
 
     case "Clipboard Stack": {
-      const current = ctx.clipboardPaths?.() ?? [];
+      const current = await ctx.clipboardPaths?.() ?? [];
       if (current.length > 0) {
         clipboardStack.push(current);
         if (clipboardStack.length > 10) clipboardStack.shift();
@@ -422,7 +409,7 @@ export const toolsHandler: Handler = async (label, ctx) => {
     }
 
     case "File Queue": {
-      const cb = ctx.clipboardPaths?.() ?? [];
+      const cb = await ctx.clipboardPaths?.() ?? [];
       if (cb.length === 0) {
         void dialogs.showAlert({
           title: "file queue",

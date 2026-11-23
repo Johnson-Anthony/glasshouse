@@ -86,7 +86,7 @@ function makeCtx(names: string[], selected: number[]): HandlerCtx {
     setBlame: vi.fn(),
     setDiffView: vi.fn(),
     setGitOutput: vi.fn(),
-    clipboardPaths: vi.fn(() => []),
+    clipboardPaths: vi.fn(async () => []),
     refresh: vi.fn(),
     undo: vi.fn(),
     redo: vi.fn(),
