@@ -10,7 +10,7 @@ use std::net::{TcpListener, TcpStream};
 use std::path::Path;
 
 fn have_git() -> bool {
-    which::which("git").is_ok()
+    crate::commands::testing::have_tool("git", which::which("git").is_ok())
 }
 
 /// A git command in `dir` that reads no user or system config, so the

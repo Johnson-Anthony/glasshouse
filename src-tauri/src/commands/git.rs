@@ -1605,7 +1605,7 @@ mod tests {
 
     #[test]
     fn git_branch_list_reads_tracking_from_one_call() {
-        if which::which("git").is_err() {
+        if !crate::commands::testing::have_tool("git", which::which("git").is_ok()) {
             return;
         }
         let (dir, repo) = test_repo("gitbranches");
@@ -1774,7 +1774,7 @@ mod tests {
     #[test]
     fn git_file_info_runs_nothing_from_repo_config() {
         use std::os::unix::fs::PermissionsExt;
-        if which::which("git").is_err() {
+        if !crate::commands::testing::have_tool("git", which::which("git").is_ok()) {
             return;
         }
         let dir = temp_dir("hostilerepo");
@@ -2240,7 +2240,7 @@ mod tests {
     /// files, on the git that's installed.
     #[test]
     fn menu_checkout_never_restores_a_folder() {
-        if which::which("git").is_err() {
+        if !crate::commands::testing::have_tool("git", which::which("git").is_ok()) {
             return;
         }
         let (dir, repo) = test_repo("checkout-dashdash");

@@ -4,6 +4,7 @@
 // ordinary filename character on Linux, and only Windows compares paths
 // case-insensitively.
 import { IS_WINDOWS } from "./platform";
+import { isDeviceName } from "./winNames";
 
 export interface Crumb {
   label: string;
@@ -32,6 +33,14 @@ export interface PathOps {
    *  link is the link's folder), and repeated and trailing separators
    *  dropped. `..` stops at the root. On Windows every separator becomes `\`. */
   collapsePath(p: string): string;
+  /** The form of `p` people read and type. On Windows a verbatim path
+   *  (`\\?\C:\dir`, `\\?\UNC\server\share\dir`: what `canonicalize` returns,
+   *  and what older builds saved) becomes `C:\dir` or `\\server\share\dir`,
+   *  unless only the verbatim form names the file: a volume GUID path, or a
+   *  component Windows would read differently in a plain path (a trailing
+   *  dot or space, a device name). Anything else comes back as it is. The
+   *  backend's copy is `winpath::plain`. */
+  plainPath(p: string): string;
 }
 
 /** Path helpers for one platform. The app uses the `IS_WINDOWS` set exported
@@ -43,9 +52,14 @@ export function pathOps(win: boolean): PathOps {
   const pathSegments = (p: string) => p.split(win ? /[\\/]+/ : /\/+/).filter(Boolean);
 
   // Length of `p`'s root prefix including its trailing separators; 0 for a
-  // relative path. Windows roots: `C:`, `C:\`, `\\server\share\`, `\`.
+  // relative path. Windows roots: `C:`, `C:\`, `\\server\share\`, `\`, and
+  // the verbatim ones a path with no plain form keeps: `\\?\C:\` (which the
+  // share pattern takes as it is) and `\\?\UNC\server\share\`.
   const rootLen = (p: string): number =>
-    (win ? /^(?:[A-Za-z]:|[\\/]{2}[^\\/]+(?:[\\/]+[^\\/]+)?)?[\\/]*/ : /^\/*/).exec(p)![0].length;
+    (win
+      ? /^(?:[A-Za-z]:|[\\/]{2}\?[\\/]UNC[\\/]+[^\\/]+[\\/]+[^\\/]+|[\\/]{2}[^\\/]+(?:[\\/]+[^\\/]+)?)?[\\/]*/i
+      : /^\/*/
+    ).exec(p)![0].length;
 
   // Canonical spelling of a root prefix: always ends in a separator.
   const rootForm = (root: string): string => {
@@ -126,6 +140,28 @@ export function pathOps(win: boolean): PathOps {
       }
       return root + out.join(win ? "\\" : "/") || ".";
     },
+
+    plainPath(p) {
+      if (!win || !p.startsWith("\\\\?\\")) return p;
+      const rest = p.slice(4);
+      let root: string;
+      let tail: string;
+      const unc = /^UNC\\([^\\]+)\\([^\\]+)(?:\\(.*))?$/is.exec(rest);
+      if (unc) {
+        root = `\\\\${unc[1]}\\${unc[2]}`;
+        tail = unc[3] ?? "";
+      } else {
+        const drive = /^([A-Za-z]:)(?:\\(.*))?$/s.exec(rest);
+        if (!drive) return p;
+        root = drive[1];
+        tail = drive[2] ?? "";
+      }
+      tail = tail.replace(/\\+$/, "");
+      // A drive's root keeps its separator: `C:` alone is a relative path.
+      if (!tail) return root.startsWith("\\") ? root : root + "\\";
+      const same = tail.split("\\").every(c => c !== "" && !/[. ]$/.test(c) && !c.includes("/") && !isDeviceName(c));
+      return same ? `${root}\\${tail}` : p;
+    },
   };
 }
 
@@ -137,6 +173,7 @@ export const {
   pathSegments,
   splitBreadcrumb,
   collapsePath,
+  plainPath,
 } = pathOps(IS_WINDOWS);
 
 /** A typed string the router opens as a path rather than runs as a command:

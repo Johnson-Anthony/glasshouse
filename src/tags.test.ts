@@ -118,6 +118,26 @@ describe("following the app's own operations", () => {
     expect(getTags()).toEqual({ "/w/d": ["blue"], "/w/d/x": ["red"], "/w/e": ["green"] });
   });
 
+  // In a folder reached through a link the pane's path for an item isn't the
+  // one the trash records, and Redo (and Undo of a restore) trash the latter.
+  it("trashing an item again by its recorded path takes the tags at the pane's path", async () => {
+    resetTagStoreForTests({ "/link/d": ["blue"], "/link/d/x": ["red"], "/link/e": ["green"] });
+    vi.mocked(api.moveToTrash).mockResolvedValueOnce({ original: "/real/d", from: 100, to: 101 });
+    await trashPath("/link/d");
+    vi.mocked(api.trashRestore).mockResolvedValueOnce({ done: ["/real/d"], problems: [] });
+    await restoreTrashed([{ original: "/real/d", from: 100, to: 101 }], true);
+    expect(getTags()).toEqual({ "/link/d": ["blue"], "/link/d/x": ["red"], "/link/e": ["green"] });
+
+    // Redo: the same item, by the path the trash gave.
+    vi.mocked(api.moveToTrash).mockResolvedValueOnce({ original: "/real/d", from: 200, to: 201 });
+    await trashPath("/real/d");
+    expect(getTags()).toEqual({ "/link/e": ["green"] });
+    // Undo again: back with its tags, where the pane shows it.
+    vi.mocked(api.trashRestore).mockResolvedValueOnce({ done: ["/real/d"], problems: [] });
+    await restoreTrashed([{ original: "/real/d", from: 200, to: 201 }], true);
+    expect(getTags()).toEqual({ "/link/d": ["blue"], "/link/d/x": ["red"], "/link/e": ["green"] });
+  });
+
   it("a restore of another item from the same path, or one that failed, gets no tags", async () => {
     resetTagStoreForTests({ "/w/a": ["red"] });
     vi.mocked(api.moveToTrash).mockResolvedValueOnce({ original: "/w/a", from: 100, to: 101 });

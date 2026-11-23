@@ -44,7 +44,7 @@ fn tool_works(program: &str, args: &[&str], cwd: &Path) -> bool {
 #[cfg(unix)]
 #[test]
 fn tar_gz_round_trip_keeps_the_tree() {
-    if which::which("tar").is_err() {
+    if !crate::commands::testing::have_tool("tar", which::which("tar").is_ok()) {
         return;
     }
     let d = Scratch::new("tgz-rt");
@@ -60,7 +60,7 @@ fn tar_gz_round_trip_keeps_the_tree() {
 #[cfg(unix)]
 #[test]
 fn extracts_every_tar_flavour_by_extension() {
-    if which::which("tar").is_err() {
+    if !crate::commands::testing::have_tool("tar", which::which("tar").is_ok()) {
         return;
     }
     let d = Scratch::new("tar-flavours");
@@ -88,7 +88,7 @@ fn extracts_every_tar_flavour_by_extension() {
 #[cfg(unix)]
 #[test]
 fn seven_zip_round_trip_keeps_the_tree() {
-    if find_7z().is_err() {
+    if !crate::commands::testing::have_tool("7-Zip", find_7z().is_ok()) {
         return; // no 7-Zip here
     }
     let d = Scratch::new("7z-rt");
@@ -214,7 +214,7 @@ fn zip_extract_does_not_follow_an_archived_link_out() {
 #[cfg(unix)]
 #[test]
 fn tar_extract_refuses_members_that_climb_out() {
-    if which::which("tar").is_err() {
+    if !crate::commands::testing::have_tool("tar", which::which("tar").is_ok()) {
         return;
     }
     let d = Scratch::new("tarslip");
@@ -232,7 +232,7 @@ fn tar_extract_refuses_members_that_climb_out() {
 #[cfg(unix)]
 #[test]
 fn seven_zip_extract_keeps_climbing_entries_inside() {
-    if find_7z().is_err() {
+    if !crate::commands::testing::have_tool("7-Zip", find_7z().is_ok()) {
         return;
     }
     let d = Scratch::new("7zslip");
@@ -248,7 +248,7 @@ fn seven_zip_extract_keeps_climbing_entries_inside() {
 /// The archive formats this machine can create, with their extensions.
 fn creatable_formats() -> Vec<&'static str> {
     let mut formats = vec!["zip"];
-    if which::which("tar").is_ok() {
+    if crate::commands::testing::have_tool("tar", which::which("tar").is_ok()) {
         formats.extend(["tar.gz", "tar.zst"]);
     }
     if find_7z().is_ok() {
@@ -493,7 +493,7 @@ fn failed_create_removes_the_partial_archive() {
     assert!(err.detail.starts_with("stat "), "{}", err);
     assert!(!zip.exists());
 
-    if which::which("tar").is_ok() {
+    if crate::commands::testing::have_tool("tar", which::which("tar").is_ok()) {
         let tgz = d.join("out.tar.gz");
         let err = archive_create(vec![missing], s(&tgz), "tar.gz".into()).unwrap_err();
         assert!(err.detail.starts_with("tar exited"), "{}", err);
@@ -601,7 +601,7 @@ fn archive_extract_refuses_a_fifo() {
 #[cfg(unix)]
 #[test]
 fn tar_extract_drops_links_that_point_outside() {
-    if which::which("tar").is_err() {
+    if !crate::commands::testing::have_tool("tar", which::which("tar").is_ok()) {
         return;
     }
     let d = Scratch::new("tar-links");
@@ -668,7 +668,7 @@ fn seven_zip_extract_drops_links_that_point_outside() {
 #[test]
 fn tar_read_only_folders_can_be_moved_into_place() {
     use std::os::unix::fs::PermissionsExt;
-    if which::which("tar").is_err() {
+    if !crate::commands::testing::have_tool("tar", which::which("tar").is_ok()) {
         return;
     }
     let d = Scratch::new("tar-ro");

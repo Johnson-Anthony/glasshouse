@@ -517,3 +517,70 @@ fn set_permissions_applies_the_mode_and_refuses_anything_bigger() {
     assert_eq!(err.message, "Couldn't change the permissions of “shared”: 10755 isn't a permission mode.");
     assert_eq!(mode(), 0o2750);
 }
+
+/// Paths past MAX_PATH, written plain as listings give them: the raw Win32
+/// calls (MoveFileExW, CopyFileW, ReplaceFileW) get the verbatim form, so
+/// they work without the system-wide long-path setting.
+#[cfg(windows)]
+mod long_paths {
+    use super::*;
+
+    /// A folder whose path is well past 260 characters, in the plain form.
+    fn deep(d: &Scratch) -> std::path::PathBuf {
+        let mut p = d.path().to_path_buf();
+        for _ in 0..8 {
+            p.push("a-folder-name-of-forty-characters-long--");
+        }
+        std::fs::create_dir_all(&p).unwrap();
+        assert!(s(&p).len() > 300 && !s(&p).starts_with(r"\\?\"), "{}", p.display());
+        p
+    }
+
+    #[test]
+    fn rename_works_past_max_path_and_still_refuses_a_taken_name() {
+        let d = Scratch::new("long-rename");
+        let dir = deep(&d);
+        put(&dir.join("a.txt"), "a");
+        put(&dir.join("taken.txt"), "t");
+
+        rename_entry(s(&dir.join("a.txt")), s(&dir.join("b.txt"))).unwrap();
+        assert_eq!(read(&dir.join("b.txt")), "a");
+        assert!(!dir.join("a.txt").exists());
+
+        let err = rename_entry(s(&dir.join("b.txt")), s(&dir.join("taken.txt"))).unwrap_err();
+        assert_eq!(err.kind, Kind::Exists, "{}", err.detail);
+        assert_eq!(read(&dir.join("taken.txt")), "t");
+        // A case-only rename of the same file.
+        rename_entry(s(&dir.join("b.txt")), s(&dir.join("B.txt"))).unwrap();
+        let names: Vec<String> = std::fs::read_dir(&dir).unwrap().flatten().map(|e| e.file_name().to_string_lossy().into_owned()).collect();
+        assert!(names.contains(&"B.txt".to_string()), "{names:?}");
+    }
+
+    #[test]
+    fn copy_and_move_work_past_max_path() {
+        let d = Scratch::new("long-copy");
+        let dir = deep(&d);
+        put(&dir.join("src/inner/f.txt"), "f");
+        put(&dir.join("one.txt"), "1");
+
+        copy_entry(s(&dir.join("one.txt")), s(&dir.join("two.txt"))).unwrap();
+        assert_eq!(read(&dir.join("two.txt")), "1");
+        let err = copy_entry(s(&dir.join("one.txt")), s(&dir.join("two.txt"))).unwrap_err();
+        assert_eq!(err.kind, Kind::Exists, "{}", err.detail);
+
+        copy_entry(s(&dir.join("src")), s(&dir.join("dst"))).unwrap();
+        assert_eq!(read(&dir.join("dst/inner/f.txt")), "f");
+        move_entry(s(&dir.join("dst")), s(&dir.join("moved"))).unwrap();
+        assert_eq!(read(&dir.join("moved/inner/f.txt")), "f");
+        assert!(!dir.join("dst").exists());
+    }
+
+    #[test]
+    fn rewriting_text_works_past_max_path() {
+        let d = Scratch::new("long-rewrite");
+        let dir = deep(&d);
+        put(&dir.join("note.txt"), "old");
+        crate::commands::replace::rewrite_text(s(&dir.join("note.txt")), "new".to_string()).unwrap();
+        assert_eq!(read(&dir.join("note.txt")), "new");
+    }
+}

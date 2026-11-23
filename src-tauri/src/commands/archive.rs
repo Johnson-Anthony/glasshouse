@@ -923,7 +923,7 @@ mod tests {
 
     #[test]
     fn tar_zst_round_trip_and_failures() {
-        if which::which("tar").is_err() {
+        if !crate::commands::testing::have_tool("tar", which::which("tar").is_ok()) {
             return; // nothing to test without tar
         }
         let dir = temp_dir("tarzst");
@@ -971,7 +971,7 @@ mod tests {
 
     #[test]
     fn tar_members_named_like_options_stay_files() {
-        if which::which("tar").is_err() {
+        if !crate::commands::testing::have_tool("tar", which::which("tar").is_ok()) {
             return;
         }
         let dir = temp_dir("tardash");
@@ -1002,7 +1002,7 @@ mod tests {
         let src = dir.join("a.txt");
         std::fs::write(&src, "payload").unwrap();
         let mut formats = vec!["zip"];
-        if which::which("tar").is_ok() {
+        if crate::commands::testing::have_tool("tar", which::which("tar").is_ok()) {
             formats.extend(["tar.gz", "tar.zst"]);
         }
         if find_7z().is_ok() {

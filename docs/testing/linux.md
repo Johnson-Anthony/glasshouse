@@ -174,3 +174,12 @@ Copy, Cut and Paste use the desktop's clipboard, so they work with the file mana
 - [ ] **L14.10** Copy files in a remote folder of the file manager (`sftp://`, `smb://`) or in its Trash, Ctrl+V in glasshouse → a note that the items aren't on this computer; nothing is pasted.
 - [ ] **L14.11** **After closing:** copy files in glasshouse, close every glasshouse window, then Ctrl+V in the file manager. With a clipboard manager running (GNOME and KDE have one built in; on X11 xfce4-clipman, Klipper, clipit) the files should still paste: note the desktop where they don't.
 - [ ] **L14.12** **Nautilus 42 or earlier** (Ubuntu 22.04): files copied there paste in glasshouse. Files copied in glasshouse don't paste there (a known limit: that Nautilus reads only its own text form); dragging works.
+
+## L15. Linked folders and FAT drives
+
+- [ ] **L15.1** `ln -s ~/Documents ~/docs-link`, then Go to Path `~/docs-link` and open a subfolder → the breadcrumb and the tab stay under `docs-link` (before, the subfolder opened under `Documents`). Back, Up and a new tab from there agree.
+- [ ] **L15.2** In that linked folder: tag a file, pin a subfolder, rename a file, cut and paste one into a subfolder, Move to Trash; Ctrl+Z and Ctrl+Y after each → each works as in any folder, and the tag follows the file each time. A file made there from a terminal shows up without a refresh. In a linked git repository the status column fills in.
+- [ ] **L15.3** Reveal in File Manager on a file in the linked folder → the file manager opens with the file selected.
+- [ ] **L15.4** A file tagged in the linked folder by an earlier build → its tag shows when the folder is opened by its real path, and under TAGS in the sidebar; note that it does not show through the link.
+- [ ] **L15.5** On a FAT or exFAT USB stick, and on an SMB share: New File, Rename and Bulk Rename to `a:b`, `what?`, `x.` and `CON` → each is refused with a reason ending "on this drive". The same names in the home folder → accepted.
+- [ ] **L15.6** Split the view with one pane on `~/docs-link` and the other on `~/Documents`. Drag a file from one pane to the other → a toast says it is already there; no "already exists" question, and nothing goes to the trash. With Ctrl held → a copy named `… (copy)`.

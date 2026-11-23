@@ -6,12 +6,16 @@
 import { errText } from "./errors";
 import { joinPath } from "./paths";
 import { splitExt } from "./transfer";
+import { windowsNameProblem } from "./winNames";
 
-/** Names in one folder, compared case-insensitively on Windows. */
+/** Names in one folder, compared case-insensitively on Windows.
+ *  `winNames`: the folder takes only names Windows allows. That's every
+ *  folder on Windows, and on Linux one on a FAT, exFAT or SMB file system
+ *  (`namesIn` in transferUi.ts asks). */
 export class NameSet {
   private keys = new Set<string>();
 
-  constructor(names: Iterable<string>, readonly windows: boolean) {
+  constructor(names: Iterable<string>, readonly windows: boolean, readonly winNames: boolean = windows) {
     for (const n of names) this.add(n);
   }
 
@@ -42,6 +46,10 @@ export function nameProblem(name: string, taken: NameSet, self?: string): string
   if (name.includes("/") || (taken.windows && name.includes("\\"))) {
     return taken.windows ? "a name can't contain / or \\" : "a name can't contain /";
   }
+  if (taken.winNames) {
+    const problem = windowsNameProblem(name, taken.windows ? "on Windows" : "on this drive");
+    if (problem) return problem;
+  }
   if (taken.has(name) && !(self !== undefined && taken.key(self) === taken.key(name))) {
     return takenProblem(name);
   }
@@ -69,15 +77,17 @@ export interface RenameMove {
 
 /** Per-move problem (or null), parallel to `moves`. Unchanged moves
  *  (`from === to`) keep their name, so it stays taken. `existing` is every
- *  name in the folder, the batch's own entries included. */
+ *  name in the folder, the batch's own entries included. `winNames` as in
+ *  `NameSet`. */
 export function checkRenames(
   moves: readonly RenameMove[],
   existing: readonly string[],
   windows: boolean,
+  winNames: boolean = windows,
 ): (string | null)[] {
   const changing = (m: RenameMove) => m.from !== m.to;
   // Names that will still be there: everything on disk except what moves away.
-  const staying = new NameSet(existing, windows);
+  const staying = new NameSet(existing, windows, winNames);
   for (const m of moves) if (changing(m)) staying.delete(m.from);
   const targets = new Map<string, number>();
   for (const m of moves) {

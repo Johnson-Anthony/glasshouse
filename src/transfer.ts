@@ -100,17 +100,33 @@ interface Classified {
   name: string;
 }
 
+/** Where the destination and each item's folder really are. A listing keeps
+ *  the path it was asked for, so two tabs can show one folder under two
+ *  paths (through a link, or on Windows a mapped drive and its share), and
+ *  as strings a drop from one onto the other looks like a move elsewhere.
+ *  The checks below compare these; the steps keep the paths as given. */
+export interface Places {
+  dst: string;
+  /** An item's path with its folder resolved. Its own name stays, so an
+   *  item that is a link counts as the link. */
+  of: (itemPath: string) => string;
+}
+
+/** Paths compared as they are written. */
+const asGiven = (dstDir: string): Places => ({ dst: dstDir, of: p => p });
+
 function classify(
   item: TransferItem,
-  dstDir: string,
+  places: Places,
   onDisk: Map<string, ExistingEntry>,
   key: (n: string) => string,
   windows: boolean,
 ): Classified {
   const { basename, normalizePath, parentPath } = pathOps(windows);
   const name = basename(item.path);
-  if (isInside(dstDir, item.path, windows)) return { kind: "into-itself", name };
-  if (normalizePath(parentPath(item.path)) === normalizePath(dstDir)) {
+  const at = places.of(item.path);
+  if (isInside(places.dst, at, windows)) return { kind: "into-itself", name };
+  if (normalizePath(parentPath(at)) === normalizePath(places.dst)) {
     return { kind: "same-place", name };
   }
   return { kind: onDisk.has(key(name)) ? "conflict" : "free", name };
@@ -129,12 +145,13 @@ export function findConflicts(
   dstDir: string,
   existing: readonly ExistingEntry[],
   windows: boolean,
+  places: Places = asGiven(dstDir),
 ): string[] {
   const key = (n: string) => (windows ? n.toLowerCase() : n);
   const onDisk = indexListing(existing, key);
   const names = new Set<string>();
   for (const it of items) {
-    const c = classify(it, dstDir, onDisk, key, windows);
+    const c = classify(it, places, onDisk, key, windows);
     if (c.kind === "conflict") names.add(c.name);
   }
   return [...names];
@@ -149,6 +166,7 @@ export function planSteps(
   op: TransferOp,
   policy: ConflictPolicy,
   windows: boolean,
+  places: Places = asGiven(dstDir),
 ): TransferStep[] {
   const { joinPath } = pathOps(windows);
   const key = (n: string) => (windows ? n.toLowerCase() : n);
@@ -158,7 +176,7 @@ export function planSteps(
   const isTaken = (n: string) => onDisk.has(key(n)) || claimed.has(key(n));
   const steps: TransferStep[] = [];
   for (const it of items) {
-    const c = classify(it, dstDir, onDisk, key, windows);
+    const c = classify(it, places, onDisk, key, windows);
     const src = it.path;
     if (c.kind === "into-itself" || (c.kind === "same-place" && op === "move")) {
       steps.push({ action: "skip", src, reason: c.kind });
@@ -175,10 +193,10 @@ export function planSteps(
         steps.push({ action: "skip", src, reason: "conflict" });
         continue;
       }
-      const existingPath = joinPath(dstDir, onDisk.get(k)!.name);
+      const existingName = onDisk.get(k)!.name;
       // Trashing a folder that holds the source would take the source along.
-      if (policy === "replace" && !isInside(src, existingPath, windows)) {
-        replace = existingPath;
+      if (policy === "replace" && !isInside(places.of(src), joinPath(places.dst, existingName), windows)) {
+        replace = joinPath(dstDir, existingName);
       } else {
         target = pickFreeName(c.name, isDir, isTaken);
       }
@@ -200,6 +218,9 @@ export interface TransferDeps {
   copy: (src: string, dst: string) => Promise<void>;
   move: (src: string, dst: string) => Promise<void>;
   trash: (path: string) => Promise<void>;
+  /** `path` with its links resolved, to tell that two paths are one place
+   *  (`Places`). Without it, paths are compared as they are written. */
+  real?: (path: string) => Promise<string>;
   windows: boolean;
 }
 
@@ -221,17 +242,47 @@ export async function planTransfer(
   items: readonly TransferItem[],
   dstDir: string,
   op: TransferOp,
-  deps: Pick<TransferDeps, "list" | "ask" | "windows">,
+  deps: Pick<TransferDeps, "list" | "ask" | "real" | "windows">,
 ): Promise<TransferStep[] | null> {
   const existing = await deps.list(dstDir);
-  const conflicts = findConflicts(items, dstDir, existing, deps.windows);
+  const places = await realPlaces(items, dstDir, deps);
+  const conflicts = findConflicts(items, dstDir, existing, deps.windows, places);
   let policy: ConflictPolicy = "keep-both";
   if (conflicts.length > 0) {
     const picked = await deps.ask(conflicts, dstDir);
     if (!picked) return null;
     policy = picked;
   }
-  return planSteps(items, dstDir, existing, op, policy, deps.windows);
+  return planSteps(items, dstDir, existing, op, policy, deps.windows, places);
+}
+
+/** The real place of the destination and of each folder the items are in:
+ *  one question per folder. A folder that can't be resolved stays as given. */
+async function realPlaces(
+  items: readonly TransferItem[],
+  dstDir: string,
+  deps: Pick<TransferDeps, "real" | "windows">,
+): Promise<Places> {
+  const { real } = deps;
+  if (!real) return asGiven(dstDir);
+  const { basename, joinPath, parentPath } = pathOps(deps.windows);
+  const dirs = [...new Set([dstDir, ...items.map(it => parentPath(it.path))])];
+  const resolved = await Promise.all(dirs.map(async dir => {
+    try {
+      return (await real(dir)) || dir;
+    } catch {
+      return dir;
+    }
+  }));
+  const realOf = new Map(dirs.map((dir, i) => [dir, resolved[i]]));
+  return {
+    dst: realOf.get(dstDir) ?? dstDir,
+    of: path => {
+      const name = basename(path);
+      const dir = realOf.get(parentPath(path));
+      return name && dir !== undefined ? joinPath(dir, name) : path;
+    },
+  };
 }
 
 /** Plan and run a copy or move of `items` into `dstDir`, one item at a time.

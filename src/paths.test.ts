@@ -186,3 +186,71 @@ describe("collapsePath", () => {
     expect(posix.collapsePath("/tmp/a\\..")).toBe("/tmp/a\\..");
   });
 });
+
+// The same cases as `plain` in src-tauri/src/winpath_tests.rs.
+describe("plainPath", () => {
+  const raw = String.raw;
+
+  it("strips the verbatim prefix from drive paths", () => {
+    expect(win.plainPath(raw`\\?\C:\Users\me`)).toBe(raw`C:\Users\me`);
+    expect(win.plainPath(raw`\\?\c:\x.txt`)).toBe(raw`c:\x.txt`);
+    expect(win.plainPath(raw`\\?\D:\dir` + "\\")).toBe(raw`D:\dir`);
+    // A drive's root keeps its separator, with or without one given.
+    expect(win.plainPath(raw`\\?\C:` + "\\")).toBe("C:\\");
+    expect(win.plainPath(raw`\\?\C:`)).toBe("C:\\");
+    // Length is no reason to keep the prefix.
+    const deep = "C:\\" + "aaaaaaaaa\\".repeat(30) + "end.txt";
+    expect(win.plainPath("\\\\?\\" + deep)).toBe(deep);
+  });
+
+  it("turns verbatim UNC into a share path", () => {
+    expect(win.plainPath(raw`\\?\UNC\nas\media\films\a.mkv`)).toBe(raw`\\nas\media\films\a.mkv`);
+    expect(win.plainPath(raw`\\?\unc\nas\media`)).toBe(raw`\\nas\media`);
+    expect(win.plainPath(raw`\\?\UNC\nas\media` + "\\")).toBe(raw`\\nas\media`);
+    expect(win.plainPath(raw`\\?\UNC\10.0.0.2\c$\x`)).toBe(raw`\\10.0.0.2\c$\x`);
+  });
+
+  it("leaves what has no plain form, or isn't verbatim", () => {
+    const same = [
+      raw`C:\Users\me`, raw`\\nas\media\x`, raw`Z:\films`, "/home/me", raw`\\.\C:\x`, "", raw`\\?`,
+      // No share.
+      raw`\\?\UNC\nas`,
+      // Other verbatim roots.
+      raw`\\?\Volume{b75e2c83-0000-0000-0000-602f00000000}\x`, raw`\\?\GLOBALROOT\Device\x`, raw`\\?\C:x`,
+      // Components Windows would read differently in a plain path.
+      raw`\\?\C:\dir\notes.`, raw`\\?\C:\dir \x`, raw`\\?\C:\dir\con`, raw`\\?\C:\dir\NUL.txt\x`,
+      raw`\\?\C:\dir\..\x`, raw`\\?\C:\dir\.\x`, raw`\\?\C:\a/b`, raw`\\?\C:\a\\b`, raw`\\?\UNC\nas\media\aux`,
+    ];
+    for (const p of same) expect(win.plainPath(p), p).toBe(p);
+  });
+
+  it("does nothing on Linux, where \\ is part of a name", () => {
+    expect(posix.plainPath(raw`\\?\C:\Users\me`)).toBe(raw`\\?\C:\Users\me`);
+    expect(posix.plainPath("/home/me")).toBe("/home/me");
+  });
+});
+
+describe("a verbatim path that has no plain form", () => {
+  const raw = String.raw;
+
+  it("has its share or drive as the breadcrumb's root", () => {
+    expect(win.splitBreadcrumb(raw`\\?\UNC\nas\media\dir\notes.`)).toEqual([
+      { label: raw`\\?\UNC\nas\media`, path: raw`\\?\UNC\nas\media` + "\\" },
+      { label: "dir", path: raw`\\?\UNC\nas\media\dir` },
+      { label: "notes.", path: raw`\\?\UNC\nas\media\dir\notes.` },
+    ]);
+    expect(win.splitBreadcrumb(raw`\\?\C:\dir\con`).map(c => c.label)).toEqual([raw`\\?\C:`, "dir", "con"]);
+  });
+
+  it("stops at that root going up", () => {
+    expect(win.parentPath(raw`\\?\UNC\nas\media\dir`)).toBe(raw`\\?\UNC\nas\media` + "\\");
+    expect(win.parentPath(raw`\\?\UNC\nas\media` + "\\")).toBe(raw`\\?\UNC\nas\media` + "\\");
+    expect(win.parentPath(raw`\\?\C:\dir`)).toBe(raw`\\?\C:` + "\\");
+    expect(win.collapsePath(raw`\\?\UNC\nas\media\a\..\..\b`)).toBe(raw`\\?\UNC\nas\media\b`);
+  });
+
+  it("leaves ordinary share roots as they were", () => {
+    expect(win.parentPath(raw`\\nas\media\dir`)).toBe(raw`\\nas\media` + "\\");
+    expect(win.splitBreadcrumb(raw`\\uncle\share\x`).map(c => c.label)).toEqual([raw`\\uncle\share`, "x"]);
+  });
+});

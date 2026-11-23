@@ -50,15 +50,21 @@ pub enum Revealed {
 pub fn reveal_in_explorer(path: String) -> Result<Revealed, String> {
     #[cfg(windows)]
     {
-        // Explorer's /select never goes through the folder verb that
-        // "Open folders with glasshouse" sets, so this is always Explorer.
-        std::process::Command::new("explorer.exe")
-            .arg("/select,")
-            .arg(&path)
-            .spawn()
-            .map(reap)
+        // Neither way goes through the folder verb that "Open folders with
+        // glasshouse" sets, so this is always Explorer. The shell call
+        // first: `/select,` splits the path at a comma, and is only the
+        // fallback for a path the shell can't parse.
+        super::win_reveal::select_in_explorer(&path)
+            .or_else(|e| {
+                log::warn!("reveal: the shell call failed ({e}); starting explorer /select");
+                std::process::Command::new("explorer.exe")
+                    .arg("/select,")
+                    .arg(&path)
+                    .spawn()
+                    .map(reap)
+                    .map_err(|e| e.to_string())
+            })
             .map(|_| Revealed::Shown)
-            .map_err(|e| e.to_string())
     }
     #[cfg(target_os = "linux")]
     {

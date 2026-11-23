@@ -52,6 +52,57 @@ describe("nameProblem", () => {
     expect(nameProblem("x\\y", linux)).toBeNull();
     expect(nameProblem("x\\y", win)).not.toBeNull();
   });
+
+  it("applies Windows' name rules on Windows", () => {
+    expect(nameProblem("a:b", win)).toBe("a name can't contain : on Windows");
+    expect(nameProblem("notes.", win)).toBe("a name can't end with a dot or a space on Windows");
+    expect(nameProblem("CON", win)).toBe('"CON" is a reserved name on Windows');
+    expect(nameProblem("nul.txt", win)).toBe('"nul" is a reserved name on Windows');
+    // The separators keep their own message.
+    expect(nameProblem("x\\y", win)).toBe("a name can't contain / or \\");
+    // A taken name is still reported when the name is otherwise fine.
+    expect(nameProblem("docs", win)).toBe('"docs" already exists here');
+  });
+
+  it("takes on Linux what only Windows refuses", () => {
+    for (const name of ["a:b", "notes.", "CON", "nul.txt", "what?", "a*b", "trailing "]) {
+      expect(nameProblem(name, linux), name).toBeNull();
+    }
+  });
+
+  it("applies them on Linux in a FAT, exFAT or SMB folder", () => {
+    const stick = new NameSet(["a.txt", "Docs"], false, true);
+    expect(nameProblem("a:b", stick)).toBe("a name can't contain : on this drive");
+    expect(nameProblem("x\\y", stick)).toBe("a name can't contain \\ on this drive");
+    expect(nameProblem("notes.", stick)).toBe("a name can't end with a dot or a space on this drive");
+    expect(nameProblem("aux.txt", stick)).toBe('"aux" is a reserved name on this drive');
+    expect(nameProblem("x/y", stick)).toBe("a name can't contain /");
+    expect(nameProblem("b.txt", stick)).toBeNull();
+    // Linux's own case rule stays: the set only adds the name rules.
+    expect(nameProblem("A.txt", stick)).toBeNull();
+  });
+});
+
+describe("checkRenames with Windows' name rules", () => {
+  const moves = [{ from: "a.txt", to: "a:1.txt" }, { from: "b.txt", to: "b.txt" }, { from: "c.txt", to: "COM1.txt" }, { from: "d.txt", to: "d2.txt" }];
+  const existing = ["a.txt", "b.txt", "c.txt", "d.txt"];
+
+  it("flags each bad target on Windows", () => {
+    expect(checkRenames(moves, existing, true)).toEqual([
+      "a name can't contain : on Windows", null, '"COM1" is a reserved name on Windows', null,
+    ]);
+  });
+
+  it("flags none on Linux, unless the folder has those rules", () => {
+    expect(checkRenames(moves, existing, false)).toEqual([null, null, null, null]);
+    expect(checkRenames(moves, existing, false, true)).toEqual([
+      "a name can't contain : on this drive", null, '"COM1" is a reserved name on this drive', null,
+    ]);
+  });
+
+  it("leaves an unchanged name alone, whatever it is", () => {
+    expect(checkRenames([{ from: "aux", to: "aux" }, { from: "x", to: "y" }], ["aux", "x"], true)).toEqual([null, null]);
+  });
 });
 
 describe("freeNewName", () => {

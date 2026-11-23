@@ -5,6 +5,7 @@ import { IS_WINDOWS } from "../platform";
 import { errText } from "../errors";
 import { markIrreversible, pushUndo } from "../state";
 import { renameStepsUndo } from "../undoActions";
+import { winNamesIn } from "../transferUi";
 import { useEscapeClose } from "./useEscapeClose";
 import { useModal } from "./modal";
 
@@ -148,13 +149,19 @@ export function BulkRenameDialog({ items, onClose, renameOne, listNames, onDone 
   // that would replace something outside the batch.
   const dirs = useMemo(() => [...new Set(items.map(it => parentPath(it.path)))], [items]);
   const [listings, setListings] = useState<Map<string, string[]> | null>(null);
+  // The folders that take only names Windows allows (names.ts).
+  const [winDirs, setWinDirs] = useState<ReadonlySet<string>>(new Set());
 
   useEffect(() => { firstInputRef.current?.focus(); }, []);
 
   useEffect(() => {
     let cancelled = false;
-    Promise.all(dirs.map(async d => [d, await listNames(d)] as const))
-      .then(entries => { if (!cancelled) setListings(new Map(entries)); })
+    Promise.all(dirs.map(async d => [d, await listNames(d), await winNamesIn(d)] as const))
+      .then(entries => {
+        if (cancelled) return;
+        setWinDirs(new Set(entries.filter(e => e[2]).map(e => e[0])));
+        setListings(new Map(entries.map(([d, names]) => [d, names])));
+      })
       .catch(e => { if (!cancelled) setErr(`can't read the folder: ${errText(e)}`); });
     return () => { cancelled = true; };
   }, [dirs, listNames]);
@@ -174,13 +181,13 @@ export function BulkRenameDialog({ items, onClose, renameOne, listNames, onDone 
     for (const dir of dirs) {
       const rows = preview.map((_, i) => i).filter(i => parentPath(preview[i].path) === dir);
       const names = listings?.get(dir) ?? [];
-      checkRenames(rows.map(i => preview[i]), names, IS_WINDOWS)
+      checkRenames(rows.map(i => preview[i]), names, IS_WINDOWS, winDirs.has(dir))
         .forEach((p, j) => { if (p) found.set(rows[j], p); });
     }
     let changed = 0;
     for (const p of preview) if (p.to !== p.from) changed++;
     return { problems: found, changedCount: changed };
-  }, [preview, dirs, listings]);
+  }, [preview, dirs, listings, winDirs]);
 
   const hasCollision = problems.size > 0;
   const canRun = !running && listings !== null && !hasCollision && changedCount > 0;
@@ -199,7 +206,7 @@ export function BulkRenameDialog({ items, onClose, renameOne, listNames, onDone 
         if (moves.length === 0) continue;
         changing += moves.length;
         const names = await listNames(dir);
-        const problem = checkRenames(moves, names, IS_WINDOWS).find(p => p !== null);
+        const problem = checkRenames(moves, names, IS_WINDOWS, winDirs.has(dir)).find(p => p !== null);
         if (problem) throw new Error(problem);
         for (const s of orderRenames(moves, names, IS_WINDOWS)) steps.push({ dir, ...s });
       }

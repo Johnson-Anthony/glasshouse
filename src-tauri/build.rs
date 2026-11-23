@@ -22,7 +22,8 @@ fn windows_msvc() -> bool {
         && std::env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("msvc")
 }
 
-/// Embed the Common Controls v6 manifest through the linker, so every exe
+/// Embed the manifest (Common Controls v6, long paths, Windows 10 and 11 as
+/// the supported OS: windows/app-manifest.xml) through the linker, so every exe
 /// gets it, the unit-test exe included. tauri-build's own manifest is a
 /// resource linked into the app's binary alone, and a test exe that imports
 /// a comctl32 v6 function fails to load without it

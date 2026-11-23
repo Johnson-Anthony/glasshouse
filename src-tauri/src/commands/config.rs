@@ -60,7 +60,46 @@ fn write_json<T: Serialize>(app: &AppHandle, name: &str, value: &T) -> Result<()
 /// then pins the known folders (src/places.ts).
 #[tauri::command]
 pub fn read_pins(app: AppHandle) -> Result<Option<Vec<String>>, String> {
-    read_json(&app, "pins.json")
+    let pins: Option<Vec<String>> = read_json(&app, "pins.json")?;
+    #[cfg(windows)]
+    let pins = pins.map(|list| current_paths(&app, "pins.json", list));
+    Ok(pins)
+}
+
+// Up to 0.2.0 listings were canonical, so on Windows a path saved from one
+// could be in the verbatim form (`\\?\UNC\server\share\…` for anything on a
+// mapped drive, `\\?\C:\…` past MAX_PATH). Listings give the plain form now,
+// and saved paths are read in it, so pins and recents open where they look
+// like they do and tags stay on their files (`winpath::saved_form`). The
+// file is written back once, so the next read finds nothing to change.
+
+/// The mapped drives, asked for only when a saved path needs them.
+#[cfg(windows)]
+fn shares_for<'a>(mut paths: impl Iterator<Item = &'a String>) -> Vec<crate::winpath::Share> {
+    if paths.any(|p| crate::winpath::wants_shares(p)) {
+        super::drive_letters::mapped_shares()
+    } else {
+        Vec::new()
+    }
+}
+
+/// `value`, the migrated content of config file `name`, written back.
+#[cfg(windows)]
+fn keep_migrated<T: Serialize>(app: &AppHandle, name: &str, value: T) -> T {
+    match write_json(app, name, &value) {
+        Ok(()) => log::info!("{name}: saved paths moved to the plain form"),
+        Err(e) => log::warn!("{name}: couldn't save the migrated paths: {e}"),
+    }
+    value
+}
+
+/// A saved list of paths (pins, recents) in today's form.
+#[cfg(windows)]
+fn current_paths(app: &AppHandle, name: &str, list: Vec<String>) -> Vec<String> {
+    match crate::winpath::saved_paths(&list, &shares_for(list.iter())) {
+        Some(new) => keep_migrated(app, name, new),
+        None => list,
+    }
 }
 
 #[tauri::command]
@@ -72,7 +111,13 @@ pub fn write_pins(window: WebviewWindow, pins: Vec<String>) -> Result<(), String
 
 #[tauri::command]
 pub fn read_tags(app: AppHandle) -> Result<HashMap<String, Vec<String>>, String> {
-    read_json(&app, "tags.json")
+    let tags: HashMap<String, Vec<String>> = read_json(&app, "tags.json")?;
+    #[cfg(windows)]
+    let tags = match crate::winpath::saved_tags(&tags, &shares_for(tags.keys())) {
+        Some(new) => keep_migrated(&app, "tags.json", new),
+        None => tags,
+    };
+    Ok(tags)
 }
 
 #[tauri::command]
@@ -113,7 +158,10 @@ const RECENT_MAX: usize = 20;
 
 #[tauri::command]
 pub fn read_recent(app: AppHandle) -> Result<Vec<String>, String> {
-    read_json(&app, "recent.json")
+    let recent: Vec<String> = read_json(&app, "recent.json")?;
+    #[cfg(windows)]
+    let recent = current_paths(&app, "recent.json", recent);
+    Ok(recent)
 }
 
 #[tauri::command]

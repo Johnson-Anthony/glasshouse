@@ -107,9 +107,22 @@ pub(crate) fn entry_at(path: &Path) -> Option<FileEntry> {
     Some(entry_from(path.to_path_buf(), name, link_meta))
 }
 
+/// The folder a listing reads and joins its entries' names to: the path as
+/// it was asked for. On Windows that's its plain form (`winpath`).
+fn listing_base(path: &str) -> PathBuf {
+    #[cfg(windows)]
+    let path = crate::winpath::listing_base(path);
+    PathBuf::from(path)
+}
+
+/// The entries of `path`, each with its path under `path` as it was asked
+/// for: a folder reached through a link, a mapped or subst drive or a
+/// junction lists its entries there, not under what it resolves to, so the
+/// breadcrumb, the tree and saved paths stay where the user went. Only the
+/// git labels need the resolved folder.
 #[tauri::command(async)]
 pub fn list_dir(path: String, show_hidden: bool) -> Result<Vec<FileEntry>, AppError> {
-    let p = canonicalize_soft(&path);
+    let p = listing_base(&path);
     let mut out = Vec::new();
     let rd = std::fs::read_dir(&p).map_err(|e| AppError::io(Action::Open, &p, &e))?;
     for entry in rd.flatten() {
@@ -129,12 +142,14 @@ pub fn list_dir(path: String, show_hidden: bool) -> Result<Vec<FileEntry>, AppEr
     // normally-sized repos (single-digit ms for <1k files). If anything
     // fails (no repo, corrupt, permissions), fall through with all `git`
     // fields left None — we just don't show the column.
-    if let Some(git_map) = scan_repo_statuses(&p) {
+    let real = canonicalize_soft(&p);
+    if let Some(git_map) = scan_repo_statuses(&real) {
         for fe in out.iter_mut() {
-            // `p` is canonical, so each entry path already matches the scan's
-            // keys. Canonicalizing it would resolve a symlink to its target
-            // and give the link its target's label.
-            if let Some(flag) = git_map.get(Path::new(&fe.path)) {
+            // The scan's keys are under the canonical folder, so each entry
+            // is looked up by its name there. Canonicalizing the entry's own
+            // path would resolve a symlink to its target and give the link
+            // its target's label.
+            if let Some(flag) = git_map.get(&real.join(&fe.name)) {
                 fe.git = Some(flag.clone());
             }
         }
@@ -159,14 +174,22 @@ pub fn path_kind(path: String) -> Option<&'static str> {
     }
 }
 
+/// `path` with its links resolved (a symlink or junction; on Windows also a
+/// mapped or `subst` drive), or as it came when it can't be. Listings keep
+/// the path they were asked for, so two tabs can show one folder under two
+/// paths; the page compares these to tell (`transfer.ts`). Never shown.
+#[tauri::command(async)]
+pub fn real_path(path: String) -> String {
+    canonicalize_soft(&path).to_string_lossy().into_owned()
+}
+
+/// Hidden on Windows is the Hidden or System attribute, as in Explorer: a
+/// leading dot means nothing there (`.gitignore`, `.config` are plain names).
 #[cfg(windows)]
-fn is_hidden(name: &str, meta: &std::fs::Metadata) -> bool {
+fn is_hidden(_name: &str, meta: &std::fs::Metadata) -> bool {
     use std::os::windows::fs::MetadataExt;
     const FILE_ATTRIBUTE_HIDDEN: u32 = 0x2;
     const FILE_ATTRIBUTE_SYSTEM: u32 = 0x4;
-    if name.starts_with('.') {
-        return true;
-    }
     let attrs = meta.file_attributes();
     (attrs & (FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_SYSTEM)) != 0
 }

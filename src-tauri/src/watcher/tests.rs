@@ -223,3 +223,43 @@ fn each_window_counts_its_own_watches() {
     put(&b.join("y.txt"), "x");
     assert!(!reported(&rx, &b, QUIET));
 }
+
+/// A folder that is opened or listed just as its watch goes. On Linux the
+/// event still queued for it then arrives without a path; the debouncer
+/// indexed the path, panicked with its lock held, and the next watch_dir,
+/// on the main thread, went down with the poisoned lock and took the app
+/// along. Opening a subfolder does exactly this: its listing opens it (an
+/// event on the folder above) while that folder's watch is dropped. Linux
+/// only: the event without a path is inotify's.
+#[cfg(target_os = "linux")]
+#[test]
+fn an_event_for_a_watch_that_just_went_is_dropped() {
+    let d = Scratch::new("watch-gone");
+    let dir = d.path().to_path_buf();
+    for i in 0..20 {
+        put(&d.join(format!("sub{i}/f.txt")), "x");
+    }
+    let (state, on_change, rx) = watcher();
+    watch(&state, "w", dir.clone(), on_change).unwrap();
+    for _ in 0..300 {
+        for i in 0..20 {
+            drop(std::fs::read_dir(d.join(format!("sub{i}"))));
+        }
+        unwatch(&state, "w", dir.clone()).unwrap();
+        watch(&state, "w", dir.clone(), |_| {}).unwrap();
+    }
+    // The watcher is still alive and reporting.
+    settle(&rx);
+    put(&d.join("new.txt"), "x");
+    assert!(reported(&rx, &dir, TIMEOUT));
+}
+
+#[test]
+fn only_events_the_debouncer_can_take_get_through() {
+    use notify::{Event, EventKind};
+    let opened = Event::new(EventKind::Access(notify::event::AccessKind::Open(notify::event::AccessMode::Any)));
+    assert!(!has_path(&Ok(opened.clone())), "an event whose watch is gone names no path");
+    assert!(has_path(&Ok(opened.add_path(PathBuf::from("/w/a")))));
+    assert!(has_path(&Ok(Event::new(EventKind::Other).set_flag(notify::event::Flag::Rescan))));
+    assert!(has_path(&Err(notify::Error::generic("lost"))));
+}

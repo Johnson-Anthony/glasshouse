@@ -1,7 +1,7 @@
 // The app's side of transfer.ts and names.ts: the real fs calls, the conflict
 // question, the toasts and undo entries every copy/move-into-a-folder shares,
 // and the name checks before creating or renaming.
-import { copyEntry, isAlreadyExists, readDir } from "./api";
+import { copyEntry, isAlreadyExists, pathFsType, readDir, realPath } from "./api";
 import { dialogs } from "./dialogs/DialogHost";
 import { NameSet, nameProblem, takenProblem } from "./names";
 import { runOp } from "./ops";
@@ -9,6 +9,7 @@ import { basename } from "./paths";
 import { IS_WINDOWS } from "./platform";
 import { pushUndo } from "./state";
 import { movePath, trashPath } from "./tags";
+import { hasWindowsNames } from "./winNames";
 import {
   conflictMessage,
   failureDetails,
@@ -44,6 +45,7 @@ export const transferDeps: TransferDeps = {
   // replaced (trashed) loses its tags (tags.ts).
   move: movePath,
   trash: async p => { await trashPath(p); },
+  real: realPath,
   windows: IS_WINDOWS,
 };
 
@@ -76,9 +78,21 @@ export async function listNames(dir: string): Promise<string[]> {
   return (await readDir(dir, true)).map(e => e.name);
 }
 
-/** `listNames` as a NameSet for this platform. */
+/** Whether `dir` takes only names Windows allows: any folder on Windows,
+ *  and on Linux one on a FAT, exFAT or SMB file system, where a name like
+ *  `a:b` fails with a bare I/O error or is changed without a word. A file
+ *  system that can't be told counts as taking any name. */
+export async function winNamesIn(dir: string): Promise<boolean> {
+  if (IS_WINDOWS) return true;
+  // Whatever the backend sends that isn't a type name counts as "can't be told".
+  const fsType: unknown = await pathFsType(dir);
+  return typeof fsType === "string" && hasWindowsNames(fsType);
+}
+
+/** `listNames` as a NameSet for this platform and `dir`'s file system. */
 export async function namesIn(dir: string): Promise<NameSet> {
-  return new NameSet(await listNames(dir), IS_WINDOWS);
+  const [names, winNames] = await Promise.all([listNames(dir), winNamesIn(dir)]);
+  return new NameSet(names, IS_WINDOWS, winNames);
 }
 
 /** Throws if `name` can't be used in `dir`. Called right before writing,

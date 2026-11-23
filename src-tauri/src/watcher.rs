@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::Duration;
 
-use notify::{Config, RecommendedWatcher, RecursiveMode};
+use notify::{Config, RecommendedWatcher, RecursiveMode, Watcher};
 use notify_debouncer_full::{new_debouncer_opt, DebouncedEvent, Debouncer, NoCache};
 use tauri::{Emitter, EventTarget, Manager, State, WebviewWindow};
 
@@ -17,7 +17,52 @@ use tauri::{Emitter, EventTarget, Manager, State, WebviewWindow};
 /// since `watch_dir` runs on the main thread. The cache only serves to
 /// stitch a rename's two halves into one event, and `watch` reports the
 /// folders events are in, which both halves already give.
-type FolderDebouncer = Debouncer<RecommendedWatcher, NoCache>;
+type FolderDebouncer = Debouncer<PathEvents, NoCache>;
+
+/// The OS watcher, without the events that name no path. On Linux an
+/// inotify event read after its watch was removed comes through with none:
+/// a folder opened or changed just as its tab moved on, which every
+/// listing of a subfolder does to the folder above. notify-debouncer-full
+/// 0.4 indexes `paths[0]` of every event, so its thread panicked holding
+/// its lock, and the next `watch_dir` or `unwatch_dir`, on the main thread,
+/// panicked on the poisoned lock and aborted the app.
+pub struct PathEvents(RecommendedWatcher);
+
+impl Watcher for PathEvents {
+    fn new<F: notify::EventHandler>(mut handler: F, config: Config) -> notify::Result<Self> {
+        let pathful = move |result: notify::Result<notify::Event>| {
+            if has_path(&result) {
+                handler.handle_event(result);
+            }
+        };
+        RecommendedWatcher::new(pathful, config).map(Self)
+    }
+
+    fn watch(&mut self, path: &Path, mode: RecursiveMode) -> notify::Result<()> {
+        self.0.watch(path, mode)
+    }
+
+    fn unwatch(&mut self, path: &Path) -> notify::Result<()> {
+        self.0.unwatch(path)
+    }
+
+    fn configure(&mut self, option: Config) -> notify::Result<bool> {
+        self.0.configure(option)
+    }
+
+    fn kind() -> notify::WatcherKind {
+        RecommendedWatcher::kind()
+    }
+}
+
+/// What the debouncer can take: an error, a rescan request (it reads no
+/// path of those), or an event with a path.
+fn has_path(result: &notify::Result<notify::Event>) -> bool {
+    match result {
+        Ok(event) => event.need_rescan() || !event.paths.is_empty(),
+        Err(_) => true,
+    }
+}
 
 #[derive(Default)]
 pub struct WatcherState {
@@ -107,7 +152,7 @@ fn watch(
 
     let mut guard = state.debouncer.lock().map_err(|e| e.to_string())?;
     if guard.is_none() {
-        let debouncer = new_debouncer_opt::<_, RecommendedWatcher, NoCache>(
+        let debouncer = new_debouncer_opt::<_, PathEvents, NoCache>(
             Duration::from_millis(300),
             None,
             move |result: notify_debouncer_full::DebounceEventResult| match result {

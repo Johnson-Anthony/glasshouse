@@ -111,11 +111,11 @@ fn rename_no_replace_os(from: &Path, to: &Path) -> std::io::Result<()> {
 
 #[cfg(windows)]
 fn rename_no_replace_os(from: &Path, to: &Path) -> std::io::Result<()> {
-    use std::os::windows::ffi::OsStrExt;
+    use crate::winpath::to_verbatim;
     use windows::core::PCWSTR;
     use windows::Win32::Storage::FileSystem::{MoveFileExW, MOVE_FILE_FLAGS};
-    let wide = |p: &Path| -> Vec<u16> { p.as_os_str().encode_wide().chain(Some(0)).collect() };
-    let (f, t) = (wide(from), wide(to));
+    // Verbatim when long: a raw Win32 call stops at MAX_PATH otherwise.
+    let (f, t) = (to_verbatim(from), to_verbatim(to));
     // No MOVEFILE_REPLACE_EXISTING, so a taken target fails with
     // ERROR_ALREADY_EXISTS. SAFETY: both strings are NUL-terminated and
     // outlive the call.
@@ -416,14 +416,14 @@ fn copy_regular_file(
 /// land between files.
 #[cfg(windows)]
 fn copy_file_no_clobber(src: &Path, dst: &Path, op: &Op) -> std::io::Result<()> {
-    use std::os::windows::ffi::OsStrExt;
+    use crate::winpath::to_verbatim;
     use windows::core::PCWSTR;
     use windows::Win32::Foundation::TRUE;
     use windows::Win32::Storage::FileSystem::CopyFileW;
     op.check_io()?;
     let len = std::fs::metadata(src).map_or(0, |m| m.len());
-    let wide = |p: &Path| -> Vec<u16> { p.as_os_str().encode_wide().chain(Some(0)).collect() };
-    let (s, d) = (wide(src), wide(dst));
+    // Verbatim when long: a raw Win32 call stops at MAX_PATH otherwise.
+    let (s, d) = (to_verbatim(src), to_verbatim(dst));
     // The Win32 copy fs::copy uses, with bFailIfExists set: a taken target
     // fails with ERROR_FILE_EXISTS. SAFETY: both strings are NUL-terminated
     // and outlive the call.
