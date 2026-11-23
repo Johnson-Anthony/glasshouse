@@ -60,8 +60,6 @@ const PERM_ROWS = [
   { label: "exec", glyph: "x" },
 ];
 const PERM_COLS = ["owner", "group", "world"];
-const LINK = { color: "var(--accent)", cursor: "pointer" } as const;
-
 /** Set `path`'s permissions from `before` to `after`, with an undo entry. */
 export async function applyPermissions(path: string, label: string, before: number, after: number, onChanged: () => void): Promise<void> {
   try {
@@ -114,11 +112,11 @@ export function PermissionsGrid({ path, name, mode, onChanged }: PermissionsProp
   return (
     <div className="insp-section">
       <h4>PERMISSIONS{" "}
-        {mode != null && !editing && <span role="button" style={LINK} onClick={() => setDraft(mode)}>edit</span>}
+        {mode != null && !editing && <button type="button" className="link-btn" aria-label="edit permissions" onClick={() => setDraft(mode)}>edit</button>}
         {editing && (
           <span style={{display:"inline-flex", gap:10}}>
-            <span role="button" style={LINK} onClick={() => void apply()}>{busy ? "applying…" : "apply"}</span>
-            <span role="button" style={{ ...LINK, color: "var(--fg-3)" }} onClick={() => setDraft(null)}>cancel</span>
+            <button type="button" className="link-btn" onClick={() => void apply()}>{busy ? "applying…" : "apply"}</button>
+            <button type="button" className="link-btn quiet" aria-label="cancel the permission change" onClick={() => setDraft(null)}>cancel</button>
           </span>
         )}
       </h4>
@@ -146,6 +144,16 @@ export function PermissionsGrid({ path, name, mode, onChanged }: PermissionsProp
                     className={"perm-cell" + (on ? "" : " off")}
                     style={{cursor: editing ? "pointer" : "default", userSelect:"none"}}
                     onClick={editing ? () => setDraft(d => (d === null ? d : toggleBit(d, ci, ri))) : undefined}
+                    // While editing, each cell is a checkbox the keys reach.
+                    role={editing ? "checkbox" : "img"}
+                    aria-checked={editing ? on : undefined}
+                    aria-label={editing ? `${row.label} for ${col}` : `${row.label} for ${col}: ${on ? "yes" : "no"}`}
+                    tabIndex={editing ? 0 : undefined}
+                    onKeyDown={editing ? (e) => {
+                      if (e.key !== " " && e.key !== "Enter") return;
+                      e.preventDefault();
+                      setDraft(d => (d === null ? d : toggleBit(d, ci, ri)));
+                    } : undefined}
                     title={editing ? `${row.label} for ${col}: click to toggle` : `${row.label} for ${col}`}
                   >{on ? row.glyph : "—"}</div>
                 );
@@ -176,7 +184,7 @@ export function ReadOnlyLine({ path, name, readonly, onChanged }: PermissionsPro
     <div className="insp-section">
       <h4>PERMISSIONS{" "}
         {readonly != null && (
-          <span role="button" style={LINK} onClick={() => void toggle()}>{readonly ? "make writable" : "make read-only"}</span>
+          <button type="button" className="link-btn" onClick={() => void toggle()}>{readonly ? "make writable" : "make read-only"}</button>
         )}
       </h4>
       <dl className="kv">
@@ -340,10 +348,12 @@ export function Inspector({ file, onQuickAction, onExpand }: InspectorProps) {
 
       <div className="insp-section">
         <h4>CHECKSUMS {sha256 && (
-          <span
-            style={{color:"var(--accent)", cursor:"pointer"}}
+          <button
+            type="button"
+            className="link-btn"
+            aria-label="copy the sha256 checksum"
             onClick={() => { try { void navigator.clipboard.writeText(sha256); } catch { /* clipboard unavailable */ } }}
-          >copy</span>
+          >copy</button>
         )}</h4>
         <dl className="kv">
           <dt>sha256</dt>
@@ -378,16 +388,19 @@ export function Inspector({ file, onQuickAction, onExpand }: InspectorProps) {
       <div className="insp-section">
         <h4>QUICK ACTIONS</h4>
         <div style={{display:"flex", flexWrap:"wrap", gap:4}}>
-          <span className="chip" style={{cursor:"pointer"}} onClick={() => onQuickAction?.("run")}>▶ run</span>
-          <span className="chip" style={{cursor:"pointer"}} onClick={() => onQuickAction?.("open-in-code")}>⌨ open in code</span>
-          <span className="chip" style={{cursor:"pointer"}} onClick={() => onQuickAction?.("git-blame")}>⎇ git blame</span>
-          <span className="chip" style={{cursor:"pointer"}} onClick={() => onQuickAction?.("copy-path")}>⌘ copy path</span>
-          <span className="chip" style={{cursor:"pointer"}} onClick={() => onQuickAction?.("compress")}>◫ compress</span>
-          <span
+          <button type="button" className="chip" aria-label="run" onClick={() => onQuickAction?.("run")}>▶ run</button>
+          <button type="button" className="chip" aria-label="open in code" onClick={() => onQuickAction?.("open-in-code")}>⌨ open in code</button>
+          <button type="button" className="chip" aria-label="git blame" onClick={() => onQuickAction?.("git-blame")}>⎇ git blame</button>
+          <button type="button" className="chip" aria-label="copy path" onClick={() => onQuickAction?.("copy-path")}>⌘ copy path</button>
+          <button type="button" className="chip" aria-label="compress" onClick={() => onQuickAction?.("compress")}>◫ compress</button>
+          <button
+            type="button"
             className="chip"
+            aria-label="hash"
+            aria-busy={hashing || undefined}
             style={{cursor: hashing ? "progress" : "pointer", opacity: hashing ? 0.6 : 1}}
             onClick={computeHash}
-          ># hash</span>
+          ># hash</button>
         </div>
       </div>
     </aside>

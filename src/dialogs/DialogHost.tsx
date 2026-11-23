@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { errText } from "../errors";
 import { useModal } from "./modal";
+import { useDialogPanel } from "./dialogPanel";
 
 // ============= DialogHost (themed prompt / alert / confirm + toast) =============
 // Replaces window.prompt / window.alert / window.confirm at key callsites.
@@ -156,6 +157,19 @@ export function enterActivatesFocused(el: Element | null, panel: Element | null)
   return !!el && !!panel && el.tagName === "BUTTON" && panel.contains(el);
 }
 
+/** The title a dialog shows, which is its name to a screen reader. */
+function dialogName(state: DialogState): string {
+  if (!state) return "";
+  if (state.opts.title) return state.opts.title;
+  switch (state.kind) {
+    case "prompt": return "input";
+    case "alert": return state.opts.variant === "error" ? "error" : state.opts.variant === "warning" ? "warning" : "info";
+    case "confirm": return "confirm";
+    case "choice": return "choose";
+    case "pick": return "pick";
+  }
+}
+
 function variantColor(v: DialogVariant | undefined): string {
   switch (v) {
     case "success": return "var(--green, #9ece6a)";
@@ -179,13 +193,14 @@ export function DialogHost() {
   const listRef = useRef<HTMLDivElement>(null);
   const open = state !== null;
   useModal(open);
-
-  // Focus goes back to what had it (usually the file pane) on close.
-  useEffect(() => {
-    if (!open) return;
-    const prev = document.activeElement as HTMLElement | null;
-    return () => { if (prev?.isConnected) prev.focus(); };
-  }, [open]);
+  // One panel shows at a time. Its name is its title; an alert, a confirm
+  // or a choice is an alertdialog whose message is read as it opens. Focus
+  // goes back to what had it (usually the file pane) on close.
+  const dlg = useDialogPanel(dialogName(state), {
+    ref: panelRef,
+    alert: state?.kind === "alert" || state?.kind === "confirm" || state?.kind === "choice",
+    describedBy: state?.opts.message ? "dialog-message" : undefined,
+  });
 
   useEffect(() => {
     const api: DialogApi = {
@@ -391,17 +406,21 @@ export function DialogHost() {
     <>
       {state?.kind === "prompt" && (
         <div onClick={close} style={overlay}>
-          <div ref={panelRef} onClick={(e) => e.stopPropagation()} style={panel}>
+          <div {...dlg} onClick={(e) => e.stopPropagation()} style={panel}>
             <div style={header}>
               <span style={{ color: "var(--accent)" }}>{state.opts.title ?? "input"}</span>
-              <button onClick={close} style={closeBtn}>×</button>
+              <button type="button" onClick={close} style={closeBtn} aria-label="Close">×</button>
             </div>
             <div style={body}>
               {state.opts.message && (
-                <div style={{ marginBottom: 8, color: "var(--fg-2, var(--fg-1))" }}>{state.opts.message}</div>
+                <div id="dialog-message" style={{ marginBottom: 8, color: "var(--fg-2, var(--fg-1))" }}>{state.opts.message}</div>
               )}
               <input
                 ref={inputRef}
+                aria-label={state.opts.message ? undefined : dialogName(state)}
+                aria-labelledby={state.opts.message ? "dialog-message" : undefined}
+                aria-invalid={promptError ? true : undefined}
+                aria-describedby={promptError ? "dialog-error" : undefined}
                 value={promptValue}
                 onChange={(e) => { setPromptValue(e.target.value); if (promptError) setPromptError(null); }}
                 placeholder={state.opts.placeholder}
@@ -415,7 +434,7 @@ export function DialogHost() {
                 }}
               />
               {promptError && (
-                <div style={{ marginTop: 6, color: "var(--red, #f7768e)", fontSize: 11 }}>{promptError}</div>
+                <div id="dialog-error" role="alert" style={{ marginTop: 6, color: "var(--red, #f7768e)", fontSize: 11 }}>{promptError}</div>
               )}
             </div>
             <div style={footer}>
@@ -428,15 +447,15 @@ export function DialogHost() {
 
       {state?.kind === "alert" && (
         <div onClick={alertOk} style={overlay}>
-          <div ref={panelRef} onClick={(e) => e.stopPropagation()} style={{ ...panel, borderColor: variantColor(state.opts.variant) }}>
+          <div {...dlg} onClick={(e) => e.stopPropagation()} style={{ ...panel, borderColor: variantColor(state.opts.variant) }}>
             <div style={header}>
               <span style={{ color: variantColor(state.opts.variant) }}>
                 {state.opts.title ?? (state.opts.variant === "error" ? "error" : state.opts.variant === "warning" ? "warning" : "info")}
               </span>
-              <button onClick={alertOk} style={closeBtn}>×</button>
+              <button type="button" onClick={alertOk} style={closeBtn} aria-label="Close">×</button>
             </div>
             <div style={{ ...body, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
-              {state.opts.message}
+              <span id="dialog-message">{state.opts.message}</span>
               {state.opts.detail && <ErrorDetails detail={state.opts.detail} />}
             </div>
             <div style={footer}>
@@ -448,14 +467,14 @@ export function DialogHost() {
 
       {state?.kind === "confirm" && (
         <div onClick={close} style={overlay}>
-          <div ref={panelRef} onClick={(e) => e.stopPropagation()} style={{ ...panel, borderColor: state.opts.danger ? "var(--red, #f7768e)" : "var(--accent)" }}>
+          <div {...dlg} onClick={(e) => e.stopPropagation()} style={{ ...panel, borderColor: state.opts.danger ? "var(--red, #f7768e)" : "var(--accent)" }}>
             <div style={header}>
               <span style={{ color: state.opts.danger ? "var(--red, #f7768e)" : "var(--accent)" }}>
                 {state.opts.title ?? "confirm"}
               </span>
-              <button onClick={close} style={closeBtn}>×</button>
+              <button type="button" onClick={close} style={closeBtn} aria-label="Close">×</button>
             </div>
-            <div style={{ ...body, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
+            <div id="dialog-message" style={{ ...body, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
               {state.opts.message}
             </div>
             <div style={footer}>
@@ -470,12 +489,12 @@ export function DialogHost() {
 
       {state?.kind === "choice" && (
         <div onClick={close} style={overlay}>
-          <div ref={panelRef} onClick={(e) => e.stopPropagation()} style={panel}>
+          <div {...dlg} onClick={(e) => e.stopPropagation()} style={panel}>
             <div style={header}>
               <span style={{ color: "var(--accent)" }}>{state.opts.title ?? "choose"}</span>
-              <button onClick={close} style={closeBtn}>×</button>
+              <button type="button" onClick={close} style={closeBtn} aria-label="Close">×</button>
             </div>
-            <div style={{ ...body, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
+            <div id="dialog-message" style={{ ...body, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
               {state.opts.message}
             </div>
             <div style={footer}>
@@ -490,19 +509,20 @@ export function DialogHost() {
 
       {state?.kind === "pick" && (
         <div onClick={close} style={overlay}>
-          <div ref={panelRef} onClick={(e) => e.stopPropagation()} style={{ ...panel, width: "80ch" }}>
+          <div {...dlg} onClick={(e) => e.stopPropagation()} style={{ ...panel, width: "80ch" }}>
             <div style={header}>
               <span style={{ color: "var(--accent)" }}>{state.opts.title ?? "pick"}</span>
-              <button onClick={close} style={closeBtn}>×</button>
+              <button type="button" onClick={close} style={closeBtn} aria-label="Close">×</button>
             </div>
             {state.opts.message && (
-              <div style={{ ...body, paddingBottom: 8, color: "var(--fg-2, var(--fg-1))", wordBreak: "break-word" }}>{state.opts.message}</div>
+              <div id="dialog-message" style={{ ...body, paddingBottom: 8, color: "var(--fg-2, var(--fg-1))", wordBreak: "break-word" }}>{state.opts.message}</div>
             )}
             <div
               ref={listRef}
               role="listbox"
               tabIndex={0}
-              aria-activedescendant={`dialog-pick-${pickAt}`}
+              aria-label={dialogName(state)}
+              aria-activedescendant={state.opts.items.length > 0 ? `dialog-pick-${pickAt}` : undefined}
               style={{ maxHeight: "50vh", overflow: "auto", padding: "0 0 8px", fontSize: 12, outline: "none" }}
             >
               {state.opts.items.map((item, i) => (
@@ -531,8 +551,10 @@ export function DialogHost() {
         </div>
       )}
 
-      {toasts.length > 0 && (
-        <div style={{
+      {/* Always in the page, also when empty: a screen reader only reads
+          what's added to a live region that was already there. */}
+      {(
+        <div className="toasts" role="status" aria-live="polite" aria-atomic="false" style={{
           position: "fixed",
           right: 16, bottom: 44,
           zIndex: 350,
@@ -552,7 +574,7 @@ export function DialogHost() {
               boxShadow: "0 8px 24px rgba(0,0,0,0.4)",
               pointerEvents: t.action ? "auto" : undefined,
             }}>
-              <span style={{ color: variantColor(t.variant), marginRight: 6 }}>●</span>
+              <span aria-hidden="true" style={{ color: variantColor(t.variant), marginRight: 6 }}>●</span>
               {t.message}
               {t.action && (
                 <button

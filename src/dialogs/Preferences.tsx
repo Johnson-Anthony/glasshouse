@@ -25,6 +25,7 @@ import { stepZoom, ZOOM_DEFAULT, ZOOM_STEPS, zoomLabel } from "../zoom";
 import { ThemeEditor, exportThemeFile } from "./ThemeEditor";
 import { useEscapeClose } from "./useEscapeClose";
 import { useModal } from "./modal";
+import { useDialogPanel } from "./dialogPanel";
 
 // ============= PreferencesDialog =============
 // Edit → Preferences… (Ctrl+,). Each change applies at once and is saved with
@@ -69,6 +70,7 @@ export function PreferencesDialog({ open, state, setState, onClose, onCheckUpdat
   useEscapeClose(onClose, open && !query);
   useModal(open);
   const panelRef = useRef<HTMLDivElement>(null);
+  const dlg = useDialogPanel("Preferences", { ref: panelRef, labelledBy: "prefs-title" });
   const bodyRef = useRef<HTMLDivElement>(null);
   const [cat, setCat] = useState<Category>("theme");
   const [undo, setUndo] = useState<LookState | null>(null);
@@ -131,11 +133,7 @@ export function PreferencesDialog({ open, state, setState, onClose, onCheckUpdat
     <div className="prefs-backdrop" onClick={onClose}>
       <div
         className="prefs"
-        ref={panelRef}
-        tabIndex={-1}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="prefs-title"
+        {...dlg}
         onClick={e => e.stopPropagation()}
       >
         <div className="prefs-head">
@@ -151,13 +149,13 @@ export function PreferencesDialog({ open, state, setState, onClose, onCheckUpdat
             onKeyDown={e => { if (e.key === "Escape" && query) { e.preventDefault(); setQuery(""); } }}
           />
           <span className="prefs-sub">changes apply at once · esc to close</span>
-          <button type="button" className="prefs-x" onClick={onClose} aria-label="close">×</button>
+          <button type="button" className="prefs-x" onClick={onClose} aria-label="Close preferences">×</button>
         </div>
         <div className="prefs-main">
           <nav className="prefs-nav" aria-label="preference categories">
             {cats.map((c, i) => (
               <React.Fragment key={c.id}>
-                {c.group !== cats[i - 1]?.group && <div className="prefs-nav-group">{c.group}</div>}
+                {c.group !== cats[i - 1]?.group && <div className="prefs-nav-group" role="presentation">{c.group}</div>}
                 <button
                   type="button"
                   className={!filtering && c.id === cat ? "active" : ""}
@@ -188,7 +186,8 @@ export function PreferencesDialog({ open, state, setState, onClose, onCheckUpdat
               )}
               {shows("updates") && <UpdatesSection {...props} info={update} onCheckNow={onCheckUpdates} />}
             </FilterCtx.Provider>
-            {noMatch && <p className="prefs-empty">No settings match “{query}”.</p>}
+            {/* A status: said when the filter leaves nothing, as it's typed. */}
+            <div role="status">{noMatch && <p className="prefs-empty">No settings match “{query}”.</p>}</div>
           </div>
         </div>
         <div className="prefs-foot">

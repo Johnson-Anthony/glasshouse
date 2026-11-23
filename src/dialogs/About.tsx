@@ -4,6 +4,7 @@ import { getVersion } from "@tauri-apps/api/app";
 import { openNotices } from "../NoticesScreen";
 import { useEscapeClose } from "./useEscapeClose";
 import { useModal } from "./modal";
+import { useDialogPanel } from "./dialogPanel";
 
 // ============= AboutDialog =============
 export interface AboutDialogProps {
@@ -16,6 +17,7 @@ export function AboutDialog({ open, onClose }: AboutDialogProps) {
 
   useEscapeClose(onClose, open);
   useModal(open);
+  const dlg = useDialogPanel("About glasshouse");
 
   useEffect(() => {
     if (!open) return;
@@ -47,7 +49,7 @@ export function AboutDialog({ open, onClose }: AboutDialogProps) {
       position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)",
       zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center",
     }}>
-      <div onClick={(e) => e.stopPropagation()} style={{
+      <div {...dlg} onClick={(e) => e.stopPropagation()} style={{
         width: "48ch", maxWidth: "95vw",
         background: "var(--bg-1, #1a1b26)", border: "1px solid var(--fg-3)",
         borderRadius: 4, display: "flex", flexDirection: "column",

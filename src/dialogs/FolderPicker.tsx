@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo } from "react";
 import { drives as apiDrives, homeDir as apiHomeDir, listDir, type Drive, type FileEntry } from "../api";
 import { parentPath, splitBreadcrumb } from "../paths";
 import { useModal } from "./modal";
+import { useDialogPanel } from "./dialogPanel";
 
 // ============= FolderPickerDialog =============
 // In-app folder picker modal. Replaces the Tauri native open-directory dialog
@@ -21,6 +22,7 @@ export function FolderPickerDialog({ initialPath, title, onClose, onPick }: Fold
   const [driveList, setDriveList] = useState<Drive[]>([]);
   const [busy, setBusy] = useState(false);
   useModal();
+  const dlg = useDialogPanel(title ?? "Pick a folder");
 
   useEffect(() => {
     void (async () => {
@@ -67,7 +69,7 @@ export function FolderPickerDialog({ initialPath, title, onClose, onPick }: Fold
       position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)",
       zIndex: 280, display: "flex", alignItems: "center", justifyContent: "center",
     }}>
-      <div onClick={(e) => e.stopPropagation()} style={{
+      <div {...dlg} onClick={(e) => e.stopPropagation()} style={{
         width: "80ch", maxWidth: "95vw", height: "60vh", maxHeight: "80vh",
         background: "var(--bg-2, #16161e)", border: "1px solid var(--accent)",
         borderRadius: 6, display: "flex", flexDirection: "column",

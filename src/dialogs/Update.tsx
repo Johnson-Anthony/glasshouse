@@ -11,6 +11,7 @@ import {
 import { ErrorDetails } from "./DialogHost";
 import { useEscapeClose } from "./useEscapeClose";
 import { useModal } from "./modal";
+import { useDialogPanel } from "./dialogPanel";
 
 // ============= UpdateDialog =============
 // Help → Check for Updates, Preferences → Updates' "check now", and the
@@ -50,6 +51,7 @@ export function UpdateDialog({ open, found, onClose }: UpdateDialogProps) {
 
   useEscapeClose(onClose, open && !busy);
   useModal(open);
+  const dlg = useDialogPanel("Check for updates", { ref: panelRef, labelledBy: "upd-title" });
 
   const check = () => {
     setPhase({ kind: "checking" });
@@ -105,11 +107,7 @@ export function UpdateDialog({ open, found, onClose }: UpdateDialogProps) {
     <div className="prefs-backdrop" onClick={close}>
       <div
         className="prefs upd"
-        ref={panelRef}
-        tabIndex={-1}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="upd-title"
+        {...dlg}
         onClick={e => e.stopPropagation()}
       >
         <div className="prefs-head">

@@ -599,7 +599,7 @@ export function QuickLook({ file, onClose }: { file: InspectableFile; onClose: (
   const ki = kindIcon(file.kind);
   return (
     <div className="ql-overlay" onMouseDown={onClose}>
-      <div className="ql-box" onMouseDown={(e) => e.stopPropagation()}>
+      <div className="ql-box" role="dialog" aria-label={`Quick Look: ${displayName}`} onMouseDown={(e) => e.stopPropagation()}>
         <div className="ql-head">
           <span className={"ql-ic " + ki.cls}>{ki.ic}</span>
           <span className="ql-name" title={file.entry.path}>{displayName}</span>

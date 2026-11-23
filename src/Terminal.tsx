@@ -489,8 +489,8 @@ export function TerminalDrawer({ open, cwd, profile, follow, height, onHeightCha
           )}
         </div>
         <div className="right">
-          <span title="open in external terminal" onClick={handleExport}>↗</span>
-          <span title="close (Ctrl+`)" onClick={handleClose}>×</span>
+          <button type="button" className="plain-btn" title="open in external terminal" aria-label="Open in an external terminal" onClick={handleExport}>↗</button>
+          <button type="button" className="plain-btn" title="close (Ctrl+`)" aria-label="Close the terminal" onClick={handleClose}>×</button>
         </div>
       </div>
       <div className="term-stack">

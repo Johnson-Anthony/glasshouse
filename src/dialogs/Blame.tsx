@@ -2,6 +2,7 @@ import type { BlameLine } from "../api";
 import { basename } from "../paths";
 import { useEscapeClose } from "./useEscapeClose";
 import { useModal } from "./modal";
+import { useDialogPanel } from "./dialogPanel";
 
 // ============= BlameDialog =============
 export interface BlameDialogProps {
@@ -12,6 +13,7 @@ export interface BlameDialogProps {
 export function BlameDialog({ blame, onClose }: BlameDialogProps) {
   useEscapeClose(onClose);
   useModal();
+  const dlg = useDialogPanel("Git blame");
 
   const shortName = basename(blame.path);
 
@@ -34,6 +36,7 @@ export function BlameDialog({ blame, onClose }: BlameDialogProps) {
       }}
     >
       <div
+        {...dlg}
         onClick={(e) => e.stopPropagation()}
         style={{
           width: "120ch", maxWidth: "95vw", maxHeight: "90vh",

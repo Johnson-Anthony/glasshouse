@@ -9,6 +9,7 @@ import { groupNotices, linkSegments, NOTICES_INDEX, type Notice } from "./notice
 import { errText } from "./errors";
 import { useEscapeClose } from "./dialogs/useEscapeClose";
 import { useModal } from "./dialogs/modal";
+import { useDialogPanel } from "./dialogs/dialogPanel";
 
 let openRef: (() => void) | null = null;
 
@@ -46,6 +47,7 @@ export function NoticesHost() {
   const close = useCallback(() => setOpen(false), []);
   useEscapeClose(close, open);
   useModal(open);
+  const dlg = useDialogPanel("Third-party notices");
 
   const known = useMemo(() => new Set(notices?.filter((n) => n.links).map((n) => n.path)), [notices]);
   const groups = useMemo(() => {
@@ -63,8 +65,7 @@ export function NoticesHost() {
       zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center",
     }}>
       <div
-        role="dialog"
-        aria-label="third-party notices"
+        {...dlg}
         onClick={(e) => e.stopPropagation()}
         style={{
           width: "min(120ch, 95vw)", height: "85vh",

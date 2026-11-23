@@ -177,8 +177,9 @@ export type CheckResult = { theme: Omit<UserTheme, "id">; warnings: string[] } |
 
 /** A theme from parsed JSON (a file, or what was saved): the name, scheme
  *  and every token as a hex color. `on-accent` may be left out, and the
- *  scheme too; both are worked out from the colors. Unknown keys are
- *  ignored, with a warning. */
+ *  scheme too; both are worked out from the colors. So may `fg-4`, which
+ *  themes saved before it don't have: it takes their `fg-3`, the color
+ *  those parts had. Unknown keys are ignored, with a warning. */
 export function checkTheme(raw: unknown): CheckResult {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return { error: "not a theme: expected a JSON object" };
   const o = raw as Record<string, unknown>;
@@ -192,7 +193,7 @@ export function checkTheme(raw: unknown): CheckResult {
   const missing: string[] = [];
   for (const k of THEME_TOKENS) {
     const v = given[k];
-    if (v === undefined && k === "on-accent") continue;
+    if (v === undefined && (k === "on-accent" || k === "fg-4")) continue;
     if (!isHexColor(v)) {
       if (v === undefined) missing.push(k);
       else return { error: `--${k} isn't a hex color (#rrggbb)` };
@@ -202,6 +203,7 @@ export function checkTheme(raw: unknown): CheckResult {
   }
   if (missing.length) return { error: `missing colors: ${missing.join(", ")}` };
   if (!colors["on-accent"]) colors["on-accent"] = textOn(colors.accent);
+  if (!colors["fg-4"]) colors["fg-4"] = colors["fg-3"];
   const extra = Object.keys(given).filter(k => !(THEME_TOKENS as readonly string[]).includes(k));
   if (extra.length) warnings.push(`ignored: ${extra.join(", ")}`);
   const scheme: ThemeScheme = o.scheme === "light" || o.scheme === "dark" ? o.scheme : isDark(colors["bg-0"]) ? "dark" : "light";

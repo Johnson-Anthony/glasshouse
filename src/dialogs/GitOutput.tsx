@@ -1,5 +1,6 @@
 import { useEscapeClose } from "./useEscapeClose";
 import { useModal } from "./modal";
+import { useDialogPanel } from "./dialogPanel";
 
 // ============= GitOutputDialog =============
 export interface GitOutputState {
@@ -18,6 +19,7 @@ export interface GitOutputDialogProps {
 export function GitOutputDialog({ state, onClose }: GitOutputDialogProps) {
   useEscapeClose(onClose);
   useModal();
+  const dlg = useDialogPanel(state.title);
 
   const statusColor = state.ok ? "var(--green, #9ece6a)" : "var(--red, #f7768e)";
   const statusLabel = state.ok ? "ok" : `exit ${state.exit ?? "?"}`;
@@ -31,6 +33,7 @@ export function GitOutputDialog({ state, onClose }: GitOutputDialogProps) {
       }}
     >
       <div
+        {...dlg}
         onClick={(e) => e.stopPropagation()}
         style={{
           width: "100ch", maxWidth: "95vw", maxHeight: "85vh",

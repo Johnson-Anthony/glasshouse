@@ -4,6 +4,7 @@ import { errText } from "../errors";
 import { branchChoices, commitArgs, filterChoices, type BranchAction } from "../gitUx";
 import { pickMove } from "./DialogHost";
 import { useModal } from "./modal";
+import { useDialogPanel } from "./dialogPanel";
 import { useEscapeClose } from "./useEscapeClose";
 
 // ============= GitDialogHost (branch picker, commit dialog) =============
@@ -64,7 +65,7 @@ export function GitDialogHost() {
 
 /** The frame both dialogs share. `onKey` gets every key pressed while it's
  *  open, wherever the focus is (a click on the dialog's text leaves it on
- *  the panel). Focus goes back to what had it on close. */
+ *  the panel). Focus goes back to what had it on close (dialogPanel.ts). */
 function Frame({ title, sub, onCancel, onKey, children, foot }: {
   title: string;
   sub?: string;
@@ -75,25 +76,19 @@ function Frame({ title, sub, onCancel, onKey, children, foot }: {
 }) {
   useModal();
   useEscapeClose(onCancel);
+  const dlg = useDialogPanel(title);
   const keyRef = useRef(onKey);
   keyRef.current = onKey;
   useEffect(() => {
-    const prev = document.activeElement as HTMLElement | null;
     const h = (e: KeyboardEvent) => keyRef.current(e);
     window.addEventListener("keydown", h);
-    return () => {
-      window.removeEventListener("keydown", h);
-      if (prev?.isConnected) prev.focus();
-    };
+    return () => window.removeEventListener("keydown", h);
   }, []);
   return (
     <div className="gitdlg-backdrop" onClick={onCancel}>
       <div
         className="gitdlg"
-        role="dialog"
-        aria-modal="true"
-        aria-label={title}
-        tabIndex={-1}
+        {...dlg}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="gitdlg-head">

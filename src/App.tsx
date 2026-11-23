@@ -47,9 +47,10 @@ import { COMMAND_CHAIN, type HandlerCtx } from "./handlers";
 import type { PaneCommands } from "./handlers/types";
 import { cmdState } from "./commandState";
 import { sshProfileFor } from "./remotes";
-import { findBinding, gitChord, GIT_CHORD_MS, type KeyAction } from "./keymap";
+import { CONTROL_SELECTOR, findBinding, gitChord, GIT_CHORD_MS, type KeyAction } from "./keymap";
 import type { MenuAnchor } from "./menuNav";
 import { isModalOpen, useModal } from "./dialogs/modal";
+import { useDialogPanel } from "./dialogs/dialogPanel";
 import { useAutoUpdateCheck } from "./updates";
 import { makeTab } from "./tabs";
 import { DEFAULT_SORT, loadSession, restoreSession, sessionFrom, type Session } from "./session";
@@ -172,6 +173,7 @@ function FindInFilesModal({ root, onClose, onPick }: FindInFilesModalProps) {
 
   useEscapeClose(onClose);
   useModal();
+  const dlg = useDialogPanel("Find in files");
 
   useEffect(() => {
     if (!query.trim()) {
@@ -242,6 +244,7 @@ function FindInFilesModal({ root, onClose, onPick }: FindInFilesModalProps) {
       }}
     >
       <div
+        {...dlg}
         onClick={(e) => e.stopPropagation()}
         style={{
           width: "80ch", maxWidth: "95vw", maxHeight: "85vh",
@@ -690,6 +693,7 @@ export function App() {
         selected: activeHandle?.state.selected.length ?? 0,
         sidebar: !!sidebarRootRef.current?.contains(e.target as Node),
         textSelected: !!window.getSelection()?.toString(),
+        control: !!(e.target as Element | null)?.closest?.(CONTROL_SELECTOR),
       });
       if (!b) return;
       e.preventDefault();

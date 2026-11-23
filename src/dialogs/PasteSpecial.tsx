@@ -8,6 +8,7 @@ import { pushUndo } from "../state";
 import { copyUndo, moveUndo, type PathPair } from "../undoActions";
 import { useEscapeClose } from "./useEscapeClose";
 import { useModal } from "./modal";
+import { useDialogPanel } from "./dialogPanel";
 
 // ============= Paste Special dialog =============
 
@@ -79,6 +80,7 @@ export function PasteSpecialDialog({
 
   useEscapeClose(onClose, !running);
   useModal();
+  const dlg = useDialogPanel("Paste special");
 
   const preview = items.slice(0, 5).map(it => basename(it.path));
   const extra = items.length > 5 ? items.length - 5 : 0;
@@ -229,6 +231,7 @@ export function PasteSpecialDialog({
       }}
     >
       <div
+        {...dlg}
         onClick={(e) => e.stopPropagation()}
         style={{
           width: "80ch", maxWidth: "95vw", maxHeight: "90vh",
