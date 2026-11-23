@@ -174,6 +174,15 @@ pub fn path_kind(path: String) -> Option<&'static str> {
     }
 }
 
+/// `path` with its links resolved (a symlink or junction; on Windows also a
+/// mapped or `subst` drive), or as it came when it can't be. Listings keep
+/// the path they were asked for, so two tabs can show one folder under two
+/// paths; the page compares these to tell (`transfer.ts`). Never shown.
+#[tauri::command(async)]
+pub fn real_path(path: String) -> String {
+    canonicalize_soft(&path).to_string_lossy().into_owned()
+}
+
 /// Hidden on Windows is the Hidden or System attribute, as in Explorer: a
 /// leading dot means nothing there (`.gitignore`, `.config` are plain names).
 #[cfg(windows)]

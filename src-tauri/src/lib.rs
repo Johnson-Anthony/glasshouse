@@ -98,6 +98,7 @@ fn builder() -> tauri::Builder<tauri::Wry> {
             commands::listing::home_dir,
             commands::listing::list_dir,
             commands::listing::path_kind,
+            commands::listing::real_path,
             commands::system::drives,
             commands::wsl::list_wsl_distros,
             commands::system::system_info,

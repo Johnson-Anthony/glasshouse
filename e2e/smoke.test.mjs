@@ -2,17 +2,19 @@
 // lists a folder typed into Go to Path, and shows drives and known folders
 // in the sidebar (on Linux, also the pins a first run starts with), with no
 // uncaught errors. Flow 2: split view. Flow 3: a second window in the same
-// process. Flow 4: a tab moved to a new window. Linux: `pnpm e2e` (Xvfb and a private bus). Windows: run
+// process. Flow 4: a tab moved to a new window. Flow 5 (Linux): a folder
+// reached through a symlink. Linux: `pnpm e2e` (Xvfb and a private bus). Windows: run
 // this file directly with `node --test` in an interactive session, with a
 // msedgedriver that matches the WebView2 Runtime (e2e/edgedriver.ps1).
 // Artifacts go to e2e/artifacts/ whatever the outcome.
 import assert from "node:assert/strict";
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { basename as posixBasename, join, win32 } from "node:path";
 import { pathToFileURL } from "node:url";
 import { after, afterEach, before, test } from "node:test";
 
-import { ARTIFACTS, IS_WINDOWS, SESSION_DEADLINE_MS, appEnv, appPath, capabilities, captureDesktop, makeFixture, makeScratch, startDriver } from "./harness.mjs";
+import { ARTIFACTS, IS_WINDOWS, ROOT, SESSION_DEADLINE_MS, appEnv, appPath, capabilities, captureDesktop, makeFixture, makeScratch, startDriver } from "./harness.mjs";
 import { Keys, Session, WebDriverError, waitFor } from "./webdriver.mjs";
 
 const basename = IS_WINDOWS ? win32.basename : posixBasename;
@@ -413,6 +415,180 @@ test("move to new window", { timeout: 120_000 }, async () => {
   await session.execute(() => document.querySelector(".wc.close").click());
   await waitFor("one window again", async () => (await session.windowHandles()).length === 1, { timeoutMs: 30_000 });
   await session.switchToWindow(first);
+});
+
+// A folder reached through a link. A listing's rows keep the path it was
+// asked for (src-tauri/src/commands/listing.rs), so everything keyed by
+// path goes by the link's: a folder opened from it, the watcher, git
+// status, tags, a pin, rename, cut and paste, the trash and their undos,
+// a paste into the same folder by its other path,
+// and the saved session and recents.
+test("a folder reached through a link", { timeout: 180_000, skip: IS_WINDOWS && "a symlink needs a privilege there; junctions and mapped drives are hand checks (docs/testing/windows.md)" }, async () => {
+  const real = join(scratch, "real place");
+  const link = join(scratch, "linked");
+  mkdirSync(join(real, "sub"), { recursive: true });
+  writeFileSync(join(real, "sub", "inner.txt"), "inner\n");
+  writeFileSync(join(real, "note.txt"), "note\n");
+  symlinkSync(real, link, "dir");
+  // A repository, for the status column: everything in it is untracked.
+  const git = spawnSync("git", ["init", "-q", real], { env: { ...process.env, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1" } });
+  const haveGit = git.status === 0;
+  assert.ok(haveGit || !process.env.CI, "git isn't installed, and CI has it");
+  if (!haveGit) notes.push("no git here: the linked folder's status column went unchecked");
+
+  const config = join(home, ".config", JSON.parse(readFileSync(join(ROOT, "src-tauri", "tauri.conf.json"), "utf8")).identifier);
+  const saved = name => {
+    try { return JSON.parse(readFileSync(join(config, name), "utf8")); } catch { return null; }
+  };
+  const tagKeys = () => Object.keys(saved("tags.json") ?? {});
+  const rows = () => session.execute(() => [...document.querySelectorAll(".pane .row")].map(r => ({
+    name: r.querySelector(".name").textContent.trim(),
+    path: r.getAttribute("data-drop-path"),
+    git: r.getAttribute("data-git"),
+    tag: r.querySelector(".c-tag").textContent.trim(),
+  })));
+  const listing = (what, test) => waitFor(what, async () => {
+    const now = await rows();
+    return test(now.map(r => r.name)) ? now : null;
+  });
+  const row = name => waitFor(`the row ${name}`, () => session.execute(want =>
+    [...document.querySelectorAll(".pane .row")].find(r => r.querySelector(".name").textContent.trim() === want) ?? null, name));
+  const prompt = message => waitFor(`the prompt "${message}"`, () => session.execute(want => {
+    const div = [...document.querySelectorAll("div")].find(d => d.textContent === want);
+    return div?.parentElement?.querySelector("input") ?? null;
+  }, message));
+  const menuItem = label => waitFor(`${label} in the menu`, () => session.execute(want =>
+    [...document.querySelectorAll(".mi")].find(m => m.children[1]?.textContent.startsWith(want)) ?? null, label));
+  const contextMenu = async name => {
+    await row(name);
+    await session.execute(want => {
+      const r = [...document.querySelectorAll(".pane .row")].find(x => x.querySelector(".name").textContent.trim() === want);
+      const b = r.getBoundingClientRect();
+      r.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: b.left + 40, clientY: b.top + 5 }));
+    }, name);
+  };
+  const where = async () => {
+    await session.chord([Keys.CONTROL, "l"]);
+    const input = await prompt("path to navigate to:");
+    const at = await session.execute(el => el.value, input);
+    await session.sendKeys(input, Keys.ESCAPE);
+    await waitFor("the prompt to close", async () => !(await session.execute(() =>
+      [...document.querySelectorAll("div")].some(d => d.textContent === "path to navigate to:"))));
+    return at;
+  };
+
+  await session.chord([Keys.CONTROL, "l"]);
+  await session.sendKeys(await prompt("path to navigate to:"), `${Keys.CONTROL}a${Keys.CONTROL}${link}${Keys.ENTER}`);
+  let now = await listing("the linked folder's listing", names => names.includes("sub") && names.includes("note.txt"));
+  assert.equal(now.find(r => r.name === "sub").path, join(link, "sub"), "a row's path goes through the link");
+  assert.equal(await session.execute(() => document.querySelector(".breadcrumb .crumb.last")?.textContent ?? null), "linked");
+  if (haveGit) {
+    now = await waitFor("the status column", async () => {
+      const rs = await rows();
+      return rs.find(r => r.name === "note.txt")?.git ? rs : null;
+    });
+    assert.equal(now.find(r => r.name === "note.txt").git, "?", "untracked, found through the real folder's repository");
+  }
+
+  // The watcher: a file made in the real folder shows up.
+  writeFileSync(join(real, "arrived.txt"), "arrived\n");
+  await listing("the watcher's refresh", names => names.includes("arrived.txt"));
+
+  // A tag, saved under the link's path.
+  await contextMenu("note.txt");
+  await session.click(await menuItem("Tag"));
+  await session.click(await menuItem("Add Tag"));
+  const picker = await waitFor("the tag picker", () => session.execute(() => {
+    const box = [...document.querySelectorAll("span")].find(s => s.textContent === "# tag picker")?.parentElement?.parentElement;
+    const check = box?.querySelector('input[type="checkbox"]');
+    return check ? { path: box.children[1].textContent, check, save: [...box.querySelectorAll("button")].find(b => b.textContent === "save") } : null;
+  }));
+  assert.equal(picker.path, join(link, "note.txt"));
+  await session.click(picker.check);
+  await session.click(picker.save);
+  await waitFor("the tag on the row", async () => (await rows()).find(r => r.name === "note.txt")?.tag !== "—");
+  await waitFor("the tag saved", () => tagKeys().length === 1);
+  assert.deepEqual(tagKeys(), [join(link, "note.txt")]);
+
+  // A pin, likewise.
+  await contextMenu("sub");
+  await session.click(await menuItem("Add Bookmark"));
+  await waitFor("the pin in the sidebar", () => session.execute(want => {
+    const group = document.querySelector('[data-sb-group-title="PINNED"]')?.closest(".sb-group");
+    return !!group && [...group.querySelectorAll(".sb-item[title]")].some(e => e.getAttribute("title") === want);
+  }, join(link, "sub")));
+  await waitFor("the pin saved", () => (saved("pins.json") ?? []).includes(join(link, "sub")));
+
+  // Rename, and Undo: the file and its tag go there and back.
+  await session.click(await row("note.txt"));
+  await session.chord([Keys.F2]);
+  await session.sendKeys(await prompt('rename "note.txt" to:'), `${Keys.CONTROL}a${Keys.CONTROL}renamed.txt${Keys.ENTER}`);
+  await listing("the renamed row", names => names.includes("renamed.txt") && !names.includes("note.txt"));
+  assert.ok(existsSync(join(real, "renamed.txt")));
+  await waitFor("the tag on the new name", () => tagKeys().join() === join(link, "renamed.txt"));
+  await session.chord([Keys.CONTROL, "z"]);
+  await listing("the rename undone", names => names.includes("note.txt") && !names.includes("renamed.txt"));
+  await waitFor("the tag back on the old name", () => tagKeys().join() === join(link, "note.txt"));
+
+  // Cut, open the folder (its path goes through the link too), paste, Undo.
+  await session.click(await row("note.txt"));
+  await session.chord([Keys.CONTROL, "x"]);
+  await session.click(await row("sub"));
+  await session.chord([Keys.ENTER]);
+  await listing("the folder opened from the linked one", names => names.includes("inner.txt"));
+  assert.equal(await where(), join(link, "sub"));
+  await session.click(await row("inner.txt"));
+  await session.chord([Keys.CONTROL, "v"]);
+  await listing("the pasted row", names => names.includes("note.txt"));
+  assert.ok(existsSync(join(real, "sub", "note.txt")) && !existsSync(join(real, "note.txt")));
+  await waitFor("the tag moved with it", () => tagKeys().join() === join(link, "sub", "note.txt"));
+  await session.chord([Keys.CONTROL, "z"]);
+  await listing("the move undone", names => !names.includes("note.txt"));
+  assert.ok(existsSync(join(real, "note.txt")));
+  await waitFor("the tag moved back", () => tagKeys().join() === join(link, "note.txt"));
+  await session.chord([Keys.ALT, Keys.ARROW_LEFT]);
+  await listing("Back in the linked folder", names => names.includes("sub") && names.includes("note.txt"));
+  assert.equal(await where(), link);
+
+  // The trash records the real path. Undo brings the file and its tag
+  // back, and Redo, which trashes by the recorded path, takes both again.
+  await session.click(await row("note.txt"));
+  await session.chord([Keys.DELETE]);
+  await listing("the row gone to the trash", names => !names.includes("note.txt"));
+  assert.ok(!existsSync(join(real, "note.txt")));
+  await waitFor("its tag gone", () => tagKeys().length === 0);
+  await session.chord([Keys.CONTROL, "z"]);
+  await listing("the row back from the trash", names => names.includes("note.txt"));
+  await waitFor("its tag back", () => tagKeys().join() === join(link, "note.txt"));
+  await session.chord([Keys.CONTROL, "y"]);
+  await listing("the row trashed again by Redo", names => !names.includes("note.txt"));
+  await waitFor("its tag gone again", () => tagKeys().length === 0);
+  await session.chord([Keys.CONTROL, "z"]);
+  await listing("the row back again", names => names.includes("note.txt"));
+  await waitFor("its tag back again", () => tagKeys().join() === join(link, "note.txt"));
+  assert.ok(existsSync(join(real, "note.txt")));
+
+  // What's saved by path holds the link's.
+  const strings = v => (typeof v === "string" ? [v] : v && typeof v === "object" ? Object.values(v).flatMap(strings) : []);
+  await waitFor("the session saved in the linked folder", () => strings(saved("session.json")).includes(link));
+  assert.ok(!strings(saved("session.json")).some(s => s.startsWith(real)), "no tab is saved under the real folder");
+  const recent = saved("recent.json") ?? [];
+  assert.ok(recent.includes(link) && recent.includes(join(link, "sub")), `recents: ${JSON.stringify(recent)}`);
+  assert.ok(!recent.some(p => p.startsWith(real)), `recents: ${JSON.stringify(recent)}`);
+
+  // The same folder by its real path: a cut from the link's side pasted there
+  // is already where it is going. Compared as strings it was a move onto a
+  // taken name, whose Replace would have trashed the file itself.
+  await session.click(await row("note.txt"));
+  await session.chord([Keys.CONTROL, "x"]);
+  await session.chord([Keys.CONTROL, "l"]);
+  await session.sendKeys(await prompt("path to navigate to:"), `${Keys.CONTROL}a${Keys.CONTROL}${real}${Keys.ENTER}`);
+  await waitFor("the real folder's listing", async () => (await rows()).find(r => r.name === "sub")?.path === join(real, "sub"));
+  await session.click(await row("arrived.txt"));
+  await session.chord([Keys.CONTROL, "v"]);
+  await waitFor("the paste to find the item already there", () => session.execute(() => document.body.innerText.includes("already there")));
+  assert.equal(await session.execute(() => document.body.innerText.includes("already exists")), false, "no question about a taken name");
+  assert.deepEqual(readdirSync(real).filter(n => n.startsWith("note")), ["note.txt"]);
 });
 
 test("no uncaught errors", { timeout: 30_000 }, async () => {

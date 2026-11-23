@@ -286,6 +286,13 @@ export function pathKind(path: string): Promise<"folder" | "file" | "unknown" | 
   return safe(() => invoke<"folder" | "file" | null>("path_kind", { path }), "unknown");
 }
 
+/** `path` with its links resolved (on Windows a mapped drive too), to tell
+ *  that two paths are one place; `path` itself when that can't be found out.
+ *  Not for display: tabs and rows keep the path they were reached by. */
+export function realPath(path: string): Promise<string> {
+  return safe(() => invoke<string>("real_path", { path }), path);
+}
+
 export function drives(): Promise<Drive[]> {
   return safe(() => invoke<Drive[]>("drives"), []);
 }

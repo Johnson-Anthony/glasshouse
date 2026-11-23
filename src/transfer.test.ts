@@ -254,6 +254,76 @@ describe("runTransfer", () => {
   });
 });
 
+// A listing keeps the path it was asked for, so /link/sub and /real/sub can
+// be one folder in two tabs; `real` says where each folder really is.
+describe("one folder under two paths", () => {
+  const real = async (p: string) => p.replace(/^\/link(?=\/|$)/, "/real");
+
+  it("a move onto the folder the item is already in does nothing, and asks nothing", async () => {
+    const { deps, calls } = fakeDeps([file("a.txt")], "replace");
+    deps.real = real;
+    const res = await runTransfer([{ path: "/real/sub/a.txt" }], "/link/sub", "move", deps);
+    expect(calls).toEqual([]);
+    expect(res?.skipped).toEqual([{ src: "/real/sub/a.txt", reason: "same-place" }]);
+  });
+
+  it("a copy there is a duplicate, at the path the drop was on", async () => {
+    const { deps, calls } = fakeDeps([file("a.txt")], "replace");
+    deps.real = real;
+    await runTransfer([{ path: "/real/sub/a.txt" }], "/link/sub", "copy", deps);
+    expect(calls).toEqual(["copy /real/sub/a.txt /link/sub/a (copy).txt"]);
+  });
+
+  it("a folder doesn't go into itself by its other path", async () => {
+    const { deps, calls } = fakeDeps([], "replace");
+    deps.real = real;
+    const res = await runTransfer([{ path: "/link/sub", isDir: true }], "/real/sub/deep", "move", deps);
+    expect(calls).toEqual([]);
+    expect(res?.skipped).toEqual([{ src: "/link/sub", reason: "into-itself" }]);
+  });
+
+  it("Replace never trashes a folder that holds the source by another path", async () => {
+    const { deps, calls } = fakeDeps([folder("box")], "replace");
+    deps.real = real;
+    await runTransfer([{ path: "/link/box/inner/box", isDir: true }], "/real", "move", deps);
+    expect(calls).toEqual(["ask box", "move /link/box/inner/box /real/box (copy)"]);
+  });
+
+  it("an item that is a link itself counts as the link: only folders are resolved", async () => {
+    const { deps, calls } = fakeDeps([], "replace");
+    const asked: string[] = [];
+    deps.real = p => { asked.push(p); return real(p); };
+    await runTransfer([{ path: "/link" }], "/elsewhere", "move", deps);
+    expect(asked.sort()).toEqual(["/", "/elsewhere"]);
+    expect(calls).toEqual(["move /link /elsewhere/link"]);
+  });
+
+  it("on Windows, a mapped drive and its share are one place", async () => {
+    const { deps, calls } = fakeDeps([file("a.txt")], "replace");
+    deps.windows = true;
+    // What canonicalize gives for both.
+    deps.real = async p => p.replace(/^(?:Z:|\\\\nas\\media)/i, "\\\\?\\UNC\\nas\\media");
+    const res = await runTransfer([{ path: "Z:\\photos\\a.txt" }], "\\\\NAS\\media\\photos", "move", deps);
+    expect(calls).toEqual([]);
+    expect(res?.skipped).toEqual([{ src: "Z:\\photos\\a.txt", reason: "same-place" }]);
+  });
+
+  it("a folder that can't be resolved is compared as written", async () => {
+    const { deps, calls } = fakeDeps([file("a.txt")], "skip");
+    deps.real = async () => { throw new Error("gone"); };
+    const res = await runTransfer([{ path: "/d/a.txt" }], "/d", "move", deps);
+    expect(calls).toEqual([]);
+    expect(res?.skipped).toEqual([{ src: "/d/a.txt", reason: "same-place" }]);
+  });
+
+  it("without `real`, paths are compared as written", async () => {
+    const { deps, calls } = fakeDeps([file("a.txt")], "skip");
+    const res = await runTransfer([{ path: "/real/sub/a.txt" }], "/link/sub", "move", deps);
+    expect(calls).toEqual(["ask a.txt"]);
+    expect(res?.skipped).toEqual([{ src: "/real/sub/a.txt", reason: "conflict" }]);
+  });
+});
+
 describe("conflictMessage", () => {
   it("names one conflict, or lists up to five", () => {
     expect(conflictMessage(["a.txt"], "/home/me/docs", false)).toBe(

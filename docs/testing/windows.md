@@ -100,7 +100,7 @@ These use Windows' own dialogs.
 
 ## W9. Terminal
 
-- [ ] **W9.1** Open the terminal drawer → note the profiles listed. Expected: PowerShell (7 if installed, else Windows PowerShell), bash, zsh or fish if they're on PATH, one per WSL distro, one per host in `%USERPROFILE%\.ssh\config`. For bash, note which one runs: `C:\Windows\System32\bash.exe` starts WSL, not Git Bash.
+- [ ] **W9.1** Open the terminal drawer → note the profiles listed. Expected, in this order: PowerShell (7 if installed, else Windows PowerShell), Command Prompt, then bash, zsh or fish if installed, one per WSL distro, one per host in `%USERPROFILE%\.ssh\config`. A new terminal opens PowerShell. The bash profile is there only with a real bash (Git for Windows, even when its bash is not on PATH; MSYS2 on PATH), and it runs that one: `C:\Windows\System32\bash.exe`, the WSL launcher, is never it. On a PC with WSL and no other bash → no bash profile.
 - [ ] **W9.2** PowerShell opens in the folder you're browsing, and follows it when you change folders (with "follow folder" on).
 - [ ] **W9.3** **WSL:** each distro's profile opens a shell in the same folder under `/mnt/c/…`. A WSL distro that's stopped starts. With WSL not installed → no WSL profiles, and the sidebar doesn't stall.
 - [ ] **W9.4** An ssh profile connects (with a key in ssh-agent) or asks for the password in the terminal.
@@ -109,7 +109,7 @@ These use Windows' own dialogs.
 
 ## W10. Reveal, open and Open With
 
-- [ ] **W10.1** Right-click a file → Reveal in Explorer → Explorer opens its folder with the file selected.
+- [ ] **W10.1** Right-click a file → Reveal in Explorer → Explorer opens its folder with the file selected. Repeat on a file named `a, b.txt` in a folder named `x, y` → the same (a comma used to open Documents instead).
 - [ ] **W10.2** Enter on a file → it opens in its default app. A file type with no app → glasshouse says so and offers Choose App….
 - [ ] **W10.3** Open With lists the apps Explorer recommends for the type, default first; choosing one opens the file in it.
 - [ ] **W10.4** Open a link with `&` in it (from the palette or Go to Path, such as `https://example.com/?a=1&b=2`) → the browser gets the whole URL.
@@ -136,10 +136,16 @@ These use Windows' own dialogs.
 ## W13. Drives, paths and archives
 
 - [ ] **W13.1** An empty card reader or CD drive → no "no disk" dialog, and the drive list appears. A disconnected network drive → the drive list doesn't stall.
-- [ ] **W13.2** A folder path over 260 characters, and names with accents and emoji → listed, opened, copied and renamed.
-- [ ] **W13.3** Go to Path with a UNC path (`\\server\share`) → it lists, or says why not.
+- [ ] **W13.2** With long paths off (the default: `LongPathsEnabled` is 0 under `HKLM\SYSTEM\CurrentControlSet\Control\FileSystem`): a folder path over 260 characters, and names with accents and emoji → listed, opened, copied, moved and renamed. Renaming to a name that is taken there → refused, and nothing is replaced. Find & Replace changes a text file in it, and Undo puts it back. Note what Move to Trash, Open in Terminal and a double-click on a file do that deep (limits of Windows and of the other program).
+- [ ] **W13.3** Go to Path with a UNC path (`\\server\share`) → it lists, or says why not. Open a subfolder → the tab, the breadcrumb and Copy Path say `\\server\share\sub`, never `\\?\UNC\…`. Go to Path with `\\?\C:\Users` → the tab says `C:\Users`.
 - [ ] **W13.4** Create and extract `.zip`, `.tar.gz` and `.tar.zst` (Windows' own tar) → they work, and Explorer opens the zip. `.7z` with 7-Zip's folder on PATH works. With 7-Zip installed but not on PATH (its installer's default) → note what glasshouse says.
 - [ ] **W13.5** Git: Pull and Push on a repository with an HTTPS remote (Git Credential Manager) and an ssh remote → they work, or fail with a hint; none hangs.
+- [ ] **W13.6** **Mapped drive:** `net use Z: \\server\share`, open `Z:\` and a subfolder → the tab, the breadcrumb, Copy Path and File → Open Recent stay `Z:\…` (they used to turn into `\\?\UNC\server\share\…`). Tag a file and pin a folder there → both show, and still do after a restart. Rename, move, Move to Trash and their Undo work there.
+- [ ] **W13.7** **subst and junctions:** `subst S: C:\Users` and `mklink /J C:\j C:\Users` → opening a subfolder of `S:\` or `C:\j` stays under `S:\…` or `C:\j\…`, and a tag put on a file there shows on it.
+- [ ] **W13.8** **Saved paths from an earlier release:** with 0.2.0 on the mapped drive, tag a file, pin a subfolder and leave a tab in one (0.2.0 saves these as `\\?\UNC\…`). Install the new build and start it → the tag shows on the file under `Z:\…`, the pin and the tab open `Z:\…`, and `pins.json`, `tags.json` and `recent.json` in `%APPDATA%\io.github.johnson-anthony.glasshouse` hold no `\\?\` path. With the drive unmapped before that first start → they read `\\server\share\…` instead, and work.
+- [ ] **W13.9** **Names:** New File, New Folder, Rename and Bulk Rename to `a:b`, `what?`, `x.`, a name ending in a space, `CON`, `nul.txt` and `COM1` → each is refused with a reason ending "on Windows", and nothing is created (`a:b` used to make a file `a` with a hidden stream). `con1` and `.x` are accepted.
+- [ ] **W13.10** **Dotfiles:** a folder holding `.gitignore` and `.github` → both are listed with Show Hidden off. A file with the Hidden attribute (`attrib +h x.txt`) → listed only with Show Hidden on.
+- [ ] **W13.11** **One folder under two paths:** split the view with one pane on `Z:\photos` and the other on `\\server\share\photos` (the same folder). Drag a file from one pane to the other → a toast says it is already there; no "already exists" question, and nothing goes to the Recycle Bin. With Ctrl held → a copy named `… (copy)`.
 
 ## W14. Updates
 

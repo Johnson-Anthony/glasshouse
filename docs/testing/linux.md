@@ -157,3 +157,12 @@ Every glasshouse window is in one process, as a browser's are. `pgrep -a glassho
 - [ ] **L13.8** **Shared settings:** two windows. Change the theme and the zoom in one → the other follows at once. Pin a folder, tag a file and add a remote in one → the other's sidebar shows them.
 - [ ] **L13.9** A terminal open in each of two windows. Close one window → its shell ends (`pgrep -a bash` or your shell), and the other window's terminal keeps working. A long copy with the progress tray in one window → the other window's tray doesn't show it.
 - [ ] **L13.10** Move tabs between three windows (L9.11, L9.12), then Ctrl+Q and start → every tab comes back in the window it was moved to, once, and the private ones don't come back.
+
+## L14. Linked folders and FAT drives
+
+- [ ] **L14.1** `ln -s ~/Documents ~/docs-link`, then Go to Path `~/docs-link` and open a subfolder → the breadcrumb and the tab stay under `docs-link` (before, the subfolder opened under `Documents`). Back, Up and a new tab from there agree.
+- [ ] **L14.2** In that linked folder: tag a file, pin a subfolder, rename a file, cut and paste one into a subfolder, Move to Trash; Ctrl+Z and Ctrl+Y after each → each works as in any folder, and the tag follows the file each time. A file made there from a terminal shows up without a refresh. In a linked git repository the status column fills in.
+- [ ] **L14.3** Reveal in File Manager on a file in the linked folder → the file manager opens with the file selected.
+- [ ] **L14.4** A file tagged in the linked folder by an earlier build → its tag shows when the folder is opened by its real path, and under TAGS in the sidebar; note that it does not show through the link.
+- [ ] **L14.5** On a FAT or exFAT USB stick, and on an SMB share: New File, Rename and Bulk Rename to `a:b`, `what?`, `x.` and `CON` → each is refused with a reason ending "on this drive". The same names in the home folder → accepted.
+- [ ] **L14.6** Split the view with one pane on `~/docs-link` and the other on `~/Documents`. Drag a file from one pane to the other → a toast says it is already there; no "already exists" question, and nothing goes to the trash. With Ctrl held → a copy named `… (copy)`.

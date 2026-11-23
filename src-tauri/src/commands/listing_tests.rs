@@ -1,4 +1,4 @@
-//! list_dir and path_kind.
+//! list_dir, path_kind and real_path.
 
 use crate::commands::testing::{put, s, Scratch};
 use super::*;
@@ -128,6 +128,23 @@ fn list_dir_keeps_entries_under_the_path_it_was_asked_for() {
     // A trailing separator on the request adds none to the entries.
     let slashed = list_dir(format!("{}/", s(&alias)), true).unwrap();
     assert_eq!(slashed[1].path, s(&alias.join("top.txt")));
+}
+
+/// Two paths to one folder resolve to the same place, which is how the page
+/// tells that a drop from one tab onto another lands where it started.
+#[cfg(unix)]
+#[test]
+fn real_path_is_the_same_through_a_link_and_leaves_what_it_cannot_resolve() {
+    let d = Scratch::new("ls-real");
+    put(&d.join("real/sub/f.txt"), "x");
+    std::os::unix::fs::symlink(d.join("real"), d.join("alias")).unwrap();
+
+    let direct = real_path(s(&d.join("real/sub")));
+    assert_eq!(real_path(s(&d.join("alias/sub"))), direct);
+    assert_eq!(real_path(s(&d.join("alias/../alias/sub/"))), direct);
+    assert_ne!(real_path(s(&d.join("real"))), direct);
+    let gone = s(&d.join("alias/missing"));
+    assert_eq!(real_path(gone.clone()), gone);
 }
 
 /// Git labels through a linked folder: the scan runs on the real folder and

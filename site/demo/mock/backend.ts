@@ -208,6 +208,8 @@ export function createBackend(hooks: BackendHooks) {
       const n = vfs.get(str(a.path));
       return n ? (n.dir ? "folder" : "file") : null;
     },
+    // The demo has no links: every path is its own.
+    real_path: a => str(a.path),
     drives: () => DRIVES,
     list_wsl_distros: () => [],
     path_fs_type: a => driveOf(str(a.path)).fs,
